@@ -67,8 +67,8 @@ class _GuidePageState extends State<GuidePage>
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
 
-    // Route semantics: screen readers announce the page name and keep
-    // focus inside the page.
+    // Route semantics: screen readers announce the page name. While a
+    // page is open, `SleuthOverlay` drops the app's nodes below it.
     return Semantics(
       scopesRoute: true,
       namesRoute: true,

@@ -77,8 +77,8 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
     final total = widget._totalRebuilds;
     final topCount = entries.isEmpty ? 0 : entries.first.value;
 
-    // Route semantics: screen readers announce the page name and keep
-    // focus inside the page.
+    // Route semantics: screen readers announce the page name. While a
+    // page is open, `SleuthOverlay` drops the app's nodes below it.
     return Semantics(
       scopesRoute: true,
       namesRoute: true,

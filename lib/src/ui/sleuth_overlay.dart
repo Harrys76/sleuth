@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart'
     show PredictiveBackEvent, SystemNavigator;
 
@@ -65,6 +66,10 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   bool _backRequestScheduled = false;
 
+  /// True while a full-screen page or the Hidden list is open; the app's
+  /// semantics are dropped so a screen reader stays on the page.
+  final ValueNotifier<bool> _fullScreenLayerOpen = ValueNotifier(false);
+
   @override
   void initState() {
     super.initState();
@@ -119,6 +124,9 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   /// on its own navigation notifications, so the request is repeated on
   /// every layer change, once per frame. Never cleared from here.
   void _onLayersChanged() {
+    final Object? host = _cardKey.currentState;
+    _fullScreenLayerOpen.value =
+        _layerOpen && host is OverlayLayerHost && host.openLayerDepth > 0;
     if (kReleaseMode ||
         _backRequestScheduled ||
         defaultTargetPlatform != TargetPlatform.android) {
@@ -249,31 +257,36 @@ class _SleuthOverlayState extends State<SleuthOverlay>
             // packages/flutter/lib/src/widgets/default_text_editing_shortcuts.dart.
             if (_layerOpen)
               RepaintBoundary(
-                child: _clampTextScale(
-                  context,
-                  Localizations(
-                    locale: const Locale('en', 'US'),
-                    delegates: const [
-                      DefaultMaterialLocalizations.delegate,
-                      DefaultWidgetsLocalizations.delegate,
-                    ],
-                    child: DefaultTextEditingShortcuts(
-                      child: Overlay(
-                        initialEntries: [
-                          OverlayEntry(
-                            builder: (_) => FloatingIssuesCard(
-                              key: _cardKey,
-                              controller: widget.controller,
-                              onClose: () =>
-                                  widget
-                                          .controller
-                                          .overlayUiState
-                                          .dashboardOpen =
-                                      false,
-                              onLayersChanged: _onLayersChanged,
+                // Above the overlay's Localizations, whose semantics node
+                // would stop a BlockSemantics placed inside the card.
+                child: _AppSemanticsBlocker(
+                  blocking: _fullScreenLayerOpen,
+                  child: _clampTextScale(
+                    context,
+                    Localizations(
+                      locale: const Locale('en', 'US'),
+                      delegates: const [
+                        DefaultMaterialLocalizations.delegate,
+                        DefaultWidgetsLocalizations.delegate,
+                      ],
+                      child: DefaultTextEditingShortcuts(
+                        child: Overlay(
+                          initialEntries: [
+                            OverlayEntry(
+                              builder: (_) => FloatingIssuesCard(
+                                key: _cardKey,
+                                controller: widget.controller,
+                                onClose: () =>
+                                    widget
+                                            .controller
+                                            .overlayUiState
+                                            .dashboardOpen =
+                                        false,
+                                onLayersChanged: _onLayersChanged,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -378,11 +391,66 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   @override
   void dispose() {
+    _fullScreenLayerOpen.dispose();
     widget.controller.themeOverride.removeListener(_onThemeChanged);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     WidgetsBinding.instance.removeObserver(this);
     Sleuth.notifyControllerDisposed(widget.controller);
     widget.controller.dispose();
     super.dispose();
+  }
+}
+
+/// Drops the semantics of everything painted before it (the app) while
+/// [blocking] is true. The flag is read at the render level, so the card
+/// can report a page opening from its own build.
+class _AppSemanticsBlocker extends SingleChildRenderObjectWidget {
+  const _AppSemanticsBlocker({required this.blocking, super.child});
+
+  final ValueListenable<bool> blocking;
+
+  @override
+  _RenderAppSemanticsBlocker createRenderObject(BuildContext context) =>
+      _RenderAppSemanticsBlocker(blocking);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderAppSemanticsBlocker renderObject,
+  ) {
+    renderObject.blocking = blocking;
+  }
+}
+
+class _RenderAppSemanticsBlocker extends RenderProxyBox {
+  _RenderAppSemanticsBlocker(this._blocking);
+
+  ValueListenable<bool> _blocking;
+  set blocking(ValueListenable<bool> value) {
+    if (identical(value, _blocking)) return;
+    if (attached) {
+      _blocking.removeListener(markNeedsSemanticsUpdate);
+      value.addListener(markNeedsSemanticsUpdate);
+    }
+    _blocking = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _blocking.addListener(markNeedsSemanticsUpdate);
+  }
+
+  @override
+  void detach() {
+    _blocking.removeListener(markNeedsSemanticsUpdate);
+    super.detach();
+  }
+
+  @override
+  void describeSemanticsConfiguration(SemanticsConfiguration config) {
+    super.describeSemanticsConfiguration(config);
+    config.isBlockingSemanticsOfPreviouslyPaintedNodes = _blocking.value;
   }
 }

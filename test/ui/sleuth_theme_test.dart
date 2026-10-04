@@ -243,6 +243,8 @@ void main() {
       'badgeFillAlpha',
       'focusRingWidth',
       'sourceAccentWidth',
+      'sourceStructural',
+      'sourceNone',
     };
 
     test('highContrastDark differs from dark only on the listed tokens', () {

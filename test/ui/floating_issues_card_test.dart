@@ -482,6 +482,68 @@ void main() {
       expect(find.text('Rebuilds: 4 across 1 widget'), findsOneWidget);
     });
 
+    testWidgets('the header row is at least 48 px tall', (tester) async {
+      controller.dispose();
+      controller = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+        ),
+      );
+      controller.initializeDetectorsForTest();
+      final fake = _FakeCoordinator();
+      controller.debugCoordinatorForTest = fake;
+
+      await tester.pumpWidget(pumpCardForBanner(controller));
+      await tester.pumpAndSettle();
+      await primeAndMergeCounts(tester, controller, fake, {'TinyCard': 4});
+
+      final header = find.bySemanticsLabel(
+        RegExp(r'^Rebuilds: 4 across 1 widget'),
+      );
+      expect(tester.getSize(header).height, greaterThanOrEqualTo(48));
+    });
+
+    testWidgets('the collapsed pause indicator is not announced twice', (
+      tester,
+    ) async {
+      controller.dispose();
+      controller = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+        ),
+      );
+      controller.initializeDetectorsForTest();
+      final fake = _FakeCoordinator();
+      controller.debugCoordinatorForTest = fake;
+
+      await tester.pumpWidget(pumpCardForBanner(controller));
+      await tester.pumpAndSettle();
+      await primeAndMergeCounts(tester, controller, fake, {'TinyCard': 4});
+
+      final header = find.text('Rebuilds: 4 across 1 widget');
+      await tester.ensureVisible(header);
+      await tester.tap(header);
+      await tester.pump();
+      await tester.ensureVisible(find.byIcon(Icons.pause));
+      await tester.tap(find.byIcon(Icons.pause));
+      await tester.pump();
+      await tester.tap(header);
+      await tester.pump();
+
+      // Collapsed and paused: the header label says so; the icon is
+      // silent.
+      expect(
+        find.bySemanticsLabel(RegExp(r'paused, collapsed')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.pause)).semanticLabel,
+        isNull,
+      );
+    });
+
     testWidgets('panel is collapsed by default — top rows are hidden', (
       tester,
     ) async {
@@ -1621,7 +1683,7 @@ void main() {
       await performCustomAction(tester, header, 'Move up');
       await performCustomAction(tester, header, 'Move right');
       expect(controller.overlayUiState.cardOffset, const Offset(200, 200));
-      await performCustomAction(tester, header, 'Move to corner');
+      await performCustomAction(tester, header, 'Move to top left');
       expect(controller.overlayUiState.cardOffset, Offset.zero);
       handle.dispose();
     });

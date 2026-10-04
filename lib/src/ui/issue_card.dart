@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 
 import '../models/performance_issue.dart';
 import '../models/recurrence_trend.dart';
@@ -252,6 +253,13 @@ class _IssueCardState extends State<IssueCard> {
       onTap: _toggle,
       onLongPress: widget.onCopy,
       onLongPressHint: widget.onCopy == null ? null : 'Copy details',
+      // VoiceOver has no long press; the custom action copies there.
+      customSemanticsActions: widget.onCopy == null
+          ? null
+          : {
+              const CustomSemanticsAction(label: 'Copy details'):
+                  widget.onCopy!,
+            },
       explicitChildNodes: true,
       child: Card(
         color: widget.jankFlash
@@ -369,7 +377,9 @@ class _IssueCardState extends State<IssueCard> {
                       child: Icon(
                         Icons.push_pin,
                         size: 14,
-                        color: theme.textSecondary.withValues(alpha: 0.55),
+                        color: theme.textSecondary.withValues(
+                          alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.55,
+                        ),
                       ),
                     )
                   : const SizedBox.shrink(),
@@ -1116,28 +1126,12 @@ class _IssueCardState extends State<IssueCard> {
         theme.textSecondary,
       ),
     };
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.12),
-        borderRadius: BorderRadius.circular(theme.radiusMd),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: theme.spacingSm,
-          vertical: theme.spacingXxs,
-        ),
-        child: Text(
-          'Seen $present/$total \u00B7 $label',
-          style: TextStyle(
-            color: theme.badgeTextOn(color, tinted: text),
-            fontSize: theme.fontSm,
-            fontWeight: FontWeight.w600,
-          ),
-          textScaler: _badgeScaler(context),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
+    return _badge(
+      theme: theme,
+      accent: color,
+      tintedText: text,
+      label: 'Seen $present/$total \u00B7 $label',
+      textScaler: _badgeScaler(context),
     );
   }
 
@@ -1179,7 +1173,11 @@ class _IssueCardState extends State<IssueCard> {
     // needed. Tooltip also crashes in the Sleuth overlay's bare Overlay widget
     // (no Navigator → no _RenderTheaterMarker for OverlayPortal).
     if (reason == null) return badge;
-    return Semantics(label: '$label: $reason', child: badge);
+    return Semantics(
+      label: '$label: $reason',
+      excludeSemantics: true,
+      child: badge,
+    );
   }
 }
 

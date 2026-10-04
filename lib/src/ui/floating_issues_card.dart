@@ -162,6 +162,10 @@ abstract interface class OverlayLayerHost {
   /// else closes the open full-screen page, else the Hidden list. Returns
   /// false when none of these is open.
   bool closeInnermostLayer();
+
+  /// Number of full-screen layers (pages and the Hidden list) open above
+  /// the card. Read from [FloatingIssuesCard.onLayersChanged].
+  int get openLayerDepth;
 }
 
 class _FloatingIssuesCardState extends State<FloatingIssuesCard>
@@ -461,7 +465,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   /// Number of layers open above the card: one per open full-screen
   /// page plus the Hidden list.
-  int get _openLayerDepth => [
+  @override
+  int get openLayerDepth => [
     _showAiChat,
     _showDetail,
     _showRebuildStats,
@@ -844,7 +849,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       keyboardHeight,
     );
 
-    final layerDepth = _openLayerDepth;
+    final layerDepth = openLayerDepth;
     if (layerDepth != _reportedLayerDepth) {
       _reportedLayerDepth = layerDepth;
       widget.onLayersChanged?.call();
@@ -865,6 +870,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   theme,
                   screenSize,
                   chromeScale,
+                  clamped,
                 ),
                 if (!isMinimized)
                   _buildResizeHandle(
@@ -878,10 +884,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             ),
           ),
         if (_showHidden)
-          Positioned.fill(
-            // Issues and the suppressed count are read live; hidden keys
-            // rebuild the card through `_onUiStateChanged`.
-            child: SleuthListenableBuilder(
+          // Issues and the suppressed count are read live; hidden keys
+          // rebuild the card through `_onUiStateChanged`.
+          _page(
+            SleuthListenableBuilder(
               listenable: _hiddenPageSources(),
               builder: (context) => HiddenIssuesPage(
                 hiddenKeys: _ui.hiddenKeys.toList(),
@@ -896,20 +902,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             ),
           ),
         if (_showGuide)
-          Positioned.fill(
-            child: GuidePage(onClose: () => setState(() => _showGuide = false)),
-          ),
+          _page(GuidePage(onClose: () => setState(() => _showGuide = false))),
         if (_showDetail)
-          Positioned.fill(
-            child: IssueEncyclopediaPage(
+          _page(
+            IssueEncyclopediaPage(
               onClose: _closeDetail,
               scrollToStableId: _detailStableId,
               contextIssue: _detailContextIssue,
             ),
           ),
         if (_showAiChat)
-          Positioned.fill(
-            child: AiChatPage(
+          _page(
+            AiChatPage(
               issue: _findIssueByStableId(_chatIssueStableId!),
               allIssues: widget.controller.issuesNotifier.value,
               adapter: widget.controller.config.aiChat!,
@@ -921,14 +925,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             ),
           ),
         if (_showStartupDetail)
-          Positioned.fill(
-            child: StartupMetricsPage(
+          _page(
+            StartupMetricsPage(
               onClose: () => setState(() => _showStartupDetail = false),
             ),
           ),
         if (_showRebuildStats && _rebuildStatsSnapshot != null)
-          Positioned.fill(
-            child: RebuildStatsPage(
+          _page(
+            RebuildStatsPage(
               routeDisplayName: _rebuildStatsRouteName,
               countsByType: _rebuildStatsSnapshot!,
               onClose: _closeRebuildStats,
@@ -940,6 +944,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       ],
     );
   }
+
+  /// A full-screen page over the card. While one is open, [SleuthOverlay]
+  /// drops the app's semantics below the overlay (see
+  /// [OverlayLayerHost.openLayerDepth]), so a screen reader stays on the
+  /// page; the floating card alone leaves the app reachable.
+  static Widget _page(Widget page) => Positioned.fill(child: page);
 
   /// Triggered by [_RebuildStatsBanner] when its frozen snapshot is
   /// discarded by an automatic resume on route change. Shows a toast so
@@ -1017,6 +1027,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     SleuthThemeData theme,
     Size screenSize,
     double chromeScale,
+    Offset position,
   ) {
     final isMinimized = _windowState == CardWindowState.minimized;
     // The status row and banners scroll once they would take more than
@@ -1038,7 +1049,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildHeader(screenSize, effectiveWidth, theme),
+            _buildHeader(
+              screenSize,
+              effectiveWidth,
+              cardHeight,
+              position,
+              theme,
+            ),
             if (!isMinimized) ...[
               ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: bannersMaxHeight),
@@ -1138,6 +1155,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       child: Semantics(
         container: true,
         label: 'Resize card',
+        value: _sizeValue(_cachedEffectiveWidth, cardHeight),
         customSemanticsActions: isNormal
             ? {
                 const CustomSemanticsAction(label: 'Taller'): () =>
@@ -1154,6 +1172,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           cursor: SystemMouseCursors.resizeDownRight,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            // The custom actions resize; pan scroll actions would not.
+            excludeFromSemantics: true,
             onPanUpdate: (details) {
               setState(() => resizeBy(details.delta.dx, details.delta.dy));
             },
@@ -1184,6 +1204,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _commitGeometry();
   }
 
+  /// Card size read back by screen readers after a move or resize.
+  static String _sizeValue(double width, double height) =>
+      '${width.round()} by ${height.round()} points';
+
   /// Moves the card to the top-left corner of the safe area.
   void _moveCardToCorner() {
     setState(() {
@@ -1197,6 +1221,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   Widget _buildHeader(
     Size screenSize,
     double effectiveWidth,
+    double cardHeight,
+    Offset position,
     SleuthThemeData theme,
   ) {
     final isMinimized = _windowState == CardWindowState.minimized;
@@ -1204,11 +1230,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // Only show window controls when the card is wide enough to avoid overflow.
     final showWindowControls = effectiveWidth >= 280 || !isNormal;
     // The header is the drag handle; screen readers move the card through
-    // the custom actions in 48 px steps.
+    // the custom actions in 48 px steps and hear the size and position
+    // back. The pan recognizer is kept out of semantics: its scroll
+    // actions would move the card by most of its own size.
     return Semantics(
       container: true,
       explicitChildNodes: true,
       label: 'Sleuth',
+      value:
+          '${_sizeValue(effectiveWidth, cardHeight)}, at '
+          '${position.dx.round()}, ${position.dy.round()}',
       customSemanticsActions: {
         const CustomSemanticsAction(label: 'Move up'): () =>
             _moveCardBy(const Offset(0, -_a11yStep)),
@@ -1218,9 +1249,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             _moveCardBy(const Offset(-_a11yStep, 0)),
         const CustomSemanticsAction(label: 'Move right'): () =>
             _moveCardBy(const Offset(_a11yStep, 0)),
-        const CustomSemanticsAction(label: 'Move to corner'): _moveCardToCorner,
+        const CustomSemanticsAction(label: 'Move to top left'):
+            _moveCardToCorner,
       },
       child: GestureDetector(
+        excludeFromSemantics: true,
         onPanUpdate: (details) {
           setState(() {
             _cardOffset = (_cardOffset ?? Offset.zero) + details.delta;
@@ -1268,37 +1301,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   if (isMinimized)
                     ValueListenableBuilder<List<PerformanceIssue>>(
                       valueListenable: widget.controller.issuesNotifier,
-                      builder: (_, issues, _) =>
-                          _ui.visibleIssues(issues).isEmpty
-                          ? const SizedBox.shrink()
-                          : DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: theme.badgeFill(theme.severityWarning),
-                                borderRadius: BorderRadius.circular(
-                                  theme.radiusLg,
-                                ),
-                                border: Border.all(
-                                  color: theme.severityWarning,
-                                ),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 1,
-                                ),
-                                child: Text(
-                                  '${_ui.visibleIssues(issues).length}',
-                                  style: TextStyle(
-                                    color: theme.badgeTextOn(
-                                      theme.severityWarning,
-                                      tinted: theme.severityWarningText,
-                                    ),
-                                    fontSize: theme.fontXs,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
+                      builder: (_, issues, _) => _minimizedCountBadge(
+                        _ui.visibleIssues(issues),
+                        theme,
+                      ),
                     ),
                   // Highlight overlay toggle (hidden when minimized)
                   if (!isMinimized)
@@ -1366,6 +1372,40 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   ),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Issue count shown in the minimized header; nothing without issues.
+  Widget _minimizedCountBadge(
+    List<PerformanceIssue> visible,
+    SleuthThemeData theme,
+  ) {
+    if (visible.isEmpty) return const SizedBox.shrink();
+    final count = visible.length;
+    return Semantics(
+      label: '$count issue${count == 1 ? '' : 's'}',
+      excludeSemantics: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.badgeFill(theme.severityWarning),
+          borderRadius: BorderRadius.circular(theme.radiusLg),
+          border: Border.all(color: theme.severityWarning),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          child: Text(
+            '$count',
+            style: TextStyle(
+              color: theme.badgeTextOn(
+                theme.severityWarning,
+                tinted: theme.severityWarningText,
+              ),
+              fontSize: theme.fontXs,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ),
@@ -2756,9 +2796,10 @@ class _SeverityChipPillState extends State<_SeverityChipPill>
         color: color.withValues(alpha: theme.badgeFillAlpha * t),
         borderRadius: BorderRadius.circular(theme.radiusMd),
         border: Border.all(
+          // High contrast keeps both state borders at full strength.
           color: Color.lerp(
-            theme.border.withValues(alpha: 0.5),
-            color.withValues(alpha: 0.6),
+            theme.border.withValues(alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.5),
+            color.withValues(alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.6),
             t,
           )!,
         ),
@@ -2932,26 +2973,30 @@ class _StartupMetricsBanner extends StatelessWidget {
               horizontal: theme.spacingSm,
               vertical: theme.spacingXxs,
             ),
-            child: Row(
-              children: [
-                Icon(Icons.rocket_launch_outlined, size: 12, color: color),
-                SizedBox(width: theme.spacingXs),
-                Expanded(
-                  child: Text(
-                    parts.join(' \u00B7 '),
-                    style: TextStyle(
-                      color: theme.textPrimary,
-                      fontSize: theme.fontSm,
+            // 48 px tall target; the banners scroll when the card is short.
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Row(
+                children: [
+                  Icon(Icons.rocket_launch_outlined, size: 12, color: color),
+                  SizedBox(width: theme.spacingXs),
+                  Expanded(
+                    child: Text(
+                      parts.join(' \u00B7 '),
+                      style: TextStyle(
+                        color: theme.textPrimary,
+                        fontSize: theme.fontSm,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Icon(
-                  Icons.chevron_right,
-                  size: 14,
-                  color: color.withValues(alpha: 0.6),
-                ),
-              ],
+                  Icon(
+                    Icons.chevron_right,
+                    size: 14,
+                    color: color.withValues(alpha: 0.6),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -3203,77 +3248,79 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
     return Semantics(
       label: semanticsHint,
       button: true,
-      // H1: the header is the EASIEST control to hit because the row
-      // spans the full panel width — even at its natural ~24dp height
-      // the tap surface is roughly 280dp × 24dp, so any reasonable
-      // touch lands. We rely on that horizontal generosity rather than
-      // forcing a 48dp vertical box (which doubled the panel height
-      // and overflowed the cramped overlay budget on small screens).
-      // `HitTestBehavior.opaque` makes every pixel of the row hittable.
+      // A full-width row at least 48 px tall; the banners scroll when the
+      // card is short. `HitTestBehavior.opaque` makes every pixel of the
+      // row hittable.
       child: GestureDetector(
         onTap: _toggleExpanded,
         behavior: HitTestBehavior.opaque,
-        child: Row(
-          children: [
-            Icon(Icons.repeat, size: 12, color: color),
-            SizedBox(width: theme.spacingXs),
-            Expanded(
-              child: Text(
-                summary,
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontSize: theme.fontSm,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Row(
+            children: [
+              Icon(Icons.repeat, size: 12, color: color),
+              SizedBox(width: theme.spacingXs),
+              Expanded(
+                child: Text(
+                  summary,
+                  style: TextStyle(
+                    color: theme.textPrimary,
+                    fontSize: theme.fontSm,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            // F1: pause indicator on the COLLAPSED header. Without
-            // this, a user who pauses, collapses, and walks away has
-            // no visual signal that the displayed total is frozen.
-            if (!_expanded && _paused) ...[
-              SizedBox(width: theme.spacingXxs),
-              Icon(
-                Icons.pause,
-                size: 10,
-                color: color.withValues(alpha: 0.5),
-                semanticLabel: 'paused',
-              ),
-            ],
-            if (_expanded) ...[
-              Semantics(
-                label: _paused
-                    ? 'Resume live rebuild updates'
-                    : 'Pause live rebuild updates',
-                button: true,
-                // 48 x 48 hit box; the banners scroll when the card is
-                // short. `HitTestBehavior.opaque` is critical: without it
-                // the OUTER header GestureDetector would intercept
-                // the tap when the finger lands on the padding rather
-                // than on the icon glyph itself, toggling expansion
-                // instead of pause/resume.
-                child: SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: GestureDetector(
-                    onTap: _togglePause,
-                    behavior: HitTestBehavior.opaque,
-                    child: Center(
-                      child: Icon(
-                        _paused ? Icons.play_arrow : Icons.pause,
-                        size: 14,
-                        color: color,
+              // F1: pause indicator on the COLLAPSED header. Without
+              // this, a user who pauses, collapses, and walks away has
+              // no visual signal that the displayed total is frozen.
+              if (!_expanded && _paused) ...[
+                SizedBox(width: theme.spacingXxs),
+                Icon(
+                  Icons.pause,
+                  size: 10,
+                  color: color.withValues(
+                    alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.5,
+                  ),
+                ),
+              ],
+              if (_expanded) ...[
+                Semantics(
+                  label: _paused
+                      ? 'Resume live rebuild updates'
+                      : 'Pause live rebuild updates',
+                  button: true,
+                  // 48 x 48 hit box; the banners scroll when the card is
+                  // short. `HitTestBehavior.opaque` is critical: without it
+                  // the OUTER header GestureDetector would intercept
+                  // the tap when the finger lands on the padding rather
+                  // than on the icon glyph itself, toggling expansion
+                  // instead of pause/resume.
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: GestureDetector(
+                      onTap: _togglePause,
+                      behavior: HitTestBehavior.opaque,
+                      child: Center(
+                        child: Icon(
+                          _paused ? Icons.play_arrow : Icons.pause,
+                          size: 14,
+                          color: color,
+                        ),
                       ),
                     ),
                   ),
                 ),
+              ],
+              Icon(
+                _expanded ? Icons.expand_less : Icons.expand_more,
+                size: 14,
+                color: color.withValues(
+                  alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.7,
+                ),
               ),
             ],
-            Icon(
-              _expanded ? Icons.expand_less : Icons.expand_more,
-              size: 14,
-              color: color.withValues(alpha: 0.7),
-            ),
-          ],
+          ),
         ),
       ),
     );

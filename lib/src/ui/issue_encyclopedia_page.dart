@@ -197,8 +197,8 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTarget());
     }
 
-    // Route semantics: screen readers announce the page name and keep
-    // focus inside the page.
+    // Route semantics: screen readers announce the page name. While a
+    // page is open, `SleuthOverlay` drops the app's nodes below it.
     return Semantics(
       scopesRoute: true,
       namesRoute: true,

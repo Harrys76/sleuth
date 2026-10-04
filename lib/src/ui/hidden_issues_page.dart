@@ -49,8 +49,8 @@ class HiddenIssuesPage extends StatelessWidget {
     final keys = hiddenKeys.reversed.toList();
     final patterns = configSuppressions.toList()..sort();
 
-    // Route semantics: screen readers announce the page name and keep
-    // focus inside the page.
+    // Route semantics: screen readers announce the page name. While a
+    // page is open, `SleuthOverlay` drops the app's nodes below it.
     return Semantics(
       scopesRoute: true,
       namesRoute: true,

@@ -297,8 +297,9 @@ class SleuthThemeData {
   /// High-contrast dark theme.
   ///
   /// The dark theme with tertiary and quaternary text raised to
-  /// [textSecondary], stronger borders, opaque badge fills, a wider source
-  /// accent and [focusRingWidth] 2. Chosen automatically when the
+  /// [textSecondary], stronger borders, opaque badge fills, a wider and
+  /// lighter structural / no-source accent, full-opacity state icons and
+  /// [focusRingWidth] 2. Chosen automatically when the
   /// platform reports high contrast (`MediaQuery.highContrastOf`, iOS
   /// Increase Contrast) in dark mode and no theme is set; pass it to
   /// `Sleuth.updateTheme` on other platforms.
@@ -307,6 +308,8 @@ class SleuthThemeData {
         textTertiary: const Color(0xFFD1D5DB),
         textQuaternary: const Color(0xFFD1D5DB),
         border: const Color(0xFF9CA3AF),
+        sourceStructural: const Color(0xFFD1D5DB),
+        sourceNone: const Color(0xFF9CA3AF),
         badgeFillAlpha: 1,
         focusRingWidth: 2,
         sourceAccentWidth: 5,
@@ -354,6 +357,8 @@ class SleuthThemeData {
         gripDots: const Color(0xFF6B7280),
         checkboxActive: const Color(0xFF2563EB),
         triggerBadgeBg: const Color(0xFFE5E7EB),
+        sourceStructural: const Color(0xFF374151),
+        sourceNone: const Color(0xFF6B7280),
         badgeFillAlpha: 1,
         focusRingWidth: 2,
         sourceAccentWidth: 5,

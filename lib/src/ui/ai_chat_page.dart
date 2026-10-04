@@ -67,6 +67,10 @@ class _AiChatPageState extends State<AiChatPage>
 
   StreamSubscription<String>? _activeStream;
   bool _isStreaming = false;
+
+  /// The input had focus when the last message was sent; focus returns to
+  /// it when the reply ends.
+  bool _refocusAfterReply = false;
   String _streamBuffer = '';
   late List<AiChatMessage> _messages;
   bool _showStarters = true;
@@ -102,6 +106,7 @@ class _AiChatPageState extends State<AiChatPage>
     if (trimmed.isEmpty || _isStreaming) return;
 
     _inputController.clear();
+    _refocusAfterReply = _focusNode.hasFocus;
     setState(() {
       _showStarters = false;
       _messages.add(AiChatMessage(role: AiChatRole.user, text: trimmed));
@@ -145,6 +150,7 @@ class _AiChatPageState extends State<AiChatPage>
               _isStreaming = false;
             });
             widget.onHistoryChanged(List.of(_messages));
+            _restoreFocus();
           },
           onError: (Object error) {
             if (!mounted) return;
@@ -163,8 +169,15 @@ class _AiChatPageState extends State<AiChatPage>
               _isStreaming = false;
             });
             widget.onHistoryChanged(List.of(_messages));
+            _restoreFocus();
           },
         );
+  }
+
+  /// Puts focus back on the input after a reply when it had focus at send.
+  void _restoreFocus() {
+    if (_refocusAfterReply && !_focusNode.hasFocus) _focusNode.requestFocus();
+    _refocusAfterReply = false;
   }
 
   void _scrollToBottom() {
@@ -476,12 +489,17 @@ class _AiChatPageState extends State<AiChatPage>
         color: isUser ? theme.aiChatUserBubbleBg : theme.sectionBackground,
         borderRadius: bubbleRadius,
       ),
-      child: Text(
-        msg.text,
-        style: TextStyle(
-          color: isUser ? theme.aiChatUserBubbleText : theme.textPrimary,
-          fontSize: theme.fontSm,
-          height: 1.5,
+      // The latest reply is read out when it lands.
+      child: Semantics(
+        container: true,
+        liveRegion: !isUser && identical(msg, _messages.last),
+        child: Text(
+          msg.text,
+          style: TextStyle(
+            color: isUser ? theme.aiChatUserBubbleText : theme.textPrimary,
+            fontSize: theme.fontSm,
+            height: 1.5,
+          ),
         ),
       ),
     );
@@ -609,25 +627,30 @@ class _AiChatPageState extends State<AiChatPage>
   }
 
   Widget _buildThinkingIndicator(SleuthThemeData theme) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: theme.spacingMd),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          _buildAvatar(theme: theme, isUser: false),
-          SizedBox(width: theme.spacingMd),
-          for (var i = 0; i < 3; i++) ...[
-            if (i > 0) SizedBox(width: theme.spacingXs),
-            Container(
-              width: 5,
-              height: 5,
-              decoration: BoxDecoration(
-                color: theme.textTertiary.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: 'Thinking',
+      child: Padding(
+        padding: EdgeInsets.only(bottom: theme.spacingMd),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatar(theme: theme, isUser: false),
+            SizedBox(width: theme.spacingMd),
+            for (var i = 0; i < 3; i++) ...[
+              if (i > 0) SizedBox(width: theme.spacingXs),
+              Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: theme.textTertiary.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -645,7 +668,8 @@ class _AiChatPageState extends State<AiChatPage>
             child: TextField(
               controller: _inputController,
               focusNode: _focusNode,
-              enabled: !_isStreaming,
+              // Read-only while a reply streams: the field keeps focus.
+              readOnly: _isStreaming,
               style: TextStyle(
                 color: theme.textPrimary,
                 fontSize: theme.fontMd,
@@ -678,6 +702,8 @@ class _AiChatPageState extends State<AiChatPage>
                 filled: true,
                 fillColor: theme.sectionBackground,
               ),
+              // Submitting keeps focus for the next question.
+              onEditingComplete: () {},
               onSubmitted: _sendMessage,
             ),
           ),
@@ -745,31 +771,34 @@ class _StarterChipState extends State<_StarterChip> {
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     // 48 px tall hit box around the pill.
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onTap,
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 48),
-        child: Align(
-          widthFactor: 1,
-          child: Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: theme.spacingLg,
-              vertical: theme.spacingSm,
-            ),
-            decoration: BoxDecoration(
-              color: _pressed ? theme.border : theme.sectionBackground,
-              borderRadius: BorderRadius.circular(theme.radiusFull),
-              border: Border.all(color: theme.border, width: 0.5),
-            ),
-            child: Text(
-              widget.text,
-              style: TextStyle(
-                color: theme.textSecondary,
-                fontSize: theme.fontSm,
+    return Semantics(
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Align(
+            widthFactor: 1,
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: theme.spacingLg,
+                vertical: theme.spacingSm,
+              ),
+              decoration: BoxDecoration(
+                color: _pressed ? theme.border : theme.sectionBackground,
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                border: Border.all(color: theme.border, width: 0.5),
+              ),
+              child: Text(
+                widget.text,
+                style: TextStyle(
+                  color: theme.textSecondary,
+                  fontSize: theme.fontSm,
+                ),
               ),
             ),
           ),
