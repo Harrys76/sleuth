@@ -384,7 +384,8 @@ class SleuthThemeData {
   /// [textQuaternary]; when that fails too, the whole text group (primary
   /// to quaternary) comes from the preset whose brightness matches
   /// [pageBackground], so surfaces are never paired with text of the
-  /// wrong brightness.
+  /// wrong brightness. That fallback is not checked again: on a mid-tone
+  /// surface the preset text can still fall below 4.5:1.
   ///
   /// Build the theme once and pass the same instance to
   /// `SleuthConfig.theme` or `Sleuth.updateTheme`: the overlay compares

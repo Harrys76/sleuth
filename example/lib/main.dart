@@ -905,7 +905,12 @@ double? _textScaleAt(String typeName) {
   void visit(Element element) {
     if (found != null) return;
     if (element.widget.runtimeType.toString() == typeName) {
-      final scaler = MediaQuery.maybeTextScalerOf(element);
+      // Read without registering a dependency: this runs from a service
+      // extension, outside any build.
+      final scaler = element
+          .getInheritedWidgetOfExactType<MediaQuery>()
+          ?.data
+          .textScaler;
       found = scaler == null ? null : scaler.scale(10) / 10;
       return;
     }
@@ -968,20 +973,22 @@ SleuthThemeData? _themePreset(String preset) {
   if (preset.startsWith('seed:')) {
     final value = int.tryParse(preset.substring(5));
     if (value == null) return null;
+    final brightness =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness;
     return _seedThemes.putIfAbsent(
-      value,
+      (value, brightness),
       () => SleuthThemeData.fromSeed(
         Color(value | 0xFF000000),
-        brightness:
-            WidgetsBinding.instance.platformDispatcher.platformBrightness,
+        brightness: brightness,
       ),
     );
   }
   return null;
 }
 
-/// Built once per seed: the overlay compares themes by identity.
-final Map<int, SleuthThemeData> _seedThemes = {};
+/// Built once per seed and brightness: the overlay compares themes by
+/// identity.
+final Map<(int, Brightness), SleuthThemeData> _seedThemes = {};
 
 developer.ServiceExtensionResponse _demoError(Map<String, Object?> body) =>
     developer.ServiceExtensionResponse.error(

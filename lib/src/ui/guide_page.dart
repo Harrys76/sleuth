@@ -1025,7 +1025,9 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.keyboard_outlined,
-          'Escape closes the open page, then the card.',
+          'Escape first leaves a focused Sleuth text field, then closes '
+          'the open page, then the card. A dialog or text field in your '
+          'app keeps its Escape.',
         ),
       ],
     );

@@ -5,25 +5,32 @@
 - Overlay text follows the system text scale between 0.8x and 2.0x; the app
   keeps its own scale. Chrome (card header, status row, summary bar,
   footer, badges, trigger) stops at 1.3x and its fixed heights become
-  minimums that grow with it. The status row and banners scroll when they
-  would squeeze the issue list. Issue titles take two lines above 1.3x,
-  detail lines wrap, and the category and confidence badges move to a
-  badge line on narrow cards or large text. `fontXxs` and `fontXs` are 10.
+  minimums that grow with it, up to the screen's usable height; a maximized
+  card follows the keyboard down to its header, summary bar and footer. A
+  resize under large text stores the unscaled height. The status row and
+  banners scroll when they would squeeze the issue list. Issue titles take
+  two lines above 1.3x, detail lines wrap, and the category and confidence
+  badges sit beside the title only while the title keeps 96 px, else on
+  the badge line. `fontXxs` and `fontXs` are 10.
 - The VM+/FRAME and DBG badges moved from the card header to the status
-  row, which wraps.
+  row, which wraps; the issue count stays at its right edge.
 - Controls are 48 x 48 dp: footer buttons, FPS info, banner dismiss, rebuild
-  pause and See all, About this detection, encyclopedia entries, related
-  chips and search clear, guide sections, AI chat back, copy, send, message
-  copy, starter chips and input, and the resize grip. The card header's
+  pause and See all, the rebuild header and startup banner, About this
+  detection, encyclopedia entries, related chips and search clear, guide
+  sections, AI chat back, copy, send, message copy, starter chips and
+  input, and the resize grip. The card header's
   highlight, theme, minimize, maximize and restore controls are 36 x 48;
   Close is 48 x 48.
 - Screen readers: an issue card is one button labelled with its title
-  (expanded state announced, long press copies); pages announce their
-  name; icon-only controls are labelled. Custom actions replace dragging:
-  Move up / down / left / right and Move to corner on the card header,
-  Taller / Shorter / Wider / Narrower on the resize grip, Move to left /
-  right edge on the trigger. Toasts stay three times longer while a screen
-  reader is on (`OverlayToastController.durationScale`).
+  (expanded state announced, long press or the Copy details action
+  copies); pages announce their name and hide the app below while open;
+  icon-only controls are labelled. Custom actions replace dragging:
+  Move up / down / left / right and Move to top left on the card header,
+  Taller / Shorter / Wider / Narrower on the resize grip (normal window
+  state), Move to left / right edge on the trigger; the header and grip
+  read the card size back. Toasts stay three times longer while a screen
+  reader is on. AI chat keeps focus while a reply streams and announces
+  Thinking and the reply.
 - Contrast: tertiary and quaternary text, `checkboxActive` and the AI chat
   bubble are retuned for WCAG AA on every surface. New severity text tokens
   (`severityCriticalText`, `severityWarningText`, `severityOkText`) for
@@ -32,19 +39,22 @@
   (`triggerIconOnLightFill`).
 - `SleuthThemeData.highContrastDark()` / `highContrastLight()`: picked
   automatically when the platform reports high contrast and no theme is
-  set. New tokens `brightness`, `badgeFillAlpha`, `focusRingWidth`,
-  `sourceAccentWidth`.
+  set; state cues stay at full opacity and the structural and no-source
+  accents are lighter (dark) or darker (light). New tokens `brightness`,
+  `badgeFillAlpha`, `focusRingWidth`, `sourceAccentWidth`.
 - `SleuthThemeData.fromColorScheme(ColorScheme)` and
   `fromSeed(Color, {brightness})` map surfaces and text from a Material
   scheme, with a per-group contrast fallback to the Sleuth preset of the
-  same brightness.
+  same brightness (the fallback is not re-checked against mid-tone
+  surfaces).
 - The header theme toggle cycles System, Light and Dark with a toast and
   persists the choice (`OverlayUiState.themeMode`, `SleuthThemeMode`,
-  JSON key `themeMode`). Precedence: `Sleuth.updateTheme` > Light or Dark >
-  `SleuthConfig.theme` > auto. The toggle clears an `updateTheme`
-  override.
-- Escape closes the open page, then the dashboard; a focused app text
-  field keeps its Escape.
+  JSON key `themeMode`). Precedence: Light or Dark > `Sleuth.updateTheme` >
+  `SleuthConfig.theme` > auto. System shows an `updateTheme` override
+  again; `updateTheme` with a theme sets the toggle to System.
+- Escape unfocuses a focused overlay text field, then closes the open
+  page, then the dashboard; a focused app text field or an open app
+  dialog or sheet keeps its Escape.
 - The Ask AI shimmer stops under reduce motion.
 - The AI chat page has a `Material` surface; its text field no longer
   asserts `debugCheckHasMaterial` in debug builds.
