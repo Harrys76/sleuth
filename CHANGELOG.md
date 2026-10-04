@@ -11,7 +11,9 @@
   banners scroll when they would squeeze the issue list. Issue titles take
   two lines above 1.3x, detail lines wrap, and the category and confidence
   badges sit beside the title only while the title keeps 96 px, else on
-  the badge line. `fontXxs` and `fontXs` are 10.
+  the badge line. `fontXxs` and `fontXs` are 10. A host
+  `MediaQuery.withClampedTextScaling` above the overlay whose range misses
+  these gives a fixed scale at the nearest overlay bound.
 - The VM+/FRAME and DBG badges moved from the card header to the status
   row, which wraps; the issue count stays at its right edge.
 - Controls are 48 x 48 dp: footer buttons, FPS info, banner dismiss, rebuild

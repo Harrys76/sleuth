@@ -18,10 +18,13 @@ import 'package:sleuth/src/ui/sleuth_overlay.dart';
 /// [textScale], [accessibilityFeatures] and [platformBrightness] set the
 /// test platform dispatcher's values (cleared on tear-down); [themeMode]
 /// is set on the controller's overlay state before the first pump.
+/// [host] wraps the overlay, standing in for widgets a host app places
+/// above it.
 Future<SleuthController> pumpOverlay(
   WidgetTester tester, {
   SleuthConfig? config,
   Widget? app,
+  Widget Function(Widget overlay)? host,
   double? textScale,
   FakeAccessibilityFeatures? accessibilityFeatures,
   Brightness? platformBrightness,
@@ -54,16 +57,15 @@ Future<SleuthController> pumpOverlay(
     ..initializeDetectorsForTest()
     ..markInitializedForTest();
   if (themeMode != null) controller.overlayUiState.themeMode = themeMode;
-  await tester.pumpWidget(
-    SleuthOverlay(
-      controller: controller,
-      child:
-          app ??
-          const MaterialApp(
-            home: Scaffold(body: Center(child: Text('app'))),
-          ),
-    ),
+  final overlay = SleuthOverlay(
+    controller: controller,
+    child:
+        app ??
+        const MaterialApp(
+          home: Scaffold(body: Center(child: Text('app'))),
+        ),
   );
+  await tester.pumpWidget(host == null ? overlay : host(overlay));
   await tester.pump();
   return controller;
 }

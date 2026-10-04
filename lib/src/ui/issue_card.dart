@@ -162,10 +162,10 @@ class _IssueCardState extends State<IssueCard> {
   }
 
   /// Badge text follows the system text size up to the chrome limit.
-  TextScaler _badgeScaler(BuildContext context) =>
-      (MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling).clamp(
-        maxScaleFactor: kChromeMaxTextScale,
-      );
+  TextScaler _badgeScaler(BuildContext context) => clampTextScaler(
+    MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling,
+    max: kChromeMaxTextScale,
+  );
 
   void _toggleAbout() => setState(() => _aboutExpanded = !_aboutExpanded);
 

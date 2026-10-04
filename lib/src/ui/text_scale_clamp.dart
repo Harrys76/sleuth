@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show clampDouble;
 import 'package:flutter/widgets.dart';
 
 /// Largest text scale the overlay content follows. iOS accessibility sizes
@@ -13,9 +14,87 @@ const double kOverlayMinTextScale = 0.8;
 /// the issue list visible.
 const double kChromeMaxTextScale = 1.3;
 
+/// Returns [base] limited to `min * fontSize..max * fontSize`.
+///
+/// Unlike [TextScaler.clamp], never asserts: a range that does not overlap
+/// one the host app already applied (for example through
+/// `MediaQuery.withClampedTextScaling`) gives a fixed scale instead of an
+/// assertion failure on Flutter versions whose clamped scaler requires
+/// overlapping ranges. A non-linear [base] stays non-linear inside the
+/// range. Clamping the result again composes the ranges: the later range
+/// limits the earlier one, and an empty overlap pins the scale to the
+/// nearest bound of the later range. [min] greater than [max] gives a fixed
+/// scale of [max].
+TextScaler clampTextScaler(
+  TextScaler base, {
+  double min = 0,
+  double max = double.infinity,
+}) {
+  if (min > max) min = max;
+  if (base is _SleuthClampedTextScaler) {
+    return base._compose(min, max);
+  }
+  if (min <= 0 && max == double.infinity) return base;
+  return _SleuthClampedTextScaler(base, min, max);
+}
+
+/// A [TextScaler] that limits [base] to `min..max` without calling
+/// `base.clamp`.
+@immutable
+final class _SleuthClampedTextScaler extends TextScaler {
+  const _SleuthClampedTextScaler(this.base, this.min, this.max);
+
+  final TextScaler base;
+  final double min;
+  final double max;
+
+  bool get _fixed => min == max;
+
+  @override
+  double scale(double fontSize) => _fixed
+      ? min * fontSize
+      : clampDouble(base.scale(fontSize), min * fontSize, max * fontSize);
+
+  @override
+  double get textScaleFactor =>
+      // ignore: deprecated_member_use
+      _fixed ? min : clampDouble(base.textScaleFactor, min, max);
+
+  @override
+  TextScaler clamp({
+    double minScaleFactor = 0,
+    double maxScaleFactor = double.infinity,
+  }) => clampTextScaler(this, min: minScaleFactor, max: maxScaleFactor);
+
+  /// This range limited to `newMin..newMax`: equal to clamping this
+  /// scaler's output to the new range.
+  _SleuthClampedTextScaler _compose(double newMin, double newMax) {
+    final lo = clampDouble(min, newMin, newMax);
+    final hi = clampDouble(max, newMin, newMax);
+    if (lo == min && hi == max) return this;
+    return _SleuthClampedTextScaler(base, lo, hi);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is _SleuthClampedTextScaler &&
+        other.min == min &&
+        other.max == max &&
+        (_fixed || other.base == base);
+  }
+
+  @override
+  int get hashCode => _fixed ? min.hashCode : Object.hash(base, min, max);
+
+  @override
+  String toString() =>
+      _fixed ? 'fixed (${min}x)' : '$base clamped [$min, $max]';
+}
+
 /// Re-provides the ambient [MediaQuery] with its text scaler clamped to
-/// [minScaleFactor]..[maxScaleFactor]. Nested clamps compose: the inner
-/// range is intersected with the outer one.
+/// [minScaleFactor]..[maxScaleFactor] through [clampTextScaler]. Nested
+/// clamps compose: the inner range limits the outer one.
 ///
 /// Used in place of `MediaQuery.withClampedTextScaling`, whose `Builder`
 /// would show up in the app's own rebuild counts.
@@ -38,9 +117,10 @@ class SleuthTextScaleClamp extends StatelessWidget {
     if (data == null) return child;
     return MediaQuery(
       data: data.copyWith(
-        textScaler: data.textScaler.clamp(
-          minScaleFactor: minScaleFactor,
-          maxScaleFactor: maxScaleFactor,
+        textScaler: clampTextScaler(
+          data.textScaler,
+          min: minScaleFactor,
+          max: maxScaleFactor,
         ),
       ),
       child: child,

@@ -321,9 +321,10 @@ class _TextAction extends StatelessWidget {
                   fontSize: theme.fontMd,
                   fontWeight: FontWeight.w600,
                 ),
-                textScaler: MediaQuery.textScalerOf(
-                  context,
-                ).clamp(maxScaleFactor: kChromeMaxTextScale),
+                textScaler: clampTextScaler(
+                  MediaQuery.textScalerOf(context),
+                  max: kChromeMaxTextScale,
+                ),
               ),
             ),
           ),
