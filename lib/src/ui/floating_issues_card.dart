@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -18,69 +19,14 @@ import 'rebuild_stats_page.dart';
 import 'startup_metrics_page.dart';
 import '../models/ai_chat_adapter.dart';
 import '../utils/issue_explanation_builder.dart';
+import 'hidden_issues_page.dart';
+import 'overlay_filters.dart';
+import 'overlay_toast.dart';
+import 'overlay_ui_state.dart';
 import 'sleuth_theme.dart';
 
-/// Filters the live issue list to the set of cards that actually render
-/// in the overlay.
-///
-/// Three transformations are collapsed here:
-///
-///  1. Multi-parent downstream (≥2 causes in `rootCauseIds`) ALWAYS
-///     surfaces standalone with a "Caused by" badge. Surfacing
-///     bidirectionally lets the user see the multi-cause relationship
-///     at a glance from the top-level list — without it, multi-cause
-///     issues are only visible by expanding one of their parent cards.
-///  2. Single-parent downstream collapses under its parent when that
-///     parent is present AND the parent's severity is at least the
-///     child's — the parent's expanded "Related effects" sub-list shows
-///     it. A child more severe than its only parent stays standalone so
-///     a critical effect is never hidden under a warning card. If the
-///     parent is suppressed (not in the visible set), the downstream
-///     re-surfaces standalone so an orphan effect is not silently lost.
-///  3. 0-parent issues (roots, standalone) always surface.
-///
-/// Extracted in v0.15.5 so [_pruneStaleState] and [_buildIssuesList] agree
-/// on what "visible" means — pin ids keyed against the visible list must
-/// survive mutations to hidden downstream entries, and stale-state pruning
-/// must not delete a pin just because its root's downstream children
-/// churn.
-///
-/// Marked [visibleForTesting] so unit tests can verify the filter and the
-/// pin-placement algorithm below without pumping the full overlay widget
-/// tree — the card's outer `Column(mainAxisSize: MainAxisSize.min)` layout
-/// collapses the inner `ListView` to a few dozen pixels in `flutter_test`,
-/// so only the first card would build lazily otherwise.
-@visibleForTesting
-List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
-  int rank(IssueSeverity s) => switch (s) {
-    IssueSeverity.critical => 2,
-    IssueSeverity.warning => 1,
-    IssueSeverity.ok => 0,
-  };
-  // id → highest severity rank among issues carrying that id.
-  final severityById = <String, int>{};
-  for (final i in issues) {
-    final id = i.stableId ?? i.title;
-    final r = rank(i.severity);
-    final prev = severityById[id];
-    if (prev == null || r > prev) severityById[id] = r;
-  }
-  return issues.where((i) {
-    final parents = i.rootCauseIds;
-    if (parents == null || parents.isEmpty) return true;
-    // Multi-parent downstream always visible — the "Caused by" badge
-    // surface is the user's primary discoverability path for multi-cause
-    // relationships. Same downstream may also appear nested in each
-    // visible parent's "Related effects" list — bidirectional info,
-    // accepted redundancy.
-    if (parents.length >= 2) return true;
-    // Single-parent: collapse under a present parent that is at least as
-    // severe; surface when the parent is suppressed or less severe.
-    final parentRank = severityById[parents.first];
-    if (parentRank == null) return true;
-    return parentRank < rank(i.severity);
-  }).toList();
-}
+export 'overlay_filters.dart'
+    show applyOverlayFilters, computeVisibleIssues, hideKeyFor;
 
 /// Composes the frozen-zone list for an expanded render.
 ///
@@ -187,11 +133,16 @@ class FloatingIssuesCard extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onClose,
+    this.onLayersChanged,
     this.isDebugMode = kDebugMode,
   });
 
   final SleuthController controller;
   final VoidCallback onClose;
+
+  /// Called after a full-screen page or the Hidden list opens or closes,
+  /// so the host can re-request system back handling.
+  final VoidCallback? onLayersChanged;
 
   /// Whether we are in debug mode. Defaults to [kDebugMode].
   /// Exposed as a param so tests can override it.
@@ -202,10 +153,21 @@ class FloatingIssuesCard extends StatefulWidget {
   State<FloatingIssuesCard> createState() => _FloatingIssuesCardState();
 }
 
-enum _CardWindowState { normal, minimized, maximized }
+/// Implemented by the card's State. [SleuthOverlay] calls
+/// [closeInnermostLayer] on system back before closing the dashboard.
+abstract interface class OverlayLayerHost {
+  /// Closes the innermost open layer: unfocuses a focused text field,
+  /// else closes the open full-screen page, else the Hidden list. Returns
+  /// false when none of these is open.
+  bool closeInnermostLayer();
+}
 
-class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
+class _FloatingIssuesCardState extends State<FloatingIssuesCard>
+    implements OverlayLayerHost {
+  OverlayUiState get _ui => widget.controller.overlayUiState;
+
   /// Drag offset — applied via inner [Positioned], null until first build.
+  /// Seeded from [OverlayUiState.cardOffset]; written back on drag end.
   Offset? _cardOffset;
 
   /// Expansion registry: `issueKey -> capturedIndex`.
@@ -251,11 +213,20 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   /// Stable ID of the issue whose highlight checkbox is checked.
   String? _selectedIssueId;
 
-  bool _exportFeedbackVisible = false;
-  bool _highlightNotFoundVisible = false;
-  bool _rebuildSessionGoneVisible = false;
-  bool _rebuildPauseDiscardedVisible = false;
+  /// Bumped when the host clears every expansion at once (severity filter
+  /// change); [IssueCard] collapses without calling back.
+  int _collapseEpoch = 0;
+
+  /// Severity filter seen by the last [_onUiStateChanged].
+  Set<IssueSeverity> _lastSeverityFilter = const {};
+
+  final OverlayToastController _toast = OverlayToastController();
+
+  /// Open-layer count reported through [FloatingIssuesCard.onLayersChanged].
+  int _reportedLayerDepth = 0;
+
   bool _debugBannerDismissed = false;
+  bool _showHidden = false;
   bool _showGuide = false;
   bool _showDetail = false;
   bool _showStartupDetail = false;
@@ -274,18 +245,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   /// Cached jank-correlated issue keys from verdict, updated via listener.
   Set<String> _cachedJankKeys = const {};
 
-  Timer? _exportFeedbackTimer;
-  Timer? _highlightNotFoundTimer;
-  Timer? _rebuildSessionGoneTimer;
-  Timer? _rebuildPauseDiscardedTimer;
-
   double _cardWidth = _defaultCardWidth;
   static const double _defaultCardWidth = 300;
   static const double _minCardWidth = 220;
   static const double _minCardHeight = 250;
 
   // ─── Window state (M2) ─────────────────────────────────────────────
-  _CardWindowState _windowState = _CardWindowState.normal;
+  CardWindowState _windowState = CardWindowState.normal;
 
   /// Stored when transitioning away from normal so restore is exact.
   /// Drag while minimized does NOT update these — restore always returns
@@ -298,7 +264,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   double? _cardHeight;
 
   // Cached for gesture handlers (set each build).
-  double _cachedTopPadding = 0;
+  EdgeInsets _cachedSafePadding = EdgeInsets.zero;
   double _cachedEffectiveWidth = 0;
   double _cachedKeyboardHeight = 0;
 
@@ -307,7 +273,54 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     super.initState();
     widget.controller.verdictNotifier.addListener(_onVerdictChanged);
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
+    _ui.addListener(_onUiStateChanged);
+    _readGeometry();
+    _lastSeverityFilter = {..._ui.severityFilter};
     _onVerdictChanged();
+  }
+
+  /// Seeds the local geometry from [OverlayUiState].
+  void _readGeometry() {
+    final ui = _ui;
+    _cardOffset = ui.cardOffset;
+    _cardWidth = ui.cardWidth ?? _defaultCardWidth;
+    _cardHeight = ui.cardHeight;
+    _windowState = ui.windowState;
+    _preTransitionOffset = ui.restoreOffset;
+    _preTransitionWidth = ui.restoreWidth;
+    _preTransitionHeight = ui.restoreHeight;
+  }
+
+  /// Writes the local geometry to [OverlayUiState]: once per drag end,
+  /// resize end, or window-state change.
+  void _commitGeometry() {
+    _ui.setCardGeometry(
+      offset: _cardOffset,
+      width: _cardWidth,
+      height: _cardHeight,
+      windowState: _windowState,
+      restoreOffset: _preTransitionOffset,
+      restoreWidth: _preTransitionWidth,
+      restoreHeight: _preTransitionHeight,
+    );
+  }
+
+  /// Hidden keys or the severity filter changed. A filter change clears
+  /// every expansion together with the freeze snapshot; then stale state
+  /// is pruned against the new visible list.
+  void _onUiStateChanged() {
+    if (!mounted) return;
+    final filter = _ui.severityFilter;
+    if (!setEquals(filter, _lastSeverityFilter)) {
+      _lastSeverityFilter = {...filter};
+      if (_expandedIndices.isNotEmpty || _orderSnapshot != null) {
+        _expandedIndices.clear();
+        _orderSnapshot = null;
+        _collapseEpoch++;
+      }
+    }
+    _pruneStaleState();
+    setState(() {});
   }
 
   @override
@@ -322,8 +335,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.verdictNotifier.removeListener(_onVerdictChanged);
       oldWidget.controller.issuesNotifier.removeListener(_onIssuesChanged);
+      oldWidget.controller.overlayUiState.removeListener(_onUiStateChanged);
       widget.controller.verdictNotifier.addListener(_onVerdictChanged);
       widget.controller.issuesNotifier.addListener(_onIssuesChanged);
+      widget.controller.overlayUiState.addListener(_onUiStateChanged);
+      _readGeometry();
+      _lastSeverityFilter = {..._ui.severityFilter};
       _expandedIndices.clear();
       _orderSnapshot = null;
       _selectedIssueId = null;
@@ -338,10 +355,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   void dispose() {
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
-    _exportFeedbackTimer?.cancel();
-    _highlightNotFoundTimer?.cancel();
-    _rebuildSessionGoneTimer?.cancel();
-    _rebuildPauseDiscardedTimer?.cancel();
+    widget.controller.overlayUiState.removeListener(_onUiStateChanged);
+    _toast.dispose();
     _preTransitionOffset = null;
     _preTransitionWidth = null;
     _preTransitionHeight = null;
@@ -353,31 +368,41 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   // ─── Window controls (M2) ──────────────────────────────────────────
 
   void _minimize() {
-    if (_windowState == _CardWindowState.minimized) return;
+    if (_windowState == CardWindowState.minimized) return;
     setState(() {
       _preTransitionOffset ??= _cardOffset;
       _preTransitionWidth ??= _cardWidth;
       _preTransitionHeight ??= _cardHeight;
-      _windowState = _CardWindowState.minimized;
+      _windowState = CardWindowState.minimized;
       _cardHeight = 54; // Title bar (44) + vertical padding (6+4).
     });
+    _commitGeometry();
   }
 
   void _maximize(BuildContext context) {
-    if (_windowState == _CardWindowState.maximized) return;
+    if (_windowState == CardWindowState.maximized) return;
     final size = MediaQuery.sizeOf(context);
-    final topPadding = MediaQuery.paddingOf(context).top;
+    final safe = MediaQuery.viewPaddingOf(context);
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     setState(() {
       _preTransitionOffset ??= _cardOffset;
       _preTransitionWidth ??= _cardWidth;
       _preTransitionHeight ??= _cardHeight;
-      _windowState = _CardWindowState.maximized;
-      _cardOffset = Offset(16, topPadding + 16);
-      _cardWidth = size.width - 32;
-      _cardHeight = size.height - topPadding - 32 - keyboard;
+      _windowState = CardWindowState.maximized;
+      _cardOffset = Offset(safe.left + 16, safe.top + 16);
+      _cardWidth = math.max(0.0, size.width - safe.horizontal - 32);
+      _cardHeight = _maximizedHeight(size, safe, keyboard);
     });
+    _commitGeometry();
   }
+
+  /// Height of the maximized card: the safe area minus margins, above the
+  /// keyboard.
+  static double _maximizedHeight(Size size, EdgeInsets safe, double keyboard) =>
+      math.max(
+        0.0,
+        size.height - safe.top - 32 - math.max(safe.bottom, keyboard),
+      );
 
   void _restore() {
     setState(() {
@@ -387,8 +412,108 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       _preTransitionOffset = null;
       _preTransitionWidth = null;
       _preTransitionHeight = null;
-      _windowState = _CardWindowState.normal;
+      _windowState = CardWindowState.normal;
     });
+    _commitGeometry();
+  }
+
+  // ─── Layers and back handling ──────────────────────────────────────
+
+  /// Number of layers open above the card: one per open full-screen
+  /// page plus the Hidden list.
+  int get _openLayerDepth => [
+    _showAiChat,
+    _showDetail,
+    _showRebuildStats,
+    _showStartupDetail,
+    _showGuide,
+    _showHidden,
+  ].where((open) => open).length;
+
+  @override
+  bool closeInnermostLayer() {
+    final focus = FocusManager.instance.primaryFocus;
+    final focusContext = focus?.context;
+    if (focus != null &&
+        focusContext != null &&
+        focusContext.mounted &&
+        focusContext.findAncestorWidgetOfExactType<EditableText>() != null &&
+        focusContext.findAncestorStateOfType<_FloatingIssuesCardState>() ==
+            this) {
+      focus.unfocus();
+      return true;
+    }
+    if (_showAiChat) {
+      _closeAiChat();
+    } else if (_showDetail) {
+      _closeDetail();
+    } else if (_showRebuildStats) {
+      _closeRebuildStats();
+    } else if (_showStartupDetail) {
+      setState(() => _showStartupDetail = false);
+    } else if (_showGuide) {
+      setState(() => _showGuide = false);
+    } else if (_showHidden) {
+      setState(() => _showHidden = false);
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  void _closeAiChat() => setState(() {
+    _showAiChat = false;
+    _chatIssueStableId = null;
+  });
+
+  void _closeDetail() => setState(() {
+    _showDetail = false;
+    _detailStableId = null;
+    _detailContextIssue = null;
+  });
+
+  void _closeRebuildStats() => setState(() {
+    _showRebuildStats = false;
+    _rebuildStatsSnapshot = null;
+    _rebuildStatsRouteName = null;
+  });
+
+  // ─── Hide and copy ─────────────────────────────────────────────────
+
+  /// Hides [issue]'s card from the overlay and offers Undo. The card has
+  /// already collapsed through `onExpandedChanged(false)`.
+  void _hideIssue(PerformanceIssue issue) {
+    final key = hideKeyFor(issue);
+    if (_selectedIssueId == (issue.stableId ?? issue.title)) {
+      _selectedIssueId = null;
+      widget.controller.clearSelectedHighlight();
+    }
+    _ui.hide(key);
+    _toast.show(
+      'Issue hidden',
+      actionLabel: 'Undo',
+      onAction: () => _ui.unhide(key),
+    );
+  }
+
+  Future<void> _copyIssue(PerformanceIssue issue) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: issue.toClipboardText()));
+    } catch (e) {
+      debugPrint('Sleuth: copy failed: $e');
+      if (mounted) {
+        _toast.show("Couldn't copy", tone: OverlayToastTone.warning);
+      }
+      return;
+    }
+    unawaited(HapticFeedback.selectionClick().catchError((Object _) {}));
+    if (mounted) _toast.show('Copied');
+  }
+
+  void _toggleSeverity(IssueSeverity severity) {
+    if (!_ui.toggleSeverity(severity)) {
+      _toast.show('Keep at least one severity', tone: OverlayToastTone.warning);
+    }
   }
 
   PerformanceIssue _findIssueByStableId(String key) {
@@ -438,14 +563,20 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   /// Using raw keys leaked "zombie pins" for cards that stopped rendering
   /// when their root got collapsed into an expanded parent.
   ///
-  /// `_selectedIssueId`, `_chatIssueStableId`, and `_chatHistories`
-  /// intentionally stay on the raw-key check — those surfaces operate on
-  /// ALL issues (including downstream ones reachable via highlight or
-  /// Ask AI), and narrowing them here would hide entries the user can
-  /// still reach through the expanded parent's downstream list.
+  /// The visible list is [applyOverlayFilters] — the same list
+  /// [_buildIssuesList] renders — so a hidden or filtered-out card drops
+  /// its expansion entry here.
+  ///
+  /// `_chatIssueStableId` and `_chatHistories` intentionally stay on the
+  /// raw-key check — those surfaces operate on ALL issues (including
+  /// downstream ones reachable via Ask AI), and narrowing them here would
+  /// hide entries the user can still reach through the expanded parent's
+  /// downstream list. `_selectedIssueId` is dropped, together with the
+  /// controller's highlight selection, when its issue disappears or is
+  /// hidden.
   void _pruneStaleState() {
     final issues = widget.controller.issuesNotifier.value;
-    final visible = computeVisibleIssues(issues);
+    final visible = _ui.visibleIssues(issues);
     final visibleKeys = <String>{
       for (final i in visible) i.stableId ?? i.title,
     };
@@ -466,8 +597,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       changed = true;
     }
 
-    if (_selectedIssueId != null && !rawKeys.contains(_selectedIssueId)) {
+    final selected = _selectedIssueId;
+    if (selected != null &&
+        (!rawKeys.contains(selected) ||
+            issues.any(
+              (i) => (i.stableId ?? i.title) == selected && _ui.isHidden(i),
+            ))) {
       _selectedIssueId = null;
+      widget.controller.clearSelectedHighlight();
       changed = true;
     }
     if (_showAiChat &&
@@ -498,15 +635,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     final json = widget.controller.exportSnapshotJson();
     try {
       await Clipboard.setData(ClipboardData(text: json));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Sleuth: snapshot copy failed: $e');
+      if (mounted) {
+        _toast.show("Couldn't copy snapshot", tone: OverlayToastTone.warning);
+      }
       return;
     }
     if (!mounted) return;
-    setState(() => _exportFeedbackVisible = true);
-    _exportFeedbackTimer?.cancel();
-    _exportFeedbackTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _exportFeedbackVisible = false);
-    });
+    _toast.show('Snapshot copied to clipboard');
   }
 
   void _onHighlightChanged(
@@ -520,13 +657,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       final found = widget.controller.selectHighlightForIssue(issue);
       if (!found) {
         widget.controller.pendingIssueSelection = issue;
-        setState(() => _highlightNotFoundVisible = true);
-        _highlightNotFoundTimer?.cancel();
-        _highlightNotFoundTimer = Timer(const Duration(seconds: 3), () {
-          if (mounted) {
-            setState(() => _highlightNotFoundVisible = false);
-          }
-        });
+        _toast.show(
+          'Widget not currently visible. Navigate to the screen where this '
+          'issue occurs.',
+          tone: OverlayToastTone.warning,
+          duration: const Duration(seconds: 3),
+        );
       }
     } else {
       setState(() => _selectedIssueId = null);
@@ -552,45 +688,52 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
-    final topPadding = MediaQuery.paddingOf(context).top;
+    final safe = MediaQuery.viewPaddingOf(context);
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
-    final maxAllowedHeight = screenSize.height - topPadding - 20;
-    final isMinimized = _windowState == _CardWindowState.minimized;
+    final maxAllowedHeight = math.max(
+      _minCardHeight,
+      screenSize.height - safe.top - math.max(safe.bottom, 20),
+    );
+    final isMinimized = _windowState == CardWindowState.minimized;
 
     // When maximized, dynamically track keyboard so the card shrinks.
-    if (_windowState == _CardWindowState.maximized) {
-      _cardHeight = screenSize.height - topPadding - 32 - keyboardHeight;
+    if (_windowState == CardWindowState.maximized) {
+      _cardHeight = _maximizedHeight(screenSize, safe, keyboardHeight);
     }
 
     final cardHeight = (_cardHeight ?? screenSize.height * 0.55).clamp(
       isMinimized ? 54.0 : _minCardHeight,
       maxAllowedHeight,
     );
-    final effectiveWidth = _cardWidth.clamp(_minCardWidth, screenSize.width);
-    _cachedTopPadding = topPadding;
+    final effectiveWidth = _cardWidth
+        .clamp(_minCardWidth, math.max(_minCardWidth, screenSize.width))
+        .toDouble();
+    _cachedSafePadding = safe;
     _cachedEffectiveWidth = effectiveWidth;
     _cachedKeyboardHeight = keyboardHeight;
     final theme = SleuthTheme.of(context);
 
     _cardOffset ??= Offset(
-      screenSize.width - effectiveWidth - 5,
+      screenSize.width - safe.right - effectiveWidth - 5,
       screenSize.height * 0.30,
     );
 
     final clamped = _clampOffset(
       screenSize,
-      topPadding,
+      safe,
       effectiveWidth,
       keyboardHeight,
     );
 
+    final layerDepth = _openLayerDepth;
+    if (layerDepth != _reportedLayerDepth) {
+      _reportedLayerDepth = layerDepth;
+      widget.onLayersChanged?.call();
+    }
+
     return Stack(
       children: [
-        if (!_showGuide &&
-            !_showDetail &&
-            !_showAiChat &&
-            !_showStartupDetail &&
-            !_showRebuildStats)
+        if (layerDepth == 0)
           Positioned(
             left: clamped.dx,
             top: clamped.dy,
@@ -609,6 +752,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               ],
             ),
           ),
+        if (_showHidden)
+          Positioned.fill(
+            child: HiddenIssuesPage(
+              hiddenKeys: _ui.hiddenKeys.toList(),
+              issues: widget.controller.issuesNotifier.value,
+              configSuppressions: widget.controller.config.suppressedIssues,
+              suppressedCount: widget.controller.suppressedCountNotifier.value,
+              onRestore: _ui.unhide,
+              onRestoreAll: _ui.restoreAll,
+              onClose: () => setState(() => _showHidden = false),
+            ),
+          ),
         if (_showGuide)
           Positioned.fill(
             child: GuidePage(onClose: () => setState(() => _showGuide = false)),
@@ -616,11 +771,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
         if (_showDetail)
           Positioned.fill(
             child: IssueEncyclopediaPage(
-              onClose: () => setState(() {
-                _showDetail = false;
-                _detailStableId = null;
-                _detailContextIssue = null;
-              }),
+              onClose: _closeDetail,
               scrollToStableId: _detailStableId,
               contextIssue: _detailContextIssue,
             ),
@@ -634,10 +785,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               history: _chatHistories[_chatIssueStableId!] ?? const [],
               onHistoryChanged: (msgs) =>
                   _chatHistories[_chatIssueStableId!] = msgs,
-              onClose: () => setState(() {
-                _showAiChat = false;
-                _chatIssueStableId = null;
-              }),
+              onClose: _closeAiChat,
+              onNotify: (message) => _toast.show(message),
             ),
           ),
         if (_showStartupDetail)
@@ -651,94 +800,26 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             child: RebuildStatsPage(
               routeDisplayName: _rebuildStatsRouteName,
               countsByType: _rebuildStatsSnapshot!,
-              onClose: () => setState(() {
-                _showRebuildStats = false;
-                _rebuildStatsSnapshot = null;
-                _rebuildStatsRouteName = null;
-              }),
+              onClose: _closeRebuildStats,
             ),
           ),
-        // Transient "Session no longer active" snackbar — rendered as a
-        // bottom-aligned overlay so it sits above the card without pushing
-        // layout around. Mirrors the _exportFeedback / _highlightNotFound
-        // feedback pattern.
-        if (_rebuildSessionGoneVisible)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 24 + keyboardHeight,
-            child: Center(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.severityWarning.withValues(alpha: 0.95),
-                  borderRadius: BorderRadius.circular(theme.radiusLg),
-                ),
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: theme.spacingLg,
-                    vertical: theme.spacingSm,
-                  ),
-                  child: Text(
-                    'Session no longer active',
-                    style: TextStyle(
-                      color: theme.textPrimary,
-                      fontSize: theme.fontSm,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        // H2: when the rebuild stats panel is paused and the active route
-        // session changes, the panel auto-resumes and discards its frozen
-        // snapshot. Without a user-facing signal this is silent state
-        // loss — the user comes back from a tab swap to find their pause
-        // gone with no explanation. This snackbar mirrors the "Session
-        // no longer active" pattern with a dedicated message.
-        if (_rebuildPauseDiscardedVisible)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 24 + keyboardHeight,
-            child: Center(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.severityWarning.withValues(alpha: 0.95),
-                  borderRadius: BorderRadius.circular(theme.radiusLg),
-                ),
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: theme.spacingLg,
-                    vertical: theme.spacingSm,
-                  ),
-                  child: Text(
-                    'Pause cleared — route changed',
-                    style: TextStyle(
-                      color: theme.textPrimary,
-                      fontSize: theme.fontSm,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        // Single toast slot for every confirmation and notice; above the
+        // card and any full-screen page.
+        OverlayToast(controller: _toast),
       ],
     );
   }
 
   /// Triggered by [_RebuildStatsBanner] when its frozen snapshot is
-  /// discarded by an automatic resume on route change. Surfaces a 2s
-  /// transient notice so the user knows their pause was cleared and isn't
-  /// surprised by suddenly-live counts.
+  /// discarded by an automatic resume on route change. Shows a toast so
+  /// the user knows their pause was cleared and isn't surprised by
+  /// suddenly-live counts.
   void _onRebuildPauseDiscarded() {
     if (!mounted) return;
-    setState(() => _rebuildPauseDiscardedVisible = true);
-    _rebuildPauseDiscardedTimer?.cancel();
-    _rebuildPauseDiscardedTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _rebuildPauseDiscardedVisible = false);
-    });
+    _toast.show(
+      'Pause cleared — route changed',
+      tone: OverlayToastTone.warning,
+    );
   }
 
   /// Called when the user taps `See all M →` in the expanded
@@ -749,8 +830,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   /// [RouteSession.rebuildCountsByType] at tap time.
   ///
   /// If the session was cleared between the panel rendering and the tap
-  /// (pathological: route change mid-gesture), shows a transient
-  /// "Session no longer active" snackbar instead of pushing.
+  /// (pathological: route change mid-gesture), shows a "Session no longer
+  /// active" toast instead of pushing.
   void _onSeeAllRebuildsTap([Map<String, int>? overrideCounts]) {
     final session = widget.controller.activeRouteSession;
     // Choose the source of truth for the drilldown snapshot:
@@ -759,11 +840,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     // If both are missing/empty, we have nothing to drill into.
     final source = overrideCounts ?? session?.rebuildCountsByType;
     if (source == null || source.isEmpty) {
-      setState(() => _rebuildSessionGoneVisible = true);
-      _rebuildSessionGoneTimer?.cancel();
-      _rebuildSessionGoneTimer = Timer(const Duration(seconds: 2), () {
-        if (mounted) setState(() => _rebuildSessionGoneVisible = false);
-      });
+      _toast.show('Session no longer active', tone: OverlayToastTone.warning);
       return;
     }
     setState(() {
@@ -778,22 +855,28 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   // ─── Build helpers ──────────────────────────────────────────────────
 
+  /// Keeps the card's top-left inside the safe area: within the
+  /// horizontal view padding, below the top inset, and with at least
+  /// 100 px of title bar above the keyboard or bottom inset.
   Offset _clampOffset(
     Size screenSize,
-    double topPadding,
+    EdgeInsets safe,
     double effectiveWidth, [
     double keyboardHeight = 0,
   ]) {
-    final rightReserve = (screenSize.width - effectiveWidth - 5).clamp(
-      0.0,
-      screenSize.width,
+    final minX = safe.left;
+    final maxX = math.max(
+      minX,
+      screenSize.width - safe.right - effectiveWidth - 5,
+    );
+    final minY = safe.top;
+    final maxY = math.max(
+      minY,
+      screenSize.height - math.max(safe.bottom, keyboardHeight) - 100,
     );
     return Offset(
-      _cardOffset!.dx.clamp(0.0, rightReserve),
-      _cardOffset!.dy.clamp(
-        topPadding,
-        screenSize.height - 100 - keyboardHeight,
-      ),
+      _cardOffset!.dx.clamp(minX, maxX),
+      _cardOffset!.dy.clamp(minY, maxY),
     );
   }
 
@@ -803,7 +886,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     SleuthThemeData theme,
     Size screenSize,
   ) {
-    final isMinimized = _windowState == _CardWindowState.minimized;
+    final isMinimized = _windowState == CardWindowState.minimized;
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: effectiveWidth,
@@ -821,8 +904,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               _StatusRow(controller: widget.controller),
               Divider(color: theme.border, height: 1),
               _WarningBanners(
-                exportFeedbackVisible: _exportFeedbackVisible,
-                highlightNotFoundVisible: _highlightNotFoundVisible,
                 isDeepInstrumentationActive:
                     widget.controller.isDeepInstrumentationActive,
               ),
@@ -854,6 +935,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               Flexible(child: RepaintBoundary(child: _buildIssuesList())),
               _CardFooter(
                 controller: widget.controller,
+                hiddenCount: _ui.hiddenKeys.length,
+                onShowHidden: () => setState(() => _showHidden = true),
                 onExport: _exportToClipboard,
                 onEncyclopedia: () => setState(() {
                   _detailStableId = null;
@@ -888,7 +971,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             setState(() {
               _cardWidth = (_cardWidth + details.delta.dx).clamp(
                 _minCardWidth,
-                screenSize.width - clamped.dx,
+                math.max(_minCardWidth, screenSize.width - clamped.dx),
               );
               _cardHeight = (cardHeight + details.delta.dy).clamp(
                 _minCardHeight,
@@ -896,6 +979,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               );
             });
           },
+          onPanEnd: (_) => _commitGeometry(),
           child: CustomPaint(
             painter: _CornerGripPainter(gripColor: theme.gripDots),
           ),
@@ -911,8 +995,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     double effectiveWidth,
     SleuthThemeData theme,
   ) {
-    final isMinimized = _windowState == _CardWindowState.minimized;
-    final isNormal = _windowState == _CardWindowState.normal;
+    final isMinimized = _windowState == CardWindowState.minimized;
+    final isNormal = _windowState == CardWindowState.normal;
     // Only show window controls when the card is wide enough to avoid overflow.
     final showWindowControls = effectiveWidth >= 280 || !isNormal;
     return GestureDetector(
@@ -921,12 +1005,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           _cardOffset = (_cardOffset ?? Offset.zero) + details.delta;
           _cardOffset = _clampOffset(
             screenSize,
-            _cachedTopPadding,
+            _cachedSafePadding,
             _cachedEffectiveWidth,
             _cachedKeyboardHeight,
           );
         });
       },
+      onPanEnd: (_) => _commitGeometry(),
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -954,7 +1039,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             if (isMinimized)
               ValueListenableBuilder<List<PerformanceIssue>>(
                 valueListenable: widget.controller.issuesNotifier,
-                builder: (_, issues, _) => issues.isEmpty
+                builder: (_, issues, _) => _ui.visibleIssues(issues).isEmpty
                     ? const SizedBox.shrink()
                     : DecoratedBox(
                         decoration: BoxDecoration(
@@ -967,7 +1052,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                             vertical: 1,
                           ),
                           child: Text(
-                            '${issues.length}',
+                            '${_ui.visibleIssues(issues).length}',
                             style: TextStyle(
                               color: theme.severityWarning,
                               fontSize: theme.fontXs,
@@ -1098,7 +1183,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               icon: Icons.close,
               color: theme.textTertiary,
               onTap: widget.onClose,
-              tooltip: 'Close',
+              tooltip: 'Close Sleuth',
             ),
           ],
         ),
@@ -1115,13 +1200,17 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     // GestureDetector instead of IconButton to avoid tooltip OverlayPortal
     // crash — the sleuth overlay sits outside the app's Navigator/Overlay,
     // so OverlayPortal can't find a _RenderTheaterMarker ancestor.
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 36,
-        height: 44,
-        child: Center(child: Icon(icon, color: color, size: 16)),
+    return Semantics(
+      label: tooltip,
+      button: true,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 36,
+          height: 44,
+          child: Center(child: Icon(icon, color: color, size: 16)),
+        ),
       ),
     );
   }
@@ -1167,10 +1256,59 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           );
         }
 
-        // Filter: show roots, standalone issues, multi-parent effects, and
-        // single-parent effects whose parent is absent or less severe.
-        // See [computeVisibleIssues].
-        final visibleIssues = computeVisibleIssues(issues);
+        // Severity filter, then collapse, then hide — the same list
+        // `_pruneStaleState` keys against. See [applyOverlayFilters].
+        final ui = _ui;
+        final visibleIssues = ui.visibleIssues(issues);
+
+        // Lists behind the summary chips and the "Showing X of Y" line.
+        final allSeverities = {...IssueSeverity.values};
+        final unfiltered = applyOverlayFilters(
+          issues,
+          severities: allSeverities,
+          hiddenKeys: ui.hiddenKeys,
+        );
+        final unhidden = applyOverlayFilters(
+          issues,
+          severities: allSeverities,
+          hiddenKeys: const {},
+        );
+        final isNarrowed = ui.isSeverityFiltered || ui.hiddenKeys.isNotEmpty;
+        final totalCards = <String>{
+          for (final i in unhidden) i.stableId ?? i.title,
+          for (final i in visibleIssues) i.stableId ?? i.title,
+        }.length;
+
+        final summary = _IssuesSummaryBar(
+          issues: visibleIssues,
+          severityCounts: unfiltered,
+          enabledSeverities: ui.severityFilter,
+          shownOfTotal: isNarrowed
+              ? (shown: visibleIssues.length, total: totalCards)
+              : null,
+          onToggleSeverity: _toggleSeverity,
+        );
+
+        if (visibleIssues.isEmpty) {
+          final allHidden = unfiltered.isEmpty;
+          return Column(
+            children: [
+              summary,
+              Expanded(
+                child: _EmptyListMessage(
+                  message: allHidden
+                      ? 'All ${unhidden.length} '
+                            '${unhidden.length == 1 ? 'issue' : 'issues'} hidden'
+                      : 'No issues match the severity filter',
+                  actionLabel: allHidden ? 'Show hidden' : 'Reset',
+                  onAction: allHidden
+                      ? () => setState(() => _showHidden = true)
+                      : ui.resetSeverityFilter,
+                ),
+              ),
+            ],
+          );
+        }
 
         // Apply the freeze zone AFTER the summary bar reads the flow
         // ordering. Freezing is a render-order concern only — counts in
@@ -1206,7 +1344,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
         return Column(
           children: [
-            _IssuesSummaryBar(issues: visibleIssues),
+            summary,
             Expanded(
               child: ValueListenableBuilder<WidgetHighlight?>(
                 valueListenable: widget.controller.selectedHighlightNotifier,
@@ -1308,6 +1446,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                       deepInstrumentationActive:
                           widget.controller.isDeepInstrumentationActive,
                       initiallyExpanded: _expandedIndices.containsKey(issueKey),
+                      collapseEpoch: _collapseEpoch,
                       onExpandedChanged: (expanded) {
                         setState(() {
                           if (expanded) {
@@ -1359,6 +1498,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                               _showAiChat = true;
                             })
                           : null,
+                      onCopy: () => _copyIssue(issue),
+                      onHide: () => _hideIssue(issue),
                     );
                   },
                 ),
@@ -1695,14 +1836,8 @@ class _DebugModeBanner extends StatelessWidget {
 // ─── Warning Banners ────────────────────────────────────────────────────
 
 class _WarningBanners extends StatelessWidget {
-  const _WarningBanners({
-    required this.exportFeedbackVisible,
-    required this.highlightNotFoundVisible,
-    required this.isDeepInstrumentationActive,
-  });
+  const _WarningBanners({required this.isDeepInstrumentationActive});
 
-  final bool exportFeedbackVisible;
-  final bool highlightNotFoundVisible;
   final bool isDeepInstrumentationActive;
 
   @override
@@ -1770,66 +1905,6 @@ class _WarningBanners extends StatelessWidget {
               ],
             ),
           ),
-        if (exportFeedbackVisible)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: theme.bannerSuccessBg,
-              borderRadius: BorderRadius.circular(theme.radiusLg),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.check_circle,
-                  color: theme.bannerSuccessText,
-                  size: 12,
-                ),
-                SizedBox(width: theme.spacingSm),
-                Expanded(
-                  child: Text(
-                    'Snapshot copied to clipboard',
-                    style: TextStyle(
-                      color: theme.bannerSuccessText,
-                      fontSize: theme.fontSm,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        if (highlightNotFoundVisible)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: theme.bannerWarningBg,
-              borderRadius: BorderRadius.circular(theme.radiusLg),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.visibility_off,
-                  color: theme.bannerWarningText,
-                  size: 12,
-                ),
-                SizedBox(width: theme.spacingSm),
-                Expanded(
-                  child: Text(
-                    'Widget not currently visible. Navigate to the screen where this issue occurs.',
-                    style: TextStyle(
-                      color: theme.bannerWarningText,
-                      fontSize: theme.fontSm,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
       ],
     );
   }
@@ -1837,15 +1912,35 @@ class _WarningBanners extends StatelessWidget {
 
 // ─── Card Footer ────────────────────────────────────────────────────────
 
+/// Footer text for [hidden] runtime-hidden and [suppressed]
+/// config-suppressed issues, e.g. `2 hidden · 3 suppressed`; a part is
+/// omitted when its count is 0, and null when both are.
+@visibleForTesting
+String? hiddenFooterLabel(int hidden, int suppressed) {
+  final parts = [
+    if (hidden > 0) '$hidden hidden',
+    if (suppressed > 0) '$suppressed suppressed',
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
+}
+
 class _CardFooter extends StatelessWidget {
   const _CardFooter({
     required this.controller,
+    required this.hiddenCount,
+    required this.onShowHidden,
     required this.onExport,
     required this.onEncyclopedia,
     required this.onGuide,
   });
 
   final SleuthController controller;
+
+  /// Issues hidden from the overlay at runtime.
+  final int hiddenCount;
+
+  /// Opens the Hidden list.
+  final VoidCallback onShowHidden;
   final VoidCallback onExport;
   final VoidCallback onEncyclopedia;
   final VoidCallback onGuide;
@@ -1925,16 +2020,40 @@ class _CardFooter extends StatelessWidget {
           ),
           ValueListenableBuilder<int>(
             valueListenable: controller.suppressedCountNotifier,
-            builder: (_, count, _) {
-              if (count == 0) return const SizedBox.shrink();
-              return Padding(
-                padding: EdgeInsets.only(left: theme.spacingMd),
-                child: Text(
-                  '$count suppressed',
-                  style: TextStyle(
-                    color: theme.textQuaternary,
-                    fontSize: theme.fontSm,
-                    fontStyle: FontStyle.italic,
+            builder: (_, suppressed, _) {
+              final label = hiddenFooterLabel(hiddenCount, suppressed);
+              if (label == null) return const SizedBox.shrink();
+              return Flexible(
+                child: Semantics(
+                  button: true,
+                  label: '$label. Show hidden issues',
+                  onTap: onShowHidden,
+                  container: true,
+                  excludeSemantics: true,
+                  child: GestureDetector(
+                    onTap: onShowHidden,
+                    behavior: HitTestBehavior.opaque,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: Padding(
+                        padding: EdgeInsets.only(left: theme.spacingMd),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: 1,
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              color: theme.textQuaternary,
+                              fontSize: theme.fontSm,
+                              decoration: TextDecoration.underline,
+                              decorationColor: theme.textQuaternary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               );
@@ -1949,117 +2068,246 @@ class _CardFooter extends StatelessWidget {
 // ─── Issues Summary Bar ──────────────────────────────────────────────────
 
 class _IssuesSummaryBar extends StatelessWidget {
-  const _IssuesSummaryBar({required this.issues});
+  const _IssuesSummaryBar({
+    required this.issues,
+    required this.severityCounts,
+    required this.enabledSeverities,
+    required this.shownOfTotal,
+    required this.onToggleSeverity,
+  });
 
+  /// Cards currently shown; drives the confirmed/heuristic split.
   final List<PerformanceIssue> issues;
+
+  /// Cards per severity with every severity enabled (hidden cards
+  /// excluded); drives the chip counts.
+  final List<PerformanceIssue> severityCounts;
+
+  final Set<IssueSeverity> enabledSeverities;
+
+  /// Set when a severity is off or a card is hidden: shown and total
+  /// card counts for "Showing X of Y".
+  final ({int shown, int total})? shownOfTotal;
+
+  final ValueChanged<IssueSeverity> onToggleSeverity;
+
+  static const _order = [
+    IssueSeverity.critical,
+    IssueSeverity.warning,
+    IssueSeverity.ok,
+  ];
 
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    var critical = 0;
-    var warning = 0;
-    var ok = 0;
+    final counts = <IssueSeverity, int>{};
+    for (final issue in severityCounts) {
+      counts[issue.severity] = (counts[issue.severity] ?? 0) + 1;
+    }
     var confirmed = 0;
     var heuristic = 0;
-
     for (final issue in issues) {
-      switch (issue.severity) {
-        case IssueSeverity.critical:
-          critical++;
-        case IssueSeverity.warning:
-          warning++;
-        case IssueSeverity.ok:
-          ok++;
-      }
       if (issue.confidence == IssueConfidence.confirmed) {
         confirmed++;
       } else {
         heuristic++;
       }
     }
+    final narrowed = shownOfTotal;
+    final caption = narrowed != null
+        ? 'Showing ${narrowed.shown} of ${narrowed.total}'
+        : [
+            if (confirmed > 0) '$confirmed confirmed',
+            if (heuristic > 0) '$heuristic heuristic',
+          ].join(' · ');
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: theme.border, width: 1)),
       ),
-      child: Row(
-        children: [
-          if (critical > 0) ...[
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: theme.severityCritical,
-                shape: BoxShape.circle,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
+        child: Row(
+          children: [
+            for (final severity in _order)
+              // A disabled severity keeps its chip so it can be turned
+              // back on, even when it has no cards right now.
+              if ((counts[severity] ?? 0) > 0 ||
+                  !enabledSeverities.contains(severity))
+                _SeverityChip(
+                  severity: severity,
+                  count: counts[severity] ?? 0,
+                  selected: enabledSeverities.contains(severity),
+                  onTap: () => onToggleSeverity(severity),
+                ),
+            SizedBox(width: theme.spacingXs),
+            Expanded(
+              child: Text(
+                caption,
+                style: TextStyle(
+                  color: theme.textTertiary,
+                  fontSize: theme.fontSm,
+                ),
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 3),
-            Text(
-              '$critical',
-              style: TextStyle(
-                color: theme.severityCritical,
-                fontSize: theme.fontSm,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(width: theme.spacingMd),
           ],
-          if (warning > 0) ...[
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: theme.severityWarning,
-                shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+}
+
+/// Severity count in the summary bar that toggles the overlay's severity
+/// filter. 48 dp tall hit area; the visible pill is smaller.
+class _SeverityChip extends StatelessWidget {
+  const _SeverityChip({
+    required this.severity,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IssueSeverity severity;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    final color = switch (severity) {
+      IssueSeverity.critical => theme.severityCritical,
+      IssueSeverity.warning => theme.severityWarning,
+      IssueSeverity.ok => theme.severityOk,
+    };
+    final name = switch (severity) {
+      IssueSeverity.critical => 'critical',
+      IssueSeverity.warning => 'warning',
+      IssueSeverity.ok => 'ok',
+    };
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$count $name. ${selected ? 'Shown' : 'Hidden'}. Tap to toggle',
+      onTap: onTap,
+      container: true,
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          height: 48,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: theme.spacingXxs),
+            child: Center(
+              widthFactor: 1,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: EdgeInsets.symmetric(
+                  horizontal: theme.spacingSm,
+                  vertical: theme.spacingXxs,
+                ),
+                decoration: BoxDecoration(
+                  color: selected ? color.withValues(alpha: 0.15) : null,
+                  borderRadius: BorderRadius.circular(theme.radiusMd),
+                  border: Border.all(
+                    color: selected
+                        ? color.withValues(alpha: 0.15)
+                        : theme.border.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: selected ? color : theme.textQuaternary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const SizedBox(width: 6, height: 6),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      '$count',
+                      style: TextStyle(
+                        color: selected ? color : theme.textQuaternary,
+                        fontSize: theme.fontSm,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 3),
-            Text(
-              '$warning',
-              style: TextStyle(
-                color: theme.severityWarning,
-                fontSize: theme.fontSm,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(width: theme.spacingMd),
-          ],
-          if (ok > 0) ...[
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: theme.severityOk,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 3),
-            Text(
-              '$ok',
-              style: TextStyle(
-                color: theme.severityOk,
-                fontSize: theme.fontSm,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(width: theme.spacingMd),
-          ],
-          Expanded(
-            child: Text(
-              [
-                if (confirmed > 0) '$confirmed confirmed',
-                if (heuristic > 0) '$heuristic heuristic',
-              ].join(' · '),
-              style: TextStyle(
-                color: theme.textTertiary,
-                fontSize: theme.fontSm,
-              ),
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
             ),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Centered message with one action, shown when no card survives the
+/// severity filter or hiding.
+class _EmptyListMessage extends StatelessWidget {
+  const _EmptyListMessage({
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    return Center(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.all(theme.spacingMd),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: theme.textSecondary,
+                fontSize: theme.fontMd,
+              ),
+            ),
+            Semantics(
+              button: true,
+              label: actionLabel,
+              onTap: onAction,
+              container: true,
+              excludeSemantics: true,
+              child: GestureDetector(
+                onTap: onAction,
+                behavior: HitTestBehavior.opaque,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
+                  child: Center(
+                    widthFactor: 1,
+                    child: Text(
+                      actionLabel,
+                      style: TextStyle(
+                        color: theme.checkboxActive,
+                        fontSize: theme.fontMd,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -524,4 +524,49 @@ void main() {
       expect(replaced.dedupIdentityMicros, 200);
     });
   });
+
+  group('PerformanceIssue.toClipboardText', () {
+    test('lists every present field in order', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.critical,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        confidenceReason: 'seen in 3 scans',
+        title: 'Excessive rebuilds',
+        detail: 'Rebuilt 40 times per second.',
+        fixHint: 'Split the widget.',
+        stableId: 'rebuild_activity',
+        widgetName: 'FeedItem',
+        routeName: '/feed',
+        tabVisitIndex: 2,
+      );
+      expect(
+        issue.toClipboardText(),
+        'Excessive rebuilds\n'
+        'Severity: critical\n'
+        'Confidence: likely — seen in 3 scans\n'
+        'Route: /feed (tab-2)\n'
+        'Widget: FeedItem\n'
+        '\n'
+        'Rebuilt 40 times per second.\n'
+        '\n'
+        'Fix: Split the widget.\n'
+        '\n'
+        'Stable ID: rebuild_activity',
+      );
+    });
+
+    test('omits absent optional fields', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.layout,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+      );
+      final text = issue.toClipboardText();
+      expect(text, 'T\nSeverity: warning\nConfidence: possible\n\nD\n\nFix: F');
+    });
+  });
 }

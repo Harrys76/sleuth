@@ -9,6 +9,8 @@ import 'sleuth_theme.dart';
 ///
 /// - Tap to expand/collapse detail + fix hint.
 /// - Checkbox (when locatable) to highlight the widget on screen.
+/// - Long-press the title, or tap Copy when expanded, to copy the details.
+/// - Hide (when expanded) removes the card from the overlay.
 ///
 /// Uses internal expansion state so that list rebuilds from parent
 /// ValueListenableBuilders do not reset expansion. The parent passes
@@ -35,6 +37,9 @@ class IssueCard extends StatefulWidget {
     this.scanTick,
     this.onLearnMore,
     this.onAskAi,
+    this.onCopy,
+    this.onHide,
+    this.collapseEpoch = 0,
   }) : assert(
          suppressedParentCount >= 0,
          'suppressedParentCount must be >= 0; negative values produce '
@@ -106,6 +111,20 @@ class IssueCard extends StatefulWidget {
   /// Null hides the link (e.g. when no [AiChatAdapter] is configured).
   final VoidCallback? onAskAi;
 
+  /// Copies the issue details. Fired by the Copy action and by a
+  /// long-press on the title. Null hides the action and disables the
+  /// long-press.
+  final VoidCallback? onCopy;
+
+  /// Hides the card from the overlay. The card collapses through
+  /// [onExpandedChanged] before this fires. Null hides the action.
+  final VoidCallback? onHide;
+
+  /// Host-driven collapse: when this changes while the card is expanded,
+  /// the card collapses without calling [onExpandedChanged] (the host has
+  /// already dropped its expansion entry).
+  final int collapseEpoch;
+
   @override
   State<IssueCard> createState() => _IssueCardState();
 }
@@ -120,6 +139,24 @@ class _IssueCardState extends State<IssueCard> {
     _expanded = widget.initiallyExpanded;
   }
 
+  @override
+  void didUpdateWidget(covariant IssueCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The host cleared every expansion entry itself; collapse to match
+    // without reporting back.
+    if (oldWidget.collapseEpoch != widget.collapseEpoch && _expanded) {
+      _expanded = false;
+      _aboutExpanded = false;
+    }
+  }
+
+  /// Collapses through [_toggle] (so the host drops its expansion entry
+  /// first), then hides.
+  void _hide() {
+    if (_expanded) _toggle();
+    widget.onHide?.call();
+  }
+
   /// Toggle expansion and notify the host.
   ///
   /// **Invariant:** every mutation of [_expanded] must route through this
@@ -128,7 +165,9 @@ class _IssueCardState extends State<IssueCard> {
   /// "collapse all" or per-card auto-collapse that sets `_expanded =
   /// false` directly without calling the callback would leak entries in
   /// the host's `_expandedIndices` map. If you add such a feature, route
-  /// it through `_toggle` or a sibling that fires the callback.
+  /// it through `_toggle` or a sibling that fires the callback. The one
+  /// exception is [collapseEpoch]: there the host has already cleared
+  /// every entry.
   void _toggle() {
     setState(() {
       _expanded = !_expanded;
@@ -177,15 +216,18 @@ class _IssueCardState extends State<IssueCard> {
                     _categoryBadge(issue.category, theme),
                     SizedBox(width: theme.spacingXs),
                     Expanded(
-                      child: Text(
-                        issue.title,
-                        style: TextStyle(
-                          color: theme.textPrimary,
-                          fontSize: theme.fontBase,
-                          fontWeight: FontWeight.w600,
+                      child: GestureDetector(
+                        onLongPress: widget.onCopy,
+                        child: Text(
+                          issue.title,
+                          style: TextStyle(
+                            color: theme.textPrimary,
+                            fontSize: theme.fontBase,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     _confidenceBadge(
@@ -271,15 +313,20 @@ class _IssueCardState extends State<IssueCard> {
                     ),
                     if (widget.locatable) ...[
                       SizedBox(width: theme.spacingXs),
-                      Checkbox(
-                        value: widget.highlighted,
-                        onChanged: (v) =>
-                            widget.onHighlightChanged?.call(v ?? false),
-                        side: BorderSide(
-                          color: theme.textQuaternary,
-                          width: 1.5,
+                      MergeSemantics(
+                        child: Semantics(
+                          label: 'Highlight widget on screen',
+                          child: Checkbox(
+                            value: widget.highlighted,
+                            onChanged: (v) =>
+                                widget.onHighlightChanged?.call(v ?? false),
+                            side: BorderSide(
+                              color: theme.textQuaternary,
+                              width: 1.5,
+                            ),
+                            activeColor: theme.checkboxActive,
+                          ),
                         ),
-                        activeColor: theme.checkboxActive,
                       ),
                     ],
                   ],
@@ -571,46 +618,98 @@ class _IssueCardState extends State<IssueCard> {
           ],
         ),
       ),
-      if (widget.onLearnMore != null || widget.onAskAi != null)
+      if (widget.onCopy != null ||
+          widget.onHide != null ||
+          widget.onLearnMore != null ||
+          widget.onAskAi != null)
         Padding(
-          padding: EdgeInsets.only(top: theme.spacingSm),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final bothPresent =
-                  widget.onLearnMore != null && widget.onAskAi != null;
-              // Both links at font-size 9 + icons need ~240px side by side.
-              final stackVertically = bothPresent && constraints.maxWidth < 240;
-
-              if (stackVertically) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.onLearnMore != null) _buildLearnMoreLink(theme),
-                    if (widget.onAskAi != null)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Padding(
-                          padding: EdgeInsets.only(top: theme.spacingXs),
-                          child: _AskAiShimmerLink(onTap: widget.onAskAi!),
-                        ),
-                      ),
-                  ],
-                );
-              }
-              return Row(
-                children: [
-                  if (widget.onLearnMore != null)
-                    Flexible(child: _buildLearnMoreLink(theme)),
-                  if (bothPresent) const Spacer(),
-                  if (widget.onAskAi != null)
-                    _AskAiShimmerLink(onTap: widget.onAskAi!),
-                ],
-              );
-            },
+          padding: EdgeInsets.only(top: theme.spacingXs),
+          child: Row(
+            children: [
+              if (widget.onCopy != null)
+                _actionIcon(
+                  icon: Icons.copy,
+                  label: 'Copy issue details',
+                  onTap: widget.onCopy!,
+                  theme: theme,
+                ),
+              if (widget.onHide != null)
+                _actionIcon(
+                  icon: Icons.visibility_off_outlined,
+                  label: 'Hide this issue',
+                  onTap: _hide,
+                  theme: theme,
+                ),
+              if (widget.onLearnMore != null || widget.onAskAi != null)
+                Expanded(child: _buildLinks(theme)),
+            ],
           ),
         ),
     ];
+  }
+
+  /// 48 dp icon action in the expanded card's action row.
+  Widget _actionIcon({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    required SleuthThemeData theme,
+  }) {
+    return Semantics(
+      label: label,
+      button: true,
+      onTap: onTap,
+      container: true,
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Center(child: Icon(icon, color: theme.textTertiary, size: 16)),
+        ),
+      ),
+    );
+  }
+
+  /// "Learn more" and "Ask AI" links; stacked when both do not fit.
+  Widget _buildLinks(SleuthThemeData theme) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bothPresent =
+            widget.onLearnMore != null && widget.onAskAi != null;
+        // Both links at font-size 9 + icons need ~240px side by side.
+        final stackVertically = bothPresent && constraints.maxWidth < 240;
+
+        if (stackVertically) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (widget.onLearnMore != null) _buildLearnMoreLink(theme),
+              if (widget.onAskAi != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: EdgeInsets.only(top: theme.spacingXs),
+                    child: _AskAiShimmerLink(onTap: widget.onAskAi!),
+                  ),
+                ),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            if (widget.onLearnMore != null)
+              Flexible(child: _buildLearnMoreLink(theme)),
+            if (bothPresent) const Spacer(),
+            if (widget.onAskAi != null)
+              _AskAiShimmerLink(onTap: widget.onAskAi!),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildLearnMoreLink(SleuthThemeData theme) {

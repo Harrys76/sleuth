@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/ui/guide_page.dart';
 
+import '../helpers/overlay_harness.dart';
+
 void main() {
   group('GuidePage', () {
     testWidgets('shows all legend content', (tester) async {
@@ -77,18 +79,24 @@ void main() {
       expect(closed, isTrue);
     });
 
-    testWidgets('system back gesture calls onClose', (tester) async {
-      var closed = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: GuidePage(onClose: () => closed = true)),
-        ),
-      );
+    testWidgets('system back closes the guide, then the dashboard', (
+      tester,
+    ) async {
+      final controller = await pumpOverlay(tester);
+      await openDashboard(tester, controller);
+      await tester.tap(find.bySemanticsLabel('Guide'));
+      await tester.pumpAndSettle();
+      expect(find.byType(GuidePage), findsOneWidget);
 
-      // Simulate system back button / gesture
-      await tester.binding.handlePopRoute();
-      await tester.pump();
-      expect(closed, isTrue);
+      // The overlay hosts the page outside any Navigator; system back
+      // reaches it through the binding observer.
+      expect(await systemBack(tester), isTrue);
+      expect(find.byType(GuidePage), findsNothing);
+      expect(controller.overlayUiState.dashboardOpen, isTrue);
+
+      expect(await systemBack(tester), isTrue);
+      expect(controller.overlayUiState.dashboardOpen, isFalse);
+      expect(find.text('app'), findsOneWidget);
     });
   });
 }

@@ -28,6 +28,7 @@ class AiChatPage extends StatefulWidget {
     required this.history,
     required this.onHistoryChanged,
     required this.onClose,
+    this.onNotify,
   });
 
   /// The performance issue being discussed.
@@ -47,6 +48,10 @@ class AiChatPage extends StatefulWidget {
 
   /// Close this page and return to the main card.
   final VoidCallback onClose;
+
+  /// Shows a short confirmation (copied, copy failed) in the host's
+  /// toast. The page sits outside any [ScaffoldMessenger].
+  final ValueChanged<String>? onNotify;
 
   @override
   State<AiChatPage> createState() => _AiChatPageState();
@@ -309,18 +314,20 @@ class _AiChatPageState extends State<AiChatPage>
         ..writeln(_escapeMd(msg.text.trim()))
         ..writeln();
     }
+    await _copy(buf.toString(), 'Conversation copied to clipboard');
+  }
+
+  /// Copies [text] and reports [confirmation], or a failure, through
+  /// [AiChatPage.onNotify].
+  Future<void> _copy(String text, String confirmation) async {
     try {
-      await Clipboard.setData(ClipboardData(text: buf.toString()));
-    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text));
+    } catch (e) {
+      debugPrint('Sleuth: copy failed: $e');
+      if (mounted) widget.onNotify?.call("Couldn't copy");
       return;
     }
-    if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(
-        content: Text('Conversation copied to clipboard'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+    if (mounted) widget.onNotify?.call(confirmation);
   }
 
   Widget _buildIssueContext(SleuthThemeData theme) {
@@ -530,7 +537,7 @@ class _AiChatPageState extends State<AiChatPage>
                 SizedBox(width: theme.spacingMd),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => Clipboard.setData(ClipboardData(text: msg.text)),
+                  onTap: () => _copy(msg.text, 'Copied'),
                   child: SizedBox(
                     width: 36,
                     height: 24,

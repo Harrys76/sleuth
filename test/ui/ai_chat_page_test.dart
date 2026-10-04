@@ -683,7 +683,10 @@ void main() {
       );
     });
 
-    testWidgets('copy shows snackbar confirmation', (tester) async {
+    testWidgets('copy reports its confirmation through onNotify', (
+      tester,
+    ) async {
+      final notes = <String>[];
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
         (MethodCall call) async {
@@ -700,6 +703,7 @@ void main() {
             history: const [AiChatMessage(role: AiChatRole.user, text: 'Q')],
             onHistoryChanged: (_) {},
             onClose: () {},
+            onNotify: notes.add,
           ),
         ),
       );
@@ -708,7 +712,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.copy_all_outlined));
       await tester.pumpAndSettle();
 
-      expect(find.text('Conversation copied to clipboard'), findsOneWidget);
+      expect(notes, ['Conversation copied to clipboard']);
 
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,

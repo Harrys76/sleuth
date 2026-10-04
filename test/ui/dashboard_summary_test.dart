@@ -78,7 +78,7 @@ void main() {
           .where(
             (t) =>
                 t.style?.fontSize == 10 &&
-                t.style?.fontWeight == FontWeight.bold,
+                t.style?.fontWeight == FontWeight.w600,
           )
           .map((t) => t.data)
           .toList();
@@ -116,7 +116,7 @@ void main() {
             (t) =>
                 t.data == '1' &&
                 t.style?.fontSize == 10 &&
-                t.style?.fontWeight == FontWeight.bold,
+                t.style?.fontWeight == FontWeight.w600,
           )
           .toList();
       expect(warningCounts, isNotEmpty);

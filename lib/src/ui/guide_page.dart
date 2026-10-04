@@ -66,126 +66,120 @@ class _GuidePageState extends State<GuidePage>
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) widget.onClose();
-      },
-      child: Material(
-        color: theme.pageBackground,
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Header
-              FadeTransition(
-                opacity: _staggered(0),
-                child: Padding(
-                  padding: EdgeInsets.all(theme.spacingMd),
-                  child: Row(
-                    children: [
-                      GestureDetector(
-                        onTap: widget.onClose,
-                        behavior: HitTestBehavior.opaque,
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Center(
-                            child: Icon(
-                              Icons.arrow_back,
-                              color: theme.textPrimary,
-                              size: 22,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.pets,
-                            size: theme.fontXl,
+    return Material(
+      color: theme.pageBackground,
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Header
+            FadeTransition(
+              opacity: _staggered(0),
+              child: Padding(
+                padding: EdgeInsets.all(theme.spacingMd),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: widget.onClose,
+                      behavior: HitTestBehavior.opaque,
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Center(
+                          child: Icon(
+                            Icons.arrow_back,
                             color: theme.textPrimary,
-                          ),
-                          SizedBox(width: theme.spacingXs),
-                          Text(
-                            'Sleuth Guide',
-                            style: TextStyle(
-                              color: theme.textPrimary,
-                              fontSize: theme.fontXl,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Divider(color: theme.border, height: 1),
-
-              // Scrollable sections
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(
-                    theme.spacingXl,
-                    theme.spacingLg,
-                    theme.spacingXl,
-                    24,
-                  ),
-                  child: Column(
-                    children: [
-                      _section(
-                        index: 0,
-                        icon: Icons.rocket_launch_outlined,
-                        title: 'Quick Start',
-                        accent: theme.categoryBuild,
-                        theme: theme,
-                        child: _quickStartContent(),
-                      ),
-                      const SizedBox(height: 10),
-                      _section(
-                        index: 1,
-                        icon: Icons.dashboard_customize_outlined,
-                        title: 'Understanding the Card',
-                        accent: theme.categoryMemory,
-                        theme: theme,
-                        child: _cardExplanation(theme),
-                      ),
-                      const SizedBox(height: 10),
-                      _section(
-                        index: 2,
-                        icon: Icons.palette_outlined,
-                        title: 'Color Legend',
-                        accent: theme.severityOk,
-                        theme: theme,
-                        child: _colorLegend(theme),
-                      ),
-                      const SizedBox(height: 10),
-                      _section(
-                        index: 3,
-                        icon: Icons.tips_and_updates_outlined,
-                        title: 'Tips & Tricks',
-                        accent: theme.severityWarning,
-                        theme: theme,
-                        child: _tipsContent(theme),
-                      ),
-                      const SizedBox(height: 20),
-                      FadeTransition(
-                        opacity: _staggered(4),
-                        child: Text(
-                          'Sleuth',
-                          style: TextStyle(
-                            color: theme.textSubtle,
-                            fontSize: theme.fontSm,
+                            size: 22,
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.pets,
+                          size: theme.fontXl,
+                          color: theme.textPrimary,
+                        ),
+                        SizedBox(width: theme.spacingXs),
+                        Text(
+                          'Sleuth Guide',
+                          style: TextStyle(
+                            color: theme.textPrimary,
+                            fontSize: theme.fontXl,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+            Divider(color: theme.border, height: 1),
+
+            // Scrollable sections
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  theme.spacingXl,
+                  theme.spacingLg,
+                  theme.spacingXl,
+                  24,
+                ),
+                child: Column(
+                  children: [
+                    _section(
+                      index: 0,
+                      icon: Icons.rocket_launch_outlined,
+                      title: 'Quick Start',
+                      accent: theme.categoryBuild,
+                      theme: theme,
+                      child: _quickStartContent(),
+                    ),
+                    const SizedBox(height: 10),
+                    _section(
+                      index: 1,
+                      icon: Icons.dashboard_customize_outlined,
+                      title: 'Understanding the Card',
+                      accent: theme.categoryMemory,
+                      theme: theme,
+                      child: _cardExplanation(theme),
+                    ),
+                    const SizedBox(height: 10),
+                    _section(
+                      index: 2,
+                      icon: Icons.palette_outlined,
+                      title: 'Color Legend',
+                      accent: theme.severityOk,
+                      theme: theme,
+                      child: _colorLegend(theme),
+                    ),
+                    const SizedBox(height: 10),
+                    _section(
+                      index: 3,
+                      icon: Icons.tips_and_updates_outlined,
+                      title: 'Tips & Tricks',
+                      accent: theme.severityWarning,
+                      theme: theme,
+                      child: _tipsContent(theme),
+                    ),
+                    const SizedBox(height: 20),
+                    FadeTransition(
+                      opacity: _staggered(4),
+                      child: Text(
+                        'Sleuth',
+                        style: TextStyle(
+                          color: theme.textSubtle,
+                          fontSize: theme.fontSm,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -338,14 +332,17 @@ class _GuidePageState extends State<GuidePage>
           '\u{1F534}',
           'Severity Dot',
           'Red = at least one critical issue. Amber = warnings only. '
-              'Green = no issues detected.',
+              'Green = no issues detected. Hidden cards and severities '
+              'turned off in the summary bar do not count.',
         ),
         _infoTile(
           theme,
           '\u{2705}',
           'Summary Bar',
-          'Shows severity counts and evidence quality '
-              '(confirmed vs heuristic) below the divider.',
+          'Severity counts double as filters: tap one to show or hide that '
+              'severity (one always stays on). On the right: evidence '
+              'quality (confirmed vs heuristic), or "Showing X of Y" while '
+              'a filter or a hidden card narrows the list.',
         ),
         _infoTile(
           theme,
@@ -367,9 +364,28 @@ class _GuidePageState extends State<GuidePage>
         ),
         _infoTile(
           theme,
+          '\u{1F4DD}',
+          'Copy & Hide',
+          'Expand an issue to copy its details as plain text (or long-press '
+              'the title) or to hide the card, with Undo. The footer shows '
+              'how many cards are hidden; tap it to restore them. Hiding '
+              'only affects the overlay: exports, snapshots and MCP still '
+              'include the issue.',
+        ),
+        _infoTile(
+          theme,
           '\u{2194}\u{FE0F}',
-          'Resize',
-          'Drag the bottom-right corner to resize width and height.',
+          'Resize & Move',
+          'Drag the bottom-right corner to resize width and height. Drag '
+              'the trigger button to move it; it settles on the nearest side '
+              'and keeps its place, like the card, when you close and reopen.',
+        ),
+        _infoTile(
+          theme,
+          '\u{2B05}\u{FE0F}',
+          'Back',
+          'The system back gesture or button closes the open page, then '
+              'the card, before your app\'s navigation sees it.',
         ),
         _infoTile(
           theme,

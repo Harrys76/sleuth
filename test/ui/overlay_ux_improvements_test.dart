@@ -276,8 +276,9 @@ void main() {
         findsOneWidget,
       );
 
-      // Wait 4 seconds — banner should clear
+      // Wait 4 seconds — banner should clear after its fade-out.
       await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.textContaining('Widget not currently visible'), findsNothing);
     });

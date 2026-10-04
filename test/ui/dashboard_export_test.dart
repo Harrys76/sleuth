@@ -84,8 +84,9 @@ void main() {
       await tester.pump();
       expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
 
-      // Advance past the 2-second delay
+      // Advance past the 2-second delay and the 200 ms fade-out.
       await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Snapshot copied to clipboard'), findsNothing);
     });
   });

@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/trigger_button.dart';
+
+import '../helpers/overlay_harness.dart';
 
 void main() {
   Widget wrap(Widget child) {
@@ -352,6 +355,168 @@ void main() {
       issues.dispose();
       vm.dispose();
       fps.dispose();
+    });
+  });
+
+  group('TriggerButton safe area', () {
+    late ValueNotifier<List<PerformanceIssue>> issues;
+    late ValueNotifier<bool> vm;
+    late ValueNotifier<FrameStatsBuffer> fps;
+    late OverlayUiState state;
+
+    setUp(() {
+      issues = ValueNotifier<List<PerformanceIssue>>([]);
+      vm = ValueNotifier<bool>(false);
+      fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
+      state = OverlayUiState();
+    });
+
+    tearDown(() {
+      issues.dispose();
+      vm.dispose();
+      fps.dispose();
+      state.dispose();
+    });
+
+    void setView(
+      WidgetTester tester, {
+      Size size = const Size(400, 800),
+      double top = 0,
+      double bottom = 0,
+      double keyboard = 0,
+    }) {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = size;
+      tester.view.padding = FakeViewPadding(top: top, bottom: bottom);
+      tester.view.viewPadding = FakeViewPadding(top: top, bottom: bottom);
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+      addTearDown(tester.view.reset);
+    }
+
+    Widget app() => MaterialApp(
+      home: TriggerButton(
+        issuesNotifier: issues,
+        vmConnectedNotifier: vm,
+        frameStatsNotifier: fps,
+        isDebugMode: false,
+        uiState: state,
+        onTap: () {},
+      ),
+    );
+
+    Rect buttonRect(WidgetTester tester) =>
+        tester.getRect(find.byType(GestureDetector).first);
+
+    testWidgets('drags past the insets stay clear of notch, home indicator '
+        'and keyboard', (tester) async {
+      setView(tester, top: 59, bottom: 34, keyboard: 100);
+      await tester.pumpWidget(app());
+
+      await tester.drag(find.byIcon(Icons.pets), const Offset(0, -2000));
+      await tester.pump();
+      expect(buttonRect(tester).top, greaterThanOrEqualTo(59));
+
+      await tester.drag(find.byIcon(Icons.pets), const Offset(0, 4000));
+      await tester.pump();
+      expect(buttonRect(tester).bottom, lessThanOrEqualTo(800 - 100));
+    });
+
+    testWidgets('drag end snaps to the nearest horizontal edge', (
+      tester,
+    ) async {
+      setView(tester);
+      await tester.pumpWidget(app());
+
+      // Default placement is top-right; drag well past the middle.
+      await tester.drag(find.byIcon(Icons.pets), const Offset(-300, 200));
+      await tester.pump();
+      expect(state.triggerAnchor!.edge, TriggerEdge.left);
+      expect(buttonRect(tester).left, 16);
+    });
+
+    testWidgets('a tiny viewport with large insets does not throw', (
+      tester,
+    ) async {
+      setView(
+        tester,
+        size: const Size(300, 300),
+        top: 100,
+        bottom: 100,
+        keyboard: 100,
+      );
+      await tester.pumpWidget(app());
+      await tester.drag(find.byIcon(Icons.pets), const Offset(-500, 500));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(state.triggerAnchor!.fraction.isFinite, isTrue);
+    });
+
+    testWidgets('rotation keeps the edge and the fraction', (tester) async {
+      setView(tester, size: const Size(400, 800));
+      state.triggerAnchor = (edge: TriggerEdge.left, fraction: 0.5);
+      await tester.pumpWidget(app());
+      final portrait = buttonRect(tester);
+      expect(portrait.left, 16);
+
+      tester.view.physicalSize = const Size(800, 400);
+      await tester.pump();
+      final landscape = buttonRect(tester);
+      expect(landscape.left, 16);
+      expect(state.triggerAnchor, (edge: TriggerEdge.left, fraction: 0.5));
+      // Same fraction of the anchored vertical range in both orientations.
+      double fractionOf(Rect r, double height) =>
+          (r.top - 16) / (height - r.height - 32);
+      expect(fractionOf(portrait, 800), closeTo(0.5, 0.01));
+      expect(fractionOf(landscape, 400), closeTo(0.5, 0.01));
+    });
+
+    testWidgets('semantics label carries the visible issue count', (
+      tester,
+    ) async {
+      setView(tester);
+      issues.value = const [
+        PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'one',
+          detail: 'd',
+          fixHint: 'f',
+          stableId: 'one',
+        ),
+        PerformanceIssue(
+          severity: IssueSeverity.critical,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'two',
+          detail: 'd',
+          fixHint: 'f',
+          stableId: 'two',
+        ),
+      ];
+      await tester.pumpWidget(app());
+      expect(find.bySemanticsLabel('Open Sleuth, 2 issues'), findsOneWidget);
+      expect(find.text('2'), findsOneWidget);
+
+      state.hide('two');
+      await tester.pump();
+      expect(find.bySemanticsLabel('Open Sleuth, 1 issue'), findsOneWidget);
+      expect(find.text('1'), findsOneWidget);
+    });
+
+    testWidgets('the overlay keeps the trigger position across open and '
+        'close', (tester) async {
+      final controller = await pumpOverlay(tester);
+      await tester.drag(find.byIcon(Icons.pets), const Offset(-400, 150));
+      await tester.pump();
+      final before = tester.getTopLeft(find.byIcon(Icons.pets));
+      expect(controller.overlayUiState.triggerAnchor, isNotNull);
+
+      await openDashboard(tester, controller);
+      expect(find.byIcon(Icons.pets), findsWidgets); // card header paw
+      controller.overlayUiState.dashboardOpen = false;
+      await tester.pump();
+      expect(tester.getTopLeft(find.byIcon(Icons.pets)), before);
     });
   });
 }

@@ -173,88 +173,79 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTarget());
     }
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) {
-          _searchFocusNode.unfocus();
-          widget.onClose();
-        }
-      },
-      child: Material(
-        color: theme.pageBackground,
-        child: SafeArea(
-          child: Column(
-            children: [
-              // ── Header ──────────────────────────────────────────────
-              FadeTransition(
-                opacity: headerAnim,
-                child: Padding(
-                  padding: EdgeInsets.all(theme.spacingMd),
-                  child: Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () {
-                          _searchFocusNode.unfocus();
-                          widget.onClose();
-                        },
-                        behavior: HitTestBehavior.opaque,
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Center(
-                            child: Icon(
-                              Icons.arrow_back,
-                              color: theme.textPrimary,
-                              size: 22,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          'Issue Encyclopedia',
-                          style: TextStyle(
+    return Material(
+      color: theme.pageBackground,
+      child: SafeArea(
+        child: Column(
+          children: [
+            // ── Header ──────────────────────────────────────────────
+            FadeTransition(
+              opacity: headerAnim,
+              child: Padding(
+                padding: EdgeInsets.all(theme.spacingMd),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        _searchFocusNode.unfocus();
+                        widget.onClose();
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Center(
+                          child: Icon(
+                            Icons.arrow_back,
                             color: theme.textPrimary,
-                            fontSize: theme.fontXl,
-                            fontWeight: FontWeight.bold,
+                            size: 22,
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        'Issue Encyclopedia',
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: theme.fontXl,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              Divider(color: theme.border, height: 1),
+            ),
+            Divider(color: theme.border, height: 1),
 
-              // ── Search bar (pinned) ─────────────────────────────────
-              FadeTransition(
-                opacity: headerAnim,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    theme.spacingMd,
-                    theme.spacingSm,
-                    theme.spacingMd,
-                    theme.spacingSm,
-                  ),
-                  child: _SearchBar(
-                    controller: _searchController,
-                    focusNode: _searchFocusNode,
-                    theme: theme,
-                  ),
+            // ── Search bar (pinned) ─────────────────────────────────
+            FadeTransition(
+              opacity: headerAnim,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  theme.spacingMd,
+                  theme.spacingSm,
+                  theme.spacingMd,
+                  theme.spacingSm,
+                ),
+                child: _SearchBar(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  theme: theme,
                 ),
               ),
-              Divider(color: theme.border, height: 1),
+            ),
+            Divider(color: theme.border, height: 1),
 
-              // ── Scrollable body ─────────────────────────────────────
-              Expanded(
-                child: FadeTransition(
-                  opacity: bodyAnim,
-                  child: _buildBody(groups, theme, keyboardPadding),
-                ),
+            // ── Scrollable body ─────────────────────────────────────
+            Expanded(
+              child: FadeTransition(
+                opacity: bodyAnim,
+                child: _buildBody(groups, theme, keyboardPadding),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

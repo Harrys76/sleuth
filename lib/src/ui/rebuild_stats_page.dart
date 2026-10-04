@@ -77,185 +77,179 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
     final total = widget._totalRebuilds;
     final topCount = entries.isEmpty ? 0 : entries.first.value;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) widget.onClose();
-      },
-      child: Material(
-        color: theme.pageBackground,
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Header
-              FadeTransition(
-                opacity: _entranceController,
-                child: Padding(
-                  padding: EdgeInsets.all(theme.spacingMd),
-                  child: Row(
-                    children: [
-                      Semantics(
-                        label: 'Back',
-                        button: true,
-                        child: GestureDetector(
-                          onTap: widget.onClose,
-                          behavior: HitTestBehavior.opaque,
-                          child: SizedBox(
-                            width: 48,
-                            height: 48,
-                            child: Center(
-                              child: Icon(
-                                Icons.arrow_back,
-                                color: theme.textPrimary,
-                                size: 22,
-                              ),
+    return Material(
+      color: theme.pageBackground,
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Header
+            FadeTransition(
+              opacity: _entranceController,
+              child: Padding(
+                padding: EdgeInsets.all(theme.spacingMd),
+                child: Row(
+                  children: [
+                    Semantics(
+                      label: 'Back',
+                      button: true,
+                      child: GestureDetector(
+                        onTap: widget.onClose,
+                        behavior: HitTestBehavior.opaque,
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Center(
+                            child: Icon(
+                              Icons.arrow_back,
+                              color: theme.textPrimary,
+                              size: 22,
                             ),
                           ),
                         ),
                       ),
-                      Icon(
-                        Icons.loop_outlined,
-                        color: theme.categoryBuild,
-                        size: 18,
-                      ),
-                      SizedBox(width: theme.spacingXs),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
+                    ),
+                    Icon(
+                      Icons.loop_outlined,
+                      color: theme.categoryBuild,
+                      size: 18,
+                    ),
+                    SizedBox(width: theme.spacingXs),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Rebuild Stats',
+                            style: TextStyle(
+                              color: theme.textPrimary,
+                              fontSize: theme.fontXl,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (widget.routeDisplayName != null)
                             Text(
-                              'Rebuild Stats',
+                              widget.routeDisplayName!,
                               style: TextStyle(
-                                color: theme.textPrimary,
-                                fontSize: theme.fontXl,
-                                fontWeight: FontWeight.bold,
+                                color: theme.textTertiary,
+                                fontSize: theme.fontSm,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            if (widget.routeDisplayName != null)
-                              Text(
-                                widget.routeDisplayName!,
-                                style: TextStyle(
-                                  color: theme.textTertiary,
-                                  fontSize: theme.fontSm,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                          ],
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              Divider(color: theme.border, height: 1),
+            ),
+            Divider(color: theme.border, height: 1),
 
-              // Summary strip
-              if (entries.isNotEmpty)
-                FadeTransition(
-                  opacity: _entranceController,
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      theme.spacingXl,
-                      theme.spacingLg,
-                      theme.spacingXl,
-                      theme.spacingSm,
-                    ),
-                    child: Row(
-                      children: [
-                        _SummaryChip(
-                          theme: theme,
-                          label: 'Total',
-                          value: total.toString(),
-                        ),
-                        SizedBox(width: theme.spacingSm),
-                        _SummaryChip(
-                          theme: theme,
-                          label: 'Types',
-                          value: entries.length.toString(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-              // Inflation disclaimer (KDD-5 + KDD-10) — positioned immediately
-              // below the summary chips so a user who scrolls a long hotspot
-              // list sees the caveat BEFORE forming a mental model from the
-              // row labels. (M14/H2: moved up from footer, upweighted from
-              // `fontXs + textQuaternary` to `fontSm + textSecondary`, and
-              // given an info icon so it doesn't read like a footnote.
-              // v0.15.1: added Sleuth-overlay exclusion note so users know
-              // the drilldown reflects their app only, not Sleuth's own UI.)
-              if (entries.isNotEmpty)
-                Padding(
+            // Summary strip
+            if (entries.isNotEmpty)
+              FadeTransition(
+                opacity: _entranceController,
+                child: Padding(
                   padding: EdgeInsets.fromLTRB(
                     theme.spacingXl,
-                    theme.spacingXs,
+                    theme.spacingLg,
                     theme.spacingXl,
                     theme.spacingSm,
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Padding(
-                        padding: EdgeInsets.only(top: theme.spacingXxs),
-                        child: Icon(
-                          Icons.info_outline,
-                          size: 14,
-                          color: theme.textSecondary,
-                        ),
+                      _SummaryChip(
+                        theme: theme,
+                        label: 'Total',
+                        value: total.toString(),
                       ),
-                      SizedBox(width: theme.spacingXs),
-                      Expanded(
-                        child: Text(
-                          'Profile-mode counts include initial widget '
-                          'inflations as well as rebuilds — route entry '
-                          'shows transient elevated counts that decay as '
-                          'the tree stabilises. Sleuth\u2019s own overlay '
-                          'widgets are excluded from the drain.',
-                          style: TextStyle(
-                            color: theme.textSecondary,
-                            fontSize: theme.fontSm,
-                          ),
-                        ),
+                      SizedBox(width: theme.spacingSm),
+                      _SummaryChip(
+                        theme: theme,
+                        label: 'Types',
+                        value: entries.length.toString(),
                       ),
                     ],
                   ),
                 ),
-
-              // Content
-              Expanded(
-                child: entries.isEmpty
-                    ? _EmptyState(theme: theme)
-                    : ListView.builder(
-                        padding: EdgeInsets.fromLTRB(
-                          theme.spacingXl,
-                          theme.spacingSm,
-                          theme.spacingXl,
-                          24,
-                        ),
-                        itemCount: entries.length,
-                        itemBuilder: (context, i) {
-                          final entry = entries[i];
-                          final fraction = topCount == 0
-                              ? 0.0
-                              : entry.value / topCount;
-                          return _RebuildRow(
-                            theme: theme,
-                            rank: i + 1,
-                            typeName: entry.key,
-                            count: entry.value,
-                            barFraction: fraction,
-                          );
-                        },
-                      ),
               ),
-            ],
-          ),
+
+            // Inflation disclaimer (KDD-5 + KDD-10) — positioned immediately
+            // below the summary chips so a user who scrolls a long hotspot
+            // list sees the caveat BEFORE forming a mental model from the
+            // row labels. (M14/H2: moved up from footer, upweighted from
+            // `fontXs + textQuaternary` to `fontSm + textSecondary`, and
+            // given an info icon so it doesn't read like a footnote.
+            // v0.15.1: added Sleuth-overlay exclusion note so users know
+            // the drilldown reflects their app only, not Sleuth's own UI.)
+            if (entries.isNotEmpty)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  theme.spacingXl,
+                  theme.spacingXs,
+                  theme.spacingXl,
+                  theme.spacingSm,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.only(top: theme.spacingXxs),
+                      child: Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                    SizedBox(width: theme.spacingXs),
+                    Expanded(
+                      child: Text(
+                        'Profile-mode counts include initial widget '
+                        'inflations as well as rebuilds — route entry '
+                        'shows transient elevated counts that decay as '
+                        'the tree stabilises. Sleuth\u2019s own overlay '
+                        'widgets are excluded from the drain.',
+                        style: TextStyle(
+                          color: theme.textSecondary,
+                          fontSize: theme.fontSm,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // Content
+            Expanded(
+              child: entries.isEmpty
+                  ? _EmptyState(theme: theme)
+                  : ListView.builder(
+                      padding: EdgeInsets.fromLTRB(
+                        theme.spacingXl,
+                        theme.spacingSm,
+                        theme.spacingXl,
+                        24,
+                      ),
+                      itemCount: entries.length,
+                      itemBuilder: (context, i) {
+                        final entry = entries[i];
+                        final fraction = topCount == 0
+                            ? 0.0
+                            : entry.value / topCount;
+                        return _RebuildRow(
+                          theme: theme,
+                          rank: i + 1,
+                          typeName: entry.key,
+                          count: entry.value,
+                          barFraction: fraction,
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );

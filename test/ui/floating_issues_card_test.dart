@@ -1109,6 +1109,14 @@ void main() {
   // that one (see explanatory comment above).
   // ───────────────────────────────────────────────────────────────────
   group('v0.15.5 freeze-above-on-expand widget smoke', () {
+    // The summary chips are 48 dp tall; give the card's list room for a
+    // tappable row.
+    void useTallView(WidgetTester tester) {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    }
+
     Widget pumpFreezeCard(SleuthController c) {
       return MaterialApp(
         home: Scaffold(
@@ -1120,6 +1128,7 @@ void main() {
     testWidgets('expanding a card shows the pin icon; collapse hides it', (
       tester,
     ) async {
+      useTallView(tester);
       controller.issuesNotifier.value = [_pinIssue(id: 'A')];
       await tester.pumpWidget(pumpFreezeCard(controller));
       await tester.pumpAndSettle();
@@ -1141,6 +1150,7 @@ void main() {
     testWidgets('summary bar issue count does not change when a card expands', (
       tester,
     ) async {
+      useTallView(tester);
       // M5: summary bar reads the pre-freeze visible list. Whether the
       // user has a card expanded or not, counts must not move.
       controller.issuesNotifier.value = [
@@ -1166,6 +1176,7 @@ void main() {
       'dispose clears expandedIndices AND orderSnapshot — remount with '
       'same controller starts fresh',
       (tester) async {
+        useTallView(tester);
         controller.issuesNotifier.value = [_pinIssue(id: 'A')];
         await tester.pumpWidget(pumpFreezeCard(controller));
         await tester.pumpAndSettle();
@@ -1195,6 +1206,7 @@ void main() {
 
     testWidgets('didUpdateWidget controller swap clears expandedIndices AND '
         'orderSnapshot', (tester) async {
+      useTallView(tester);
       // Build with controller A, expand its card so state is populated.
       controller.issuesNotifier.value = [_pinIssue(id: 'A')];
       await tester.pumpWidget(pumpFreezeCard(controller));
@@ -1220,6 +1232,7 @@ void main() {
 
     testWidgets('collapsing the last expanded card clears orderSnapshot so the '
         'list flows freely again', (tester) async {
+      useTallView(tester);
       // The 1→0 collapse transition must release `_orderSnapshot` —
       // otherwise subsequent ranker churn would be silently compared
       // against a stale snapshot. Verified indirectly: after collapse,

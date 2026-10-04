@@ -495,6 +495,26 @@ class PerformanceIssue {
     );
   }
 
+  /// Plain-text summary for pasting into a ticket or chat: title,
+  /// severity, confidence (with its reason), route, widget, detail, fix
+  /// hint and stable id, one per line. Absent fields are left out.
+  String toClipboardText() {
+    final lines = <String>[
+      title,
+      'Severity: ${severity.name}',
+      'Confidence: ${confidence.name}'
+          '${confidenceReason != null ? ' — $confidenceReason' : ''}',
+      if (routeDisplayName != null) 'Route: $routeDisplayName',
+      if (widgetName != null) 'Widget: $widgetName',
+      '',
+      detail,
+      '',
+      'Fix: $fixHint',
+      if (stableId != null) ...['', 'Stable ID: $stableId'],
+    ];
+    return lines.join('\n');
+  }
+
   @override
   String toString() {
     final route = routeName != null ? ', route: $routeName' : '';
