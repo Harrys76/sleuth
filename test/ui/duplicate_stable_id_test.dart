@@ -105,6 +105,25 @@ void main() {
     );
   });
 
+  testWidgets('identical stableId and widgetName render two cards and '
+      'survive a reorder', (tester) async {
+    await pumpCard(tester);
+    final a = _issue('heavy_compute', severity: IssueSeverity.warning);
+    final b = _issue('heavy_compute', severity: IssueSeverity.warning);
+    final c = _issue('jank_detected', widget: 'List');
+    controller.issuesNotifier.value = [a, b, c];
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(IssueCard), findsNWidgets(3));
+
+    // A rebuild that moves the repeated pair must not trip the sliver's
+    // child-order check (distinct keys per occurrence).
+    controller.issuesNotifier.value = [c, a, b];
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(IssueCard), findsNWidgets(3));
+  });
+
   testWidgets('same stableId on two widgets renders two cards', (tester) async {
     controller.issuesNotifier.value = [
       _issue('dup', widget: 'A'),

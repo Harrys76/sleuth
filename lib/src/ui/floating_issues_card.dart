@@ -1567,9 +1567,23 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // every kept-alive keyed child, making each rebuild O(n²) in
         // the visible-card count. Tall maximized overlays with ~30 issues
         // otherwise do ~900 string compares per scan-tick rebuild.
+        //
+        // Two issues can share a list key (a detector that emits one
+        // issue per occurrence under the same stable id and widget
+        // name). The sliver needs distinct keys or its child-order
+        // check fails, so repeats get an occurrence suffix. Expansion,
+        // hide and highlight bookkeeping keep the shared key.
+        final listKeys = List<String>.generate(orderedIssues.length, (i) {
+          return listKeyFor(orderedIssues[i]);
+        });
+        final seenKeys = <String, int>{};
+        for (var i = 0; i < listKeys.length; i++) {
+          final n = (seenKeys[listKeys[i]] ?? 0) + 1;
+          seenKeys[listKeys[i]] = n;
+          if (n > 1) listKeys[i] = '${listKeys[i]}#$n';
+        }
         final orderedIndexByKey = <String, int>{
-          for (var i = 0; i < orderedIssues.length; i++)
-            listKeyFor(orderedIssues[i]): i,
+          for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
 
         return _IssuesSummaryBar.above(
@@ -1670,7 +1684,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                 final capturedOrdered = orderedIssues;
 
                 return IssueCard(
-                  key: ValueKey(issueKey),
+                  key: ValueKey(listKeys[index]),
                   issue: issue,
                   recurrenceTrendOf: () =>
                       widget.controller.recurrenceTrends[issue.stableId ??
