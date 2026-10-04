@@ -619,7 +619,10 @@ void _registerDemoExtensions() {
   // ScrollPosition, so detectors see what a finger would produce.
   developer.registerExtension('ext.sleuthDemo.tap', (method, params) async {
     final text = params['text'] ?? '';
-    final element = _findText(text);
+    final label = params['label'];
+    final element = label != null
+        ? _findSemanticsLabel(label)
+        : _findText(text);
     if (element != null) {
       // A control below the fold would miss the hit test.
       try {
@@ -1125,6 +1128,14 @@ class _DemoTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// First element whose [Semantics] widget carries [label] (exact, then
+/// prefix match), for icon-only controls that have no text.
+Element? _findSemanticsLabel(String label) {
+  String? of(Widget w) => w is Semantics ? w.properties.label : null;
+  return _findElement((e) => of(e.widget) == label) ??
+      _findElement((e) => of(e.widget)?.startsWith(label) ?? false);
 }
 
 Element? _findElement(bool Function(Element) test) {

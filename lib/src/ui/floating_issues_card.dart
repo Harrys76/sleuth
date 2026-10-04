@@ -2465,7 +2465,10 @@ class _CardFooter extends StatelessWidget {
                       onTap: onShowHidden,
                       behavior: HitTestBehavior.opaque,
                       child: ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: 48),
+                        constraints: const BoxConstraints(
+                          minWidth: 48,
+                          minHeight: 48,
+                        ),
                         child: Padding(
                           padding: EdgeInsets.only(left: theme.spacingMd),
                           child: Align(
