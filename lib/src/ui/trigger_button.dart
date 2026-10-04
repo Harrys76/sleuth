@@ -323,7 +323,14 @@ class _TriggerButtonState extends State<TriggerButton> {
           child: Stack(
             alignment: Alignment.center,
             children: [
-              Icon(Icons.pets, color: theme.triggerIconColor, size: 28),
+              // Dark icon on the light amber and green fills.
+              Icon(
+                Icons.pets,
+                color: hasCritical
+                    ? theme.triggerIconColor
+                    : theme.triggerIconOnLightFill,
+                size: 28,
+              ),
               if (issues.isNotEmpty && !widget.isDebugMode)
                 Positioned(
                   top: 2,

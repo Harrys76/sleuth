@@ -282,6 +282,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     widget.controller.verdictNotifier.addListener(_onVerdictChanged);
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
     _ui.addListener(_onUiStateChanged);
+    HardwareKeyboard.instance.addHandler(_onKeyEvent);
     _readGeometry();
     _lastSeverityFilter = {..._ui.severityFilter};
     _onVerdictChanged();
@@ -359,8 +360,30 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
   }
 
+  /// Escape closes the innermost layer, then the card. Runs before focus
+  /// dispatch, so no focus is taken from the app; a focused text field
+  /// outside the card keeps its Escape.
+  bool _onKeyEvent(KeyEvent event) {
+    if (!mounted ||
+        event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.escape) {
+      return false;
+    }
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext != null &&
+        focusContext.mounted &&
+        focusContext.findAncestorWidgetOfExactType<EditableText>() != null &&
+        focusContext.findAncestorStateOfType<_FloatingIssuesCardState>() !=
+            this) {
+      return false;
+    }
+    if (!closeInnermostLayer()) widget.onClose();
+    return true;
+  }
+
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
@@ -786,6 +809,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _cachedEffectiveWidth = effectiveWidth;
     _cachedKeyboardHeight = keyboardHeight;
     final theme = SleuthTheme.of(context);
+    // Toasts stay three times longer while a screen reader is on.
+    _toast.durationScale =
+        (MediaQuery.maybeAccessibleNavigationOf(context) ?? false) ? 3 : 1;
 
     _cardOffset ??= Offset(
       screenSize.width - safe.right - effectiveWidth - 5,

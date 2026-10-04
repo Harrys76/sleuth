@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/overlay_toast.dart';
+
+import '../helpers/overlay_harness.dart';
 
 void main() {
   late OverlayToastController toast;
@@ -116,6 +119,45 @@ void main() {
       local.dispose();
       // A timer left running would fail the test's pending-timer check.
       await tester.pump(const Duration(seconds: 3));
+    });
+  });
+
+  group('Toast duration scale', () {
+    testWidgets('durationScale stretches every display time', (tester) async {
+      await tester.pumpWidget(host());
+      toast.durationScale = 3;
+      toast.show('Copied');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 5900));
+      expect(find.text('Copied'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(find.text('Copied'), findsNothing);
+
+      toast.show('Hidden', actionLabel: 'Undo', onAction: () {});
+      await tester.pump();
+      expect(toast.value!.duration, const Duration(seconds: 12));
+      toast.dismiss();
+    });
+
+    testWidgets('the card triples toasts while a screen reader is on', (
+      tester,
+    ) async {
+      final controller = await pumpOverlay(
+        tester,
+        accessibilityFeatures: const FakeAccessibilityFeatures(
+          accessibleNavigation: true,
+        ),
+        config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+      );
+      await openDashboard(tester, controller);
+      await tester.tap(find.bySemanticsLabel('Toggle theme'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.text('Theme: Light'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Theme: Light'), findsNothing);
     });
   });
 }

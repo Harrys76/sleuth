@@ -451,4 +451,35 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('Ask AI shimmer', () {
+    Widget card() => MaterialApp(
+      home: Scaffold(
+        body: IssueCard(
+          issue: _testIssue(),
+          initiallyExpanded: true,
+          onAskAi: () {},
+        ),
+      ),
+    );
+
+    testWidgets('sweeps while animations are on', (tester) async {
+      await tester.pumpWidget(card());
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.binding.hasScheduledFrame, isTrue);
+    });
+
+    testWidgets('rests under reduce motion', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await tester.pumpWidget(card());
+      // Settles: no repeating ticker.
+      await tester.pumpAndSettle();
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      expect(find.text('Ask AI about this issue'), findsOneWidget);
+    });
+  });
 }

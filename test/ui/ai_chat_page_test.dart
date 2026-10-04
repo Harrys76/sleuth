@@ -6,7 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/ai_chat_adapter.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/ai_chat_page.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
+
+import '../helpers/overlay_harness.dart';
 
 void main() {
   Widget wrap(Widget child) {
@@ -817,6 +820,41 @@ void main() {
 
       await tester.tap(find.text('Ask AI about this issue'));
       expect(tapped, isTrue);
+    });
+  });
+
+  group('AiChatPage in the overlay', () {
+    testWidgets('the input field has a Material ancestor', (tester) async {
+      final controller = await pumpOverlay(
+        tester,
+        config: SleuthConfig(
+          aiChat: AiChatAdapter(sendMessage: (_) => Stream.value('ok')),
+          treeScanInterval: const Duration(hours: 1),
+        ),
+      );
+      controller.issuesNotifier.value = [
+        makeIssue(stableId: 'rebuild_activity', title: 'Rebuilds'),
+      ];
+      await openDashboard(tester, controller);
+      await tester.tap(find.text('Rebuilds'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.ensureVisible(find.text('Ask AI about this issue'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('Ask AI about this issue'));
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(find.byType(AiChatPage), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.byType(TextField),
+          matching: find.byType(Material),
+        ),
+        findsWidgets,
+      );
+      await tester.tap(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), 'Why?');
+      await tester.pump();
+      expect(tester.takeException(), isNull);
     });
   });
 }

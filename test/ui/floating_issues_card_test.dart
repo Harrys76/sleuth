@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
@@ -1411,6 +1412,78 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
       final saved = jsonDecode(store.json!) as Map<String, Object?>;
       expect(saved['themeMode'], 'light');
+    });
+  });
+
+  group('Escape key', () {
+    testWidgets('closes the open page, then the card', (tester) async {
+      final controller = await pumpOverlay(tester);
+      await openDashboard(tester, controller);
+      await tester.tap(find.bySemanticsLabel('Guide'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sleuth Guide'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Sleuth Guide'), findsNothing);
+      expect(controller.overlayUiState.dashboardOpen, isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(controller.overlayUiState.dashboardOpen, isFalse);
+
+      // Card gone: its handler is removed and Escape does nothing.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(controller.overlayUiState.dashboardOpen, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a focused app text field keeps Escape', (tester) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      final controller = await pumpOverlay(
+        tester,
+        app: MaterialApp(
+          home: Scaffold(body: TextField(focusNode: focus)),
+        ),
+      );
+      await openDashboard(tester, controller);
+      focus.requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(controller.overlayUiState.dashboardOpen, isTrue);
+      expect(focus.hasFocus, isTrue);
+    });
+  });
+
+  group('Header custom actions', () {
+    testWidgets('move the card in 48 px steps and to the corner', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpOverlay(tester);
+      controller.overlayUiState.setCardGeometry(
+        offset: const Offset(200, 200),
+        width: 300,
+        height: null,
+        windowState: CardWindowState.normal,
+      );
+      await openDashboard(tester, controller);
+      final header = find.bySemanticsLabel('Sleuth');
+
+      await performCustomAction(tester, header, 'Move down');
+      expect(controller.overlayUiState.cardOffset, const Offset(200, 248));
+      await performCustomAction(tester, header, 'Move left');
+      expect(controller.overlayUiState.cardOffset, const Offset(152, 248));
+      await performCustomAction(tester, header, 'Move up');
+      await performCustomAction(tester, header, 'Move right');
+      expect(controller.overlayUiState.cardOffset, const Offset(200, 200));
+      await performCustomAction(tester, header, 'Move to corner');
+      expect(controller.overlayUiState.cardOffset, Offset.zero);
+      handle.dispose();
     });
   });
 }

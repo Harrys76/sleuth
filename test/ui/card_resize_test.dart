@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/ui/overlay_ui_state.dart';
+
+import '../helpers/overlay_harness.dart';
 
 void main() {
   group('FloatingIssuesCard resize', () {
@@ -66,6 +69,33 @@ void main() {
       await gesture.up();
       await tester.pump();
     }
+
+    testWidgets('resize custom actions step by 48 px', (tester) async {
+      final handle = tester.ensureSemantics();
+      controller.overlayUiState.setCardGeometry(
+        offset: const Offset(100, 100),
+        width: 300,
+        height: null,
+        windowState: CardWindowState.normal,
+      );
+      await tester.pumpWidget(buildCard());
+      final resize = find.bySemanticsLabel('Resize card');
+      // 48 x 48 hit box.
+      expect(tester.getSize(findResizeHandle()), const Size(48, 48));
+
+      await performCustomAction(tester, resize, 'Wider');
+      expect(controller.overlayUiState.cardWidth, 348);
+      await performCustomAction(tester, resize, 'Narrower');
+      expect(controller.overlayUiState.cardWidth, 300);
+      await performCustomAction(tester, resize, 'Taller');
+      expect(controller.overlayUiState.cardHeight, 330 + 48);
+      await performCustomAction(tester, resize, 'Shorter');
+      expect(controller.overlayUiState.cardHeight, 330);
+      // Never below the minimum.
+      await performCustomAction(tester, resize, 'Shorter');
+      expect(controller.overlayUiState.cardHeight, 300);
+      handle.dispose();
+    });
 
     testWidgets('resize handle is present', (tester) async {
       await tester.pumpWidget(buildCard());

@@ -1287,7 +1287,19 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
-    )..repeat();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // `repeat()` is not shortened by the reduce-motion setting, so the
+    // sweep stops and the gradient rests at its midpoint.
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _controller.value = 0.5;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   @override

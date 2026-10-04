@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
@@ -140,3 +141,20 @@ List<PerformanceIssue> mixedOverlayIssues() => const [
     stableId: 'slow_request',
   ),
 ];
+
+/// Runs the custom semantics action [label] on the node [finder] finds.
+/// Needs semantics enabled (`tester.ensureSemantics()`).
+Future<void> performCustomAction(
+  WidgetTester tester,
+  Finder finder,
+  String label,
+) async {
+  final node = tester.getSemantics(finder);
+  final owner = tester.binding.renderViews.first.owner!.semanticsOwner!;
+  owner.performAction(
+    node.id,
+    SemanticsAction.customAction,
+    CustomSemanticsAction.getIdentifier(CustomSemanticsAction(label: label)),
+  );
+  await tester.pump();
+}

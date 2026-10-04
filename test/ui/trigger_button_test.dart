@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
 import 'package:sleuth/src/ui/trigger_button.dart';
 
 import '../helpers/overlay_harness.dart';
@@ -558,6 +559,67 @@ void main() {
       controller.overlayUiState.dashboardOpen = false;
       await tester.pump();
       expect(tester.getTopLeft(find.byIcon(Icons.pets)), before);
+    });
+  });
+
+  group('TriggerButton accessibility', () {
+    PerformanceIssue issue(IssueSeverity severity) => PerformanceIssue(
+      severity: severity,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.confirmed,
+      title: severity.name,
+      detail: 'd',
+      fixHint: 'f',
+      stableId: severity.name,
+    );
+
+    for (final (severity, dark) in [
+      (IssueSeverity.critical, false),
+      (IssueSeverity.warning, true),
+      (IssueSeverity.ok, true),
+    ]) {
+      testWidgets('icon on the ${severity.name} fill is '
+          '${dark ? 'dark' : 'white'}', (tester) async {
+        final issues = ValueNotifier([issue(severity)]);
+        final vm = ValueNotifier(false);
+        final fps = ValueNotifier(FrameStatsBuffer());
+        addTearDown(() {
+          issues.dispose();
+          vm.dispose();
+          fps.dispose();
+        });
+        await tester.pumpWidget(
+          wrap(
+            TriggerButton(
+              issuesNotifier: issues,
+              vmConnectedNotifier: vm,
+              frameStatsNotifier: fps,
+              isDebugMode: false,
+              onTap: () {},
+            ),
+          ),
+        );
+        const theme = SleuthThemeData();
+        expect(
+          tester.widget<Icon>(findLogo()).color,
+          dark ? theme.triggerIconOnLightFill : theme.triggerIconColor,
+        );
+      });
+    }
+
+    testWidgets('edge custom actions move the button', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpOverlay(tester);
+      final trigger = find.bySemanticsLabel(RegExp('^Open Sleuth'));
+
+      await performCustomAction(tester, trigger, 'Move to left edge');
+      expect(controller.overlayUiState.triggerAnchor?.edge, TriggerEdge.left);
+      final left = tester.getTopLeft(findLogo()).dx;
+
+      await performCustomAction(tester, trigger, 'Move to right edge');
+      expect(controller.overlayUiState.triggerAnchor?.edge, TriggerEdge.right);
+      expect(tester.getTopLeft(findLogo()).dx, greaterThan(left));
+      handle.dispose();
     });
   });
 }

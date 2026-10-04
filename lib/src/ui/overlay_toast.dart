@@ -50,8 +50,14 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
   Timer? _timer;
   bool _disposed = false;
 
+  /// Multiplier for every display time. The card sets 3 while a screen
+  /// reader is on (`MediaQuery.accessibleNavigationOf`), so toasts stay
+  /// long enough to be announced and acted on.
+  double durationScale = 1;
+
   /// Shows [text], replacing any current toast. [duration] defaults to
-  /// [actionDuration] when an action is given, else [infoDuration].
+  /// [actionDuration] when an action is given, else [infoDuration]; it is
+  /// multiplied by [durationScale].
   void show(
     String text, {
     OverlayToastTone tone = OverlayToastTone.info,
@@ -66,7 +72,9 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
       tone: tone,
       actionLabel: hasAction ? actionLabel : null,
       onAction: hasAction ? onAction : null,
-      duration: duration ?? (hasAction ? actionDuration : infoDuration),
+      duration:
+          (duration ?? (hasAction ? actionDuration : infoDuration)) *
+          durationScale,
     );
     _timer?.cancel();
     _timer = Timer(model.duration, () {
