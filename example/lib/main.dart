@@ -6,6 +6,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard;
 import 'package:sleuth/sleuth.dart';
 
 import 'custom_detectors/01_simple_structural_detector.dart';
@@ -44,6 +45,7 @@ import 'demos/tracked_resource_capture_screen.dart';
 import 'demos/tracked_resource_demo.dart';
 import 'demos/shader_jank_demo.dart';
 import 'demos/uncached_image_demo.dart';
+import 'file_state_store.dart';
 
 void main() {
   Sleuth.init();
@@ -60,6 +62,9 @@ void main() {
       child: const SleuthDemoApp(),
       config: SleuthConfig(
         captureMode: captureMode,
+        // Overlay state (trigger edge, card geometry, hidden issues,
+        // severity filter) survives restarts through a JSON file.
+        stateStore: FileSleuthStateStore(),
         aiChat: AiChatAdapter.openAi(
           apiKey: 'ollama', // Ollama ignores this but the field is required
           baseUrl: 'http://localhost:11434',
@@ -739,7 +744,105 @@ void _registerDemoExtensions() {
       jsonEncode(readVmAxes(reset: params['reset'] == 'true')),
     );
   });
+  // System back as the Android back button sends it: the Sleuth overlay
+  // closes its innermost layer first; `handled: false` means the app
+  // (or the OS) got it.
+  developer.registerExtension('ext.sleuthDemo.back', (method, params) async {
+    // handlePopRoute is the binding entry point for the platform back
+    // message; calling it here reproduces a hardware back press.
+    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+    final handled = await WidgetsBinding.instance.handlePopRoute();
+    await WidgetsBinding.instance.endOfFrame;
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'handled': handled}),
+    );
+  });
+  developer.registerExtension('ext.sleuthDemo.clipboard', (
+    method,
+    params,
+  ) async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'text': data?.text}),
+    );
+  });
+  // Drives the overlay through its state: `action` = open | close | hide |
+  // undo | restoreAll | toggleSeverity (with `severity` = critical |
+  // warning | ok). `hide` hides the first visible card; `undo` restores
+  // the most recently hidden key.
+  developer.registerExtension('ext.sleuthDemo.overlay', (method, params) async {
+    final state = Sleuth.overlayUiState;
+    if (state == null) return _demoError({'error': 'no_controller'});
+    final action = params['action'] ?? '';
+    final result = <String, Object?>{'action': action};
+    switch (action) {
+      case 'open':
+        state.dashboardOpen = true;
+      case 'close':
+        state.dashboardOpen = false;
+      case 'hide':
+        final visible = state.visibleIssues(_currentIssues());
+        if (visible.isEmpty) return _demoError({'error': 'no_visible_issue'});
+        final key = OverlayUiState.hideKeyFor(visible.first);
+        state.hide(key);
+        result['hidden'] = key;
+      case 'undo':
+        if (state.hiddenKeys.isEmpty) {
+          return _demoError({'error': 'nothing_hidden'});
+        }
+        final key = state.hiddenKeys.last;
+        state.unhide(key);
+        result['restored'] = key;
+      case 'restoreAll':
+        state.restoreAll();
+      case 'toggleSeverity':
+        final severity = IssueSeverity.values
+            .where((s) => s.name == params['severity'])
+            .firstOrNull;
+        if (severity == null) {
+          return _demoError({
+            'error': 'bad_severity',
+            'severity': params['severity'],
+          });
+        }
+        result['toggled'] = state.toggleSeverity(severity);
+      default:
+        return _demoError({'error': 'unknown_action', 'action': action});
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({...result, ..._overlayStateJson(state)}),
+    );
+  });
+  developer.registerExtension('ext.sleuthDemo.overlayState', (
+    method,
+    params,
+  ) async {
+    final state = Sleuth.overlayUiState;
+    if (state == null) return _demoError({'error': 'no_controller'});
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode(_overlayStateJson(state)),
+    );
+  });
 }
+
+developer.ServiceExtensionResponse _demoError(Map<String, Object?> body) =>
+    developer.ServiceExtensionResponse.error(
+      developer.ServiceExtensionResponse.extensionError,
+      jsonEncode(body),
+    );
+
+List<PerformanceIssue> _currentIssues() =>
+    Sleuth.exportSnapshot()?.currentIssues ?? const [];
+
+/// Persisted overlay state plus `dashboardOpen`, `uiStateReady` and the
+/// number of cards the overlay shows.
+Map<String, Object?> _overlayStateJson(OverlayUiState state) => {
+  ...state.toJson(),
+  'dashboardOpen': state.dashboardOpen,
+  'uiStateReady': Sleuth.isOverlayUiStateReady,
+  'visibleIssueCount': state.visibleIssues(_currentIssues()).length,
+};
 
 /// Demo slug of the capture screen for each `captureLeg` detector.
 const Map<String, String> _captureScreenSlugs = {

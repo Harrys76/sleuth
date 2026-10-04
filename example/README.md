@@ -65,6 +65,25 @@ captures").
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 
+## Overlay state and remote drive
+
+The app passes `FileSleuthStateStore` (`lib/file_state_store.dart`) as
+`SleuthConfig.stateStore`, so the trigger edge, card geometry, hidden
+issues and severity filter survive restarts. The file lives in the system
+temp directory, which the OS may clear.
+
+Service extensions for driving the overlay from a VM service client:
+
+| Extension | Effect |
+|-----------|--------|
+| `ext.sleuthDemo.back` | Sends a system back (as the Android back button does) and returns `{handled}`; with nothing open in the overlay or the app, Android leaves the app |
+| `ext.sleuthDemo.clipboard` | Returns `{text}`, the current clipboard text |
+| `ext.sleuthDemo.overlay` | `action` = `open` \| `close` \| `hide` (first visible card; returns its key) \| `undo` (most recently hidden key) \| `restoreAll` \| `toggleSeverity` (`severity` = `critical` \| `warning` \| `ok`); returns the state below |
+| `ext.sleuthDemo.overlayState` | Persisted overlay state plus `dashboardOpen`, `uiStateReady` and `visibleIssueCount` |
+
+Both overlay extensions return `{error: no_controller}` before Sleuth is
+initialised.
+
 ## Before/After Toggle
 
 Every demo is wrapped in the shared `DemoScaffold` with a **Before/After toggle** + **live metrics bar**. Flip between anti-pattern and fix in-place; watch Sleuth's detection appear and disappear.
