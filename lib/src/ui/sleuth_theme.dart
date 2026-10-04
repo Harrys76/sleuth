@@ -297,8 +297,8 @@ class SleuthThemeData {
   /// High-contrast dark theme.
   ///
   /// The dark theme with tertiary and quaternary text raised to
-  /// [textSecondary], stronger borders, opaque badge fills, a 2 px focus
-  /// ring and a wider source accent. Chosen automatically when the
+  /// [textSecondary], stronger borders, opaque badge fills, a wider source
+  /// accent and [focusRingWidth] 2. Chosen automatically when the
   /// platform reports high contrast (`MediaQuery.highContrastOf`, iOS
   /// Increase Contrast) in dark mode and no theme is set; pass it to
   /// `Sleuth.updateTheme` on other platforms.
@@ -486,8 +486,9 @@ class SleuthThemeData {
   /// the high-contrast presets.
   final double badgeFillAlpha;
 
-  /// Width of the focus ring drawn around focused overlay controls; 0
-  /// draws none.
+  /// Focus indicator width: 2 in the high-contrast presets, 0 otherwise.
+  /// The overlay's own controls are touch targets without keyboard focus
+  /// and draw no ring.
   final double focusRingWidth;
 
   /// Width of the source accent on the left edge of an issue card.
