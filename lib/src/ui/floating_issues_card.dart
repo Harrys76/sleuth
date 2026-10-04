@@ -27,7 +27,7 @@ import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 
 export 'overlay_filters.dart'
-    show applyOverlayFilters, computeVisibleIssues, hideKeyFor;
+    show applyOverlayFilters, computeVisibleIssues, hideKeyFor, listKeyFor;
 
 /// Composes the frozen-zone list for an expanded render.
 ///
@@ -49,8 +49,8 @@ export 'overlay_filters.dart'
 ///    appended in their current ranker-flow order — a new CRITICAL
 ///    landing mid-read arrives below the frozen zone, never above.
 ///
-/// Identity is `stableId ?? title`, matching the host's pruning and
-/// key-based reorder helpers.
+/// Identity is [listKeyFor], matching the host's pruning and key-based
+/// reorder helpers.
 ///
 /// Pure function over `(visibleIssues, orderSnapshot, expandedIndices)`
 /// — no widget state involved — marked [visibleForTesting] so the
@@ -94,21 +94,20 @@ List<PerformanceIssue> applyFreezeZone({
 
   // Build identity set from the frozen slice.
   final frozenKeys = <String>{
-    for (var i = 0; i <= freezeEnd; i++)
-      orderSnapshot[i].stableId ?? orderSnapshot[i].title,
+    for (var i = 0; i <= freezeEnd; i++) listKeyFor(orderSnapshot[i]),
   };
 
   // Index current visible issues by identity so we can re-anchor the
   // snapshot slice to the latest PerformanceIssue instances (the
   // ranker may have updated severity, recurrence, etc. on the same id).
   final visibleById = <String, PerformanceIssue>{
-    for (final i in visibleIssues) (i.stableId ?? i.title): i,
+    for (final i in visibleIssues) listKeyFor(i): i,
   };
 
   final frozen = <PerformanceIssue>[];
   for (var i = 0; i <= freezeEnd; i++) {
     final snap = orderSnapshot[i];
-    final key = snap.stableId ?? snap.title;
+    final key = listKeyFor(snap);
     final live = visibleById[key];
     // Drop silently if the frozen-zone entry has disappeared from the
     // visible set. `_pruneStaleState` will evict the expand-entry on
@@ -118,7 +117,7 @@ List<PerformanceIssue> applyFreezeZone({
 
   final flow = <PerformanceIssue>[
     for (final i in visibleIssues)
-      if (!frozenKeys.contains(i.stableId ?? i.title)) i,
+      if (!frozenKeys.contains(listKeyFor(i))) i,
   ];
 
   return <PerformanceIssue>[...frozen, ...flow];
@@ -173,7 +172,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   /// Expansion registry: `issueKey -> capturedIndex`.
   ///
-  /// When a card expands, its stable id is mapped to the index it held in
+  /// When a card expands, its [listKeyFor] is mapped to the index it held in
   /// the visible list at expand-time (captured from the `itemBuilder`
   /// closure scope — see `_buildIssuesList`). The host uses the MAX
   /// captured index across this map to compute the freeze boundary.
@@ -211,7 +210,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// freeze to rows the user never saw.
   List<PerformanceIssue>? _orderSnapshot;
 
-  /// Stable ID of the issue whose highlight checkbox is checked.
+  /// [listKeyFor] of the issue whose highlight checkbox is checked.
   String? _selectedIssueId;
 
   /// Bumped when the host clears every expansion at once (severity filter
@@ -485,7 +484,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// already collapsed through `onExpandedChanged(false)`.
   void _hideIssue(PerformanceIssue issue) {
     final key = hideKeyFor(issue);
-    if (_selectedIssueId == (issue.stableId ?? issue.title)) {
+    if (_selectedIssueId == listKeyFor(issue)) {
       _selectedIssueId = null;
       widget.controller.clearSelectedHighlight();
     }
@@ -578,9 +577,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   void _pruneStaleState() {
     final issues = widget.controller.issuesNotifier.value;
     final visible = _ui.visibleIssues(issues);
-    final visibleKeys = <String>{
-      for (final i in visible) i.stableId ?? i.title,
-    };
+    final visibleKeys = <String>{for (final i in visible) listKeyFor(i)};
     final rawKeys = <String>{for (final i in issues) i.stableId ?? i.title};
     var changed = false;
 
@@ -595,7 +592,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (snapshot != null && _expandedIndices.isNotEmpty) {
       final kept = [
         for (final i in snapshot)
-          if (visibleKeys.contains(i.stableId ?? i.title)) i,
+          if (visibleKeys.contains(listKeyFor(i))) i,
       ];
       if (kept.length != snapshot.length) {
         _repointExpansions(kept);
@@ -616,10 +613,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
     final selected = _selectedIssueId;
     if (selected != null &&
-        (!rawKeys.contains(selected) ||
-            issues.any(
-              (i) => (i.stableId ?? i.title) == selected && _ui.isHidden(i),
-            ))) {
+        (_ui.hiddenKeys.contains(selected) ||
+            !issues.any((i) => listKeyFor(i) == selected))) {
       _selectedIssueId = null;
       widget.controller.clearSelectedHighlight();
       changed = true;
@@ -658,7 +653,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   void _repointExpansions(List<PerformanceIssue> snapshot) {
     final positions = <String, int>{};
     for (var i = 0; i < snapshot.length; i++) {
-      positions.putIfAbsent(snapshot[i].stableId ?? snapshot[i].title, () => i);
+      positions.putIfAbsent(listKeyFor(snapshot[i]), () => i);
     }
     _expandedIndices
       ..removeWhere((key, _) => !positions.containsKey(key))
@@ -1388,7 +1383,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // otherwise do ~900 string compares per scan-tick rebuild.
         final orderedIndexByKey = <String, int>{
           for (var i = 0; i < orderedIssues.length; i++)
-            (orderedIssues[i].stableId ?? orderedIssues[i].title): i,
+            listKeyFor(orderedIssues[i]): i,
         };
 
         return _IssuesSummaryBar.above(
@@ -1406,7 +1401,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               // (loses expansion, scroll, and all local UI state).
               // This hits any issue whose rank position moves when
               // the ranker reorders the list. Cards are already
-              // `ValueKey`-stamped with `stableId`; this callback
+              // `ValueKey`-stamped with `listKeyFor`; this callback
               // just tells the sliver where each key landed.
               //
               // Looks up `orderedIndexByKey` (the POST-pin map) so
@@ -1423,7 +1418,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               itemBuilder: (_, index) {
                 final issue = orderedIssues[index];
                 final locatable = _isLocatableIssue(issue);
-                final issueKey = issue.stableId ?? issue.title;
+                final issueKey = listKeyFor(issue);
                 final isHighlighted =
                     selectedHighlight != null &&
                     locatable &&
@@ -1540,7 +1535,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                       ? (checked) =>
                             _onHighlightChanged(checked, issueKey, issue)
                       : null,
-                  jankCorrelated: _cachedJankKeys.contains(issueKey),
+                  jankCorrelated: _cachedJankKeys.contains(
+                    issue.stableId ?? issue.title,
+                  ),
                   jankFlash: false,
                   downstreamIssues: downstream,
                   parentIssues: parents,

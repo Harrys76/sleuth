@@ -65,6 +65,12 @@ String hideKeyFor(PerformanceIssue issue) {
   return widgetName == null ? base : '$base|$widgetName';
 }
 
+/// Identity of [issue]'s card in the overlay list: the list key, the
+/// expansion and order-snapshot bookkeeping and the highlight selection.
+/// Same as [hideKeyFor], so two widgets reporting the same detector id
+/// render as two cards.
+String listKeyFor(PerformanceIssue issue) => hideKeyFor(issue);
+
 /// The overlay's card list: [issues] filtered to [severities], collapsed
 /// by [computeVisibleIssues], then stripped of cards whose [hideKeyFor]
 /// is in [hiddenKeys].
