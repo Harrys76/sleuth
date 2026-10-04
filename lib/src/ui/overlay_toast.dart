@@ -147,10 +147,10 @@ class _ToastFade extends StatefulWidget {
 
 class _ToastFadeState extends State<_ToastFade>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _opacity = AnimationController(
-    vsync: this,
-    duration: OverlayToast._fade,
-  )..addStatusListener(_onStatus);
+  // Created in initState: a lazily created controller would be built
+  // inside dispose() for a toast that never showed, and creating a ticker
+  // there looks up TickerMode on a deactivated element.
+  late final AnimationController _opacity;
 
   /// The toast on screen; outlives [_ToastFade.model] while fading out.
   OverlayToastModel? _shown;
@@ -158,6 +158,8 @@ class _ToastFadeState extends State<_ToastFade>
   @override
   void initState() {
     super.initState();
+    _opacity = AnimationController(vsync: this, duration: OverlayToast._fade)
+      ..addStatusListener(_onStatus);
     _shown = widget.model;
     if (_shown != null) _opacity.forward();
   }
