@@ -48,7 +48,8 @@ import '../models/performance_issue.dart';
 /// - **Banner pairs** (8): bg + text for debug/instrumentation/success/warning
 /// - **Causal graph** (1): `effectsBadge` for downstream effects count
 /// - **Spacing** (6): `spacingXxs` through `spacingXl`
-/// - **Typography** (9): `fontXxs` (8) through `fontDisplay` (24)
+/// - **Typography** (9): `fontXxs` (10) through `fontDisplay` (24); 10 px
+///   is the smallest size the overlay draws
 /// - **Border radius** (7): `radiusSm` (4) through `radiusFull` (20)
 /// - **Special** (12): fix hint text, grip dots, guide accents, etc.
 /// - **Accessibility** (4): `badgeFillAlpha`, `focusRingWidth`,
@@ -208,8 +209,8 @@ class SleuthThemeData {
     this.spacingXl = 16,
 
     // ── Typography scale ──
-    this.fontXxs = 8,
-    this.fontXs = 9,
+    this.fontXxs = 10,
+    this.fontXs = 10,
     this.fontSm = 10,
     this.fontMd = 11,
     this.fontBase = 12,

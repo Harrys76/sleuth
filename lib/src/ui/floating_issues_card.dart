@@ -25,6 +25,7 @@ import 'overlay_toast.dart';
 import 'overlay_ui_state.dart';
 import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 export 'overlay_filters.dart'
     show applyOverlayFilters, computeVisibleIssues, hideKeyFor, listKeyFor;
@@ -250,6 +251,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   static const double _minCardWidth = 220;
   static const double _minCardHeight = 300;
 
+  /// Height of the minimized card: the 48 px header row.
+  static const double _minimizedHeight = 48;
+
+  /// Height of a header or footer control row.
+  static const double _controlRowHeight = 48;
+
   // ─── Window state (M2) ─────────────────────────────────────────────
   CardWindowState _windowState = CardWindowState.normal;
 
@@ -374,7 +381,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _preTransitionWidth ??= _cardWidth;
       _preTransitionHeight ??= _cardHeight;
       _windowState = CardWindowState.minimized;
-      _cardHeight = 54; // Title bar (44) + vertical padding (6+4).
+      _cardHeight = _minimizedHeight;
     });
     _commitGeometry();
   }
@@ -751,8 +758,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final screenSize = MediaQuery.sizeOf(context);
     final safe = MediaQuery.viewPaddingOf(context);
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+    // Chrome grows with the text inside it (up to 1.3x); the minimum
+    // heights grow with it. The stored height is left alone, so the card
+    // returns to it at 1.0x.
+    final chromeScale = chromeScaleOf(context);
+    final minHeight = _minCardHeight * chromeScale;
     final maxAllowedHeight = math.max(
-      _minCardHeight,
+      minHeight,
       screenSize.height - safe.top - math.max(safe.bottom, 20),
     );
     final isMinimized = _windowState == CardWindowState.minimized;
@@ -763,7 +775,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
 
     final cardHeight = (_cardHeight ?? screenSize.height * 0.55).clamp(
-      isMinimized ? 54.0 : _minCardHeight,
+      isMinimized ? _minimizedHeight * chromeScale : minHeight,
       maxAllowedHeight,
     );
     final effectiveWidth = _cardWidth
@@ -801,12 +813,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                _buildCardBody(effectiveWidth, cardHeight, theme, screenSize),
+                _buildCardBody(
+                  effectiveWidth,
+                  cardHeight,
+                  theme,
+                  screenSize,
+                  chromeScale,
+                ),
                 if (!isMinimized)
                   _buildResizeHandle(
                     screenSize,
                     clamped,
                     cardHeight,
+                    minHeight,
                     maxAllowedHeight,
                     theme,
                   ),
@@ -952,8 +971,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     double cardHeight,
     SleuthThemeData theme,
     Size screenSize,
+    double chromeScale,
   ) {
     final isMinimized = _windowState == CardWindowState.minimized;
+    // The status row and banners scroll once they would take more than
+    // half of the space between header and footer and leave the list less
+    // than the summary bar plus about two collapsed cards (large text, a
+    // short card, an open FPS explainer).
+    const headerHeight = _controlRowHeight;
+    const footerHeight = _controlRowHeight + 1;
+    final middle = math.max(0.0, cardHeight - headerHeight - footerHeight);
+    final minList = _IssuesSummaryBar.hitHeightFor(chromeScale) + 96;
+    final bannersMaxHeight = math.max(middle * 0.5, middle - minList);
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: effectiveWidth,
@@ -968,38 +997,44 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           children: [
             _buildHeader(screenSize, effectiveWidth, theme),
             if (!isMinimized) ...[
-              _StatusRow(controller: widget.controller),
-              Divider(color: theme.border, height: 1),
-              _WarningBanners(
-                isDeepInstrumentationActive:
-                    widget.controller.isDeepInstrumentationActive,
-              ),
-              if (widget.isDebugMode &&
-                  widget.controller.config.showDebugModeBanner &&
-                  !_debugBannerDismissed)
-                _DebugModeBanner(
-                  onDismiss: () => setState(() => _debugBannerDismissed = true),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: bannersMaxHeight),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _StatusRow(controller: widget.controller),
+                      Divider(color: theme.border, height: 1),
+                      _WarningBanners(
+                        isDeepInstrumentationActive:
+                            widget.controller.isDeepInstrumentationActive,
+                      ),
+                      if (widget.isDebugMode &&
+                          widget.controller.config.showDebugModeBanner &&
+                          !_debugBannerDismissed)
+                        _DebugModeBanner(
+                          onDismiss: () =>
+                              setState(() => _debugBannerDismissed = true),
+                        ),
+                      if (Sleuth.startupMetrics != null)
+                        _StartupMetricsBanner(
+                          onTap: () =>
+                              setState(() => _showStartupDetail = true),
+                        ),
+                      // Always-on inline rebuild-stats panel; see
+                      // [_RebuildStatsBanner].
+                      _RebuildStatsBanner(
+                        controller: widget.controller,
+                        onTap: _onSeeAllRebuildsTap,
+                        onPauseDiscarded: _onRebuildPauseDiscarded,
+                      ),
+                    ],
+                  ),
                 ),
-              if (Sleuth.startupMetrics != null)
-                _StartupMetricsBanner(
-                  onTap: () => setState(() => _showStartupDetail = true),
-                ),
-              // Always-on inline rebuild-stats panel. Renders whenever the
-              // active RouteSession has any rebuild counts attributed (any
-              // source — debugCallback in debug mode or flutterTimeline in
-              // profile mode). v0.15.2: this is the sole rebuild-stats UI
-              // surface — the previous `rebuild_hotspot_summary` rollup
-              // IssueCard was removed because the inline panel covers both
-              // discoverability (low-volume routes can still inspect) and
-              // signal (top-3 + live tween makes hot widgets obvious),
-              // without colliding with the issue-list ranker or producing
-              // KDD-5 inflation false positives in the warning stream.
-              _RebuildStatsBanner(
-                controller: widget.controller,
-                onTap: _onSeeAllRebuildsTap,
-                onPauseDiscarded: _onRebuildPauseDiscarded,
               ),
-              Flexible(child: RepaintBoundary(child: _buildIssuesList())),
+              Flexible(
+                child: RepaintBoundary(child: _buildIssuesList(chromeScale)),
+              ),
               _CardFooter(
                 controller: widget.controller,
                 hiddenCount: _ui.hiddenKeys.length,
@@ -1022,6 +1057,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     Size screenSize,
     Offset clamped,
     double cardHeight,
+    double minHeight,
     double maxAllowedHeight,
     SleuthThemeData theme,
   ) {
@@ -1041,7 +1077,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                 math.max(_minCardWidth, screenSize.width - clamped.dx),
               );
               _cardHeight = (cardHeight + details.delta.dy).clamp(
-                _minCardHeight,
+                minHeight,
                 maxAllowedHeight,
               );
             });
@@ -1080,184 +1116,136 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       },
       onPanEnd: (_) => _commitGeometry(),
       behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          10,
-          theme.spacingSm,
-          theme.spacingXs,
-          theme.spacingXs,
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.pets, size: 14, color: theme.textPrimary),
-            SizedBox(width: theme.spacingXs),
-            Expanded(
-              child: Text(
-                'Sleuth',
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontSize: theme.fontBase,
-                  fontWeight: FontWeight.bold,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            // Issue count badge (visible when minimized so user sees at a glance)
-            if (isMinimized)
-              ValueListenableBuilder<List<PerformanceIssue>>(
-                valueListenable: widget.controller.issuesNotifier,
-                builder: (_, issues, _) => _ui.visibleIssues(issues).isEmpty
-                    ? const SizedBox.shrink()
-                    : DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: theme.badgeFill(theme.severityWarning),
-                          borderRadius: BorderRadius.circular(theme.radiusLg),
-                          border: Border.all(color: theme.severityWarning),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 1,
-                          ),
-                          child: Text(
-                            '${_ui.visibleIssues(issues).length}',
-                            style: TextStyle(
-                              color: theme.badgeTextOn(
-                                theme.severityWarning,
-                                tinted: theme.severityWarningText,
-                              ),
-                              fontSize: theme.fontXs,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-              ),
-            // VM+ / FRAME badge (hidden when minimized to save space)
-            if (!isMinimized)
-              ValueListenableBuilder<bool>(
-                valueListenable: widget.controller.vmConnectedNotifier,
-                builder: (_, connected, _) => Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 5,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: connected ? theme.badgeVmBg : theme.badgeFrameBg,
-                    borderRadius: BorderRadius.circular(theme.radiusLg),
-                  ),
+      child: SleuthTextScaleClamp(
+        maxScaleFactor: kChromeMaxTextScale,
+        child: Padding(
+          padding: EdgeInsets.only(left: 10, right: theme.spacingXs),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: _controlRowHeight),
+            child: Row(
+              children: [
+                Icon(Icons.pets, size: 14, color: theme.textPrimary),
+                SizedBox(width: theme.spacingXs),
+                // The title gives way first: it ellipsizes before any
+                // control loses its 48 px height.
+                Expanded(
                   child: Text(
-                    connected ? 'VM+' : 'FRAME',
+                    'Sleuth',
                     style: TextStyle(
-                      color: connected
-                          ? theme.badgeVmText
-                          : theme.badgeFrameText,
-                      fontSize: theme.fontXxs,
+                      color: theme.textPrimary,
+                      fontSize: theme.fontBase,
                       fontWeight: FontWeight.bold,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              ),
-            // DBG badge (hidden when minimized)
-            if (!isMinimized &&
-                kDebugMode &&
-                widget.controller.isDebugCallbacksActive)
-              Container(
-                margin: const EdgeInsets.only(left: 3),
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: theme.badgeDbgBg,
-                  borderRadius: BorderRadius.circular(theme.radiusLg),
-                ),
-                child: Text(
-                  'DBG',
-                  style: TextStyle(
-                    color: theme.badgeDbgText,
-                    fontSize: theme.fontXxs,
-                    fontWeight: FontWeight.bold,
+                // Issue count badge (visible when minimized so user sees at a glance)
+                if (isMinimized)
+                  ValueListenableBuilder<List<PerformanceIssue>>(
+                    valueListenable: widget.controller.issuesNotifier,
+                    builder: (_, issues, _) => _ui.visibleIssues(issues).isEmpty
+                        ? const SizedBox.shrink()
+                        : DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: theme.badgeFill(theme.severityWarning),
+                              borderRadius: BorderRadius.circular(
+                                theme.radiusLg,
+                              ),
+                              border: Border.all(color: theme.severityWarning),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              child: Text(
+                                '${_ui.visibleIssues(issues).length}',
+                                style: TextStyle(
+                                  color: theme.badgeTextOn(
+                                    theme.severityWarning,
+                                    tinted: theme.severityWarningText,
+                                  ),
+                                  fontSize: theme.fontXs,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
                   ),
-                ),
-              ),
-            // Highlight overlay toggle (hidden when minimized)
-            if (!isMinimized)
-              ValueListenableBuilder<bool>(
-                valueListenable: widget.controller.highlightEnabledNotifier,
-                builder: (_, enabled, _) => _compactHeaderButton(
-                  icon: enabled ? Icons.layers : Icons.layers_outlined,
-                  color: enabled ? theme.checkboxActive : theme.textTertiary,
-                  onTap: () {
-                    final newValue = !enabled;
-                    widget.controller.highlightEnabledNotifier.value = newValue;
-                    if (!newValue) {
-                      widget.controller.clearSelectedHighlight();
-                    }
-                  },
-                  tooltip: enabled ? 'Hide overlay' : 'Show overlay',
-                ),
-              ),
-            // Theme toggle: System -> Light -> Dark (hidden when minimized).
-            if (!isMinimized)
-              Semantics(
-                label: 'Toggle theme',
-                value: _themeModeLabel(_ui.themeMode),
-                hint: 'Changes theme',
-                button: true,
-                child: GestureDetector(
-                  onTap: _cycleThemeMode,
-                  behavior: HitTestBehavior.opaque,
-                  child: SizedBox(
-                    width: 20,
-                    height: 44,
-                    child: Center(
-                      child: Icon(
-                        _ui.themeMode == SleuthThemeMode.system
-                            ? Icons.brightness_auto
-                            : theme.brightness == Brightness.dark
-                            ? Icons.dark_mode
-                            : Icons.light_mode,
-                        color: theme.textTertiary,
-                        size: 12,
-                      ),
+                // Highlight overlay toggle (hidden when minimized)
+                if (!isMinimized)
+                  ValueListenableBuilder<bool>(
+                    valueListenable: widget.controller.highlightEnabledNotifier,
+                    builder: (_, enabled, _) => _compactHeaderButton(
+                      icon: enabled ? Icons.layers : Icons.layers_outlined,
+                      color: enabled
+                          ? theme.checkboxActive
+                          : theme.textTertiary,
+                      onTap: () {
+                        final newValue = !enabled;
+                        widget.controller.highlightEnabledNotifier.value =
+                            newValue;
+                        if (!newValue) {
+                          widget.controller.clearSelectedHighlight();
+                        }
+                      },
+                      tooltip: enabled ? 'Hide overlay' : 'Show overlay',
                     ),
                   ),
+                // Theme toggle: System -> Light -> Dark (hidden when minimized).
+                if (!isMinimized)
+                  _compactHeaderButton(
+                    icon: _ui.themeMode == SleuthThemeMode.system
+                        ? Icons.brightness_auto
+                        : theme.brightness == Brightness.dark
+                        ? Icons.dark_mode
+                        : Icons.light_mode,
+                    color: theme.textTertiary,
+                    onTap: _cycleThemeMode,
+                    tooltip: 'Toggle theme',
+                    value: _themeModeLabel(_ui.themeMode),
+                    hint: 'Changes theme',
+                  ),
+                // Window controls. Hidden at narrow widths (<280px) so the
+                // title keeps some room.
+                if (showWindowControls && isNormal)
+                  _compactHeaderButton(
+                    icon: Icons.minimize,
+                    color: theme.textTertiary,
+                    onTap: _minimize,
+                    tooltip: 'Minimize',
+                  ),
+                if (showWindowControls && isNormal)
+                  _compactHeaderButton(
+                    icon: Icons.crop_square,
+                    color: theme.textTertiary,
+                    onTap: () => _maximize(context),
+                    tooltip: 'Maximize',
+                  ),
+                if (showWindowControls && !isNormal)
+                  _compactHeaderButton(
+                    icon: Icons.filter_none,
+                    color: theme.textTertiary,
+                    onTap: _restore,
+                    tooltip: 'Restore',
+                  ),
+                // Close button
+                _headerIconButton(
+                  icon: Icons.close,
+                  color: theme.textTertiary,
+                  onTap: widget.onClose,
+                  tooltip: 'Close Sleuth',
                 ),
-              ),
-            // Window controls — compact 28px to save header space.
-            // Hidden at narrow widths (<280px) to prevent Row overflow.
-            if (showWindowControls && isNormal)
-              _compactHeaderButton(
-                icon: Icons.minimize,
-                color: theme.textTertiary,
-                onTap: _minimize,
-                tooltip: 'Minimize',
-              ),
-            if (showWindowControls && isNormal)
-              _compactHeaderButton(
-                icon: Icons.crop_square,
-                color: theme.textTertiary,
-                onTap: () => _maximize(context),
-                tooltip: 'Maximize',
-              ),
-            if (showWindowControls && !isNormal)
-              _compactHeaderButton(
-                icon: Icons.filter_none,
-                color: theme.textTertiary,
-                onTap: _restore,
-                tooltip: 'Restore',
-              ),
-            // Close button
-            _headerIconButton(
-              icon: Icons.close,
-              color: theme.textTertiary,
-              onTap: widget.onClose,
-              tooltip: 'Close Sleuth',
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
+  /// 48 x 48 header button (close).
   Widget _headerIconButton({
     required IconData icon,
     required VoidCallback onTap,
@@ -1274,30 +1262,37 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: SizedBox(
-          width: 36,
-          height: 44,
+          width: _controlRowHeight,
+          height: _controlRowHeight,
           child: Center(child: Icon(icon, color: color, size: 16)),
         ),
       ),
     );
   }
 
+  /// 36 x 48 header button. Five 48 px wide controls plus the title do not
+  /// fit the narrowest card, so the header controls are 36 wide; 36 x 48
+  /// with no gap is above the WCAG 2.5.8 24 px minimum.
   Widget _compactHeaderButton({
     required IconData icon,
     required VoidCallback onTap,
     required Color color,
     String? tooltip,
+    String? value,
+    String? hint,
   }) {
     return Semantics(
       label: tooltip,
+      value: value,
+      hint: hint,
       button: true,
       child: GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: SizedBox(
-          width: 24,
-          height: 44,
-          child: Center(child: Icon(icon, color: color, size: 12)),
+          width: 36,
+          height: _controlRowHeight,
+          child: Center(child: Icon(icon, color: color, size: 14)),
         ),
       ),
     );
@@ -1305,7 +1300,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   // ─── Issues List ─────────────────────────────────────────────────────
 
-  Widget _buildIssuesList() {
+  Widget _buildIssuesList(double chromeScale) {
     // The list rebuilds only when the issue set changes. Each card's
     // recurrence badge re-reads `recurrenceTrends` on the scan pulse by
     // itself, so a tick that leaves the issues unchanged rebuilds badges,
@@ -1350,6 +1345,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         final isNarrowed = visibleIssues.length < totalCards;
 
         final summary = _IssuesSummaryBar(
+          chromeScale: chromeScale,
           issues: visibleIssues,
           severityCounts: unfiltered,
           enabledSeverities: ui.severityFilter,
@@ -1362,6 +1358,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         if (visibleIssues.isEmpty) {
           final allHidden = unfiltered.isEmpty;
           return _IssuesSummaryBar.above(
+            chromeScale: chromeScale,
             summary: summary,
             body: _EmptyListMessage(
               message: allHidden
@@ -1409,6 +1406,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         };
 
         return _IssuesSummaryBar.above(
+          chromeScale: chromeScale,
           summary: summary,
           body: ValueListenableBuilder<WidgetHighlight?>(
             valueListenable: widget.controller.selectedHighlightNotifier,
@@ -1602,8 +1600,6 @@ class _StatusRow extends StatefulWidget {
 }
 
 class _StatusRowState extends State<_StatusRow> {
-  /// Warm-up threshold — 3 frames ≈ 50 ms @ 60 Hz. Prevents flashing a
-  /// red `0 FPS` while the rolling window is populating. See
   /// Minimum frames in the buffer before the primary numeral shows.
   /// Shown as `—` while the buffer warms up so the first tick does not
   /// flash a red 0.
@@ -1618,166 +1614,209 @@ class _StatusRowState extends State<_StatusRow> {
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: theme.spacingLg,
-            vertical: theme.spacingXs,
-          ),
-          child: Row(
-            children: [
-              // Primary numeral shows throughputFps (latency-derived) so
-              // idle screens read smooth — actualFps counts presented
-              // frames and drops to low values when Flutter is not
-              // repainting. True device rate is still exposed in the
-              // expanded detail row (ACTUAL cell) and the snapshot export.
-              ValueListenableBuilder<FrameStatsBuffer>(
-                valueListenable: controller.frameStatsNotifier,
-                builder: (_, buffer, _) {
-                  final target = controller.config.fpsTarget;
-                  final isWarming = buffer.length < _warmupFrameCount;
-                  final fps = buffer.throughputFps.clamp(
-                    0.0,
-                    target.toDouble(),
-                  );
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        isWarming ? '—' : fps.toStringAsFixed(0),
-                        style: TextStyle(
-                          color: isWarming
-                              ? theme.textTertiary
-                              : theme.fpsTextColor(fps, target: target),
-                          fontSize: theme.fontXxl,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(width: theme.spacingXxs),
-                      Text(
-                        'FPS',
-                        style: TextStyle(
-                          color: theme.textTertiary,
-                          fontSize: theme.fontSm,
-                        ),
-                      ),
-                      SizedBox(width: theme.spacingXxs),
-                      // 28dp tap target — documented compromise for the
-                      // cramped 330dp overlay budget (precedent:
-                      // `_RebuildStatsBannerState` pause icon at ~2155,
-                      // v0.15.2 H1). Full 48dp would overflow the card
-                      // min width alongside FPS numeral + label + issue
-                      // count. `HitTestBehavior.opaque` ensures the pad
-                      // is hittable, not just the glyph.
-                      Semantics(
-                        label: _infoExpanded
-                            ? 'Hide FPS explainer'
-                            : 'Show FPS explainer',
-                        button: true,
-                        child: GestureDetector(
-                          onTap: () =>
-                              setState(() => _infoExpanded = !_infoExpanded),
-                          behavior: HitTestBehavior.opaque,
-                          child: SizedBox(
-                            width: 28,
-                            height: 28,
-                            child: Center(
-                              child: Icon(
-                                Icons.info_outline,
-                                size: theme.fontSm,
-                                color: theme.textQuaternary,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const Spacer(),
-              // Issue count + severity dot
-              ValueListenableBuilder<List<PerformanceIssue>>(
-                valueListenable: controller.issuesNotifier,
-                builder: (_, issues, _) {
-                  if (issues.isEmpty) {
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.check_circle,
-                          color: theme.severityOk,
-                          size: 14,
-                        ),
-                        SizedBox(width: theme.spacingXs),
-                        Text(
-                          '0 issues',
-                          style: TextStyle(
-                            color: theme.severityOkText,
-                            fontSize: theme.fontMd,
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-                  final hasCritical = issues.any(
-                    (i) => i.severity == IssueSeverity.critical,
-                  );
-                  final severityColor = hasCritical
-                      ? theme.severityCritical
-                      : theme.severityWarning;
-                  final severityText = hasCritical
-                      ? theme.severityCriticalText
-                      : theme.severityWarningText;
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: severityColor,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      SizedBox(width: theme.spacingXs),
-                      Text(
-                        '${issues.length} issue${issues.length == 1 ? '' : 's'}',
-                        style: TextStyle(
-                          color: severityText,
-                          fontSize: theme.fontMd,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-        if (_infoExpanded) ...[
+    // The FPS group, the VM+/FRAME and DBG badges and the issue count wrap
+    // onto a second line when they do not fit.
+    return SleuthTextScaleClamp(
+      maxScaleFactor: kChromeMaxTextScale,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(
-              theme.spacingLg,
-              0,
-              theme.spacingLg,
-              theme.spacingXs,
+            padding: EdgeInsets.symmetric(horizontal: theme.spacingLg),
+            child: SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: theme.spacingXs,
+                children: [
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: theme.spacingXs,
+                    children: [
+                      _fpsGroup(theme),
+                      _modeBadge(theme),
+                      if (kDebugMode && controller.isDebugCallbacksActive)
+                        _badge(
+                          theme,
+                          'DBG',
+                          theme.badgeDbgBg,
+                          theme.badgeDbgText,
+                        ),
+                    ],
+                  ),
+                  _issueCount(theme),
+                ],
+              ),
             ),
-            child: Text(
-              'TPUT (primary): latency-derived capacity estimate.\n'
-              'ACTUAL: presented frames/sec (count — low when idle).',
+          ),
+          if (_infoExpanded) ...[
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                theme.spacingLg,
+                0,
+                theme.spacingLg,
+                theme.spacingXs,
+              ),
+              child: Text(
+                'TPUT (primary): latency-derived capacity estimate.\n'
+                'ACTUAL: presented frames/sec (count — low when idle).',
+                style: TextStyle(
+                  color: theme.textTertiary,
+                  fontSize: theme.fontXs,
+                  height: 1.4,
+                ),
+              ),
+            ),
+            _ThroughputDetailRow(controller: controller),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // Primary numeral shows throughputFps (latency-derived) so idle screens
+  // read smooth — actualFps counts presented frames and drops to low
+  // values when Flutter is not repainting. True device rate is still
+  // exposed in the expanded detail row (ACTUAL cell) and the snapshot
+  // export.
+  Widget _fpsGroup(SleuthThemeData theme) {
+    return ValueListenableBuilder<FrameStatsBuffer>(
+      valueListenable: controller.frameStatsNotifier,
+      builder: (_, buffer, _) {
+        final target = controller.config.fpsTarget;
+        final isWarming = buffer.length < _warmupFrameCount;
+        final fps = buffer.throughputFps.clamp(0.0, target.toDouble());
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              isWarming ? '—' : fps.toStringAsFixed(0),
+              style: TextStyle(
+                color: isWarming
+                    ? theme.textTertiary
+                    : theme.fpsTextColor(fps, target: target),
+                fontSize: theme.fontXxl,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(width: theme.spacingXxs),
+            Text(
+              'FPS',
               style: TextStyle(
                 color: theme.textTertiary,
-                fontSize: theme.fontXs,
-                height: 1.4,
+                fontSize: theme.fontSm,
               ),
             ),
+            Semantics(
+              label: _infoExpanded
+                  ? 'Hide FPS explainer'
+                  : 'Show FPS explainer',
+              button: true,
+              expanded: _infoExpanded,
+              child: GestureDetector(
+                onTap: () => setState(() => _infoExpanded = !_infoExpanded),
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Icon(
+                      Icons.info_outline,
+                      size: 14,
+                      color: theme.textQuaternary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// VM+ when the VM service is connected, FRAME otherwise.
+  Widget _modeBadge(SleuthThemeData theme) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: controller.vmConnectedNotifier,
+      builder: (_, connected, _) => _badge(
+        theme,
+        connected ? 'VM+' : 'FRAME',
+        connected ? theme.badgeVmBg : theme.badgeFrameBg,
+        connected ? theme.badgeVmText : theme.badgeFrameText,
+      ),
+    );
+  }
+
+  Widget _badge(SleuthThemeData theme, String label, Color bg, Color fg) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(theme.radiusLg),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: fg,
+            fontSize: theme.fontXxs,
+            fontWeight: FontWeight.bold,
           ),
-          _ThroughputDetailRow(controller: controller),
-        ],
-      ],
+        ),
+      ),
+    );
+  }
+
+  /// Issue count with a severity dot.
+  Widget _issueCount(SleuthThemeData theme) {
+    return ValueListenableBuilder<List<PerformanceIssue>>(
+      valueListenable: controller.issuesNotifier,
+      builder: (_, issues, _) {
+        if (issues.isEmpty) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle, color: theme.severityOk, size: 14),
+              SizedBox(width: theme.spacingXs),
+              Text(
+                '0 issues',
+                style: TextStyle(
+                  color: theme.severityOkText,
+                  fontSize: theme.fontMd,
+                ),
+              ),
+            ],
+          );
+        }
+        final hasCritical = issues.any(
+          (i) => i.severity == IssueSeverity.critical,
+        );
+        final severityColor = hasCritical
+            ? theme.severityCritical
+            : theme.severityWarning;
+        final severityText = hasCritical
+            ? theme.severityCriticalText
+            : theme.severityWarningText;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: severityColor,
+                shape: BoxShape.circle,
+              ),
+              child: const SizedBox(width: 8, height: 8),
+            ),
+            SizedBox(width: theme.spacingXs),
+            Text(
+              '${issues.length} issue${issues.length == 1 ? '' : 's'}',
+              style: TextStyle(color: severityText, fontSize: theme.fontMd),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -1885,9 +1924,10 @@ class _DebugModeBanner extends StatelessWidget {
                   color: theme.bannerWarningText,
                   fontSize: theme.fontSm,
                 ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            SizedBox(width: theme.spacingXs),
             Semantics(
               label: 'Dismiss debug mode banner',
               button: true,
@@ -1895,8 +1935,8 @@ class _DebugModeBanner extends StatelessWidget {
                 onTap: onDismiss,
                 behavior: HitTestBehavior.opaque,
                 child: SizedBox(
-                  width: 36,
-                  height: 36,
+                  width: 48,
+                  height: 48,
                   child: Center(
                     child: Icon(
                       Icons.close,
@@ -2030,117 +2070,115 @@ class _CardFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: theme.spacingMd,
-        vertical: theme.spacingXs,
-      ),
+      padding: EdgeInsets.symmetric(horizontal: theme.spacingMd),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: theme.border, width: 1)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Semantics(
-            label: 'Encyclopedia',
-            button: true,
-            child: GestureDetector(
-              onTap: onEncyclopedia,
-              behavior: HitTestBehavior.opaque,
-              child: SizedBox(
-                width: 32,
-                height: 32,
-                child: Center(
-                  child: Icon(
-                    Icons.menu_book_outlined,
-                    color: theme.textTertiary,
-                    size: 16,
+      child: SleuthTextScaleClamp(
+        maxScaleFactor: kChromeMaxTextScale,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Semantics(
+              label: 'Encyclopedia',
+              button: true,
+              child: GestureDetector(
+                onTap: onEncyclopedia,
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Icon(
+                      Icons.menu_book_outlined,
+                      color: theme.textTertiary,
+                      size: 16,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          SizedBox(width: theme.spacingXs),
-          Semantics(
-            label: 'Export',
-            button: true,
-            child: GestureDetector(
-              onTap: onExport,
-              behavior: HitTestBehavior.opaque,
-              child: SizedBox(
-                width: 32,
-                height: 32,
-                child: Center(
-                  child: Icon(
-                    Icons.ios_share,
-                    color: theme.textTertiary,
-                    size: 16,
+            Semantics(
+              label: 'Export',
+              button: true,
+              child: GestureDetector(
+                onTap: onExport,
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Icon(
+                      Icons.ios_share,
+                      color: theme.textTertiary,
+                      size: 16,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          SizedBox(width: theme.spacingXs),
-          Semantics(
-            label: 'Guide',
-            button: true,
-            child: GestureDetector(
-              onTap: onGuide,
-              behavior: HitTestBehavior.opaque,
-              child: SizedBox(
-                width: 32,
-                height: 32,
-                child: Center(
-                  child: Icon(
-                    Icons.help_outline,
-                    color: theme.textTertiary,
-                    size: 16,
+            Semantics(
+              label: 'Guide',
+              button: true,
+              child: GestureDetector(
+                onTap: onGuide,
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Icon(
+                      Icons.help_outline,
+                      color: theme.textTertiary,
+                      size: 16,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          ValueListenableBuilder<int>(
-            valueListenable: controller.suppressedCountNotifier,
-            builder: (_, suppressed, _) {
-              final label = hiddenFooterLabel(hiddenCount, suppressed);
-              if (label == null) return const SizedBox.shrink();
-              return Flexible(
-                child: Semantics(
-                  button: true,
-                  label: '$label. Show hidden issues',
-                  onTap: onShowHidden,
-                  container: true,
-                  excludeSemantics: true,
-                  child: GestureDetector(
+            ValueListenableBuilder<int>(
+              valueListenable: controller.suppressedCountNotifier,
+              builder: (_, suppressed, _) {
+                final label = hiddenFooterLabel(hiddenCount, suppressed);
+                if (label == null) return const SizedBox.shrink();
+                return Flexible(
+                  child: Semantics(
+                    button: true,
+                    label: '$label. Show hidden issues',
                     onTap: onShowHidden,
-                    behavior: HitTestBehavior.opaque,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(minHeight: 48),
-                      child: Padding(
-                        padding: EdgeInsets.only(left: theme.spacingMd),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: 1,
-                          child: Text(
-                            label,
-                            style: TextStyle(
-                              color: theme.textQuaternary,
-                              fontSize: theme.fontSm,
-                              decoration: TextDecoration.underline,
-                              decorationColor: theme.textQuaternary,
+                    container: true,
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                      onTap: onShowHidden,
+                      behavior: HitTestBehavior.opaque,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: Padding(
+                          padding: EdgeInsets.only(left: theme.spacingMd),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            widthFactor: 1,
+                            child: Text(
+                              label,
+                              style: TextStyle(
+                                color: theme.textQuaternary,
+                                fontSize: theme.fontSm,
+                                decoration: TextDecoration.underline,
+                                decorationColor: theme.textQuaternary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              );
-            },
-          ),
-        ],
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2150,6 +2188,7 @@ class _CardFooter extends StatelessWidget {
 
 class _IssuesSummaryBar extends StatelessWidget {
   const _IssuesSummaryBar({
+    required this.chromeScale,
     required this.issues,
     required this.severityCounts,
     required this.enabledSeverities,
@@ -2172,26 +2211,50 @@ class _IssuesSummaryBar extends StatelessWidget {
 
   final ValueChanged<IssueSeverity> onToggleSeverity;
 
+  /// Chrome text scale (1.0 to 1.3); the bar grows with it.
+  final double chromeScale;
+
   static const _order = [
     IssueSeverity.critical,
     IssueSeverity.warning,
     IssueSeverity.ok,
   ];
 
-  /// Height the bar takes from the list.
+  /// Height the bar takes from the list at 1.0x text.
   static const double barHeight = 36;
 
-  /// Height of the chips' hit boxes. The part below [barHeight] overlaps
-  /// the top of the list and takes taps only where a chip is.
-  static const double hitHeight = 48;
+  /// Minimum height of the chips' hit boxes.
+  static const double minHitHeight = 48;
 
-  /// [summary] over [body]: [body] starts [barHeight] below the top, and
-  /// [summary] is laid over it so the chips keep [hitHeight] hit boxes
+  /// Bar height at [chromeScale].
+  static double barHeightFor(double chromeScale) => barHeight * chromeScale;
+
+  /// Height of the chips' hit boxes at [chromeScale]: at least
+  /// [minHitHeight]. The part below the bar overlaps the top of the list
+  /// and takes taps only where a chip is.
+  static double hitHeightFor(double chromeScale) =>
+      math.max(minHitHeight, barHeightFor(chromeScale));
+
+  /// [summary] over [body]: [body] starts one bar height below the top,
+  /// and [summary] is laid over it so the chips keep their hit boxes
   /// without taking more height from the list.
-  static Widget above({required Widget summary, required Widget body}) => Stack(
+  static Widget above({
+    required double chromeScale,
+    required Widget summary,
+    required Widget body,
+  }) => Stack(
     children: [
-      Positioned.fill(top: barHeight, child: body),
-      Positioned(top: 0, left: 0, right: 0, height: hitHeight, child: summary),
+      Positioned.fill(top: barHeightFor(chromeScale), child: body),
+      Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        height: hitHeightFor(chromeScale),
+        child: SleuthTextScaleClamp(
+          maxScaleFactor: kChromeMaxTextScale,
+          child: summary,
+        ),
+      ),
     ],
   );
 
@@ -2219,15 +2282,16 @@ class _IssuesSummaryBar extends StatelessWidget {
             if (heuristic > 0) '$heuristic heuristic',
           ].join(' · ');
 
-    // Only the chips take taps; the rest of the 48 px box lets them
-    // through to the list below.
+    // Only the chips take taps; the rest of the hit box lets them through
+    // to the list below.
+    final bar = barHeightFor(chromeScale);
     return Stack(
       children: [
         Positioned(
           top: 0,
           left: 0,
           right: 0,
-          height: barHeight,
+          height: bar,
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -2250,6 +2314,7 @@ class _IssuesSummaryBar extends StatelessWidget {
                   if ((counts[severity] ?? 0) > 0 ||
                       !enabledSeverities.contains(severity))
                     _SeverityChip(
+                      chromeScale: chromeScale,
                       severity: severity,
                       count: counts[severity] ?? 0,
                       selected: enabledSeverities.contains(severity),
@@ -2259,7 +2324,7 @@ class _IssuesSummaryBar extends StatelessWidget {
                 Expanded(
                   child: IgnorePointer(
                     child: SizedBox(
-                      height: barHeight,
+                      height: bar,
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: Text(
@@ -2289,12 +2354,14 @@ class _IssuesSummaryBar extends StatelessWidget {
 /// bar's visible height.
 class _SeverityChip extends StatelessWidget {
   const _SeverityChip({
+    required this.chromeScale,
     required this.severity,
     required this.count,
     required this.selected,
     required this.onTap,
   });
 
+  final double chromeScale;
   final IssueSeverity severity;
   final int count;
   final bool selected;
@@ -2321,15 +2388,15 @@ class _SeverityChip extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: ConstrainedBox(
           constraints: const BoxConstraints(
-            minWidth: _IssuesSummaryBar.hitHeight,
+            minWidth: _IssuesSummaryBar.minHitHeight,
           ),
           child: SizedBox(
-            height: _IssuesSummaryBar.hitHeight,
+            height: _IssuesSummaryBar.hitHeightFor(chromeScale),
             child: Align(
               alignment: Alignment.topCenter,
               widthFactor: 1,
               child: SizedBox(
-                height: _IssuesSummaryBar.barHeight,
+                height: _IssuesSummaryBar.barHeightFor(chromeScale),
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: theme.spacingXxs),
                   child: Center(
@@ -2904,21 +2971,15 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
                     ? 'Resume live rebuild updates'
                     : 'Pause live rebuild updates',
                 button: true,
-                // H1: enlarge the pause hit area without ballooning
-                // header height. 28dp is ~30% bigger than the natural
-                // ~22dp icon footprint and still fits the tightly-
-                // budgeted debug overlay. Material's full 48dp ideal
-                // would push the panel past the cramped 330dp test
-                // budget (and past 446dp on small phones), so this is
-                // a deliberate compromise documented in v0.15.2 H1.
-                // `HitTestBehavior.opaque` is critical: without it
+                // 48 x 48 hit box; the banners scroll when the card is
+                // short. `HitTestBehavior.opaque` is critical: without it
                 // the OUTER header GestureDetector would intercept
                 // the tap when the finger lands on the padding rather
                 // than on the icon glyph itself, toggling expansion
                 // instead of pause/resume.
                 child: SizedBox(
-                  width: 28,
-                  height: 28,
+                  width: 48,
+                  height: 48,
                   child: GestureDetector(
                     onTap: _togglePause,
                     behavior: HitTestBehavior.opaque,
@@ -3052,6 +3113,18 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
     // With top-N = 3, a route with ≤ 3 widgets has nothing to drill into,
     // so the link is suppressed to avoid a redundant tap target.
     final showSeeAll = widgetCount > _topN;
+    return SleuthTextScaleClamp(
+      maxScaleFactor: kChromeMaxTextScale,
+      child: _expandedFooterRow(theme, color, widgetCount, showSeeAll),
+    );
+  }
+
+  Widget _expandedFooterRow(
+    SleuthThemeData theme,
+    Color color,
+    int widgetCount,
+    bool showSeeAll,
+  ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -3075,17 +3148,11 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
           Semantics(
             label: 'See all $widgetCount rebuilds',
             button: true,
-            // H1: enlarge the see-all hit area without breaking the
-            // overlay's tight vertical budget. 24dp is ~70% larger than
-            // the natural text-only height (~14dp) and is reliably
-            // hittable on a real device, while still respecting the
-            // inline-debug-panel context. Material's full 48dp ideal
-            // would overflow the panel on small screens — see H1
-            // compromise note in `_buildHeaderRow`. `HitTestBehavior
-            // .opaque` makes the whole padded box receive taps even
-            // where the text doesn't cover it.
+            // 48 px tall hit box. `HitTestBehavior.opaque` makes the
+            // whole padded box receive taps even where the text doesn't
+            // cover it.
             child: SizedBox(
-              height: 24,
+              height: 48,
               child: GestureDetector(
                 onTap: () {
                   // C1: pass the panel's frozen snapshot through to the

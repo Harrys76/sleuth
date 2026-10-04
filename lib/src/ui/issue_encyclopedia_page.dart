@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/performance_issue.dart';
 import '../utils/issue_explanation_builder.dart';
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 /// Full-screen encyclopedia listing all detected issue types, grouped by category.
 ///
@@ -346,29 +347,34 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             child: Icon(icon, color: color, size: 14),
           ),
           SizedBox(width: theme.spacingSm),
-          Text(
-            name,
-            style: TextStyle(
-              color: theme.textPrimary,
-              fontSize: theme.fontMd,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.3,
+          Flexible(
+            child: Text(
+              name,
+              style: TextStyle(
+                color: theme.textPrimary,
+                fontSize: theme.fontMd,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
             ),
           ),
           SizedBox(width: theme.spacingXs),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-              color: theme.badgeFill(color),
-              borderRadius: BorderRadius.circular(theme.radiusLg),
-              border: Border.all(color: color),
-            ),
-            child: Text(
-              countText,
-              style: TextStyle(
-                color: theme.badgeTextOn(color),
-                fontSize: theme.fontXs,
-                fontWeight: FontWeight.bold,
+          SleuthTextScaleClamp(
+            maxScaleFactor: kChromeMaxTextScale,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: theme.badgeFill(color),
+                borderRadius: BorderRadius.circular(theme.radiusLg),
+                border: Border.all(color: color),
+              ),
+              child: Text(
+                countText,
+                style: TextStyle(
+                  color: theme.badgeTextOn(color),
+                  fontSize: theme.fontXs,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -667,14 +673,16 @@ class _SearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 36,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
       child: TextField(
         controller: controller,
         focusNode: focusNode,
         style: TextStyle(color: theme.textPrimary, fontSize: theme.fontBase),
         cursorColor: theme.textTertiary,
         decoration: InputDecoration(
+          isDense: true,
+          constraints: const BoxConstraints(minHeight: 48),
           hintText: 'Search issues...',
           hintStyle: TextStyle(
             color: theme.textQuaternary,
@@ -685,17 +693,21 @@ class _SearchBar extends StatelessWidget {
             valueListenable: controller,
             builder: (_, value, _) => value.text.isEmpty
                 ? const SizedBox.shrink()
-                : GestureDetector(
-                    onTap: controller.clear,
-                    behavior: HitTestBehavior.opaque,
-                    child: SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: Center(
-                        child: Icon(
-                          Icons.close,
-                          color: theme.textQuaternary,
-                          size: 16,
+                : Semantics(
+                    label: 'Clear search',
+                    button: true,
+                    child: GestureDetector(
+                      onTap: controller.clear,
+                      behavior: HitTestBehavior.opaque,
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Center(
+                          child: Icon(
+                            Icons.close,
+                            color: theme.textQuaternary,
+                            size: 16,
+                          ),
                         ),
                       ),
                     ),

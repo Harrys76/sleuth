@@ -189,7 +189,7 @@ void main() {
       );
 
       final textWidget = tester.widget<Text>(find.text('BUILD'));
-      expect(textWidget.style?.fontSize, 8);
+      expect(textWidget.style?.fontSize, 10);
       expect(textWidget.style?.fontWeight, FontWeight.bold);
     });
   });

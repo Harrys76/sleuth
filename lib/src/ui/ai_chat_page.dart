@@ -185,18 +185,23 @@ class _AiChatPageState extends State<AiChatPage>
     final theme = SleuthTheme.of(context);
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
 
+    // A Material surface: the TextField needs a Material ancestor, and ink
+    // and text selection paint on it. The page is a sibling of the card's
+    // Material, not a descendant.
     return FadeTransition(
       opacity: _entranceCurve,
-      child: Container(
+      child: Material(
         color: theme.pageBackground,
-        padding: EdgeInsets.only(bottom: keyboardHeight),
-        child: Column(
-          children: [
-            _buildHeader(theme),
-            _buildIssueContext(theme),
-            Expanded(child: _buildMessageArea(theme)),
-            _buildInputBar(theme),
-          ],
+        child: Padding(
+          padding: EdgeInsets.only(bottom: keyboardHeight),
+          child: Column(
+            children: [
+              _buildHeader(theme),
+              _buildIssueContext(theme),
+              Expanded(child: _buildMessageArea(theme)),
+              _buildInputBar(theme),
+            ],
+          ),
         ),
       ),
     );

@@ -192,7 +192,6 @@ void main() {
       expect(_scaleAt(tester, find.byType(TriggerButton)), 2.0);
       expect(_scaleAt(tester, find.text('app')), 3.0);
       await openDashboard(tester, controller);
-      tester.takeException(); // TEMP-STEP4
       expect(_scaleAt(tester, find.byType(FloatingIssuesCard)), 2.0);
       expect(_scaleAt(tester, find.text('app')), 3.0);
     });

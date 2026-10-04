@@ -318,8 +318,9 @@ void main() {
 
         expect(find.byIcon(Icons.push_pin), findsOneWidget);
 
-        // Tap again to collapse → pin icon disappears.
-        await tester.tap(find.byType(IssueCard));
+        // Tap the title again to collapse → pin icon disappears. (The
+        // card's centre now holds the 48 px "About this detection" row.)
+        await tester.tap(find.text('Test Issue'));
         await tester.pumpAndSettle();
 
         expect(find.byIcon(Icons.push_pin), findsNothing);
@@ -388,15 +389,8 @@ void main() {
       // the pin icon's rect is fully contained inside its ancestor Card.
       // That's the pin-specific invariant v0.15.5 is responsible for.
       //
-      // Known limitation (pre-existing, NOT a v0.15.5 regression): the
-      // Row itself can report a ~40dp RenderFlex overflow at this exact
-      // combination because the Checkbox's default tap target is ~48dp
-      // wide. That overflow existed before the pin was added — the pin
-      // only adds ~18dp on top — and it affects the Checkbox tail, not
-      // the pin icon itself. Tightening Checkbox density or restructuring
-      // the header is tracked as a follow-up, out of scope for v0.15.5.
-      // This test drains that exception so CI stays green while still
-      // asserting the pin-specific bounds invariant.
+      // The confidence badge sits beside the title and JANK / downstream
+      // badges wrap on the badge line, so the header never overflows.
       final rootIssue = _testIssue(
         title:
             'Excessive rebuilds detected in a very long widget path that '
@@ -430,19 +424,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Drain the pre-existing Checkbox overflow exception (see comment
-      // above). If a NEW exception type appears, the trailing
-      // `takeException` below will surface it.
-      final knownOverflow = tester.takeException();
-      if (knownOverflow is FlutterError) {
-        expect(
-          knownOverflow.message,
-          contains('overflowed'),
-          reason:
-              'Only the known pre-existing RenderFlex overflow is tolerated '
-              'here. Any other FlutterError is a real regression.',
-        );
-      }
+      // No RenderFlex overflow with every header badge present.
+      expect(tester.takeException(), isNull);
 
       final pinFinder = find.byIcon(Icons.push_pin);
       expect(pinFinder, findsOneWidget);

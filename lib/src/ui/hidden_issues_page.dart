@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/performance_issue.dart';
 import 'overlay_filters.dart';
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 /// Full-screen list of issues hidden from the overlay.
 ///
@@ -175,11 +176,15 @@ class HiddenIssuesPage extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            Text(
-                              'set in SleuthConfig',
-                              style: TextStyle(
-                                color: theme.textQuaternary,
-                                fontSize: theme.fontXs,
+                            SizedBox(width: theme.spacingSm),
+                            Flexible(
+                              child: Text(
+                                'set in SleuthConfig',
+                                style: TextStyle(
+                                  color: theme.textQuaternary,
+                                  fontSize: theme.fontXs,
+                                ),
+                                textAlign: TextAlign.right,
                               ),
                             ),
                           ],
@@ -299,6 +304,8 @@ class _TextAction extends StatelessWidget {
             padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
             child: Center(
               widthFactor: 1,
+              // Button labels stop growing at the chrome limit so the
+              // header keeps room for the title.
               child: Text(
                 label,
                 style: TextStyle(
@@ -306,6 +313,9 @@ class _TextAction extends StatelessWidget {
                   fontSize: theme.fontMd,
                   fontWeight: FontWeight.w600,
                 ),
+                textScaler: MediaQuery.textScalerOf(
+                  context,
+                ).clamp(maxScaleFactor: kChromeMaxTextScale),
               ),
             ),
           ),

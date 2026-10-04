@@ -5,6 +5,7 @@ import '../models/recurrence_trend.dart';
 import '../utils/issue_metadata_builder.dart';
 import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 /// A card displaying a single performance issue.
 ///
@@ -158,6 +159,14 @@ class _IssueCardState extends State<IssueCard> {
     widget.onHide?.call();
   }
 
+  /// Badge text follows the system text size up to the chrome limit.
+  TextScaler _badgeScaler(BuildContext context) =>
+      (MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling).clamp(
+        maxScaleFactor: kChromeMaxTextScale,
+      );
+
+  void _toggleAbout() => setState(() => _aboutExpanded = !_aboutExpanded);
+
   /// Toggle expansion and notify the host.
   ///
   /// **Invariant:** every mutation of [_expanded] must route through this
@@ -206,140 +215,185 @@ class _IssueCardState extends State<IssueCard> {
           ),
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header row
-                Row(
-                  children: [
-                    _severityIcon(issue.severity, theme),
-                    SizedBox(width: theme.spacingXs),
-                    _categoryBadge(issue.category, theme),
-                    SizedBox(width: theme.spacingXs),
-                    Expanded(
-                      child: GestureDetector(
-                        onLongPress: widget.onCopy,
-                        child: Text(
-                          issue.title,
-                          style: TextStyle(
-                            color: theme.textPrimary,
-                            fontSize: theme.fontBase,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    _confidenceBadge(
-                      issue.confidence,
-                      theme,
-                      issue.confidenceReason,
-                    ),
-                    if (widget.jankCorrelated) ...[
-                      SizedBox(width: theme.spacingXs),
-                      _badge(
-                        theme: theme,
-                        accent: theme.severityCritical,
-                        tintedText: theme.severityCriticalText,
-                        label: 'JANK',
-                      ),
-                    ],
-                    if (widget.downstreamIssues != null &&
-                        widget.downstreamIssues!.isNotEmpty) ...[
-                      SizedBox(width: theme.spacingXs),
-                      _badge(
-                        theme: theme,
-                        accent: theme.effectsBadge,
-                        label: '\u21B3 ${widget.downstreamIssues!.length}',
-                      ),
-                    ],
-                    // Freeze-above pin indicator (v0.15.5). The
-                    // icon only renders when the card is expanded, but
-                    // the Semantics node is unconditional so TalkBack /
-                    // VoiceOver traversal order and focus don't shift
-                    // when the user toggles expansion. When collapsed,
-                    // `excludeSemantics: true` silences the empty-label
-                    // branch so the node has no audible text.
-                    //
-                    // Positioned at the "last chip" slot (after the ↳N
-                    // downstream badge, before Checkbox) per the v0.15.5
-                    // user-facing decision — the pin is a state hint,
-                    // not a header-priority signal, so it sits at the
-                    // end of the chip run. Pre-existing RenderFlex
-                    // overflow at 300dp with the combinatorial header
-                    // (title + confidence + JANK + ↳N + Checkbox) is a
-                    // known non-regression; the pin sits in that
-                    // Checkbox-tail region at max density and may clip.
-                    Semantics(
-                      label: _expanded ? 'Pinned while expanded' : '',
-                      excludeSemantics: !_expanded,
-                      child: _expanded
-                          ? Padding(
-                              padding: EdgeInsets.only(left: theme.spacingXs),
-                              child: Icon(
-                                Icons.push_pin,
-                                size: 14,
-                                color: theme.textSecondary.withValues(
-                                  alpha: 0.55,
-                                ),
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                    if (widget.locatable) ...[
-                      SizedBox(width: theme.spacingXs),
-                      Semantics(
-                        container: true,
-                        child: Semantics(
-                          label: 'Highlight widget on screen',
-                          child: Checkbox(
-                            value: widget.highlighted,
-                            onChanged: (v) =>
-                                widget.onHighlightChanged?.call(v ?? false),
-                            side: BorderSide(
-                              color: theme.textQuaternary,
-                              width: 1.5,
-                            ),
-                            activeColor: theme.checkboxActive,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-
-                // Debug mode disclaimer
-                if (issue.debugModeDisclaimer)
-                  Padding(
-                    padding: EdgeInsets.only(top: theme.spacingXs),
-                    child: Text(
-                      '[DEBUG MODE — verify in profile]',
-                      style: TextStyle(
-                        color: theme.disclaimerText,
-                        fontSize: theme.fontXs,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ),
-
-                // Recurrence badge ("Seen X/Y"). Only this subtree listens
-                // to the scan pulse.
-                if (widget.scanTick != null)
-                  SleuthListenableBuilder(
-                    listenable: widget.scanTick!,
-                    builder: (context) =>
-                        _recurrenceBadgeOrNothing(_currentTrend(), theme),
-                  )
-                else
-                  _recurrenceBadgeOrNothing(_currentTrend(), theme),
-
-                // Expanded detail + fix hint
-                if (_expanded) ..._buildExpandedContent(issue, theme),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) => _buildBody(
+                context,
+                theme,
+                issue,
+                // The category and confidence badges sit beside the title
+                // while there is room; with large text or a narrow card
+                // they move to the badge line.
+                inlineBadges:
+                    textScaleOf(context) <= kChromeMaxTextScale &&
+                    constraints.maxWidth >= 260,
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBody(
+    BuildContext context,
+    SleuthThemeData theme,
+    PerformanceIssue issue, {
+    required bool inlineBadges,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Title row: severity, category, title, pin, checkbox.
+        Row(
+          children: [
+            _severityIcon(issue.severity, theme),
+            SizedBox(width: theme.spacingXs),
+            if (inlineBadges) ...[
+              _categoryBadge(issue.category, theme),
+              SizedBox(width: theme.spacingXs),
+            ],
+            Expanded(
+              child: GestureDetector(
+                onLongPress: widget.onCopy,
+                child: Text(
+                  issue.title,
+                  style: TextStyle(
+                    color: theme.textPrimary,
+                    fontSize: theme.fontBase,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  // Two lines once the text is large enough that
+                  // one line shows only a few words.
+                  maxLines: textScaleOf(context) > kChromeMaxTextScale ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            if (inlineBadges)
+              Flexible(
+                child: Padding(
+                  padding: EdgeInsets.only(left: theme.spacingXs),
+                  child: _confidenceBadge(
+                    issue.confidence,
+                    theme,
+                    issue.confidenceReason,
+                  ),
+                ),
+              ),
+            // Freeze-above pin indicator (v0.15.5). The icon only
+            // renders when the card is expanded, but the Semantics
+            // node is unconditional so TalkBack / VoiceOver
+            // traversal order and focus don't shift when the user
+            // toggles expansion. When collapsed,
+            // `excludeSemantics: true` silences the empty-label
+            // branch so the node has no audible text.
+            Semantics(
+              label: _expanded ? 'Pinned while expanded' : '',
+              excludeSemantics: !_expanded,
+              child: _expanded
+                  ? Padding(
+                      padding: EdgeInsets.only(left: theme.spacingXs),
+                      child: Icon(
+                        Icons.push_pin,
+                        size: 14,
+                        color: theme.textSecondary.withValues(alpha: 0.55),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+            if (widget.locatable) ...[
+              SizedBox(width: theme.spacingXs),
+              Semantics(
+                container: true,
+                child: Semantics(
+                  label: 'Highlight widget on screen',
+                  child: Checkbox(
+                    value: widget.highlighted,
+                    onChanged: (v) =>
+                        widget.onHighlightChanged?.call(v ?? false),
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                    side: BorderSide(color: theme.textQuaternary, width: 1.5),
+                    activeColor: theme.checkboxActive,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+
+        // Badge line: category and confidence (when not beside the
+        // title),
+        // JANK, downstream count and the recurrence badge, wrapping
+        // when the card is narrow. Only this subtree listens to the
+        // scan pulse.
+        if (widget.scanTick != null)
+          SleuthListenableBuilder(
+            listenable: widget.scanTick!,
+            builder: (context) =>
+                _badgeLine(context, theme, issue, inlineBadges),
+          )
+        else
+          _badgeLine(context, theme, issue, inlineBadges),
+
+        // Debug mode disclaimer
+        if (issue.debugModeDisclaimer)
+          Padding(
+            padding: EdgeInsets.only(top: theme.spacingXs),
+            child: Text(
+              '[DEBUG MODE — verify in profile]',
+              style: TextStyle(
+                color: theme.disclaimerText,
+                fontSize: theme.fontXs,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+
+        // Expanded detail + fix hint
+        if (_expanded) ..._buildExpandedContent(issue, theme),
+      ],
+    );
+  }
+
+  /// Badges below the title; nothing when there are none.
+  Widget _badgeLine(
+    BuildContext context,
+    SleuthThemeData theme,
+    PerformanceIssue issue,
+    bool inlineBadges,
+  ) {
+    final trend = _currentTrend();
+    final downstream = widget.downstreamIssues;
+    final children = [
+      if (!inlineBadges) ...[
+        _categoryBadge(issue.category, theme),
+        _confidenceBadge(issue.confidence, theme, issue.confidenceReason),
+      ],
+      if (widget.jankCorrelated)
+        _badge(
+          theme: theme,
+          accent: theme.severityCritical,
+          tintedText: theme.severityCriticalText,
+          label: 'JANK',
+          textScaler: _badgeScaler(context),
+        ),
+      if (downstream != null && downstream.isNotEmpty)
+        _badge(
+          theme: theme,
+          accent: theme.effectsBadge,
+          label: '\u21B3 ${downstream.length}',
+          textScaler: _badgeScaler(context),
+        ),
+      if (trend != null && trend.length >= 2) _recurrenceBadge(trend, theme),
+    ];
+    if (children.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(top: theme.spacingXs),
+      child: Wrap(
+        spacing: theme.spacingXs,
+        runSpacing: theme.spacingXs,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: children,
       ),
     );
   }
@@ -389,8 +443,6 @@ class _IssueCardState extends State<IssueCard> {
               fontSize: theme.fontSm,
               fontStyle: FontStyle.italic,
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
           ),
         ),
       if (issue.ancestorChain != null &&
@@ -405,8 +457,6 @@ class _IssueCardState extends State<IssueCard> {
               fontSize: theme.fontSm,
               fontStyle: FontStyle.italic,
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
           ),
         ),
       if (issue.observationSource != null)
@@ -457,27 +507,38 @@ class _IssueCardState extends State<IssueCard> {
       if (widget.downstreamIssues != null &&
           widget.downstreamIssues!.isNotEmpty)
         _downstreamSection(theme),
-      // "About this detection" collapsible section
-      GestureDetector(
-        onTap: () => setState(() => _aboutExpanded = !_aboutExpanded),
-        child: Padding(
-          padding: EdgeInsets.only(top: theme.spacingSm),
-          child: Row(
-            children: [
-              Icon(
-                _aboutExpanded ? Icons.expand_less : Icons.expand_more,
-                color: theme.textQuaternary,
-                size: 14,
-              ),
-              SizedBox(width: theme.spacingXs),
-              Text(
-                'About this detection',
-                style: TextStyle(
+      // "About this detection" collapsible section, 48 px tall.
+      Semantics(
+        container: true,
+        button: true,
+        expanded: _aboutExpanded,
+        label: 'About this detection',
+        onTap: _toggleAbout,
+        excludeSemantics: true,
+        child: GestureDetector(
+          onTap: _toggleAbout,
+          behavior: HitTestBehavior.opaque,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Row(
+              children: [
+                Icon(
+                  _aboutExpanded ? Icons.expand_less : Icons.expand_more,
                   color: theme.textQuaternary,
-                  fontSize: theme.fontXs,
+                  size: 14,
                 ),
-              ),
-            ],
+                SizedBox(width: theme.spacingXs),
+                Flexible(
+                  child: Text(
+                    'About this detection',
+                    style: TextStyle(
+                      color: theme.textQuaternary,
+                      fontSize: theme.fontXs,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -524,7 +585,9 @@ class _IssueCardState extends State<IssueCard> {
           _isDebugCallbackSource(issue.observationSource))
         Padding(
           padding: EdgeInsets.only(top: theme.spacingXxs),
-          child: Row(
+          child: Wrap(
+            spacing: theme.spacingXs,
+            runSpacing: theme.spacingXxs,
             children: [
               Container(
                 padding: EdgeInsets.symmetric(
@@ -543,7 +606,6 @@ class _IssueCardState extends State<IssueCard> {
                   ),
                 ),
               ),
-              SizedBox(width: theme.spacingXs),
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: theme.spacingXs,
@@ -881,17 +943,34 @@ class _IssueCardState extends State<IssueCard> {
       IssueCategory.startup => 'STARTUP',
     };
 
-    return _badge(theme: theme, accent: color, label: label);
+    return _badge(
+      theme: theme,
+      accent: color,
+      label: label,
+      textScaler: _badgeScaler(context),
+    );
   }
 
   Widget _severityIcon(IssueSeverity severity, SleuthThemeData theme) {
     switch (severity) {
       case IssueSeverity.critical:
-        return Text('\u{1F534}', style: TextStyle(fontSize: theme.fontBase));
+        return Text(
+          '\u{1F534}',
+          style: TextStyle(fontSize: theme.fontBase),
+          textScaler: _badgeScaler(context),
+        );
       case IssueSeverity.warning:
-        return Text('\u{1F7E1}', style: TextStyle(fontSize: theme.fontBase));
+        return Text(
+          '\u{1F7E1}',
+          style: TextStyle(fontSize: theme.fontBase),
+          textScaler: _badgeScaler(context),
+        );
       case IssueSeverity.ok:
-        return Text('\u{1F7E2}', style: TextStyle(fontSize: theme.fontBase));
+        return Text(
+          '\u{1F7E2}',
+          style: TextStyle(fontSize: theme.fontBase),
+          textScaler: _badgeScaler(context),
+        );
     }
   }
 
@@ -923,14 +1002,6 @@ class _IssueCardState extends State<IssueCard> {
   /// 10 entries) and the `± 0.3` severity-delta thresholds.
   RecurrenceTrend? _currentTrend() =>
       widget.recurrenceTrendOf?.call() ?? widget.recurrenceTrend;
-
-  Widget _recurrenceBadgeOrNothing(
-    RecurrenceTrend? trend,
-    SleuthThemeData theme,
-  ) {
-    if (trend == null || trend.length < 2) return const SizedBox.shrink();
-    return _recurrenceBadge(trend, theme);
-  }
 
   Widget _recurrenceBadge(RecurrenceTrend trend, SleuthThemeData theme) {
     final present = trend.presentCount;
@@ -966,33 +1037,26 @@ class _IssueCardState extends State<IssueCard> {
         theme.textSecondary,
       ),
     };
-    return Align(
-      alignment: Alignment.centerLeft,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.12),
+        borderRadius: BorderRadius.circular(theme.radiusMd),
+      ),
       child: Padding(
-        padding: EdgeInsets.only(top: theme.spacingXs),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: color.withValues(
-              alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.12,
-            ),
-            borderRadius: BorderRadius.circular(theme.radiusMd),
+        padding: EdgeInsets.symmetric(
+          horizontal: theme.spacingSm,
+          vertical: theme.spacingXxs,
+        ),
+        child: Text(
+          'Seen $present/$total \u00B7 $label',
+          style: TextStyle(
+            color: theme.badgeTextOn(color, tinted: text),
+            fontSize: theme.fontSm,
+            fontWeight: FontWeight.w600,
           ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: theme.spacingSm,
-              vertical: theme.spacingXxs,
-            ),
-            child: Text(
-              'Seen $present/$total \u00B7 $label',
-              style: TextStyle(
-                color: theme.badgeTextOn(color, tinted: text),
-                fontSize: theme.fontSm,
-                fontWeight: FontWeight.w600,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          textScaler: _badgeScaler(context),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
@@ -1000,7 +1064,12 @@ class _IssueCardState extends State<IssueCard> {
 
   Widget _effortBadge(PerformanceIssue issue, SleuthThemeData theme) {
     final (label, color) = _fixEffort(issue, theme);
-    return _badge(theme: theme, accent: color, label: label);
+    return _badge(
+      theme: theme,
+      accent: color,
+      label: label,
+      textScaler: _badgeScaler(context),
+    );
   }
 
   IconData _confidenceIcon(IssueConfidence c) => switch (c) {
@@ -1028,6 +1097,7 @@ class _IssueCardState extends State<IssueCard> {
       horizontalPadding: theme.spacingSm,
       verticalPadding: theme.spacingXxs,
       radius: theme.radiusLg,
+      textScaler: _badgeScaler(context),
     );
 
     // Confidence reasoning is shown inline when expanded (M5), so no Tooltip
@@ -1049,6 +1119,7 @@ Widget _badge({
   double? horizontalPadding,
   double verticalPadding = 0,
   double? radius,
+  TextScaler? textScaler,
 }) {
   return DecoratedBox(
     decoration: BoxDecoration(
@@ -1068,6 +1139,7 @@ Widget _badge({
           fontSize: theme.fontXxs,
           fontWeight: FontWeight.bold,
         ),
+        textScaler: textScaler,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),

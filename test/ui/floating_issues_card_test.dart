@@ -268,6 +268,9 @@ void main() {
       expect(find.textContaining(bannerText), findsOneWidget);
 
       // Tap the close icon on the banner (last, since header also has close)
+      // The banners scroll when the card is short.
+      await tester.ensureVisible(find.byIcon(Icons.close).last);
+      await tester.pump();
       await tester.tap(find.byIcon(Icons.close).last);
       await tester.pump();
 
@@ -297,6 +300,9 @@ void main() {
       await tester.pumpWidget(pumpCard(isDebugMode: true));
 
       // Dismiss (last close icon — first is the header's)
+      // The banners scroll when the card is short.
+      await tester.ensureVisible(find.byIcon(Icons.close).last);
+      await tester.pump();
       await tester.tap(find.byIcon(Icons.close).last);
       await tester.pump();
       expect(find.textContaining(bannerText), findsNothing);
@@ -537,6 +543,8 @@ void main() {
       });
 
       // Tap the collapsed header to expand.
+      await tester.ensureVisible(find.text('Rebuilds: 37 across 4 widgets'));
+      await tester.pump();
       await tester.tap(find.text('Rebuilds: 37 across 4 widgets'));
       await tester.pump();
 
@@ -592,10 +600,15 @@ void main() {
         expect(find.byType(RebuildStatsPage), findsNothing);
 
         // Expand the panel.
+        await tester.ensureVisible(find.text('Rebuilds: 13 across 4 widgets'));
+        await tester.pump();
         await tester.tap(find.text('Rebuilds: 13 across 4 widgets'));
         await tester.pump();
 
         // Now tap the "See all 4 →" link.
+        // The banners scroll when the card is short.
+        await tester.ensureVisible(find.text('See all 4 \u2192'));
+        await tester.pump();
         await tester.tap(find.text('See all 4 \u2192'));
         await tester.pump();
 
@@ -638,6 +651,8 @@ void main() {
         'Footer': 1,
       });
 
+      await tester.ensureVisible(find.text('Rebuilds: 15 across 4 widgets'));
+      await tester.pump();
       await tester.tap(find.text('Rebuilds: 15 across 4 widgets'));
       await tester.pump();
 
@@ -645,6 +660,8 @@ void main() {
       expect(find.byIcon(Icons.pause), findsOneWidget);
       expect(find.byIcon(Icons.play_arrow), findsNothing);
 
+      await tester.ensureVisible(find.byIcon(Icons.pause));
+      await tester.pump();
       await tester.tap(find.byIcon(Icons.pause));
       await tester.pump();
 
@@ -679,6 +696,8 @@ void main() {
       // the fix end-to-end through the full
       // banner.onTap → _onSeeAllRebuildsTap(overrideCounts) → push
       // path.
+      await tester.ensureVisible(find.text('See all 4 \u2192'));
+      await tester.pump();
       await tester.tap(find.text('See all 4 \u2192'));
       await tester.pumpAndSettle();
       expect(find.byType(RebuildStatsPage), findsOneWidget);

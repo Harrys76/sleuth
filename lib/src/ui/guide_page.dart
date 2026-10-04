@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 /// Full-screen guide page with staggered entrance animations and expandable
 /// sections. Opened from the floating card's [?] button.
@@ -93,24 +94,23 @@ class _GuidePageState extends State<GuidePage>
                         ),
                       ),
                     ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.pets,
-                          size: theme.fontXl,
+                    Icon(
+                      Icons.pets,
+                      size: theme.fontXl,
+                      color: theme.textPrimary,
+                    ),
+                    SizedBox(width: theme.spacingXs),
+                    Expanded(
+                      child: Text(
+                        'Sleuth Guide',
+                        style: TextStyle(
                           color: theme.textPrimary,
+                          fontSize: theme.fontXl,
+                          fontWeight: FontWeight.bold,
                         ),
-                        SizedBox(width: theme.spacingXs),
-                        Text(
-                          'Sleuth Guide',
-                          style: TextStyle(
-                            color: theme.textPrimary,
-                            fontSize: theme.fontXl,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
                 ),
@@ -736,22 +736,25 @@ class _GuidePageState extends State<GuidePage>
       padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
         children: [
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: 5,
-              vertical: theme.spacingXxs,
-            ),
-            decoration: BoxDecoration(
-              color: theme.badgeFill(color),
-              borderRadius: BorderRadius.circular(theme.radiusSm),
-              border: Border.all(color: color),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: theme.badgeTextOn(color),
-                fontSize: theme.fontXxs,
-                fontWeight: FontWeight.bold,
+          SleuthTextScaleClamp(
+            maxScaleFactor: kChromeMaxTextScale,
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: 5,
+                vertical: theme.spacingXxs,
+              ),
+              decoration: BoxDecoration(
+                color: theme.badgeFill(color),
+                borderRadius: BorderRadius.circular(theme.radiusSm),
+                border: Border.all(color: color),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: theme.badgeTextOn(color),
+                  fontSize: theme.fontXxs,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -825,19 +828,22 @@ class _GuidePageState extends State<GuidePage>
     String label,
     Color color,
   ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        color: theme.badgeFill(color),
-        borderRadius: BorderRadius.circular(theme.radiusSm),
-        border: Border.all(color: color),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: theme.badgeTextOn(color),
-          fontSize: theme.fontXxs,
-          fontWeight: FontWeight.bold,
+    return SleuthTextScaleClamp(
+      maxScaleFactor: kChromeMaxTextScale,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        decoration: BoxDecoration(
+          color: theme.badgeFill(color),
+          borderRadius: BorderRadius.circular(theme.radiusSm),
+          border: Border.all(color: color),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: theme.badgeTextOn(color),
+            fontSize: theme.fontXxs,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
     );
@@ -1068,9 +1074,14 @@ class _LegendRow extends StatelessWidget {
         children: [
           Text(icon, style: TextStyle(fontSize: theme.fontSm)),
           SizedBox(width: theme.spacingSm),
-          Text(
-            label,
-            style: TextStyle(color: theme.textTertiary, fontSize: theme.fontSm),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: theme.textTertiary,
+                fontSize: theme.fontSm,
+              ),
+            ),
           ),
         ],
       ),

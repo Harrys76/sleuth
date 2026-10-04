@@ -7,6 +7,7 @@ import '../models/performance_issue.dart';
 import 'overlay_ui_state.dart';
 import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 /// Draggable trigger button with bloodhound logo, issue count badge, and live
 /// FPS number.
@@ -255,7 +256,12 @@ class _TriggerButtonState extends State<TriggerButton> {
               onTap: widget.onTap,
               container: true,
               excludeSemantics: true,
-              child: _buildButton(theme, visible),
+              // The count and FPS text grow up to 1.3x with the system
+              // text size; the 56 px circle does not.
+              child: SleuthTextScaleClamp(
+                maxScaleFactor: kChromeMaxTextScale,
+                child: _buildButton(theme, visible),
+              ),
             ),
           ),
         );
