@@ -59,6 +59,27 @@ RecurrenceTrend _stableTrend(int presentCount, int totalLength) {
 }
 
 void main() {
+  testWidgets('expanded body reads as separate nodes, not one utterance', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final issue = _testIssue(
+      title: 'Heavy Build',
+      detail: 'Build took 48 ms on the home route.',
+      fixHint: 'Move the work off the build method.',
+    );
+    await tester.pumpWidget(_pumpIssueCard(issue, initiallyExpanded: true));
+    await tester.pump();
+
+    final card = tester.getSemantics(find.byType(IssueCard));
+    expect(card.label, 'Heavy Build');
+    expect(card.label, isNot(contains('48 ms')));
+    expect(card.label, isNot(contains('build method')));
+    expect(find.bySemanticsLabel(RegExp('48 ms')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('build method')), findsOneWidget);
+    handle.dispose();
+  });
+
   group('M5: Inline confidence reasoning', () {
     testWidgets('expanded card with non-null confidenceReason shows text', (
       tester,

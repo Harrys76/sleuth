@@ -433,8 +433,15 @@ class _IssueCardState extends State<IssueCard> {
             ),
           ),
 
-        // Expanded detail + fix hint
-        if (_expanded) ..._buildExpandedContent(issue, theme),
+        // Expanded detail + fix hint. Each block is its own semantics
+        // node: plain text would merge into the card's button label and
+        // a screen reader would read the whole body as one utterance.
+        if (_expanded)
+          for (final block in _buildExpandedContent(issue, theme))
+            if (block is SizedBox)
+              block
+            else
+              Semantics(container: true, child: block),
       ],
     );
   }
