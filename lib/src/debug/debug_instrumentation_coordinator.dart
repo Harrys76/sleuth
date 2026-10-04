@@ -604,7 +604,7 @@ class DebugInstrumentationCoordinator {
     'TweenAnimationBuilder',
     'ValueListenableBuilder',
     'Wrap',
-    // --- Sleuth overlay widget classes (39) ---
+    // --- Sleuth overlay widget classes (40) ---
     'FloatingIssuesCard',
     '_StatusRow',
     '_ThroughputDetailRow',
@@ -633,6 +633,7 @@ class DebugInstrumentationCoordinator {
     '_GuideStep',
     '_LegendRow',
     'SleuthTheme',
+    'SleuthTextScaleClamp',
     'OverlayToast',
     '_ToastBody',
     'HiddenIssuesPage',

@@ -188,6 +188,58 @@ void main() {
     });
   });
 
+  group('OverlayUiState theme mode', () {
+    test('defaults to system and round-trips by name', () {
+      expect(OverlayUiState().themeMode, SleuthThemeMode.system);
+      for (final mode in SleuthThemeMode.values) {
+        final state = OverlayUiState()..themeMode = mode;
+        final json = jsonDecode(jsonEncode(state.toJson()));
+        expect((json as Map)['themeMode'], mode.name);
+        expect(
+          OverlayUiState.fromJson(json.cast<String, Object?>()).themeMode,
+          mode,
+        );
+      }
+    });
+
+    test('an unknown or missing value loads as system', () {
+      expect(
+        OverlayUiState.fromJson({
+          'schemaVersion': 1,
+          'themeMode': 'sepia',
+        }).themeMode,
+        SleuthThemeMode.system,
+      );
+      expect(
+        OverlayUiState.fromJson({'schemaVersion': 1, 'themeMode': 3}).themeMode,
+        SleuthThemeMode.system,
+      );
+      expect(
+        OverlayUiState.fromJson({'schemaVersion': 1}).themeMode,
+        SleuthThemeMode.system,
+      );
+    });
+
+    test('loadJson keeps a theme mode changed since construction', () {
+      final state = OverlayUiState()..themeMode = SleuthThemeMode.dark;
+      state.loadJson({'schemaVersion': 1, 'themeMode': 'light'});
+      expect(state.themeMode, SleuthThemeMode.dark);
+
+      final untouched = OverlayUiState()
+        ..loadJson({'schemaVersion': 1, 'themeMode': 'light'});
+      expect(untouched.themeMode, SleuthThemeMode.light);
+    });
+
+    test('setting the same mode does not notify', () {
+      var calls = 0;
+      final state = OverlayUiState()..addListener(() => calls++);
+      state.themeMode = SleuthThemeMode.system;
+      expect(calls, 0);
+      state.themeMode = SleuthThemeMode.light;
+      expect(calls, 1);
+    });
+  });
+
   group('OverlayUiState hidden keys', () {
     test('hiding past the cap evicts the oldest key', () {
       final state = OverlayUiState();

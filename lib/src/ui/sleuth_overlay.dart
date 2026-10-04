@@ -8,7 +8,9 @@ import '../controller/sleuth_controller.dart';
 import 'trigger_button.dart';
 import 'floating_issues_card.dart';
 import 'highlight_overlay.dart';
+import 'overlay_ui_state.dart';
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 /// The main overlay widget wrapping the app.
 ///
@@ -27,6 +29,13 @@ import 'sleuth_theme.dart';
 /// [SystemNavigator.setFrameworkHandlesBack] after each layer change; on
 /// Flutter versions that offer a predictive swipe to every observer, an
 /// app route that can pop may pop together with the overlay layer.
+///
+/// Text in the overlay follows the system text scale between 0.8x and
+/// 2.0x; the app below keeps the unclamped scale. The theme resolves in
+/// this order: `Sleuth.updateTheme`, the header toggle's light or dark
+/// [OverlayUiState.themeMode], `SleuthConfig.theme`, then the platform
+/// brightness, with the high-contrast presets when the platform asks for
+/// high contrast.
 class SleuthOverlay extends StatefulWidget {
   const SleuthOverlay({
     super.key,
@@ -51,6 +60,9 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   /// [OverlayUiState.dashboardOpen] seen by the last rebuild.
   bool _dashboardOpen = false;
 
+  /// [OverlayUiState.themeMode] seen by the last rebuild.
+  SleuthThemeMode _themeMode = SleuthThemeMode.system;
+
   bool _backRequestScheduled = false;
 
   @override
@@ -60,6 +72,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
       WidgetsBinding.instance.addObserver(this);
       widget.controller.themeOverride.addListener(_onThemeChanged);
       _dashboardOpen = widget.controller.overlayUiState.dashboardOpen;
+      _themeMode = widget.controller.overlayUiState.themeMode;
       widget.controller.overlayUiState.addListener(_onUiStateChanged);
       widget.controller.initialize().then((_) {
         if (mounted) {
@@ -76,10 +89,16 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   void _onUiStateChanged() {
     if (!mounted) return;
-    final open = widget.controller.overlayUiState.dashboardOpen;
-    if (open == _dashboardOpen) return;
-    setState(() => _dashboardOpen = open);
-    _onLayersChanged();
+    final ui = widget.controller.overlayUiState;
+    final open = ui.dashboardOpen;
+    final mode = ui.themeMode;
+    if (open == _dashboardOpen && mode == _themeMode) return;
+    final layersChanged = open != _dashboardOpen;
+    setState(() {
+      _dashboardOpen = open;
+      _themeMode = mode;
+    });
+    if (layersChanged) _onLayersChanged();
   }
 
   bool get _layerOpen => widget.controller.config.showOverlay && _dashboardOpen;
@@ -160,13 +179,15 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   @override
   void didChangePlatformBrightness() {
-    // Re-resolve auto-detect when system brightness changes.
-    // Skip when an explicit override or config theme is set — the user
-    // already chose a theme and system changes shouldn't override it.
-    if (widget.controller.config.theme == null &&
-        widget.controller.themeOverride.value == null) {
-      setState(() {});
-    }
+    // Re-resolve the theme; [_resolveTheme] decides whether brightness
+    // matters.
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeAccessibilityFeatures() {
+    // High contrast picks the high-contrast presets.
+    if (mounted) setState(() {});
   }
 
   @override
@@ -185,11 +206,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     // No-op in release mode
     if (kReleaseMode) return widget.child;
 
-    final themeOverride = widget.controller.themeOverride.value;
-    final theme =
-        themeOverride ??
-        widget.controller.config.theme ??
-        _resolveTheme(context);
+    final theme = _resolveTheme(context);
 
     return Directionality(
       textDirection: TextDirection.ltr,
@@ -232,26 +249,32 @@ class _SleuthOverlayState extends State<SleuthOverlay>
             // packages/flutter/lib/src/widgets/default_text_editing_shortcuts.dart.
             if (_layerOpen)
               RepaintBoundary(
-                child: Localizations(
-                  locale: const Locale('en', 'US'),
-                  delegates: const [
-                    DefaultMaterialLocalizations.delegate,
-                    DefaultWidgetsLocalizations.delegate,
-                  ],
-                  child: DefaultTextEditingShortcuts(
-                    child: Overlay(
-                      initialEntries: [
-                        OverlayEntry(
-                          builder: (_) => FloatingIssuesCard(
-                            key: _cardKey,
-                            controller: widget.controller,
-                            onClose: () =>
-                                widget.controller.overlayUiState.dashboardOpen =
-                                    false,
-                            onLayersChanged: _onLayersChanged,
+                child: _clampTextScale(
+                  context,
+                  Localizations(
+                    locale: const Locale('en', 'US'),
+                    delegates: const [
+                      DefaultMaterialLocalizations.delegate,
+                      DefaultWidgetsLocalizations.delegate,
+                    ],
+                    child: DefaultTextEditingShortcuts(
+                      child: Overlay(
+                        initialEntries: [
+                          OverlayEntry(
+                            builder: (_) => FloatingIssuesCard(
+                              key: _cardKey,
+                              controller: widget.controller,
+                              onClose: () =>
+                                  widget
+                                          .controller
+                                          .overlayUiState
+                                          .dashboardOpen =
+                                      false,
+                              onLayersChanged: _onLayersChanged,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -260,40 +283,46 @@ class _SleuthOverlayState extends State<SleuthOverlay>
               Align(
                 alignment: Alignment.topLeft,
                 child: RepaintBoundary(
-                  child: Localizations(
-                    locale: const Locale('en', 'US'),
-                    delegates: const [
-                      DefaultMaterialLocalizations.delegate,
-                      DefaultWidgetsLocalizations.delegate,
-                    ],
-                    // Painted once the persisted state has loaded, so the
-                    // button never jumps from its default spot.
-                    child: ValueListenableBuilder<bool>(
-                      valueListenable: widget.controller.uiStateReady,
-                      builder: (_, ready, _) => !ready
-                          ? const SizedBox.shrink()
-                          : TriggerButton(
-                              issuesNotifier: widget.controller.issuesNotifier,
-                              vmConnectedNotifier:
-                                  widget.controller.vmConnectedNotifier,
-                              frameStatsNotifier:
-                                  widget.controller.frameStatsNotifier,
-                              isDebugMode: widget.controller.isDebugMode,
-                              fpsTarget: widget.controller.config.fpsTarget,
-                              uiState: widget.controller.overlayUiState,
-                              initialAlignment: widget
-                                  .controller
-                                  .config
-                                  .triggerButtonAlignment,
-                              initialOffset:
-                                  widget.controller.config.triggerButtonOffset,
-                              onTap: () =>
-                                  widget
-                                          .controller
-                                          .overlayUiState
-                                          .dashboardOpen =
-                                      true,
-                            ),
+                  child: _clampTextScale(
+                    context,
+                    Localizations(
+                      locale: const Locale('en', 'US'),
+                      delegates: const [
+                        DefaultMaterialLocalizations.delegate,
+                        DefaultWidgetsLocalizations.delegate,
+                      ],
+                      // Painted once the persisted state has loaded, so the
+                      // button never jumps from its default spot.
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: widget.controller.uiStateReady,
+                        builder: (_, ready, _) => !ready
+                            ? const SizedBox.shrink()
+                            : TriggerButton(
+                                issuesNotifier:
+                                    widget.controller.issuesNotifier,
+                                vmConnectedNotifier:
+                                    widget.controller.vmConnectedNotifier,
+                                frameStatsNotifier:
+                                    widget.controller.frameStatsNotifier,
+                                isDebugMode: widget.controller.isDebugMode,
+                                fpsTarget: widget.controller.config.fpsTarget,
+                                uiState: widget.controller.overlayUiState,
+                                initialAlignment: widget
+                                    .controller
+                                    .config
+                                    .triggerButtonAlignment,
+                                initialOffset: widget
+                                    .controller
+                                    .config
+                                    .triggerButtonOffset,
+                                onTap: () =>
+                                    widget
+                                            .controller
+                                            .overlayUiState
+                                            .dashboardOpen =
+                                        true,
+                              ),
+                      ),
                     ),
                   ),
                 ),
@@ -304,12 +333,46 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     );
   }
 
+  /// Clamps the overlay's text scale to `0.8..2.0`. Only overlay branches
+  /// are wrapped; the app keeps the system scale.
+  static Widget _clampTextScale(BuildContext context, Widget child) =>
+      SleuthTextScaleClamp(
+        minScaleFactor: kOverlayMinTextScale,
+        maxScaleFactor: kOverlayMaxTextScale,
+        child: child,
+      );
+
+  /// `Sleuth.updateTheme` override, then the toggle's light or dark mode,
+  /// then `SleuthConfig.theme`, then the platform brightness. High
+  /// contrast picks the high-contrast preset of the chosen brightness.
+  /// Returns const presets (or the instances the app passed), so the
+  /// [SleuthTheme] identity only changes when the choice does.
   SleuthThemeData _resolveTheme(BuildContext context) {
-    final mqData = MediaQuery.maybeOf(context);
-    if (mqData == null) return const SleuthThemeData();
-    return mqData.platformBrightness == Brightness.light
-        ? const SleuthThemeData.light()
-        : const SleuthThemeData();
+    final override = widget.controller.themeOverride.value;
+    if (override != null) return override;
+    final highContrast = MediaQuery.maybeHighContrastOf(context) ?? false;
+    switch (widget.controller.overlayUiState.themeMode) {
+      case SleuthThemeMode.light:
+        return highContrast
+            ? const SleuthThemeData.highContrastLight()
+            : const SleuthThemeData.light();
+      case SleuthThemeMode.dark:
+        return highContrast
+            ? const SleuthThemeData.highContrastDark()
+            : const SleuthThemeData();
+      case SleuthThemeMode.system:
+        break;
+    }
+    final configured = widget.controller.config.theme;
+    if (configured != null) return configured;
+    final light =
+        MediaQuery.maybePlatformBrightnessOf(context) == Brightness.light;
+    if (highContrast) {
+      return light
+          ? const SleuthThemeData.highContrastLight()
+          : const SleuthThemeData.highContrastDark();
+    }
+    return light ? const SleuthThemeData.light() : const SleuthThemeData();
   }
 
   @override

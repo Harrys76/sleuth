@@ -439,8 +439,9 @@ class SleuthController {
   /// auto-detect.
   ValueListenable<SleuthThemeData?> get themeOverride => _themeOverride;
 
-  /// Update the overlay theme at runtime. Pass `null` to revert to
-  /// config theme or auto-detection.
+  /// Update the overlay theme at runtime. Pass `null` to revert to the
+  /// header toggle's theme mode, the config theme or auto-detection. The
+  /// header toggle clears the override.
   void updateTheme(SleuthThemeData? theme) {
     _themeOverride.value = theme;
   }
@@ -5165,8 +5166,14 @@ class SleuthConfig {
   /// Custom theme for the overlay UI.
   ///
   /// When null (default), the overlay auto-selects dark or light based on
-  /// `MediaQuery.platformBrightness`. If no [MediaQuery] is available
-  /// (rare), defaults to dark.
+  /// `MediaQuery.platformBrightness`, and the high-contrast preset of that
+  /// brightness when `MediaQuery.highContrastOf` is true. If no
+  /// [MediaQuery] is available (rare), defaults to dark.
+  ///
+  /// Precedence: `Sleuth.updateTheme` > the header toggle's Light or Dark
+  /// mode (`OverlayUiState.themeMode`) > this theme > auto-selection.
+  /// Choosing Light or Dark in the header replaces this theme with the
+  /// Sleuth preset; choosing System restores it.
   ///
   /// ```dart
   /// // Force light theme
@@ -5178,6 +5185,9 @@ class SleuthConfig {
   ///     severityCritical: Color(0xFFDC2626),
   ///   ),
   /// )
+  ///
+  /// // Surfaces and text from the app's colour scheme
+  /// SleuthConfig(theme: SleuthThemeData.fromSeed(Colors.teal))
   /// ```
   final SleuthThemeData? theme;
 

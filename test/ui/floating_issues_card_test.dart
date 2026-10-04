@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
@@ -7,7 +9,12 @@ import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/persistence/sleuth_state_store.dart';
+import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/rebuild_stats_page.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
+
+import '../helpers/overlay_harness.dart';
 
 PerformanceIssue _pinIssue({
   required String id,
@@ -1339,5 +1346,52 @@ void main() {
         expect(notifications, 1);
       },
     );
+  });
+
+  group('Header theme toggle', () {
+    SleuthThemeData theme(WidgetTester tester) =>
+        tester.widget<SleuthTheme>(find.byType(SleuthTheme)).data;
+
+    testWidgets('cycles System, Light, Dark with a toast and persists', (
+      tester,
+    ) async {
+      final store = InMemorySleuthStateStore();
+      final controller = await pumpOverlay(
+        tester,
+        config: SleuthConfig(stateStore: store),
+        platformBrightness: Brightness.dark,
+      );
+      await tester.pump();
+      await openDashboard(tester, controller);
+      controller.updateTheme(const SleuthThemeData.highContrastLight());
+      await tester.pump();
+
+      final toggle = find.bySemanticsLabel('Toggle theme');
+      expect(tester.getSemantics(toggle).value, 'System');
+
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.light);
+      expect(controller.themeOverride.value, isNull);
+      expect(identical(theme(tester), const SleuthThemeData.light()), isTrue);
+      expect(find.text('Theme: Light'), findsOneWidget);
+      expect(tester.getSemantics(toggle).value, 'Light');
+
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.dark);
+      expect(identical(theme(tester), const SleuthThemeData()), isTrue);
+      expect(find.text('Theme: Dark'), findsOneWidget);
+
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
+      expect(find.text('Theme: System'), findsOneWidget);
+
+      await tester.tap(toggle);
+      await tester.pump(const Duration(seconds: 3));
+      final saved = jsonDecode(store.json!) as Map<String, Object?>;
+      expect(saved['themeMode'], 'light');
+    });
   });
 }

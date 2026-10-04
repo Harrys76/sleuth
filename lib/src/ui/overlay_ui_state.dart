@@ -27,6 +27,21 @@ enum CardWindowState {
   maximized,
 }
 
+/// Theme mode picked with the overlay header's theme toggle.
+enum SleuthThemeMode {
+  /// Follows `Sleuth.updateTheme`, then `SleuthConfig.theme`, then the
+  /// platform brightness and high-contrast setting.
+  system,
+
+  /// The light preset (high-contrast light when the platform asks for
+  /// high contrast).
+  light,
+
+  /// The dark preset (high-contrast dark when the platform asks for high
+  /// contrast).
+  dark,
+}
+
 /// Overlay UI state that outlives the widgets showing it.
 ///
 /// Owned by the Sleuth controller, so it survives opening and closing the
@@ -79,6 +94,7 @@ class OverlayUiState extends ChangeNotifier {
   double? _restoreHeight;
   final LinkedHashSet<String> _hiddenKeys = LinkedHashSet<String>();
   final Set<IssueSeverity> _severityFilter = {...IssueSeverity.values};
+  SleuthThemeMode _themeMode = SleuthThemeMode.system;
 
   // Fields changed since construction. [loadJson] leaves them as they are
   // (hidden keys are merged), so changes made before a slow store read
@@ -87,6 +103,7 @@ class OverlayUiState extends ChangeNotifier {
   bool _geometryDirty = false;
   bool _hiddenDirty = false;
   bool _severityDirty = false;
+  bool _themeDirty = false;
 
   // ── Dashboard ─────────────────────────────────────────────────────────
 
@@ -261,10 +278,24 @@ class OverlayUiState extends ChangeNotifier {
         hiddenKeys: _hiddenKeys,
       );
 
+  // ── Theme ─────────────────────────────────────────────────────────────
+
+  /// Theme mode chosen with the header toggle. [SleuthThemeMode.light] and
+  /// [SleuthThemeMode.dark] take precedence over `SleuthConfig.theme`; a
+  /// `Sleuth.updateTheme` override takes precedence over both.
+  SleuthThemeMode get themeMode => _themeMode;
+  set themeMode(SleuthThemeMode value) {
+    if (_themeMode == value) return;
+    _themeMode = value;
+    _themeDirty = true;
+    notifyListeners();
+  }
+
   // ── Serialization ─────────────────────────────────────────────────────
 
   /// Persisted fields: trigger anchor, card geometry and window state,
-  /// hidden keys and the severity filter. [dashboardOpen] is session only.
+  /// hidden keys, the severity filter and the theme mode. [dashboardOpen]
+  /// is session only.
   Map<String, Object?> toJson() => {
     'schemaVersion': schemaVersion,
     if (_triggerAnchor != null)
@@ -284,14 +315,16 @@ class OverlayUiState extends ChangeNotifier {
       for (final s in IssueSeverity.values)
         if (_severityFilter.contains(s)) s.name,
     ],
+    'themeMode': _themeMode.name,
   };
 
   /// Applies [json] (from [toJson]) and notifies once. [dashboardOpen]
   /// is left alone.
   ///
   /// A field changed on this object since construction keeps its current
-  /// value: the trigger anchor, the card geometry and window state, and
-  /// the severity filter are taken from [json] only when untouched;
+  /// value: the trigger anchor, the card geometry and window state, the
+  /// severity filter and the theme mode are taken from [json] only when
+  /// untouched;
   /// hidden keys from [json] are merged in, with the keys hidden here
   /// kept as the newest.
   ///
@@ -361,6 +394,11 @@ class OverlayUiState extends ChangeNotifier {
       _severityFilter
         ..clear()
         ..addAll(severities.isEmpty ? IssueSeverity.values : severities);
+    }
+    if (!_themeDirty) {
+      _themeMode =
+          _enumByName(SleuthThemeMode.values, json['themeMode']) ??
+          SleuthThemeMode.system;
     }
     notifyListeners();
   }

@@ -21,9 +21,11 @@
 ///
 /// ## Theming
 ///
-/// The overlay auto-detects dark/light mode from the system brightness.
-/// A built-in toggle in the overlay header lets you switch at runtime.
-/// To force a specific theme or customize colors:
+/// The overlay auto-detects dark/light mode from the system brightness and
+/// uses the high-contrast presets when the platform asks for high
+/// contrast. The header toggle cycles System, Light and Dark (persisted in
+/// `OverlayUiState.themeMode`). To force a specific theme or customize
+/// colors:
 ///
 /// ```dart
 /// // Light theme for light-background apps
@@ -94,7 +96,7 @@ export 'src/detectors/stream_resource_detector.dart'
 export 'src/controller/detector_thresholds.dart';
 export 'src/ui/sleuth_theme.dart' show SleuthThemeData;
 export 'src/ui/overlay_ui_state.dart'
-    show OverlayUiState, TriggerEdge, CardWindowState;
+    show OverlayUiState, TriggerEdge, CardWindowState, SleuthThemeMode;
 export 'src/persistence/sleuth_state_store.dart';
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart'
@@ -953,12 +955,15 @@ class Sleuth {
 
   /// Update the overlay theme at runtime.
   ///
-  /// Passing a [SleuthThemeData] overrides both the config theme and
-  /// auto-detection. Passing `null` reverts to the config theme or
-  /// auto-detection.
+  /// Passing a [SleuthThemeData] overrides the header toggle's theme mode,
+  /// the config theme and auto-detection until the header toggle is
+  /// tapped. Passing `null` reverts to the theme mode, the config theme or
+  /// auto-detection. Pass the same instance on every call (a const preset
+  /// or a theme built once): the overlay compares themes by identity.
   ///
   /// ```dart
   /// Sleuth.updateTheme(const SleuthThemeData.light());
+  /// Sleuth.updateTheme(const SleuthThemeData.highContrastDark());
   /// ```
   static void updateTheme(SleuthThemeData? theme) {
     _controller?.updateTheme(theme);

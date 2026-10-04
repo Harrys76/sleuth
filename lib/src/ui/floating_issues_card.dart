@@ -510,6 +510,25 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (mounted) _toast.show('Copied');
   }
 
+  static String _themeModeLabel(SleuthThemeMode mode) => switch (mode) {
+    SleuthThemeMode.system => 'System',
+    SleuthThemeMode.light => 'Light',
+    SleuthThemeMode.dark => 'Dark',
+  };
+
+  /// Header theme toggle: System -> Light -> Dark -> System. Clears a
+  /// `Sleuth.updateTheme` override so the choice is visible.
+  void _cycleThemeMode() {
+    final next = switch (_ui.themeMode) {
+      SleuthThemeMode.system => SleuthThemeMode.light,
+      SleuthThemeMode.light => SleuthThemeMode.dark,
+      SleuthThemeMode.dark => SleuthThemeMode.system,
+    };
+    widget.controller.updateTheme(null);
+    _ui.themeMode = next;
+    _toast.show('Theme: ${_themeModeLabel(next)}');
+  }
+
   void _toggleSeverity(IssueSeverity severity) {
     if (!_ui.toggleSeverity(severity)) {
       _toast.show('Keep at least one severity', tone: OverlayToastTone.warning);
@@ -1176,30 +1195,26 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   tooltip: enabled ? 'Hide overlay' : 'Show overlay',
                 ),
               ),
-            // Theme toggle (hidden when minimized, extra-compact to fit
-            // alongside DBG badge without overflowing the header Row)
+            // Theme toggle: System -> Light -> Dark (hidden when minimized).
             if (!isMinimized)
               Semantics(
                 label: 'Toggle theme',
+                value: _themeModeLabel(_ui.themeMode),
+                hint: 'Changes theme',
                 button: true,
                 child: GestureDetector(
-                  onTap: () {
-                    final isDark = theme.textPrimary == const Color(0xFFFFFFFF);
-                    widget.controller.updateTheme(
-                      isDark
-                          ? const SleuthThemeData.light()
-                          : const SleuthThemeData(),
-                    );
-                  },
+                  onTap: _cycleThemeMode,
                   behavior: HitTestBehavior.opaque,
                   child: SizedBox(
                     width: 20,
                     height: 44,
                     child: Center(
                       child: Icon(
-                        theme.textPrimary == const Color(0xFFFFFFFF)
-                            ? Icons.light_mode
-                            : Icons.dark_mode,
+                        _ui.themeMode == SleuthThemeMode.system
+                            ? Icons.brightness_auto
+                            : theme.brightness == Brightness.dark
+                            ? Icons.dark_mode
+                            : Icons.light_mode,
                         color: theme.textTertiary,
                         size: 12,
                       ),

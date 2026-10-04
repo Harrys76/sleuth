@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_overlay.dart';
 
 /// Pumps [SleuthOverlay] around [app] (a one-route [MaterialApp] by
@@ -11,11 +12,32 @@ import 'package:sleuth/src/ui/sleuth_overlay.dart';
 /// Answers every [SystemChannels.platform] call with null, so a back that
 /// reaches `SystemNavigator.pop` or `setFrameworkHandlesBack` does not
 /// throw.
+///
+/// [textScale], [accessibilityFeatures] and [platformBrightness] set the
+/// test platform dispatcher's values (cleared on tear-down); [themeMode]
+/// is set on the controller's overlay state before the first pump.
 Future<SleuthController> pumpOverlay(
   WidgetTester tester, {
   SleuthConfig? config,
   Widget? app,
+  double? textScale,
+  FakeAccessibilityFeatures? accessibilityFeatures,
+  Brightness? platformBrightness,
+  SleuthThemeMode? themeMode,
 }) async {
+  final dispatcher = tester.platformDispatcher;
+  if (textScale != null) {
+    dispatcher.textScaleFactorTestValue = textScale;
+    addTearDown(dispatcher.clearTextScaleFactorTestValue);
+  }
+  if (accessibilityFeatures != null) {
+    dispatcher.accessibilityFeaturesTestValue = accessibilityFeatures;
+    addTearDown(dispatcher.clearAccessibilityFeaturesTestValue);
+  }
+  if (platformBrightness != null) {
+    dispatcher.platformBrightnessTestValue = platformBrightness;
+    addTearDown(dispatcher.clearPlatformBrightnessTestValue);
+  }
   tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
     SystemChannels.platform,
     (call) async => null,
@@ -29,6 +51,7 @@ Future<SleuthController> pumpOverlay(
   final controller = SleuthController(config: config)
     ..initializeDetectorsForTest()
     ..markInitializedForTest();
+  if (themeMode != null) controller.overlayUiState.themeMode = themeMode;
   await tester.pumpWidget(
     SleuthOverlay(
       controller: controller,
