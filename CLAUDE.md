@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 20 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test --exclude-tags benchmark          # Default run (~3,662 tests; wall-clock benchmarks excluded)
+fvm flutter test --exclude-tags benchmark          # Default run (~3,735 tests; wall-clock benchmarks excluded)
 fvm flutter test --tags benchmark --concurrency=1  # Wall-clock benchmarks, serial (40 tests)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
@@ -15,7 +15,7 @@ fvm flutter pub publish --dry-run   # Verify publish readiness
 # Example app
 cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
-cd example && fvm flutter test            # Cookbook smoke + demo widget tests (32 tests)
+cd example && fvm flutter test            # Cookbook smoke + demo widget tests (33 tests)
 
 # MCP sidecar (packages/sleuth_mcp/)
 cd packages/sleuth_mcp && dart test       # Sidecar tests (342 tests)
@@ -36,7 +36,8 @@ lib/
     vm/                         # VmServiceClient, TimelineParser
     debug/                      # DebugInstrumentationCoordinator, DebugSnapshot
     ranking/                    # IssueRanker (weighted composite scoring)
-    ui/                         # Overlay widgets: FloatingIssuesCard, IssueCard, AiChatPage, IssueEncyclopediaPage, TriggerButton, SleuthTheme
+    ui/                         # Overlay widgets: FloatingIssuesCard, IssueCard, AiChatPage, IssueEncyclopediaPage, HiddenIssuesPage, TriggerButton, OverlayToast, SleuthTheme; OverlayUiState + overlay_filters
+    persistence/                # SleuthStateStore seam + InMemorySleuthStateStore
     utils/                      # WidgetLocation helper, FixHintBuilder, TypeNameCache
     validation/                 # EvidenceTier, DetectorMetadata, ComponentMetadata, ProfileCaptureSchema
 test/
@@ -63,6 +64,8 @@ test/
 - Package is completely disabled in release mode (`kReleaseMode` guard).
 
 ## Current state
+
+**v0.37.0 overlay core** — `OverlayUiState` (`ui/overlay_ui_state.dart`, exported with `TriggerEdge` / `CardWindowState`) owned by `SleuthController.overlayUiState` (`Sleuth.overlayUiState`, `Sleuth.isOverlayUiStateReady`): `dashboardOpen` (session only), trigger anchor `(edge, fraction)`, card offset/width/height/window state + restore geometry, `hiddenKeys` (LinkedHashSet, cap 200, oldest evicted), `severityFilter` (never empty); `toJson`/`loadJson` with `schemaVersion: 1`, malformed fields default, unknown keys ignored. `SleuthConfig.stateStore` (`persistence/sleuth_state_store.dart`): `initialize()` starts the load before its `_initialized` guard (2 s timer, defaults + one debugPrint on error), `uiStateReady` gates the trigger's first paint, writes debounced 500 ms and skipped when the JSON is unchanged; dispose cancels both timers. `ui/overlay_filters.dart`: `computeVisibleIssues`, `hideKeyFor` (`stableId ?? title` + `|widgetName`), `applyOverlayFilters` (severity → collapse → hide), re-exported by `floating_issues_card.dart`; `_buildIssuesList` and `_pruneStaleState` both use it; a severity change clears `_expandedIndices` + `_orderSnapshot` and bumps `IssueCard.collapseEpoch`; hide goes through `_toggle` first; prune clears the controller highlight when the selected issue disappears or is hidden. Back: `_SleuthOverlayState.didPopRoute` → card `OverlayLayerHost.closeInnermostLayer()` (focused `EditableText` → page → Hidden list) else dashboard; `handleStartBackGesture` / `handleCommitBackGesture`; Android `setFrameworkHandlesBack(true)` post-frame per layer change (card reports via `onLayersChanged`); page `PopScope`s removed. `OverlayToast` / `OverlayToastController` single slot (2 s info, 4 s action, 200 ms fade, identity-guarded action); `AiChatPage.onNotify`. Summary chips (`_SeverityChip`, 48 dp), "Showing X of Y", three empty states, footer `hiddenFooterLabel` → `HiddenIssuesPage`. Trigger: `CustomSingleChildLayout` + `TriggerBounds` (view padding + `spacingXl`, above `viewInsetsOf`, `max` guards), snap on drag end; config alignment/offset measured from the safe area until the first drag. `PerformanceIssue.toClipboardText()`. Example: `FileSleuthStateStore`, `ext.sleuthDemo.back` / `clipboard` / `overlay` / `overlayState`. Test helper `test/helpers/overlay_harness.dart`.
 
 **v0.37.0 VM poll pipeline** — `VmServiceClient._pollTimeline` never calls `clearVMTimeline`. First poll of a session (`_lastMaxTs == null`, reset in `_cleanup`) is a full fetch; later polls read `getVMTimelineMicros` and fetch `[max(0, lastMaxTs − VmServiceClient.fetchOverlapMicros), clock + 1 s]` (overlap 500 ms = one poll interval; split B/E pairs join through the pending-begin maps); a failed or behind clock read falls back to a full read with `minTimestampUs` floor (`PollTimings.windowFallback`, diagnose `pollWindowFallbacks`). `TimelineCursor` is a class: `ts < lastTs` drops before any other field read, signatures built only for ties at `lastTs`; `ParsedTimelineData.maxTimestampUs` / `duplicatesDropped`; `_sweepStalePendingBegins(maxTs)` evicts idle cursors in both modes (`retainTimeline` only documents the export expectation). `PollTimings` (`lib/src/vm/poll_timings.dart`, exported) per poll: rpc (incl. decode) / parse / dispatch / tail µs, event count, raw response chars (request id from `onSend`, matched in `onReceive` within the first and last 64 chars, `responseCarriesId`), duplicates; `Sleuth.lastPollTimings` + 20 diagnose keys (14 `lastPoll*`, 4 `maxPoll*`, `pollDuplicatesDropped`, `pollWindowFallbacks`; all null until the session's first poll, `_cleanup` resets `_lastPollTimings`) (`lastPoll*` incl. dispatch split detectors/correlate/aggregate/other read through `VmServiceClient.readDispatchSegments` from `SleuthController._lastDispatchSegments`, and tail memory / cpuSamples / allocationProfile via `RpcSpanTracker` overlap; `maxPoll*` over 32 polls, `pollDuplicatesDropped`, `pollWindowFallbacks`). `getCpuSamples` spaced by `cpuSamplesMinInterval` (10 s) and single-flight (a timed-out request stays in flight until the VM answers or `cpuSamplesInFlightStaleAfter` (30 s) passes, `RpcSpanTracker.abandonOpenBefore`): the VM builds the profile on the UI isolate and the ~3.3 MB response decodes there. Debug paint attribution cached per Element (`Expando<_PaintAttribution>`, stamp = weak refs to every ancestor the chain walk or the 16-deep owner walk read (`buildAncestorChain(visitedAncestors:)`), all identical and mounted, + depth + epoch; `invalidatePaintAttribution()` on hot reload; descendant leg still per paint); `SourceLocationCache` keyed by `Type`. `CorrelatedFrameData.isTrustworthy` needs ≥ 2 matched events (`minTrustworthyEvents`) and batch coverage ≥ 0.5. Repaint capture leg 6 s, above 2.0×; `endScenarioInCleanup`; example legs start through `CaptureDriver.runLeg` (a throw or no result fails the leg) and VM calls go through `withCallTimeout` (10 s); `vmAxes` reset busy guard; `checkBracketValidation` forwards `observedAxisReduction`.
 

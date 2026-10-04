@@ -25,6 +25,51 @@
   substituted in the AI prompt and in `ext.sleuth.explain` /
   `ext.sleuth.encyclopedia` payloads.
 
+### Overlay
+
+- System back (gesture or button) closes the innermost overlay layer first:
+  a focused text field, then the open full-screen page or Hidden list, then
+  the dashboard. With the dashboard closed, back reaches the app unchanged.
+  On Android, predictive back swipes are claimed while a layer is open and
+  `SystemNavigator.setFrameworkHandlesBack(true)` is requested after each
+  layer change. The inert `PopScope` wrappers on the overlay pages are gone.
+- Overlay UI state lives in the controller (`OverlayUiState`,
+  `Sleuth.overlayUiState`): the trigger position, card position, size and
+  window state no longer reset when the dashboard closes or on hot reload.
+- `SleuthConfig.stateStore` (`SleuthStateStore`: `read` / `write` of a JSON
+  string) persists that state across restarts. Read once at startup (2 s
+  timeout; the trigger appears when it finishes), written at most every
+  500 ms; errors fall back to defaults. `InMemorySleuthStateStore` for
+  tests; the example app ships a file-backed store.
+- Hide: an expanded card's Hide action removes it from the overlay, with a
+  4 s Undo; collapsed effects go with their root. The footer reads
+  `N hidden · M suppressed` and opens a Hidden list (restore one, restore
+  all; `suppressedIssues` patterns listed read-only). Hiding is overlay-only:
+  `ext.sleuth.*`, snapshots, MCP budgets, route sessions and recurrence still
+  see the issue. The trigger badge and summary counts follow the visible
+  cards. Hiding or losing the highlighted issue clears its highlight.
+- Copy: an expanded card's Copy action (or a long-press on the title) puts
+  the title, severity, confidence, route, widget, detail, fix hint and
+  stable id on the clipboard as plain text
+  (`PerformanceIssue.toClipboardText()`), with a "Copied" or
+  "Couldn't copy" confirmation.
+- The summary bar's severity counts toggle that severity (one always stays
+  on); a filtered or hidden list reads "Showing X of Y", and empty lists
+  explain why (no issues / none match the filter, with Reset / all hidden,
+  with Show hidden).
+- The trigger and card stay inside the view padding and above the keyboard;
+  a dragged trigger snaps to the nearest side and keeps its side and
+  vertical fraction through rotation. `triggerButtonAlignment` /
+  `triggerButtonOffset` set the position until the first drag, measured
+  from the safe area.
+- One toast replaces the separate export, highlight and rebuild-panel
+  banners; the AI chat copy confirmation now shows (it relied on a missing
+  `ScaffoldMessenger`). Toasts sit above the keyboard and are announced to
+  screen readers.
+- Screen-reader labels for the trigger (`Open Sleuth, N issues`), the
+  highlight checkbox, the Close button and the new actions; new controls
+  have 48 dp targets.
+
 ### Behavior changes
 
 - The VM client dispatches an empty timeline batch once per second while the

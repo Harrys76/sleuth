@@ -233,7 +233,7 @@ Sleuth.track(
       DetectorType.imageMemory,
       // ... add only the detectors you need
     },
-    suppressedIssues: {'non_lazy_list', 'font_*'}, // hide known issues by stableId (exact or wildcard)
+    suppressedIssues: {'non_lazy_list', 'font_*'}, // drop known issues by stableId (exact or wildcard) before ranking
     thresholds: DetectorThresholds(
       shaderJankMs: 50,              // shader compilation warning threshold
       heavyComputeGapMs: 8,          // BUILD-scope warning threshold, critical at 2×; omit for auto (8 ms at 60 Hz, half the frame budget above it)
@@ -243,16 +243,39 @@ Sleuth.track(
     ),
     customDetectors: [MyCustomDetector()], // plug in domain-specific detectors
     disabledCustomDetectorKeys: {'my_heavy_detector'}, // gate custom detectors by key
-    triggerButtonAlignment: Alignment.bottomRight, // initial trigger button corner
-    triggerButtonOffset: Offset(16, 16),           // pixel offset from corner
+    triggerButtonAlignment: Alignment.bottomRight, // trigger corner until the user drags it
+    triggerButtonOffset: Offset(16, 16),           // offset from that corner, inside the safe area
     showDebugModeBanner: true,         // dismissible debug-mode warning banner
     showOverlay: true,                 // false hides overlay UI (trigger + dashboard); detectors + ext.sleuth.* keep running — for MCP-only sessions
     routeIgnorePatterns: {'/dialog*'}, // routes to exclude from tracking (exact or trailing *)
     routeHistoryCapacity: 20,          // max route sessions retained (FIFO)
     profilePlatformChannels: false,    // opt-in: profile platform-channel sends after the VM connects
+    stateStore: null,                  // optional: persist overlay UI state across restarts (see below)
   ),
 );
 ```
+
+**Suppressing vs hiding issues:** `suppressedIssues` removes matching issues before ranking, so they leave the overlay, `ext.sleuth.*`, snapshots and budgets alike, and the overlay footer counts them (`3 suppressed`). For a card you only want out of the way while you work, expand it and tap **Hide**: the card leaves the overlay (with Undo for 4 s) and the footer shows `N hidden`; tap the footer to restore hidden cards. Hiding is overlay-only — `ext.sleuth.issues`, snapshots, MCP budgets, route sessions and recurrence still see the issue.
+
+**Overlay state:** trigger position, card position and size, window state, hidden cards and the severity filter (the tappable counts in the summary bar) survive closing the dashboard and hot reload. To keep them across restarts, pass a `SleuthStateStore`; the package ships no persistent store, so it adds no storage dependency:
+
+```dart
+class PrefsStateStore implements SleuthStateStore {
+  @override
+  Future<String?> read() async =>
+      (await SharedPreferences.getInstance()).getString('sleuth_ui');
+
+  @override
+  Future<void> write(String json) async =>
+      (await SharedPreferences.getInstance()).setString('sleuth_ui', json);
+}
+
+Sleuth.track(child: MyApp(), config: SleuthConfig(stateStore: PrefsStateStore()));
+```
+
+Sleuth reads the store once at startup (the trigger appears when the read finishes, after at most 2 s) and writes at most every 500 ms after a change; failures fall back to defaults and never reach the UI. `InMemorySleuthStateStore` suits tests. The example app ships a file-backed store (`example/lib/file_state_store.dart`).
+
+**System back:** with the dashboard open, the system back gesture or button closes the innermost overlay layer — a focused text field, then a full-screen page (encyclopedia, guide, AI chat, Hidden list), then the dashboard — before the app's own navigation sees it. With the dashboard closed, back goes to the app unchanged. On Android, predictive back swipes are claimed while a layer is open; on Flutter versions that offer the swipe to every listener, an app route that can pop may pop as well.
 
 **Platform channel profiling:** the Platform Channel detector only sees calls when the framework's `debugProfilePlatformChannels` flag is on. `profilePlatformChannels: true` sets it once the VM service connects and restores it on dispose. While on, the framework prints a "Platform Channel Stats" table to the console every second that channels are active, and profiles framework channels (TextInput, SystemChrome, clipboard) too. Off by default.
 
