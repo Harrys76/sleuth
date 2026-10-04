@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart' show ColorScheme, ThemeData;
+import 'package:flutter/material.dart' show Brightness, ColorScheme, ThemeData;
 import 'package:flutter/widgets.dart';
 
 import '../models/performance_issue.dart';
