@@ -200,7 +200,7 @@ class _IssueCardState extends State<IssueCard> {
             border: Border(
               left: BorderSide(
                 color: theme.sourceAccentColor(issue.observationSource),
-                width: 3,
+                width: theme.sourceAccentWidth,
               ),
             ),
           ),
@@ -238,45 +238,20 @@ class _IssueCardState extends State<IssueCard> {
                     ),
                     if (widget.jankCorrelated) ...[
                       SizedBox(width: theme.spacingXs),
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: theme.spacingXs,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.severityCritical.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(theme.radiusSm),
-                        ),
-                        child: Text(
-                          'JANK',
-                          style: TextStyle(
-                            color: theme.severityCritical,
-                            fontSize: theme.fontXxs,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      _badge(
+                        theme: theme,
+                        accent: theme.severityCritical,
+                        tintedText: theme.severityCriticalText,
+                        label: 'JANK',
                       ),
                     ],
                     if (widget.downstreamIssues != null &&
                         widget.downstreamIssues!.isNotEmpty) ...[
                       SizedBox(width: theme.spacingXs),
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: theme.spacingXs,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.effectsBadge.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(theme.radiusSm),
-                        ),
-                        child: Text(
-                          '\u21B3 ${widget.downstreamIssues!.length}',
-                          style: TextStyle(
-                            color: theme.effectsBadge,
-                            fontSize: theme.fontXxs,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      _badge(
+                        theme: theme,
+                        accent: theme.effectsBadge,
+                        label: '\u21B3 ${widget.downstreamIssues!.length}',
                       ),
                     ],
                     // Freeze-above pin indicator (v0.15.5). The
@@ -763,7 +738,7 @@ class _IssueCardState extends State<IssueCard> {
               Text(
                 'Caused by ($totalParents):',
                 style: TextStyle(
-                  color: theme.effectsBadge,
+                  color: theme.textSecondary,
                   fontSize: theme.fontSm,
                   fontWeight: FontWeight.w600,
                 ),
@@ -842,7 +817,7 @@ class _IssueCardState extends State<IssueCard> {
             Text(
               'Related effects (${downstream.length}):',
               style: TextStyle(
-                color: theme.effectsBadge,
+                color: theme.textSecondary,
                 fontSize: theme.fontSm,
                 fontWeight: FontWeight.w600,
               ),
@@ -906,21 +881,7 @@ class _IssueCardState extends State<IssueCard> {
       IssueCategory.startup => 'STARTUP',
     };
 
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: theme.spacingXs, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(theme.radiusSm),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: theme.fontXxs,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
+    return _badge(theme: theme, accent: color, label: label);
   }
 
   Widget _severityIcon(IssueSeverity severity, SleuthThemeData theme) {
@@ -978,15 +939,32 @@ class _IssueCardState extends State<IssueCard> {
     // NOTE: The UI labels here are the documented surface — if you rename
     // a label, update the table in `RecurrenceTrend`'s enum dartdoc and the
     // "Recurrence Badge" section of README.md to match.
-    final (label, color) = switch (trend.trend) {
-      TrendDirection.worsening => ('worsening', theme.severityCritical),
+    final (label, color, text) = switch (trend.trend) {
+      TrendDirection.worsening => (
+        'worsening',
+        theme.severityCritical,
+        theme.severityCriticalText,
+      ),
       TrendDirection.stable when ratio >= 0.9 => (
         'persistent',
         theme.severityWarning,
+        theme.severityWarningText,
       ),
-      TrendDirection.stable => ('stable', theme.textSecondary),
-      TrendDirection.improving => ('improving', theme.severityOk),
-      TrendDirection.intermittent => ('flaky', theme.textSecondary),
+      TrendDirection.stable => (
+        'stable',
+        theme.textSecondary,
+        theme.textSecondary,
+      ),
+      TrendDirection.improving => (
+        'improving',
+        theme.severityOk,
+        theme.severityOkText,
+      ),
+      TrendDirection.intermittent => (
+        'flaky',
+        theme.textSecondary,
+        theme.textSecondary,
+      ),
     };
     return Align(
       alignment: Alignment.centerLeft,
@@ -994,7 +972,9 @@ class _IssueCardState extends State<IssueCard> {
         padding: EdgeInsets.only(top: theme.spacingXs),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
+            color: color.withValues(
+              alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.12,
+            ),
             borderRadius: BorderRadius.circular(theme.radiusMd),
           ),
           child: Padding(
@@ -1005,7 +985,7 @@ class _IssueCardState extends State<IssueCard> {
             child: Text(
               'Seen $present/$total \u00B7 $label',
               style: TextStyle(
-                color: color,
+                color: theme.badgeTextOn(color, tinted: text),
                 fontSize: theme.fontSm,
                 fontWeight: FontWeight.w600,
               ),
@@ -1020,21 +1000,7 @@ class _IssueCardState extends State<IssueCard> {
 
   Widget _effortBadge(PerformanceIssue issue, SleuthThemeData theme) {
     final (label, color) = _fixEffort(issue, theme);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(theme.radiusSm),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: theme.fontXxs,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
+    return _badge(theme: theme, accent: color, label: label);
   }
 
   IconData _confidenceIcon(IssueConfidence c) => switch (c) {
@@ -1055,23 +1021,13 @@ class _IssueCardState extends State<IssueCard> {
       IssueConfidence.possible => 'POSSIBLE',
     };
 
-    final badge = Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: theme.spacingSm,
-        vertical: theme.spacingXxs,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(theme.radiusLg),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: theme.fontXs,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+    final badge = _badge(
+      theme: theme,
+      accent: color,
+      label: label,
+      horizontalPadding: theme.spacingSm,
+      verticalPadding: theme.spacingXxs,
+      radius: theme.radiusLg,
     );
 
     // Confidence reasoning is shown inline when expanded (M5), so no Tooltip
@@ -1080,6 +1036,43 @@ class _IssueCardState extends State<IssueCard> {
     if (reason == null) return badge;
     return Semantics(label: '$label: $reason', child: badge);
   }
+}
+
+/// Badge with [label] on a [SleuthThemeData.badgeFill] of [accent] and a
+/// 1 px [accent] border. Text is [tintedText] (default `textPrimary`) over
+/// a translucent fill, black or white over an opaque one.
+Widget _badge({
+  required SleuthThemeData theme,
+  required Color accent,
+  required String label,
+  Color? tintedText,
+  double? horizontalPadding,
+  double verticalPadding = 0,
+  double? radius,
+}) {
+  return DecoratedBox(
+    decoration: BoxDecoration(
+      color: theme.badgeFill(accent),
+      borderRadius: BorderRadius.circular(radius ?? theme.radiusSm),
+      border: Border.all(color: accent),
+    ),
+    child: Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: horizontalPadding ?? theme.spacingXs,
+        vertical: verticalPadding,
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: theme.badgeTextOn(accent, tinted: tintedText),
+          fontSize: theme.fontXxs,
+          fontWeight: FontWeight.bold,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    ),
+  );
 }
 
 bool _isDebugCallbackSource(ObservationSource? source) =>

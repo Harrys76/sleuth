@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 PerformanceIssue _testIssue({
   IssueCategory category = IssueCategory.build,
@@ -261,7 +262,7 @@ void main() {
       );
       expect(textWidget.style?.fontSize, 10);
       expect(textWidget.style?.fontStyle, FontStyle.italic);
-      expect(textWidget.style?.color, const Color(0xFF9CA3AF));
+      expect(textWidget.style?.color, const SleuthThemeData().textTertiary);
     });
   });
 

@@ -664,7 +664,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       ),
       child: Text(
         text,
-        style: TextStyle(color: theme.categoryStartup, fontSize: theme.fontSm),
+        style: TextStyle(color: theme.textPrimary, fontSize: theme.fontSm),
       ),
     );
   }

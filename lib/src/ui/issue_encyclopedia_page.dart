@@ -349,7 +349,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           Text(
             name,
             style: TextStyle(
-              color: color,
+              color: theme.textPrimary,
               fontSize: theme.fontMd,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.3,
@@ -359,13 +359,14 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
+              color: theme.badgeFill(color),
               borderRadius: BorderRadius.circular(theme.radiusLg),
+              border: Border.all(color: color),
             ),
             child: Text(
               countText,
               style: TextStyle(
-                color: color,
+                color: theme.badgeTextOn(color),
                 fontSize: theme.fontXs,
                 fontWeight: FontWeight.bold,
               ),

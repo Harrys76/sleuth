@@ -1091,8 +1091,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     ? const SizedBox.shrink()
                     : DecoratedBox(
                         decoration: BoxDecoration(
-                          color: theme.severityWarning.withValues(alpha: 0.15),
+                          color: theme.badgeFill(theme.severityWarning),
                           borderRadius: BorderRadius.circular(theme.radiusLg),
+                          border: Border.all(color: theme.severityWarning),
                         ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
@@ -1102,7 +1103,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                           child: Text(
                             '${_ui.visibleIssues(issues).length}',
                             style: TextStyle(
-                              color: theme.severityWarning,
+                              color: theme.badgeTextOn(
+                                theme.severityWarning,
+                                tinted: theme.severityWarningText,
+                              ),
                               fontSize: theme.fontXs,
                               fontWeight: FontWeight.bold,
                             ),
@@ -1299,7 +1303,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           return Center(
             child: Text(
               '✅ No issues detected',
-              style: TextStyle(color: theme.severityOk, fontSize: theme.fontMd),
+              style: TextStyle(
+                color: theme.severityOkText,
+                fontSize: theme.fontMd,
+              ),
             ),
           );
         }
@@ -1628,7 +1635,7 @@ class _StatusRowState extends State<_StatusRow> {
                         style: TextStyle(
                           color: isWarming
                               ? theme.textTertiary
-                              : theme.fpsColor(fps, target: target),
+                              : theme.fpsTextColor(fps, target: target),
                           fontSize: theme.fontXxl,
                           fontWeight: FontWeight.bold,
                         ),
@@ -1693,7 +1700,7 @@ class _StatusRowState extends State<_StatusRow> {
                         Text(
                           '0 issues',
                           style: TextStyle(
-                            color: theme.severityOk,
+                            color: theme.severityOkText,
                             fontSize: theme.fontMd,
                           ),
                         ),
@@ -1706,6 +1713,9 @@ class _StatusRowState extends State<_StatusRow> {
                   final severityColor = hasCritical
                       ? theme.severityCritical
                       : theme.severityWarning;
+                  final severityText = hasCritical
+                      ? theme.severityCriticalText
+                      : theme.severityWarningText;
                   return Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1721,7 +1731,7 @@ class _StatusRowState extends State<_StatusRow> {
                       Text(
                         '${issues.length} issue${issues.length == 1 ? '' : 's'}',
                         style: TextStyle(
-                          color: severityColor,
+                          color: severityText,
                           fontSize: theme.fontMd,
                         ),
                       ),
@@ -1813,7 +1823,7 @@ class _FpsCell extends StatelessWidget {
         Text(
           value.toStringAsFixed(0),
           style: TextStyle(
-            color: theme.fpsColor(value, target: target),
+            color: theme.fpsTextColor(value, target: target),
             fontSize: theme.fontXxl,
             fontWeight: FontWeight.bold,
           ),
@@ -2278,11 +2288,7 @@ class _SeverityChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    final color = switch (severity) {
-      IssueSeverity.critical => theme.severityCritical,
-      IssueSeverity.warning => theme.severityWarning,
-      IssueSeverity.ok => theme.severityOk,
-    };
+    final color = theme.severityColor(severity);
     final name = switch (severity) {
       IssueSeverity.critical => 'critical',
       IssueSeverity.warning => 'warning',
@@ -2315,6 +2321,10 @@ class _SeverityChip extends StatelessWidget {
                     widthFactor: 1,
                     child: _SeverityChipPill(
                       color: color,
+                      textColor: theme.badgeTextOn(
+                        color,
+                        tinted: theme.severityTextColor(severity),
+                      ),
                       count: count,
                       selected: selected,
                     ),
@@ -2335,11 +2345,15 @@ class _SeverityChip extends StatelessWidget {
 class _SeverityChipPill extends StatefulWidget {
   const _SeverityChipPill({
     required this.color,
+    required this.textColor,
     required this.count,
     required this.selected,
   });
 
   final Color color;
+
+  /// Count and dot colour when selected.
+  final Color textColor;
   final int count;
   final bool selected;
 
@@ -2380,10 +2394,10 @@ class _SeverityChipPillState extends State<_SeverityChipPill>
     final theme = SleuthTheme.of(context);
     final t = _selection.value;
     final color = widget.color;
-    final foreground = Color.lerp(theme.textQuaternary, color, t)!;
+    final foreground = Color.lerp(theme.textQuaternary, widget.textColor, t)!;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15 * t),
+        color: color.withValues(alpha: theme.badgeFillAlpha * t),
         borderRadius: BorderRadius.circular(theme.radiusMd),
         border: Border.all(
           color: Color.lerp(
@@ -2569,7 +2583,10 @@ class _StartupMetricsBanner extends StatelessWidget {
                 Expanded(
                   child: Text(
                     parts.join(' \u00B7 '),
-                    style: TextStyle(color: color, fontSize: theme.fontSm),
+                    style: TextStyle(
+                      color: theme.textPrimary,
+                      fontSize: theme.fontSm,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -2847,7 +2864,10 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
             Expanded(
               child: Text(
                 summary,
-                style: TextStyle(color: color, fontSize: theme.fontSm),
+                style: TextStyle(
+                  color: theme.textPrimary,
+                  fontSize: theme.fontSm,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -2934,7 +2954,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
                 child: Text(
                   '$rank.',
                   style: TextStyle(
-                    color: color.withValues(alpha: 0.7),
+                    color: theme.textTertiary,
                     fontSize: theme.fontXs,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2944,7 +2964,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
                 child: Text(
                   typeName,
                   style: TextStyle(
-                    color: color,
+                    color: theme.textPrimary,
                     fontSize: theme.fontSm,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2976,7 +2996,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
                 builder: (context, value, _) => Text(
                   '\u00d7$value',
                   style: TextStyle(
-                    color: color,
+                    color: theme.textPrimary,
                     fontSize: theme.fontSm,
                     fontWeight: FontWeight.bold,
                   ),
@@ -3028,7 +3048,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
           child: Text(
             'incl. inflations',
             style: TextStyle(
-              color: color.withValues(alpha: 0.7),
+              color: theme.textTertiary,
               fontSize: theme.fontXxs,
               fontStyle: FontStyle.italic,
             ),
@@ -3066,11 +3086,11 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
                     child: Text(
                       'See all $widgetCount \u2192',
                       style: TextStyle(
-                        color: color,
+                        color: theme.textPrimary,
                         fontSize: theme.fontXs,
                         fontWeight: FontWeight.w600,
                         decoration: TextDecoration.underline,
-                        decorationColor: color,
+                        decorationColor: theme.textPrimary,
                       ),
                     ),
                   ),

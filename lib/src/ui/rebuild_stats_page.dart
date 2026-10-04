@@ -314,7 +314,7 @@ class _SummaryChip extends StatelessWidget {
             Text(
               value,
               style: TextStyle(
-                color: theme.categoryBuild,
+                color: theme.textPrimary,
                 fontSize: theme.fontMd,
                 fontWeight: FontWeight.bold,
               ),

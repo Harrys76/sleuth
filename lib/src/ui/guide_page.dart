@@ -170,7 +170,7 @@ class _GuidePageState extends State<GuidePage>
                       child: Text(
                         'Sleuth',
                         style: TextStyle(
-                          color: theme.textSubtle,
+                          color: theme.textQuaternary,
                           fontSize: theme.fontSm,
                         ),
                       ),
@@ -742,13 +742,14 @@ class _GuidePageState extends State<GuidePage>
               vertical: theme.spacingXxs,
             ),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.2),
+              color: theme.badgeFill(color),
               borderRadius: BorderRadius.circular(theme.radiusSm),
+              border: Border.all(color: color),
             ),
             child: Text(
               label,
               style: TextStyle(
-                color: color,
+                color: theme.badgeTextOn(color),
                 fontSize: theme.fontXxs,
                 fontWeight: FontWeight.bold,
               ),
@@ -827,13 +828,14 @@ class _GuidePageState extends State<GuidePage>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: theme.badgeFill(color),
         borderRadius: BorderRadius.circular(theme.radiusSm),
+        border: Border.all(color: color),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: color,
+          color: theme.badgeTextOn(color),
           fontSize: theme.fontXxs,
           fontWeight: FontWeight.bold,
         ),
