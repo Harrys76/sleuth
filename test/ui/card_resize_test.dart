@@ -121,7 +121,7 @@ void main() {
       await tester.pumpWidget(buildCard());
 
       final initial = findCardConstrainedBox(tester).constraints.maxHeight;
-      // Default: 600 * 0.55 = 330 (above 250 min floor)
+      // Default: 600 * 0.55 = 330 (above 300 min floor)
       expect(initial, 330.0);
 
       await dragHandle(tester, const Offset(0, 50));
@@ -137,8 +137,8 @@ void main() {
       await dragHandle(tester, const Offset(0, -500));
 
       final box = findCardConstrainedBox(tester);
-      // Static min height = 250px
-      expect(box.constraints.maxHeight, 250.0);
+      // Static min height = 300px
+      expect(box.constraints.maxHeight, 300.0);
     });
 
     testWidgets('maximize button expands width', (tester) async {

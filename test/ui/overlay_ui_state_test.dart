@@ -142,6 +142,44 @@ void main() {
       expect(state.triggerAnchor!.fraction, 0.0);
     });
 
+    test('loadJson keeps fields changed since construction', () {
+      final state = OverlayUiState()
+        ..triggerAnchor = (edge: TriggerEdge.left, fraction: 0.2)
+        ..setCardGeometry(
+          offset: const Offset(10, 20),
+          width: 300,
+          height: 400,
+          windowState: CardWindowState.normal,
+        );
+      state.loadJson({
+        'schemaVersion': 1,
+        'triggerAnchor': {'edge': 'right', 'fraction': 0.9},
+        'cardOffset': {'dx': 1, 'dy': 2},
+        'cardWidth': 500,
+        'windowState': 'maximized',
+        'hiddenKeys': ['loaded'],
+        'severityFilter': ['critical'],
+      });
+      expect(state.triggerAnchor, (edge: TriggerEdge.left, fraction: 0.2));
+      expect(state.cardOffset, const Offset(10, 20));
+      expect(state.cardWidth, 300);
+      expect(state.windowState, CardWindowState.normal);
+      // Untouched fields are loaded.
+      expect(state.hiddenKeys, {'loaded'});
+      expect(state.severityFilter, {IssueSeverity.critical});
+    });
+
+    test('loadJson merges hidden keys hidden before it, newest last', () {
+      final state = OverlayUiState()
+        ..hide('a')
+        ..hide('b');
+      state.loadJson({
+        'schemaVersion': 1,
+        'hiddenKeys': ['b', 'x', 'y'],
+      });
+      expect(state.hiddenKeys.toList(), ['x', 'y', 'a', 'b']);
+    });
+
     test('a non-finite anchor fraction clears the anchor', () {
       final state = OverlayUiState()
         ..triggerAnchor = (edge: TriggerEdge.left, fraction: 0.5)

@@ -85,9 +85,10 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   bool get _layerOpen => widget.controller.config.showOverlay && _dashboardOpen;
 
   /// Closes the innermost open layer. Returns false when the dashboard is
-  /// closed, so the app handles the back.
+  /// closed or the overlay is gone (a gesture that outlived it), so the
+  /// app handles the back.
   bool _closeInnermostLayer() {
-    if (!_layerOpen) return false;
+    if (!mounted || !_layerOpen) return false;
     final Object? host = _cardKey.currentState;
     if (host is OverlayLayerHost && host.closeInnermostLayer()) return true;
     widget.controller.overlayUiState.dashboardOpen = false;
@@ -124,7 +125,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   @override
   bool handleStartBackGesture(PredictiveBackEvent backEvent) =>
-      !kReleaseMode && _layerOpen;
+      !kReleaseMode && mounted && _layerOpen;
 
   @override
   void handleUpdateBackGestureProgress(PredictiveBackEvent backEvent) {}

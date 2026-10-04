@@ -173,6 +173,39 @@ void main() {
       coordinator.dispose();
     });
 
+    test('app-owned framework widgets the overlay avoids are counted', () {
+      FlutterTimeline.debugCollectionEnabled = false;
+      final coordinator = DebugInstrumentationCoordinator();
+      coordinator.installProfileMode();
+
+      for (final name in const [
+        'AnimatedContainer',
+        'AnimatedSwitcher',
+        'CustomSingleChildLayout',
+        'ListenableBuilder',
+        'MergeSemantics',
+        // The overlay's own replacements are dropped.
+        'SleuthListenableBuilder',
+        '_ToastFade',
+        '_SeverityChipPill',
+        '_TriggerLayout',
+      ]) {
+        FlutterTimeline.startSync(name);
+        FlutterTimeline.finishSync();
+      }
+
+      final counts = coordinator.snapshot().rebuildCounts;
+      expect(counts, {
+        'AnimatedContainer': 1,
+        'AnimatedSwitcher': 1,
+        'CustomSingleChildLayout': 1,
+        'ListenableBuilder': 1,
+        'MergeSemantics': 1,
+      });
+
+      coordinator.dispose();
+    });
+
     test(
       'snapshot with empty buffer returns zero counts tagged flutterTimeline',
       () {

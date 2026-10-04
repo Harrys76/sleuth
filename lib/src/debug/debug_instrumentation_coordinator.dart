@@ -549,14 +549,17 @@ class DebugInstrumentationCoordinator {
   /// Framework entries are matched AFTER generic stripping in
   /// [canonicalizeTypeName], so `ValueListenableBuilder<T>` reduces to
   /// `ValueListenableBuilder` before the lookup.
+  ///
+  /// The overlay does not use `ListenableBuilder`, `AnimatedContainer`,
+  /// `AnimatedSwitcher`, `MergeSemantics` or `CustomSingleChildLayout`; it
+  /// uses Sleuth-named equivalents listed below, so app-owned rebuilds of
+  /// those widgets are counted.
   static const Set<String> _frameworkWidgetDenyList = {
-    // --- Flutter framework widgets used in lib/src/ui/ (53) ---
+    // --- Flutter framework widgets used in lib/src/ui/ (48) ---
     'Align',
     'AnimatedBuilder',
-    'AnimatedContainer',
     'AnimatedRotation',
     'AnimatedSize',
-    'AnimatedSwitcher',
     'Card',
     'Center',
     'Checkbox',
@@ -565,7 +568,6 @@ class DebugInstrumentationCoordinator {
     'ConstrainedBox',
     'Container',
     'CustomPaint',
-    'CustomSingleChildLayout',
     'DecoratedBox',
     'DefaultTextEditingShortcuts',
     'Directionality',
@@ -580,10 +582,8 @@ class DebugInstrumentationCoordinator {
     'LayoutBuilder',
     'LinearProgressIndicator',
     'ListView',
-    'ListenableBuilder',
     'Localizations',
     'Material',
-    'MergeSemantics',
     'MouseRegion',
     'NotificationListener',
     'Overlay',
@@ -604,7 +604,7 @@ class DebugInstrumentationCoordinator {
     'TweenAnimationBuilder',
     'ValueListenableBuilder',
     'Wrap',
-    // --- Sleuth overlay widget classes (35) ---
+    // --- Sleuth overlay widget classes (39) ---
     'FloatingIssuesCard',
     '_StatusRow',
     '_ThroughputDetailRow',
@@ -639,7 +639,11 @@ class DebugInstrumentationCoordinator {
     '_HiddenRow',
     '_TextAction',
     '_SeverityChip',
+    '_SeverityChipPill',
     '_EmptyListMessage',
+    '_ToastFade',
+    '_TriggerLayout',
+    'SleuthListenableBuilder',
   };
 
   void _handleRebuildDirtyWidget(Element element, bool builtOnce) {

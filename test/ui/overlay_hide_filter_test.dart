@@ -87,13 +87,27 @@ void main() {
     await tester.pump();
   }
 
-  /// The summary-bar chip for [severity] ("N severity. Shown. ...").
+  /// The summary-bar chip for [severity] ("N severity, on" / "..., off, ...").
   Finder chip(String severity) => find.byWidgetPredicate(
     (w) =>
         w is Semantics &&
         w.properties.selected != null &&
-        (w.properties.label?.contains(' $severity. ') ?? false),
+        (w.properties.label?.contains(' $severity, ') ?? false),
   );
+
+  /// Ids of the cards on screen, top to bottom.
+  List<String> rowOrder(WidgetTester tester, List<String> ids) {
+    final shown = [
+      for (final id in ids)
+        if (find.text('Title $id').evaluate().isNotEmpty) id,
+    ];
+    return shown..sort(
+      (a, b) => tester
+          .getTopLeft(find.text('Title $a'))
+          .dy
+          .compareTo(tester.getTopLeft(find.text('Title $b')).dy),
+    );
+  }
 
   group('Hide with Undo', () {
     testWidgets('hiding a root removes it and its collapsed effects; Undo '
@@ -215,6 +229,150 @@ void main() {
     });
   });
 
+  group('Freeze zone', () {
+    testWidgets('expanding a card below the frozen zone keeps it where it '
+        'was tapped', (tester) async {
+      controller.issuesNotifier.value = [
+        for (final id in ['a', 'b', 'c', 'd', 'e']) _issue(id),
+      ];
+      await pumpCard(tester);
+      await expand(tester, 'a');
+
+      // The ranker reorders everything below the expanded card.
+      controller.issuesNotifier.value = [
+        for (final id in ['a', 'e', 'd', 'c', 'b']) _issue(id),
+      ];
+      await tester.pump();
+      const ids = ['a', 'b', 'c', 'd', 'e'];
+      expect(rowOrder(tester, ids), ['a', 'e', 'd', 'c', 'b']);
+
+      await expand(tester, 'c');
+      expect(rowOrder(tester, ids), ['a', 'e', 'd', 'c', 'b']);
+
+      // And on the next issues update.
+      controller.issuesNotifier.value = [
+        for (final id in ['b', 'c', 'd', 'e', 'a']) _issue(id),
+      ];
+      await tester.pump();
+      expect(rowOrder(tester, ids), ['a', 'e', 'd', 'c', 'b']);
+      expect(find.byIcon(Icons.push_pin), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Undo of a card hidden above the expanded card brings it '
+        'back below the frozen zone', (tester) async {
+      controller.issuesNotifier.value = [_issue('x'), _issue('a'), _issue('y')];
+      await pumpCard(tester);
+      await expand(tester, 'a');
+      await expand(tester, 'x');
+
+      // Hide x (the first expanded card's action row).
+      await tester.tap(find.bySemanticsLabel('Hide this issue').first);
+      await tester.pump();
+      expect(rowOrder(tester, ['x', 'a', 'y']), ['a', 'y']);
+
+      await tester.tap(find.text('Undo'));
+      await tester.pump();
+      expect(rowOrder(tester, ['x', 'a', 'y']), ['a', 'x', 'y']);
+      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await drainToasts(tester);
+    });
+  });
+
+  group('Showing X of Y', () {
+    testWidgets('counts cards, not ids: one of two widgets hidden', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        _issue('dup', widgetName: 'A'),
+        _issue('dup', widgetName: 'B'),
+      ];
+      controller.overlayUiState
+        ..hide('dup|A')
+        ..hide('stale');
+      await pumpCard(tester);
+      expect(find.text('Showing 1 of 2'), findsOneWidget);
+    });
+
+    testWidgets('a stale hidden key does not narrow', (tester) async {
+      controller.issuesNotifier.value = [_issue('a'), _issue('b')];
+      controller.overlayUiState.hide('stale');
+      await pumpCard(tester);
+      expect(find.textContaining('Showing'), findsNothing);
+      expect(find.text('2 confirmed'), findsOneWidget);
+    });
+  });
+
+  group('Summary bar', () {
+    testWidgets('takes 36 px from the list and two collapsed rows fit at '
+        'the minimum card height', (tester) async {
+      tester.view.physicalSize = const Size(800, 400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      controller.issuesNotifier.value = [
+        for (final id in ['a', 'b', 'c', 'd', 'e']) _issue(id),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FloatingIssuesCard(
+              controller: controller,
+              onClose: () {},
+              isDebugMode: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final card = tester.getRect(
+        find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
+      );
+      expect(card.height, 300); // 400 * 0.55 is below the minimum
+
+      final chipTop = tester.getTopLeft(chip('warning')).dy;
+      final list = tester.getRect(find.byType(ListView));
+      expect(list.top - chipTop, 36);
+      // The chip's hit box is still 48 tall.
+      expect(tester.getSize(chip('warning')).height, 48);
+
+      final rows = [
+        for (final e in find.byType(IssueCard).evaluate())
+          (e.renderObject! as RenderBox).localToGlobal(Offset.zero) &
+              (e.renderObject! as RenderBox).size,
+      ];
+      expect(
+        rows.where((r) => r.top < list.bottom && r.bottom > list.top).length,
+        greaterThanOrEqualTo(2),
+      );
+      // Tests run in debug mode, which adds the debug-mode warning banner;
+      // without it (profile builds) both rows fit entirely.
+      final debugBanner = tester.getSize(
+        find.byWidgetPredicate(
+          (w) => w.runtimeType.toString() == '_WarningBanners',
+        ),
+      );
+      expect(
+        rows[1].bottom - list.top,
+        lessThanOrEqualTo(list.height + debugBanner.height),
+      );
+    });
+
+    testWidgets('a tap just below the bar beside the chips reaches the list', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [_issue('a')];
+      await pumpCard(tester);
+      final list = tester.getRect(find.byType(ListView));
+      final title = tester.getRect(find.text('Title a'));
+      // Inside the chips' 48 px band, right of the chips.
+      await tester.tapAt(Offset(title.right - 2, list.top + 6));
+      await tester.pump();
+      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+    });
+  });
+
   group('Footer and Hidden list', () {
     test('footer label omits zero parts', () {
       expect(hiddenFooterLabel(0, 0), isNull);
@@ -248,6 +406,23 @@ void main() {
       await tester.pump();
       expect(controller.overlayUiState.hiddenKeys, isEmpty);
       expect(find.text('Nothing hidden.'), findsOneWidget);
+    });
+
+    testWidgets('the Hidden list follows issues and the suppressed count '
+        'while open', (tester) async {
+      controller.issuesNotifier.value = [_issue('b')];
+      controller.overlayUiState.hide('a');
+      await pumpCard(tester);
+      await tester.tap(find.text('1 hidden'));
+      await tester.pump();
+      expect(find.text('Not detected right now'), findsOneWidget);
+
+      controller.issuesNotifier.value = [_issue('a'), _issue('b')];
+      controller.suppressedCountNotifier.value = 4;
+      await tester.pump();
+      expect(find.text('Title a'), findsOneWidget);
+      expect(find.text('Not detected right now'), findsNothing);
+      expect(find.textContaining('4 removed before ranking'), findsOneWidget);
     });
 
     testWidgets('config suppressions are listed without a restore action', (
@@ -341,7 +516,9 @@ void main() {
       await tester.pump();
       expect(find.text('Title root'), findsNothing);
       expect(find.text('Title child'), findsOneWidget);
-      expect(find.text('Showing 1 of 2'), findsOneWidget);
+      // One card shown by default (child collapsed under root), one now:
+      // nothing is narrowed, so no "Showing X of Y".
+      expect(find.textContaining('Showing'), findsNothing);
     });
 
     testWidgets('the last enabled severity stays on', (tester) async {
@@ -383,13 +560,46 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('chip labels, 48 dp width and selected border', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('c', severity: IssueSeverity.critical),
+        _issue('w'),
+      ];
+      await pumpCard(tester);
+      expect(find.bySemanticsLabel('1 warning, on'), findsOneWidget);
+      expect(tester.getSize(chip('warning')).width, greaterThanOrEqualTo(48));
+
+      final pill = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: chip('warning'),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      final border = (pill.decoration as BoxDecoration).border! as Border;
+      expect(border.top.color.a, closeTo(0.6, 0.01));
+
+      // A tap in the part of the hit box that overlaps the list toggles.
+      final list = tester.getRect(find.byType(ListView));
+      await tester.tapAt(
+        Offset(tester.getCenter(chip('warning')).dx, list.top + 8),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.bySemanticsLabel('1 warning, off, tap to show'),
+        findsOneWidget,
+      );
+      await drainToasts(tester);
+    });
+
     testWidgets('chips report selection to screen readers', (tester) async {
       controller.issuesNotifier.value = [_issue('w')];
       await pumpCard(tester);
       expect(
         tester.getSemantics(chip('warning')),
         matchesSemantics(
-          label: '1 warning. Shown. Tap to toggle',
+          label: '1 warning, on',
           isButton: true,
           hasSelectedState: true,
           isSelected: true,
@@ -447,6 +657,40 @@ void main() {
         findsOneWidget,
       );
       expect(find.bySemanticsLabel('Close Sleuth'), findsOneWidget);
+    });
+
+    testWidgets('Learn more and Ask AI have 48 dp hit boxes and labels', (
+      tester,
+    ) async {
+      var learnMore = 0;
+      var askAi = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: IssueCard(
+                issue: _issue('a'),
+                initiallyExpanded: true,
+                onCopy: () {},
+                onHide: () {},
+                onLearnMore: () => learnMore++,
+                onAskAi: () => askAi++,
+              ),
+            ),
+          ),
+        ),
+      );
+      for (final label in [
+        'Learn more about this issue',
+        'Ask AI about this issue',
+      ]) {
+        final size = tester.getSize(find.bySemanticsLabel(label));
+        expect(size.height, greaterThanOrEqualTo(48), reason: label);
+        expect(size.width, greaterThanOrEqualTo(48), reason: label);
+      }
+      await tester.tap(find.bySemanticsLabel('Learn more about this issue'));
+      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      expect((learnMore, askAi), (1, 1));
     });
 
     testWidgets('new actions have 48 dp hit boxes', (tester) async {

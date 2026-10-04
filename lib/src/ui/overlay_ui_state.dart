@@ -80,6 +80,14 @@ class OverlayUiState extends ChangeNotifier {
   final LinkedHashSet<String> _hiddenKeys = LinkedHashSet<String>();
   final Set<IssueSeverity> _severityFilter = {...IssueSeverity.values};
 
+  // Fields changed since construction. [loadJson] leaves them as they are
+  // (hidden keys are merged), so changes made before a slow store read
+  // completes are kept.
+  bool _anchorDirty = false;
+  bool _geometryDirty = false;
+  bool _hiddenDirty = false;
+  bool _severityDirty = false;
+
   // ── Dashboard ─────────────────────────────────────────────────────────
 
   /// Whether the dashboard card is open. Session only; not persisted.
@@ -107,6 +115,7 @@ class OverlayUiState extends ChangeNotifier {
         : (edge: value.edge, fraction: value.fraction.clamp(0.0, 1.0));
     if (next == _triggerAnchor) return;
     _triggerAnchor = next;
+    _anchorDirty = true;
     notifyListeners();
   }
 
@@ -168,6 +177,7 @@ class OverlayUiState extends ChangeNotifier {
     _restoreOffset = ro;
     _restoreWidth = rw;
     _restoreHeight = rh;
+    _geometryDirty = true;
     notifyListeners();
   }
 
@@ -190,12 +200,14 @@ class OverlayUiState extends ChangeNotifier {
     while (_hiddenKeys.length > maxHiddenKeys) {
       _hiddenKeys.remove(_hiddenKeys.first);
     }
+    _hiddenDirty = true;
     notifyListeners();
   }
 
   /// Shows [key] again. Returns false when it was not hidden.
   bool unhide(String key) {
     if (!_hiddenKeys.remove(key)) return false;
+    _hiddenDirty = true;
     notifyListeners();
     return true;
   }
@@ -204,6 +216,7 @@ class OverlayUiState extends ChangeNotifier {
   void restoreAll() {
     if (_hiddenKeys.isEmpty) return;
     _hiddenKeys.clear();
+    _hiddenDirty = true;
     notifyListeners();
   }
 
@@ -225,6 +238,7 @@ class OverlayUiState extends ChangeNotifier {
     } else {
       _severityFilter.add(severity);
     }
+    _severityDirty = true;
     notifyListeners();
     return true;
   }
@@ -233,6 +247,7 @@ class OverlayUiState extends ChangeNotifier {
   void resetSeverityFilter() {
     if (!isSeverityFiltered) return;
     _severityFilter.addAll(IssueSeverity.values);
+    _severityDirty = true;
     notifyListeners();
   }
 
@@ -271,8 +286,14 @@ class OverlayUiState extends ChangeNotifier {
     ],
   };
 
-  /// Replaces the persisted fields with [json] (from [toJson]) and
-  /// notifies once. [dashboardOpen] is left alone.
+  /// Applies [json] (from [toJson]) and notifies once. [dashboardOpen]
+  /// is left alone.
+  ///
+  /// A field changed on this object since construction keeps its current
+  /// value: the trigger anchor, the card geometry and window state, and
+  /// the severity filter are taken from [json] only when untouched;
+  /// hidden keys from [json] are merged in, with the keys hidden here
+  /// kept as the newest.
   ///
   /// Throws [FormatException], leaving the state unchanged, when
   /// `schemaVersion` is missing, not an integer, or newer than
@@ -312,22 +333,35 @@ class OverlayUiState extends ChangeNotifier {
         for (final n in names) ?_enumByName(IssueSeverity.values, n),
     };
 
-    _triggerAnchor = anchor;
-    _cardOffset = _validOffset(_offsetFromJson(json['cardOffset']));
-    _cardWidth = _validExtent(_doubleFromJson(json['cardWidth']));
-    _cardHeight = _validExtent(_doubleFromJson(json['cardHeight']));
-    _windowState =
-        _enumByName(CardWindowState.values, json['windowState']) ??
-        CardWindowState.normal;
-    _restoreOffset = _validOffset(_offsetFromJson(json['restoreOffset']));
-    _restoreWidth = _validExtent(_doubleFromJson(json['restoreWidth']));
-    _restoreHeight = _validExtent(_doubleFromJson(json['restoreHeight']));
+    if (!_anchorDirty) _triggerAnchor = anchor;
+    if (!_geometryDirty) {
+      _cardOffset = _validOffset(_offsetFromJson(json['cardOffset']));
+      _cardWidth = _validExtent(_doubleFromJson(json['cardWidth']));
+      _cardHeight = _validExtent(_doubleFromJson(json['cardHeight']));
+      _windowState =
+          _enumByName(CardWindowState.values, json['windowState']) ??
+          CardWindowState.normal;
+      _restoreOffset = _validOffset(_offsetFromJson(json['restoreOffset']));
+      _restoreWidth = _validExtent(_doubleFromJson(json['restoreWidth']));
+      _restoreHeight = _validExtent(_doubleFromJson(json['restoreHeight']));
+    }
+    final localHidden = _hiddenDirty ? _hiddenKeys.toList() : const <String>[];
     _hiddenKeys
       ..clear()
       ..addAll(keptHidden);
-    _severityFilter
-      ..clear()
-      ..addAll(severities.isEmpty ? IssueSeverity.values : severities);
+    for (final key in localHidden) {
+      _hiddenKeys
+        ..remove(key)
+        ..add(key);
+    }
+    while (_hiddenKeys.length > maxHiddenKeys) {
+      _hiddenKeys.remove(_hiddenKeys.first);
+    }
+    if (!_severityDirty) {
+      _severityFilter
+        ..clear()
+        ..addAll(severities.isEmpty ? IssueSeverity.values : severities);
+    }
     notifyListeners();
   }
 

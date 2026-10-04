@@ -2,11 +2,14 @@
 /// hidden issues, severity filter).
 ///
 /// Set one on `SleuthConfig.stateStore` to keep that state across app
-/// restarts. Sleuth calls [read] once at startup and [write] at most
-/// once per 500 ms after the state changes. Neither call blocks the UI:
-/// a [read] that takes longer than 2 s, throws, or returns unreadable
-/// data leaves the defaults in place, and a failing [write] is logged
-/// once and otherwise ignored. Release builds never call the store.
+/// restarts. Sleuth calls [read] once at startup and [write] after a
+/// trailing 500 ms debounce once the state changes, with one write in
+/// flight at a time; a change still waiting when Sleuth is disposed is
+/// written then. Neither call blocks the UI: a [read] that throws or
+/// returns unreadable data leaves the defaults in place, a [read] that
+/// takes longer than 2 s leaves the defaults in place and turns writes
+/// off for the session, and a failing [write] is logged once and
+/// otherwise ignored. Release builds never call the store.
 ///
 /// The package ships no persistent store, so it adds no storage
 /// dependency. A store backed by a file, `shared_preferences` or

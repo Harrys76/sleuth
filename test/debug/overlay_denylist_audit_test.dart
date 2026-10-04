@@ -147,6 +147,17 @@ const _frameworkCandidates = <String>{
   'Wrap',
 };
 
+/// Framework widgets apps use widely. Denylisting one would drop the app's
+/// own rebuilds of it from the profile drain, so the overlay uses
+/// Sleuth-named equivalents instead and these names stay off the list.
+const _appOwnedFrameworkWidgets = <String>{
+  'AnimatedContainer',
+  'AnimatedSwitcher',
+  'CustomSingleChildLayout',
+  'ListenableBuilder',
+  'MergeSemantics',
+};
+
 /// Regex matching a class definition that extends a widget base class.
 /// Captures the class name in group 1.
 ///
@@ -306,6 +317,27 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
             'them to the denylist in '
             'lib/src/debug/debug_instrumentation_coordinator.dart:\n'
             '  ${usedButNotDenied.toList()..sort()}',
+      );
+    });
+
+    test('app-owned framework widgets are neither denylisted nor used by '
+        'the overlay', () {
+      final denyList =
+          DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList;
+      expect(denyList.intersection(_appOwnedFrameworkWidgets), isEmpty);
+      final used = <String>{
+        for (final name in _appOwnedFrameworkWidgets)
+          if (uiSources.values.any(
+            (src) => _isWidgetConstructorUsed(name, src),
+          ))
+            name,
+      };
+      expect(
+        used,
+        isEmpty,
+        reason:
+            'The overlay must use a Sleuth-named class instead of these '
+            'widgets (see SleuthListenableBuilder):\n  $used',
       );
     });
 

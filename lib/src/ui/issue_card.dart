@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/performance_issue.dart';
 import '../models/recurrence_trend.dart';
 import '../utils/issue_metadata_builder.dart';
+import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 
 /// A card displaying a single performance issue.
@@ -98,8 +99,8 @@ class IssueCard extends StatefulWidget {
 
   /// Count of upstream root causes that exist in the issue's
   /// `rootCauseIds` annotation but were NOT resolved into [parentIssues]
-  /// (e.g., suppressed by the ranker upstream of the overlay). Renders as
-  /// "(+N suppressed)" in the "Caused by" section so a partial parent list
+  /// (e.g., dropped by the ranker upstream of the overlay). Renders as
+  /// "(+N not shown)" in the "Caused by" section so a partial parent list
   /// does not silently look complete. Zero when every parent resolved.
   final int suppressedParentCount;
 
@@ -313,7 +314,8 @@ class _IssueCardState extends State<IssueCard> {
                     ),
                     if (widget.locatable) ...[
                       SizedBox(width: theme.spacingXs),
-                      MergeSemantics(
+                      Semantics(
+                        container: true,
                         child: Semantics(
                           label: 'Highlight widget on screen',
                           child: Checkbox(
@@ -349,9 +351,9 @@ class _IssueCardState extends State<IssueCard> {
                 // Recurrence badge ("Seen X/Y"). Only this subtree listens
                 // to the scan pulse.
                 if (widget.scanTick != null)
-                  ListenableBuilder(
+                  SleuthListenableBuilder(
                     listenable: widget.scanTick!,
-                    builder: (context, _) =>
+                    builder: (context) =>
                         _recurrenceBadgeOrNothing(_currentTrend(), theme),
                   )
                 else
@@ -691,10 +693,7 @@ class _IssueCardState extends State<IssueCard> {
               if (widget.onAskAi != null)
                 Align(
                   alignment: Alignment.centerRight,
-                  child: Padding(
-                    padding: EdgeInsets.only(top: theme.spacingXs),
-                    child: _AskAiShimmerLink(onTap: widget.onAskAi!),
-                  ),
+                  child: _AskAiShimmerLink(onTap: widget.onAskAi!),
                 ),
             ],
           );
@@ -713,9 +712,9 @@ class _IssueCardState extends State<IssueCard> {
   }
 
   Widget _buildLearnMoreLink(SleuthThemeData theme) {
-    return GestureDetector(
-      onTap: widget.onLearnMore,
-      behavior: HitTestBehavior.opaque,
+    return _linkHitBox(
+      label: 'Learn more about this issue',
+      onTap: widget.onLearnMore!,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -809,7 +808,7 @@ class _IssueCardState extends State<IssueCard> {
                 Padding(
                   padding: EdgeInsets.only(top: theme.spacingXxs),
                   child: Text(
-                    '(+$suppressed suppressed)',
+                    '(+$suppressed not shown)',
                     style: TextStyle(
                       color: theme.textQuaternary,
                       fontSize: theme.fontXs,
@@ -1147,6 +1146,35 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
   return ('MEDIUM FIX', theme.effortMedium);
 }
 
+/// A text link with a hit box of at least 48 x 48 and one semantics node
+/// labelled [label].
+Widget _linkHitBox({
+  required String label,
+  required VoidCallback onTap,
+  required Widget child,
+}) {
+  return Semantics(
+    label: label,
+    button: true,
+    onTap: onTap,
+    container: true,
+    excludeSemantics: true,
+    child: GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          widthFactor: 1,
+          heightFactor: 1,
+          child: child,
+        ),
+      ),
+    ),
+  );
+}
+
 /// Animated shimmer "Ask AI" link with purple-blue-pink gradient.
 ///
 /// Owns its own [AnimationController] so the shimmer only runs while this
@@ -1185,9 +1213,9 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     return RepaintBoundary(
-      child: GestureDetector(
+      child: _linkHitBox(
+        label: 'Ask AI about this issue',
         onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
         child: AnimatedBuilder(
           animation: _controller,
           builder: (context, child) {

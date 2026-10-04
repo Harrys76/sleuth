@@ -17,6 +17,29 @@ PredictiveBackEvent _backEvent() => PredictiveBackEvent.fromMap(const {
   'swipeEdge': 0,
 });
 
+/// Sends a predictive-back [method] through the binding's
+/// `flutter/backgesture` channel, as the Android embedder does.
+Future<void> _platformBackGesture(WidgetTester tester, String method) async {
+  final message = const StandardMethodCodec().encodeMethodCall(
+    MethodCall(
+      method,
+      method == 'startBackGesture' || method == 'updateBackGestureProgress'
+          ? const {
+              'touchOffset': [0.0, 300.0],
+              'progress': 0.0,
+              'swipeEdge': 0,
+            }
+          : null,
+    ),
+  );
+  await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+    SystemChannels.backGesture.name,
+    message,
+    (_) {},
+  );
+  await tester.pumpAndSettle();
+}
+
 Future<void> _openEncyclopedia(WidgetTester tester) async {
   await tester.tap(find.bySemanticsLabel('Encyclopedia'));
   await tester.pumpAndSettle();
@@ -163,6 +186,67 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(IssueEncyclopediaPage), findsNothing);
       expect(controller.overlayUiState.dashboardOpen, isTrue);
+    });
+
+    testWidgets('predictive back through the binding closes the innermost '
+        'layer', (tester) async {
+      final controller = await pumpOverlay(tester);
+      await openDashboard(tester, controller);
+      await _openEncyclopedia(tester);
+
+      await _platformBackGesture(tester, 'startBackGesture');
+      await _platformBackGesture(tester, 'updateBackGestureProgress');
+      await _platformBackGesture(tester, 'commitBackGesture');
+      expect(find.byType(IssueEncyclopediaPage), findsNothing);
+      expect(controller.overlayUiState.dashboardOpen, isTrue);
+
+      await _platformBackGesture(tester, 'startBackGesture');
+      await _platformBackGesture(tester, 'commitBackGesture');
+      expect(controller.overlayUiState.dashboardOpen, isFalse);
+      expect(find.text('app'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a gesture committed after the dashboard closed does '
+        'nothing', (tester) async {
+      final controller = await pumpOverlay(tester, app: _twoRouteApp());
+      await tester.tap(find.text('app home'));
+      await tester.pumpAndSettle();
+      await openDashboard(tester, controller);
+
+      await _platformBackGesture(tester, 'startBackGesture');
+      controller.overlayUiState.dashboardOpen = false;
+      await tester.pumpAndSettle();
+      final observer = _observer(tester);
+      observer.handleCommitBackGesture();
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(controller.overlayUiState.dashboardOpen, isFalse);
+      // The overlay took no action; the app route is still there.
+      expect(find.text('app detail'), findsOneWidget);
+    });
+
+    testWidgets('a gesture committed after the overlay left the tree does '
+        'not throw', (tester) async {
+      final controller = await pumpOverlay(tester);
+      await openDashboard(tester, controller);
+      final observer = _observer(tester);
+      expect(
+        observer.handleStartBackGesture(
+          PredictiveBackEvent.fromMap(const {
+            'touchOffset': [0.0, 300.0],
+            'progress': 0.0,
+            'swipeEdge': 0,
+          }),
+        ),
+        isTrue,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      observer.handleCommitBackGesture();
+      expect(await observer.didPopRoute(), isFalse);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('Android: framework back handling requested while a layer '

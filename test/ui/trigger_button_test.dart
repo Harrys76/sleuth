@@ -393,13 +393,14 @@ void main() {
       addTearDown(tester.view.reset);
     }
 
-    Widget app() => MaterialApp(
+    Widget app({Alignment alignment = Alignment.topRight}) => MaterialApp(
       home: TriggerButton(
         issuesNotifier: issues,
         vmConnectedNotifier: vm,
         frameStatsNotifier: fps,
         isDebugMode: false,
         uiState: state,
+        initialAlignment: alignment,
         onTap: () {},
       ),
     );
@@ -419,6 +420,46 @@ void main() {
       await tester.drag(find.byIcon(Icons.pets), const Offset(0, 4000));
       await tester.pump();
       expect(buttonRect(tester).bottom, lessThanOrEqualTo(800 - 100));
+    });
+
+    for (final alignment in [Alignment.topRight, Alignment.bottomLeft]) {
+      testWidgets('$alignment placement stays inside the view padding', (
+        tester,
+      ) async {
+        setView(tester, top: 59, bottom: 34);
+        await tester.pumpWidget(app(alignment: alignment));
+        final rect = buttonRect(tester);
+        expect(rect.top, greaterThanOrEqualTo(59));
+        expect(rect.bottom, lessThanOrEqualTo(800 - 34));
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(400));
+        // Inset by the configured offset from the padded edges.
+        if (alignment == Alignment.topRight) {
+          expect(rect.top, 59 + 64);
+          expect(rect.right, 400 - 16);
+        } else {
+          expect(rect.bottom, 800 - 34 - 64);
+          expect(rect.left, 16);
+        }
+      });
+    }
+
+    test('the stored anchor does not depend on the keyboard', () {
+      TriggerBounds bounds(double keyboard) => TriggerBounds(
+        area: const Size(400, 800),
+        button: const Size(56, 80),
+        viewPadding: const EdgeInsets.only(top: 59, bottom: 34),
+        keyboardInset: keyboard,
+        margin: 16,
+      );
+      for (final p in const [Offset(150, 300), Offset(180, 500)]) {
+        expect(bounds(300).anchorFor(p), bounds(0).anchorFor(p));
+      }
+      // Edge split at the middle of the anchored (keyboard-free) rect.
+      final b = bounds(0);
+      final mid = b.anchored.center.dx;
+      expect(b.anchorFor(Offset(mid - 1, 300)).edge, TriggerEdge.left);
+      expect(b.anchorFor(Offset(mid + 1, 300)).edge, TriggerEdge.right);
     });
 
     testWidgets('drag end snaps to the nearest horizontal edge', (

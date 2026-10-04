@@ -27,6 +27,29 @@ class _ControlledStore implements SleuthStateStore {
   }
 }
 
+/// Store whose writes complete when the test says so.
+class _SlowWriteStore implements SleuthStateStore {
+  final List<String> started = [];
+  final List<Completer<void>> pending = [];
+  int inFlight = 0;
+  int maxInFlight = 0;
+
+  @override
+  Future<String?> read() async => null;
+
+  @override
+  Future<void> write(String json) {
+    started.add(json);
+    inFlight++;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    final c = Completer<void>();
+    pending.add(c);
+    return c.future.whenComplete(() => inFlight--);
+  }
+
+  void completeNext() => pending.removeAt(0).complete();
+}
+
 class _ThrowingStore implements SleuthStateStore {
   @override
   Future<String?> read() => throw StateError('no access');
@@ -134,6 +157,64 @@ void main() {
       expect(controller.uiStateReady.value, isTrue);
     });
 
+    testWidgets('after a timed-out read the session never writes', (
+      tester,
+    ) async {
+      final store = _ControlledStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+      await tester.pump(const Duration(milliseconds: 2100));
+      expect(controller.uiStateReady.value, isTrue);
+
+      controller.overlayUiState.hide('k');
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.overlayUiState.hiddenKeys, {'k'});
+
+      // A late read changes nothing and still enables no writes.
+      store.readCompleter.complete(
+        jsonEncode({
+          'schemaVersion': 1,
+          'hiddenKeys': ['late'],
+        }),
+      );
+      await tester.pump();
+      controller.overlayUiState.hide('k2');
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.overlayUiState.hiddenKeys, {'k', 'k2'});
+      expect(store.writes, isEmpty);
+    });
+
+    testWidgets('changes made before the read completes are kept', (
+      tester,
+    ) async {
+      final store = _ControlledStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+
+      controller.overlayUiState
+        ..hide('local')
+        ..toggleSeverity(IssueSeverity.ok);
+      store.readCompleter.complete(
+        jsonEncode({
+          'schemaVersion': 1,
+          'hiddenKeys': ['loaded'],
+          'severityFilter': ['critical'],
+          'cardWidth': 420,
+        }),
+      );
+      await tester.pump();
+
+      final state = controller.overlayUiState;
+      expect(state.hiddenKeys, ['loaded', 'local']);
+      // The filter was changed locally, so the stored one is skipped.
+      expect(state.severityFilter, {
+        IssueSeverity.critical,
+        IssueSeverity.warning,
+      });
+      // Untouched fields come from the store.
+      expect(state.cardWidth, 420);
+    });
+
     testWidgets('no store: ready from construction', (tester) async {
       final controller = SleuthController();
       addTearDown(controller.dispose);
@@ -209,12 +290,81 @@ void main() {
       expect(store.writes, hasLength(1));
     });
 
-    testWidgets('dispose cancels a pending write', (tester) async {
+    testWidgets('dispose flushes a pending change with one write', (
+      tester,
+    ) async {
       final (controller, store) = await loaded(tester);
       controller.overlayUiState.hide('a');
       controller.dispose();
       await tester.pump(const Duration(seconds: 1));
-      expect(store.writes, isEmpty);
+      expect(store.writes, hasLength(1));
+      final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
+      expect(saved['hiddenKeys'], ['a']);
+    });
+
+    testWidgets('dispose with nothing pending does not write', (tester) async {
+      final (controller, store) = await loaded(tester);
+      controller.overlayUiState.hide('a');
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(store.writes, hasLength(1));
+      controller.dispose();
+      await tester.pump(const Duration(seconds: 1));
+      expect(store.writes, hasLength(1));
+    });
+
+    testWidgets('one write in flight; changes during it write once more '
+        'with the latest state', (tester) async {
+      final store = _SlowWriteStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+      await tester.pump();
+      expect(controller.uiStateReady.value, isTrue);
+
+      controller.overlayUiState.hide('a');
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(store.started, hasLength(1));
+
+      // Two changes while the first write is still running.
+      controller.overlayUiState.hide('b');
+      await tester.pump(const Duration(milliseconds: 600));
+      controller.overlayUiState.hide('c');
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(store.started, hasLength(1));
+
+      store.completeNext();
+      await tester.pump();
+      expect(store.started, hasLength(2));
+      store.completeNext();
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(store.started, hasLength(2));
+      expect(store.maxInFlight, 1);
+      List<Object?> keys(String json) =>
+          (jsonDecode(json) as Map<String, Object?>)['hiddenKeys']!
+              as List<Object?>;
+      expect(keys(store.started[0]), ['a']);
+      expect(keys(store.started[1]), ['a', 'b', 'c']);
+    });
+
+    testWidgets('dispose during an in-flight write queues the flush after '
+        'it', (tester) async {
+      final store = _SlowWriteStore();
+      final controller = _controller(store);
+      await tester.pump();
+
+      controller.overlayUiState.hide('a');
+      await tester.pump(const Duration(milliseconds: 600));
+      controller.overlayUiState.hide('b');
+      controller.dispose();
+      await tester.pump();
+      expect(store.started, hasLength(1));
+
+      store.completeNext();
+      await tester.pump();
+      expect(store.started, hasLength(2));
+      expect(store.maxInFlight, 1);
+      store.completeNext();
+      await tester.pump();
     });
   });
 

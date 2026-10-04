@@ -23,6 +23,7 @@ import 'hidden_issues_page.dart';
 import 'overlay_filters.dart';
 import 'overlay_toast.dart';
 import 'overlay_ui_state.dart';
+import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 
 export 'overlay_filters.dart'
@@ -248,7 +249,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   double _cardWidth = _defaultCardWidth;
   static const double _defaultCardWidth = 300;
   static const double _minCardWidth = 220;
-  static const double _minCardHeight = 250;
+  static const double _minCardHeight = 300;
 
   // ─── Window state (M2) ─────────────────────────────────────────────
   CardWindowState _windowState = CardWindowState.normal;
@@ -587,6 +588,22 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _expandedIndices.removeWhere((id, _) => !visibleKeys.contains(id));
     if (_expandedIndices.length != expandedBefore) changed = true;
 
+    // Drop cards that left the visible list from the order snapshot, so
+    // one that comes back (Undo, restore, a detector re-emitting) lands
+    // below the frozen zone instead of pushing the expanded card down.
+    final snapshot = _orderSnapshot;
+    if (snapshot != null && _expandedIndices.isNotEmpty) {
+      final kept = [
+        for (final i in snapshot)
+          if (visibleKeys.contains(i.stableId ?? i.title)) i,
+      ];
+      if (kept.length != snapshot.length) {
+        _repointExpansions(kept);
+        _orderSnapshot = kept;
+        changed = true;
+      }
+    }
+
     // Release the order snapshot when the freeze zone has emptied out —
     // otherwise the snapshot lingers and a subsequent render would still
     // anchor to a zero-width freeze zone (harmless but the invariant
@@ -616,6 +633,36 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
     _chatHistories.removeWhere((key, _) => !rawKeys.contains(key));
     if (changed) setState(() {});
+  }
+
+  Listenable? _hiddenSources;
+  SleuthController? _hiddenSourcesController;
+
+  /// Issues plus suppressed count of the current controller, merged once.
+  Listenable _hiddenPageSources() {
+    final c = widget.controller;
+    if (_hiddenSources == null || !identical(c, _hiddenSourcesController)) {
+      _hiddenSources = Listenable.merge([
+        c.issuesNotifier,
+        c.suppressedCountNotifier,
+      ]);
+      _hiddenSourcesController = c;
+    }
+    return _hiddenSources!;
+  }
+
+  /// Points every expansion at its card's position in [snapshot], the
+  /// list about to become [_orderSnapshot]; expansions whose card is not
+  /// in it are dropped. The caller sets [_orderSnapshot] (or clears it
+  /// when no expansion is left).
+  void _repointExpansions(List<PerformanceIssue> snapshot) {
+    final positions = <String, int>{};
+    for (var i = 0; i < snapshot.length; i++) {
+      positions.putIfAbsent(snapshot[i].stableId ?? snapshot[i].title, () => i);
+    }
+    _expandedIndices
+      ..removeWhere((key, _) => !positions.containsKey(key))
+      ..updateAll((key, _) => positions[key]!);
   }
 
   /// Stable keys from verdict.relatedIssues that match current issuesNotifier.
@@ -754,14 +801,20 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           ),
         if (_showHidden)
           Positioned.fill(
-            child: HiddenIssuesPage(
-              hiddenKeys: _ui.hiddenKeys.toList(),
-              issues: widget.controller.issuesNotifier.value,
-              configSuppressions: widget.controller.config.suppressedIssues,
-              suppressedCount: widget.controller.suppressedCountNotifier.value,
-              onRestore: _ui.unhide,
-              onRestoreAll: _ui.restoreAll,
-              onClose: () => setState(() => _showHidden = false),
+            // Issues and the suppressed count are read live; hidden keys
+            // rebuild the card through `_onUiStateChanged`.
+            child: SleuthListenableBuilder(
+              listenable: _hiddenPageSources(),
+              builder: (context) => HiddenIssuesPage(
+                hiddenKeys: _ui.hiddenKeys.toList(),
+                issues: widget.controller.issuesNotifier.value,
+                configSuppressions: widget.controller.config.suppressedIssues,
+                suppressedCount:
+                    widget.controller.suppressedCountNotifier.value,
+                onRestore: _ui.unhide,
+                onRestoreAll: _ui.restoreAll,
+                onClose: () => setState(() => _showHidden = false),
+              ),
             ),
           ),
         if (_showGuide)
@@ -1273,11 +1326,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           severities: allSeverities,
           hiddenKeys: const {},
         );
-        final isNarrowed = ui.isSeverityFiltered || ui.hiddenKeys.isNotEmpty;
-        final totalCards = <String>{
-          for (final i in unhidden) i.stableId ?? i.title,
-          for (final i in visibleIssues) i.stableId ?? i.title,
-        }.length;
+        // `unhidden` is the default-state list (every severity, nothing
+        // hidden), so its length is the card total. Stale hidden keys
+        // that match nothing leave the count unchanged and do not narrow.
+        final totalCards = unhidden.length;
+        final isNarrowed = visibleIssues.length < totalCards;
 
         final summary = _IssuesSummaryBar(
           issues: visibleIssues,
@@ -1291,22 +1344,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
         if (visibleIssues.isEmpty) {
           final allHidden = unfiltered.isEmpty;
-          return Column(
-            children: [
-              summary,
-              Expanded(
-                child: _EmptyListMessage(
-                  message: allHidden
-                      ? 'All ${unhidden.length} '
-                            '${unhidden.length == 1 ? 'issue' : 'issues'} hidden'
-                      : 'No issues match the severity filter',
-                  actionLabel: allHidden ? 'Show hidden' : 'Reset',
-                  onAction: allHidden
-                      ? () => setState(() => _showHidden = true)
-                      : ui.resetSeverityFilter,
-                ),
-              ),
-            ],
+          return _IssuesSummaryBar.above(
+            summary: summary,
+            body: _EmptyListMessage(
+              message: allHidden
+                  ? 'All ${unhidden.length} '
+                        '${unhidden.length == 1 ? 'issue' : 'issues'} hidden'
+                  : 'No issues match the severity filter',
+              actionLabel: allHidden ? 'Show hidden' : 'Reset',
+              onAction: allHidden
+                  ? () => setState(() => _showHidden = true)
+                  : ui.resetSeverityFilter,
+            ),
           );
         }
 
@@ -1342,170 +1391,180 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             (orderedIssues[i].stableId ?? orderedIssues[i].title): i,
         };
 
-        return Column(
-          children: [
-            summary,
-            Expanded(
-              child: ValueListenableBuilder<WidgetHighlight?>(
-                valueListenable: widget.controller.selectedHighlightNotifier,
-                builder: (_, selectedHighlight, _) => ListView.builder(
-                  padding: EdgeInsets.all(theme.spacingSm),
-                  itemCount: orderedIssues.length,
-                  // Keyed-reorder remount fix: without a
-                  // `findChildIndexCallback`, `SliverChildBuilderDelegate`
-                  // cannot locate a keyed child whose index has shifted
-                  // between builds, so Flutter destroys the Element and
-                  // builds a fresh one — which resets `_IssueCardState`
-                  // (loses expansion, scroll, and all local UI state).
-                  // This hits any issue whose rank position moves when
-                  // the ranker reorders the list. Cards are already
-                  // `ValueKey`-stamped with `stableId`; this callback
-                  // just tells the sliver where each key landed.
-                  //
-                  // Looks up `orderedIndexByKey` (the POST-pin map) so
-                  // the sliver locates keyed children at their rendered
-                  // positions. Using the pre-pin list here would remount
-                  // every pinned card on the first render after pin
-                  // application, which resets `_IssueCardState` — the
-                  // very bug the `ValueKey` + findChildIndexCallback
-                  // pair exists to prevent.
-                  findChildIndexCallback: (Key key) {
-                    if (key is! ValueKey<String>) return null;
-                    return orderedIndexByKey[key.value];
-                  },
-                  itemBuilder: (_, index) {
-                    final issue = orderedIssues[index];
-                    final locatable = _isLocatableIssue(issue);
-                    final issueKey = issue.stableId ?? issue.title;
-                    final isHighlighted =
-                        selectedHighlight != null &&
-                        locatable &&
-                        _selectedIssueId == issueKey;
+        return _IssuesSummaryBar.above(
+          summary: summary,
+          body: ValueListenableBuilder<WidgetHighlight?>(
+            valueListenable: widget.controller.selectedHighlightNotifier,
+            builder: (_, selectedHighlight, _) => ListView.builder(
+              padding: EdgeInsets.all(theme.spacingSm),
+              itemCount: orderedIssues.length,
+              // Keyed-reorder remount fix: without a
+              // `findChildIndexCallback`, `SliverChildBuilderDelegate`
+              // cannot locate a keyed child whose index has shifted
+              // between builds, so Flutter destroys the Element and
+              // builds a fresh one — which resets `_IssueCardState`
+              // (loses expansion, scroll, and all local UI state).
+              // This hits any issue whose rank position moves when
+              // the ranker reorders the list. Cards are already
+              // `ValueKey`-stamped with `stableId`; this callback
+              // just tells the sliver where each key landed.
+              //
+              // Looks up `orderedIndexByKey` (the POST-pin map) so
+              // the sliver locates keyed children at their rendered
+              // positions. Using the pre-pin list here would remount
+              // every pinned card on the first render after pin
+              // application, which resets `_IssueCardState` — the
+              // very bug the `ValueKey` + findChildIndexCallback
+              // pair exists to prevent.
+              findChildIndexCallback: (Key key) {
+                if (key is! ValueKey<String>) return null;
+                return orderedIndexByKey[key.value];
+              },
+              itemBuilder: (_, index) {
+                final issue = orderedIssues[index];
+                final locatable = _isLocatableIssue(issue);
+                final issueKey = issue.stableId ?? issue.title;
+                final isHighlighted =
+                    selectedHighlight != null &&
+                    locatable &&
+                    _selectedIssueId == issueKey;
 
-                    // Look up downstream issue objects for root issues.
-                    // Uses the precomputed stableId→issue map (O(1) per
-                    // lookup) so this resolution does not blow up to
-                    // O(n²) on tall overlays.
-                    List<PerformanceIssue>? downstream;
-                    if (issue.downstreamIds != null &&
-                        issue.downstreamIds!.isNotEmpty) {
-                      downstream = <PerformanceIssue>[];
-                      for (final downId in issue.downstreamIds!) {
-                        final found = stableIdToIssue[downId];
-                        if (found != null) downstream.add(found);
-                      }
+                // Look up downstream issue objects for root issues.
+                // Uses the precomputed stableId→issue map (O(1) per
+                // lookup) so this resolution does not blow up to
+                // O(n²) on tall overlays.
+                List<PerformanceIssue>? downstream;
+                if (issue.downstreamIds != null &&
+                    issue.downstreamIds!.isNotEmpty) {
+                  downstream = <PerformanceIssue>[];
+                  for (final downId in issue.downstreamIds!) {
+                    final found = stableIdToIssue[downId];
+                    if (found != null) downstream.add(found);
+                  }
+                }
+
+                // Resolve parent issues for the multi-parent "Caused
+                // by" badge. parentIssues is null when no annotation
+                // exists or when every parent is suppressed by the
+                // ranker. Suppressed-but-annotated parents surface
+                // as a count for the IssueCard's "(+N not shown)"
+                // annotation so a partial parent list does not look
+                // complete.
+                List<PerformanceIssue>? parents;
+                var suppressedParentCount = 0;
+                final parentIds = issue.rootCauseIds;
+                if (parentIds != null && parentIds.isNotEmpty) {
+                  parents = <PerformanceIssue>[];
+                  for (final parentId in parentIds) {
+                    final found = stableIdToIssue[parentId];
+                    if (found != null) {
+                      parents.add(found);
+                    } else {
+                      suppressedParentCount++;
                     }
+                  }
+                  if (parents.isEmpty) parents = null;
+                }
 
-                    // Resolve parent issues for the multi-parent "Caused
-                    // by" badge. parentIssues is null when no annotation
-                    // exists or when every parent is suppressed by the
-                    // ranker. Suppressed-but-annotated parents surface
-                    // as a count for the IssueCard's "(+N suppressed)"
-                    // annotation so a partial parent list does not look
-                    // complete.
-                    List<PerformanceIssue>? parents;
-                    var suppressedParentCount = 0;
-                    final parentIds = issue.rootCauseIds;
-                    if (parentIds != null && parentIds.isNotEmpty) {
-                      parents = <PerformanceIssue>[];
-                      for (final parentId in parentIds) {
-                        final found = stableIdToIssue[parentId];
-                        if (found != null) {
-                          parents.add(found);
-                        } else {
-                          suppressedParentCount++;
+                // Capture the build-time `index` into a local so the
+                // `onExpandedChanged` closure closes over a
+                // deterministic value instead of whatever `index`
+                // would be at callback-time (which could be stale
+                // if a scan tick fired between build and tap).
+                final capturedIndex = index;
+
+                // Capture the build-time visibleIssues reference so
+                // the snapshot taken on 0→1 expand reflects what the
+                // user actually saw, NOT a newer value that may have
+                // been published to `issuesNotifier` between the
+                // frame commit and the tap arriving. Defensive copy
+                // is made inside the callback so the snapshot
+                // outlives this build closure without being aliased
+                // to the live list.
+                final capturedVisibleIssues = visibleIssues;
+
+                // The list `capturedIndex` indexes. An expansion below the
+                // frozen zone re-captures the snapshot from it.
+                final capturedOrdered = orderedIssues;
+
+                return IssueCard(
+                  key: ValueKey(issueKey),
+                  issue: issue,
+                  recurrenceTrendOf: () =>
+                      widget.controller.recurrenceTrends[issue.stableId ??
+                          issue.title],
+                  scanTick: widget.controller.scanTickNotifier,
+                  deepInstrumentationActive:
+                      widget.controller.isDeepInstrumentationActive,
+                  initiallyExpanded: _expandedIndices.containsKey(issueKey),
+                  collapseEpoch: _collapseEpoch,
+                  onExpandedChanged: (expanded) {
+                    setState(() {
+                      if (expanded) {
+                        // 0→1 transition: capture snapshot before
+                        // recording the expand entry so the class
+                        // invariant (snapshot != null ↔ map not
+                        // empty) holds at every observable state.
+                        if (_expandedIndices.isEmpty) {
+                          _orderSnapshot = List<PerformanceIssue>.of(
+                            capturedVisibleIssues,
+                          );
+                        } else if (capturedIndex >
+                            _expandedIndices.values.reduce(math.max)) {
+                          // The zone grows past the snapshot's frozen
+                          // slice, whose tail may no longer match the rows
+                          // on screen. Re-capture what the user sees so
+                          // the new index points into the list it came
+                          // from.
+                          final snapshot = List<PerformanceIssue>.of(
+                            capturedOrdered,
+                          );
+                          _repointExpansions(snapshot);
+                          _orderSnapshot = snapshot;
+                        }
+                        _expandedIndices[issueKey] = capturedIndex;
+                      } else {
+                        _expandedIndices.remove(issueKey);
+                        // 1→0 transition: release the snapshot so
+                        // the next expand captures a fresh one from
+                        // whatever the ranker currently shows.
+                        if (_expandedIndices.isEmpty) {
+                          _orderSnapshot = null;
                         }
                       }
-                      if (parents.isEmpty) parents = null;
-                    }
-
-                    // Capture the build-time `index` into a local so the
-                    // `onExpandedChanged` closure closes over a
-                    // deterministic value instead of whatever `index`
-                    // would be at callback-time (which could be stale
-                    // if a scan tick fired between build and tap).
-                    final capturedIndex = index;
-
-                    // Capture the build-time visibleIssues reference so
-                    // the snapshot taken on 0→1 expand reflects what the
-                    // user actually saw, NOT a newer value that may have
-                    // been published to `issuesNotifier` between the
-                    // frame commit and the tap arriving. Defensive copy
-                    // is made inside the callback so the snapshot
-                    // outlives this build closure without being aliased
-                    // to the live list.
-                    final capturedVisibleIssues = visibleIssues;
-
-                    return IssueCard(
-                      key: ValueKey(issueKey),
-                      issue: issue,
-                      recurrenceTrendOf: () =>
-                          widget.controller.recurrenceTrends[issue.stableId ??
-                              issue.title],
-                      scanTick: widget.controller.scanTickNotifier,
-                      deepInstrumentationActive:
-                          widget.controller.isDeepInstrumentationActive,
-                      initiallyExpanded: _expandedIndices.containsKey(issueKey),
-                      collapseEpoch: _collapseEpoch,
-                      onExpandedChanged: (expanded) {
-                        setState(() {
-                          if (expanded) {
-                            // 0→1 transition: capture snapshot before
-                            // recording the expand entry so the class
-                            // invariant (snapshot != null ↔ map not
-                            // empty) holds at every observable state.
-                            if (_expandedIndices.isEmpty) {
-                              _orderSnapshot = List<PerformanceIssue>.of(
-                                capturedVisibleIssues,
-                              );
-                            }
-                            _expandedIndices[issueKey] = capturedIndex;
-                          } else {
-                            _expandedIndices.remove(issueKey);
-                            // 1→0 transition: release the snapshot so
-                            // the next expand captures a fresh one from
-                            // whatever the ranker currently shows.
-                            if (_expandedIndices.isEmpty) {
-                              _orderSnapshot = null;
-                            }
-                          }
-                        });
-                      },
-                      locatable: locatable,
-                      highlighted: isHighlighted,
-                      onHighlightChanged: locatable
-                          ? (checked) =>
-                                _onHighlightChanged(checked, issueKey, issue)
-                          : null,
-                      jankCorrelated: _cachedJankKeys.contains(issueKey),
-                      jankFlash: false,
-                      downstreamIssues: downstream,
-                      parentIssues: parents,
-                      suppressedParentCount: suppressedParentCount,
-                      onLearnMore:
-                          IssueExplanationBuilder.explain(issue.stableId) !=
-                              null
-                          ? () => setState(() {
-                              _detailStableId = issue.stableId;
-                              _detailContextIssue = issue;
-                              _showDetail = true;
-                            })
-                          : null,
-                      onAskAi: widget.controller.config.aiChat != null
-                          ? () => setState(() {
-                              _chatIssueStableId =
-                                  issue.stableId ?? issue.title;
-                              _showAiChat = true;
-                            })
-                          : null,
-                      onCopy: () => _copyIssue(issue),
-                      onHide: () => _hideIssue(issue),
-                    );
+                    });
                   },
-                ),
-              ),
+                  locatable: locatable,
+                  highlighted: isHighlighted,
+                  onHighlightChanged: locatable
+                      ? (checked) =>
+                            _onHighlightChanged(checked, issueKey, issue)
+                      : null,
+                  jankCorrelated: _cachedJankKeys.contains(issueKey),
+                  jankFlash: false,
+                  downstreamIssues: downstream,
+                  parentIssues: parents,
+                  suppressedParentCount: suppressedParentCount,
+                  onLearnMore:
+                      IssueExplanationBuilder.explain(issue.stableId) != null
+                      ? () => setState(() {
+                          _detailStableId = issue.stableId;
+                          _detailContextIssue = issue;
+                          _showDetail = true;
+                        })
+                      : null,
+                  onAskAi: widget.controller.config.aiChat != null
+                      ? () => setState(() {
+                          _chatIssueStableId = issue.stableId ?? issue.title;
+                          _showAiChat = true;
+                        })
+                      : null,
+                  onCopy: () => _copyIssue(issue),
+                  onHide: () => _hideIssue(issue),
+                );
+              },
             ),
-          ],
+          ),
         );
       },
     );
@@ -2097,6 +2156,23 @@ class _IssuesSummaryBar extends StatelessWidget {
     IssueSeverity.ok,
   ];
 
+  /// Height the bar takes from the list.
+  static const double barHeight = 36;
+
+  /// Height of the chips' hit boxes. The part below [barHeight] overlaps
+  /// the top of the list and takes taps only where a chip is.
+  static const double hitHeight = 48;
+
+  /// [summary] over [body]: [body] starts [barHeight] below the top, and
+  /// [summary] is laid over it so the chips keep [hitHeight] hit boxes
+  /// without taking more height from the list.
+  static Widget above({required Widget summary, required Widget body}) => Stack(
+    children: [
+      Positioned.fill(top: barHeight, child: body),
+      Positioned(top: 0, left: 0, right: 0, height: hitHeight, child: summary),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
@@ -2121,46 +2197,74 @@ class _IssuesSummaryBar extends StatelessWidget {
             if (heuristic > 0) '$heuristic heuristic',
           ].join(' · ');
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: theme.border, width: 1)),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
-        child: Row(
-          children: [
-            for (final severity in _order)
-              // A disabled severity keeps its chip so it can be turned
-              // back on, even when it has no cards right now.
-              if ((counts[severity] ?? 0) > 0 ||
-                  !enabledSeverities.contains(severity))
-                _SeverityChip(
-                  severity: severity,
-                  count: counts[severity] ?? 0,
-                  selected: enabledSeverities.contains(severity),
-                  onTap: () => onToggleSeverity(severity),
+    // Only the chips take taps; the rest of the 48 px box lets them
+    // through to the list below.
+    return Stack(
+      children: [
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: barHeight,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: theme.border, width: 1),
                 ),
-            SizedBox(width: theme.spacingXs),
-            Expanded(
-              child: Text(
-                caption,
-                style: TextStyle(
-                  color: theme.textTertiary,
-                  fontSize: theme.fontSm,
-                ),
-                textAlign: TextAlign.right,
-                overflow: TextOverflow.ellipsis,
               ),
             ),
-          ],
+          ),
         ),
-      ),
+        Positioned.fill(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final severity in _order)
+                  // A disabled severity keeps its chip so it can be
+                  // turned back on, even when it has no cards right now.
+                  if ((counts[severity] ?? 0) > 0 ||
+                      !enabledSeverities.contains(severity))
+                    _SeverityChip(
+                      severity: severity,
+                      count: counts[severity] ?? 0,
+                      selected: enabledSeverities.contains(severity),
+                      onTap: () => onToggleSeverity(severity),
+                    ),
+                SizedBox(width: theme.spacingXs),
+                Expanded(
+                  child: IgnorePointer(
+                    child: SizedBox(
+                      height: barHeight,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          caption,
+                          style: TextStyle(
+                            color: theme.textTertiary,
+                            fontSize: theme.fontSm,
+                          ),
+                          textAlign: TextAlign.right,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
 /// Severity count in the summary bar that toggles the overlay's severity
-/// filter. 48 dp tall hit area; the visible pill is smaller.
+/// filter. The hit box is 48 x 48 at least; the pill sits centred in the
+/// bar's visible height.
 class _SeverityChip extends StatelessWidget {
   const _SeverityChip({
     required this.severity,
@@ -2190,58 +2294,133 @@ class _SeverityChip extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: '$count $name. ${selected ? 'Shown' : 'Hidden'}. Tap to toggle',
+      label: selected ? '$count $name, on' : '$count $name, off, tap to show',
       onTap: onTap,
       container: true,
       excludeSemantics: true,
       child: GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          height: 48,
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: theme.spacingXxs),
-            child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minWidth: _IssuesSummaryBar.hitHeight,
+          ),
+          child: SizedBox(
+            height: _IssuesSummaryBar.hitHeight,
+            child: Align(
+              alignment: Alignment.topCenter,
               widthFactor: 1,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: EdgeInsets.symmetric(
-                  horizontal: theme.spacingSm,
-                  vertical: theme.spacingXxs,
-                ),
-                decoration: BoxDecoration(
-                  color: selected ? color.withValues(alpha: 0.15) : null,
-                  borderRadius: BorderRadius.circular(theme.radiusMd),
-                  border: Border.all(
-                    color: selected
-                        ? color.withValues(alpha: 0.15)
-                        : theme.border.withValues(alpha: 0.5),
+              child: SizedBox(
+                height: _IssuesSummaryBar.barHeight,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: theme.spacingXxs),
+                  child: Center(
+                    widthFactor: 1,
+                    child: _SeverityChipPill(
+                      color: color,
+                      count: count,
+                      selected: selected,
+                    ),
                   ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: selected ? color : theme.textQuaternary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const SizedBox(width: 6, height: 6),
-                    ),
-                    const SizedBox(width: 3),
-                    Text(
-                      '$count',
-                      style: TextStyle(
-                        color: selected ? color : theme.textQuaternary,
-                        fontSize: theme.fontSm,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The visible pill of a [_SeverityChip]; animates between selected
+/// (severity fill at 0.15, border at 0.6) and unselected (border token at
+/// 0.5, muted text) over 200 ms.
+class _SeverityChipPill extends StatefulWidget {
+  const _SeverityChipPill({
+    required this.color,
+    required this.count,
+    required this.selected,
+  });
+
+  final Color color;
+  final int count;
+  final bool selected;
+
+  @override
+  State<_SeverityChipPill> createState() => _SeverityChipPillState();
+}
+
+class _SeverityChipPillState extends State<_SeverityChipPill>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _selection = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+    value: widget.selected ? 1 : 0,
+  )..addListener(_tick);
+
+  void _tick() => setState(() {});
+
+  @override
+  void didUpdateWidget(_SeverityChipPill oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected != oldWidget.selected) {
+      if (widget.selected) {
+        _selection.forward();
+      } else {
+        _selection.reverse();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _selection.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    final t = _selection.value;
+    final color = widget.color;
+    final foreground = Color.lerp(theme.textQuaternary, color, t)!;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15 * t),
+        borderRadius: BorderRadius.circular(theme.radiusMd),
+        border: Border.all(
+          color: Color.lerp(
+            theme.border.withValues(alpha: 0.5),
+            color.withValues(alpha: 0.6),
+            t,
+          )!,
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: theme.spacingSm,
+          vertical: theme.spacingXxs,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: foreground,
+                shape: BoxShape.circle,
+              ),
+              child: const SizedBox(width: 6, height: 6),
+            ),
+            const SizedBox(width: 3),
+            Text(
+              '${widget.count}',
+              style: TextStyle(
+                color: foreground,
+                fontSize: theme.fontSm,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2558,12 +2737,12 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
+    return SleuthListenableBuilder(
       // F3/P3: hoisted merge — see field declaration. Allocating
       // `Listenable.merge(...)` inline here would re-create the wrapper
       // on every build and detach/re-attach both source listeners.
       listenable: _mergedListenable,
-      builder: (context, _) {
+      builder: (context) {
         final session = widget.controller.activeRouteSession;
         // H4: distinguish "no session" from "session exists but no
         // counts" — the latter is debug-info-worthy when the user is

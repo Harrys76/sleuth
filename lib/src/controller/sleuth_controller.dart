@@ -501,6 +501,9 @@ class SleuthController {
   /// True once [overlayUiState] holds its startup value: immediately when
   /// no store is configured, otherwise after the store's read completes,
   /// fails, or times out (2 s). The trigger button paints only when true.
+  ///
+  /// After a timed-out read the session never writes to the store; the
+  /// overlay keeps its state in memory.
   final ValueNotifier<bool> uiStateReady;
 
   static const Duration _stateStoreReadTimeout = Duration(seconds: 2);
@@ -512,6 +515,14 @@ class SleuthController {
   String? _lastPersistedUiState;
   bool _stateStoreReadErrorLogged = false;
   bool _stateStoreWriteErrorLogged = false;
+
+  /// Set when the store's read timed out: this session does not write.
+  bool _stateStoreWritesDisabled = false;
+  bool _uiStateWriteInFlight = false;
+
+  /// A write was due while another was in flight; one more runs, with the
+  /// latest state, when it completes.
+  bool _uiStateWritePending = false;
 
   /// Reads the configured store once and applies it to [overlayUiState],
   /// then starts saving changes. Idempotent; never throws.
@@ -526,6 +537,9 @@ class SleuthController {
     final completer = Completer<String?>();
     _uiStateLoadTimer = Timer(_stateStoreReadTimeout, () {
       if (!completer.isCompleted) {
+        // A store this slow may still finish a stale read later; writing
+        // to it could race that read on the next launch.
+        _stateStoreWritesDisabled = true;
         completer.completeError(
           TimeoutException('state store read', _stateStoreReadTimeout),
         );
@@ -551,14 +565,21 @@ class SleuthController {
         .catchError((Object e) {
           if (_stateStoreReadErrorLogged) return;
           _stateStoreReadErrorLogged = true;
-          debugPrint('Sleuth: overlay state not restored: $e');
+          debugPrint(
+            _stateStoreWritesDisabled
+                ? 'Sleuth: overlay state store read timed out; changes '
+                      'this session are not saved'
+                : 'Sleuth: overlay state not restored: $e',
+          );
         })
         .whenComplete(() {
           _uiStateLoadTimer?.cancel();
           _uiStateLoadTimer = null;
           if (_disposed) return;
-          _lastPersistedUiState = jsonEncode(overlayUiState.toJson());
-          overlayUiState.addListener(_scheduleOverlayUiStateWrite);
+          if (!_stateStoreWritesDisabled) {
+            _lastPersistedUiState = jsonEncode(overlayUiState.toJson());
+            overlayUiState.addListener(_scheduleOverlayUiStateWrite);
+          }
           uiStateReady.value = true;
         });
   }
@@ -569,21 +590,57 @@ class SleuthController {
     _uiStateWriteTimer = Timer(_stateStoreWriteDebounce, _writeOverlayUiState);
   }
 
-  void _writeOverlayUiState() {
+  /// Writes the current state unless it equals the last write. At most
+  /// one write is in flight; a write due meanwhile runs after it, with the
+  /// state current at that point. [flushing] allows the one write
+  /// [dispose] starts.
+  void _writeOverlayUiState({bool flushing = false}) {
     _uiStateWriteTimer = null;
     final store = config.stateStore;
-    if (_disposed || store == null) return;
+    if ((_disposed && !flushing) ||
+        store == null ||
+        _stateStoreWritesDisabled) {
+      return;
+    }
+    if (_uiStateWriteInFlight) {
+      _uiStateWritePending = true;
+      return;
+    }
     final json = jsonEncode(overlayUiState.toJson());
     // Session-only changes (dashboard open/close) leave the JSON as is.
     if (json == _lastPersistedUiState) return;
     _lastPersistedUiState = json;
-    Future<void>.sync(() => store.write(json)).catchError((Object e) {
-      // Retry with the next change.
-      if (_lastPersistedUiState == json) _lastPersistedUiState = null;
-      if (_stateStoreWriteErrorLogged) return;
-      _stateStoreWriteErrorLogged = true;
-      debugPrint('Sleuth: overlay state not saved: $e');
-    });
+    _uiStateWriteInFlight = true;
+    Future<void>.sync(() => store.write(json))
+        .catchError((Object e) {
+          // Retry with the next change.
+          if (_lastPersistedUiState == json) _lastPersistedUiState = null;
+          if (_stateStoreWriteErrorLogged) return;
+          _stateStoreWriteErrorLogged = true;
+          debugPrint('Sleuth: overlay state not saved: $e');
+        })
+        .whenComplete(() {
+          _uiStateWriteInFlight = false;
+          if (!_uiStateWritePending) return;
+          _uiStateWritePending = false;
+          _writeOverlayUiState(flushing: _disposed);
+        });
+  }
+
+  /// On dispose: a change still waiting for its debounce gets one last
+  /// write, started now or, when a write is in flight, after it. Not
+  /// awaited; a failure is only logged.
+  void _flushOverlayUiStateOnDispose() {
+    final due = _uiStateWriteTimer != null || _uiStateWritePending;
+    _uiStateWriteTimer?.cancel();
+    _uiStateWriteTimer = null;
+    if (!due) return;
+    if (_uiStateWriteInFlight) {
+      _uiStateWritePending = true;
+      return;
+    }
+    _uiStateWritePending = false;
+    _writeOverlayUiState(flushing: true);
   }
 
   /// Clear the selected highlight.
@@ -4865,8 +4922,7 @@ class SleuthController {
     _themeOverride.dispose();
     _uiStateLoadTimer?.cancel();
     _uiStateLoadTimer = null;
-    _uiStateWriteTimer?.cancel();
-    _uiStateWriteTimer = null;
+    _flushOverlayUiStateOnDispose();
     overlayUiState.removeListener(_scheduleOverlayUiStateWrite);
 
     // Restore HttpOverrides before disposing detector
@@ -5526,12 +5582,14 @@ class SleuthConfig {
   /// Lowering it (false): suppresses the banner entirely.
   final bool showDebugModeBanner;
 
-  /// Initial screen corner for the trigger button. Default [Alignment.topRight]
-  /// matches the pre-Part-2 behaviour. Any standard alignment is accepted;
-  /// non-corner alignments snap to the nearest edge.
+  /// Where the trigger button first appears, inside the view padding.
+  /// Any standard alignment is accepted: a corner places the button in
+  /// that corner, and a non-corner alignment centres it on that edge
+  /// ([Alignment.centerRight] sits midway down the right edge).
   ///
-  /// Users can still drag the button anywhere — this controls only where it
-  /// first appears before the user has dragged it.
+  /// Only the placement before the first drag. A drag snaps the button to
+  /// the nearest side (left or right) and that position is kept from then
+  /// on.
   ///
   /// Default: `Alignment.topRight`.
   final Alignment triggerButtonAlignment;

@@ -78,7 +78,7 @@ void main() {
     });
 
     testWidgets(
-      '"(+N suppressed)" annotation renders when suppressedParentCount > 0',
+      '"(+N not shown)" annotation renders when suppressedParentCount > 0',
       (tester) async {
         final a = parent('uncached_images');
         await tester.pumpWidget(
@@ -96,7 +96,7 @@ void main() {
         // Header counts ALL parents (resolved + suppressed).
         expect(find.text('Caused by (3):'), findsOneWidget);
         expect(find.text('uncached_images'), findsOneWidget);
-        expect(find.text('(+2 suppressed)'), findsOneWidget);
+        expect(find.text('(+2 not shown)'), findsOneWidget);
       },
     );
 
@@ -114,7 +114,7 @@ void main() {
     });
 
     testWidgets('all-suppressed orphan: section still renders with only the '
-        '"(+N suppressed)" annotation (no parent rows)', (tester) async {
+        '"(+N not shown)" annotation (no parent rows)', (tester) async {
       await tester.pumpWidget(
         wrap(
           IssueCard(
@@ -126,7 +126,7 @@ void main() {
         ),
       );
       expect(find.text('Caused by (2):'), findsOneWidget);
-      expect(find.text('(+2 suppressed)'), findsOneWidget);
+      expect(find.text('(+2 not shown)'), findsOneWidget);
     });
   });
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/frame_stats.dart';
 import '../models/performance_issue.dart';
 import 'overlay_ui_state.dart';
+import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 
 /// Draggable trigger button with bloodhound logo, issue count badge, and live
@@ -112,10 +113,11 @@ class TriggerBounds {
     return clampLoose(Offset(x, y));
   }
 
-  /// Anchor for a drop at [p]: nearest horizontal edge, vertical fraction
-  /// of the anchored range.
+  /// Anchor for a drop at [p]: the nearer horizontal edge and the
+  /// vertical fraction, both measured in [anchored] (the keyboard-free
+  /// safe area) so the stored anchor does not depend on the keyboard.
   ({TriggerEdge edge, double fraction}) anchorFor(Offset p) {
-    final edge = p.dx < (loose.left + loose.right) / 2
+    final edge = p.dx < anchored.center.dx
         ? TriggerEdge.left
         : TriggerEdge.right;
     final range = anchored.height;
@@ -150,6 +152,25 @@ class _TriggerButtonState extends State<TriggerButton> {
 
   OverlayUiState get _state =>
       widget.uiState ?? (_ownState ??= OverlayUiState());
+
+  /// Issues plus overlay state, merged once per source pair so a rebuild
+  /// does not move the subscription.
+  Listenable? _merged;
+  Object? _mergedIssues;
+  Object? _mergedState;
+
+  Listenable _listenable() {
+    final issues = widget.issuesNotifier;
+    final state = _state;
+    if (_merged == null ||
+        !identical(issues, _mergedIssues) ||
+        !identical(state, _mergedState)) {
+      _merged = Listenable.merge([issues, state]);
+      _mergedIssues = issues;
+      _mergedState = state;
+    }
+    return _merged!;
+  }
 
   @override
   void dispose() {
@@ -204,11 +225,11 @@ class _TriggerButtonState extends State<TriggerButton> {
     final viewPadding =
         MediaQuery.maybeViewPaddingOf(context) ?? EdgeInsets.zero;
     final keyboardInset = MediaQuery.maybeViewInsetsOf(context)?.bottom ?? 0;
-    return ListenableBuilder(
-      listenable: Listenable.merge([widget.issuesNotifier, _state]),
-      builder: (context, _) {
+    return SleuthListenableBuilder(
+      listenable: _listenable(),
+      builder: (context) {
         final visible = _state.visibleIssues(widget.issuesNotifier.value);
-        return CustomSingleChildLayout(
+        return _TriggerLayout(
           delegate: _TriggerLayoutDelegate(
             viewPadding: viewPadding,
             keyboardInset: keyboardInset,
@@ -341,6 +362,13 @@ class _TriggerButtonState extends State<TriggerButton> {
       ],
     );
   }
+}
+
+/// The trigger's positioning box. A named subclass so the profile-mode
+/// rebuild filter can drop it without dropping app-owned
+/// `CustomSingleChildLayout` widgets.
+class _TriggerLayout extends CustomSingleChildLayout {
+  const _TriggerLayout({required super.delegate, super.child});
 }
 
 /// Places the button from its measured size: drag position, else stored

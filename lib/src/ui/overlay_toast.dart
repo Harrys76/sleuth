@@ -126,15 +126,81 @@ class OverlayToast extends StatelessWidget {
       bottom: theme.spacingXl + bottomInset,
       child: ValueListenableBuilder<OverlayToastModel?>(
         valueListenable: controller,
-        builder: (context, model, _) => AnimatedSwitcher(
-          duration: _fade,
-          child: model == null
-              ? const SizedBox.shrink()
-              : _ToastBody(
-                  key: ObjectKey(model),
-                  model: model,
-                  onAction: () => controller.runAction(model),
-                ),
+        builder: (context, model, _) =>
+            _ToastFade(model: model, onAction: controller.runAction),
+      ),
+    );
+  }
+}
+
+/// Fades a toast in when it appears and out when it is dismissed; a
+/// replacement fades in from transparent. A fading-out toast ignores taps.
+class _ToastFade extends StatefulWidget {
+  const _ToastFade({required this.model, required this.onAction});
+
+  final OverlayToastModel? model;
+  final ValueChanged<OverlayToastModel> onAction;
+
+  @override
+  State<_ToastFade> createState() => _ToastFadeState();
+}
+
+class _ToastFadeState extends State<_ToastFade>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _opacity = AnimationController(
+    vsync: this,
+    duration: OverlayToast._fade,
+  )..addStatusListener(_onStatus);
+
+  /// The toast on screen; outlives [_ToastFade.model] while fading out.
+  OverlayToastModel? _shown;
+
+  @override
+  void initState() {
+    super.initState();
+    _shown = widget.model;
+    if (_shown != null) _opacity.forward();
+  }
+
+  @override
+  void didUpdateWidget(_ToastFade oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = widget.model;
+    if (identical(next, oldWidget.model)) return;
+    if (next != null) {
+      _shown = next;
+      _opacity.forward(from: 0);
+    } else {
+      _opacity.reverse();
+    }
+  }
+
+  void _onStatus(AnimationStatus status) {
+    if (status == AnimationStatus.dismissed &&
+        widget.model == null &&
+        _shown != null) {
+      setState(() => _shown = null);
+    }
+  }
+
+  @override
+  void dispose() {
+    _opacity.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = _shown;
+    if (shown == null) return const SizedBox.shrink();
+    return IgnorePointer(
+      ignoring: widget.model == null,
+      child: FadeTransition(
+        opacity: _opacity,
+        child: _ToastBody(
+          key: ObjectKey(shown),
+          model: shown,
+          onAction: () => widget.onAction(shown),
         ),
       ),
     );
