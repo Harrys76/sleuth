@@ -865,6 +865,7 @@ void _registerDemoExtensions() {
             _textScaleAt('FloatingIssuesCard') ?? _textScaleAt('TriggerButton'),
         'highContrast': features.highContrast,
         'disableAnimations': features.disableAnimations,
+        'reduceMotion': features.reduceMotion,
         'boldText': features.boldText,
         'accessibleNavigation': features.accessibleNavigation,
         'overflowErrors': _overflowErrors,

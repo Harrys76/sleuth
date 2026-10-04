@@ -483,6 +483,37 @@ void main() {
       expect(tester.binding.hasScheduledFrame, isFalse);
       expect(find.text('Ask AI about this issue'), findsOneWidget);
     });
+
+    testWidgets('rests under iOS Reduce Motion', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(reduceMotion: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await tester.pumpWidget(card());
+      await tester.pumpAndSettle();
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    });
+
+    testWidgets('stops and restarts when Reduce Motion flips', (tester) async {
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await tester.pumpWidget(card());
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.binding.hasScheduledFrame, isTrue);
+
+      // MediaQueryData does not change; the observer picks it up.
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(reduceMotion: true);
+      await tester.pumpAndSettle();
+      expect(tester.binding.hasScheduledFrame, isFalse);
+
+      tester.platformDispatcher.clearAccessibilityFeaturesTestValue();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.binding.hasScheduledFrame, isTrue);
+    });
   });
 
   group('Inline category and confidence badges', () {

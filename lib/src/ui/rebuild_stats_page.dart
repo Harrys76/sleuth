@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
 import 'sleuth_theme.dart';
 
 /// Full-screen drilldown page showing every widget type rebuilt during the
@@ -61,7 +62,13 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 450),
       vsync: this,
-    )..forward();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
   }
 
   @override

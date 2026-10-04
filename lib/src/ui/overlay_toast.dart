@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
 import 'sleuth_theme.dart';
 
 /// Visual tone of an [OverlayToastModel].
@@ -113,7 +114,7 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
 /// Bottom-anchored toast for the overlay, rendered inside the card's
 /// [Stack] (the overlay has no [ScaffoldMessenger] above it). Sits above
 /// the keyboard and the bottom safe-area inset, fades in and out over
-/// 200 ms, and announces itself to screen readers as a live region.
+/// 200 ms (at once under reduced motion), and announces itself to screen readers as a live region.
 class OverlayToast extends StatelessWidget {
   const OverlayToast({super.key, required this.controller});
 
@@ -169,7 +170,17 @@ class _ToastFadeState extends State<_ToastFade>
     _opacity = AnimationController(vsync: this, duration: OverlayToast._fade)
       ..addStatusListener(_onStatus);
     _shown = widget.model;
-    if (_shown != null) _opacity.forward();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // First call only: a toast present at insertion fades in.
+    if (_shown != null && _opacity.status == AnimationStatus.dismissed) {
+      _opacity
+        ..duration = motionDuration(context, OverlayToast._fade)
+        ..forward();
+    }
   }
 
   @override
@@ -177,6 +188,7 @@ class _ToastFadeState extends State<_ToastFade>
     super.didUpdateWidget(oldWidget);
     final next = widget.model;
     if (identical(next, oldWidget.model)) return;
+    _opacity.duration = motionDuration(context, OverlayToast._fade);
     if (next != null) {
       _shown = next;
       _opacity.forward(from: 0);

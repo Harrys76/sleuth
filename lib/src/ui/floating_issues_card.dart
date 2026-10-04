@@ -21,6 +21,7 @@ import 'startup_metrics_page.dart';
 import '../models/ai_chat_adapter.dart';
 import '../utils/issue_explanation_builder.dart';
 import 'hidden_issues_page.dart';
+import 'motion.dart';
 import 'overlay_filters.dart';
 import 'overlay_toast.dart';
 import 'overlay_ui_state.dart';
@@ -2740,7 +2741,7 @@ class _SeverityChip extends StatelessWidget {
 
 /// The visible pill of a [_SeverityChip]; animates between selected
 /// (severity fill at 0.15, border at 0.6) and unselected (border token at
-/// 0.5, muted text) over 200 ms.
+/// 0.5, muted text) over 200 ms, or at once under reduced motion.
 class _SeverityChipPill extends StatefulWidget {
   const _SeverityChipPill({
     required this.color,
@@ -2762,9 +2763,11 @@ class _SeverityChipPill extends StatefulWidget {
 
 class _SeverityChipPillState extends State<_SeverityChipPill>
     with SingleTickerProviderStateMixin {
+  static const Duration _lerp = Duration(milliseconds: 200);
+
   late final AnimationController _selection = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 200),
+    duration: _lerp,
     value: widget.selected ? 1 : 0,
   )..addListener(_tick);
 
@@ -2774,6 +2777,7 @@ class _SeverityChipPillState extends State<_SeverityChipPill>
   void didUpdateWidget(_SeverityChipPill oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.selected != oldWidget.selected) {
+      _selection.duration = motionDuration(context, _lerp);
       if (widget.selected) {
         _selection.forward();
       } else {
@@ -3392,7 +3396,10 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
               TweenAnimationBuilder<int>(
                 key: ValueKey(typeName),
                 tween: IntTween(begin: 0, end: count),
-                duration: const Duration(milliseconds: 200),
+                duration: motionDuration(
+                  context,
+                  const Duration(milliseconds: 200),
+                ),
                 builder: (context, value, _) => Text(
                   '\u00d7$value',
                   style: TextStyle(

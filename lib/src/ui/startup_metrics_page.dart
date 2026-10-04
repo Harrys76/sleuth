@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../sleuth.dart' show Sleuth;
 import '../models/startup_metrics.dart';
+import 'motion.dart';
 import 'sleuth_theme.dart';
 
 /// Full-screen page showing complete startup metrics breakdown and
@@ -29,7 +30,13 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
-    )..forward();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
   }
 
   @override

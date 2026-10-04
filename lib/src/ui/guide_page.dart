@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
@@ -33,7 +34,13 @@ class _GuidePageState extends State<GuidePage>
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 900),
       vsync: this,
-    )..forward();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
   }
 
   @override
@@ -274,7 +281,10 @@ class _GuidePageState extends State<GuidePage>
                         ),
                         AnimatedRotation(
                           turns: isExpanded ? 0.5 : 0,
-                          duration: const Duration(milliseconds: 200),
+                          duration: motionDuration(
+                            context,
+                            const Duration(milliseconds: 200),
+                          ),
                           child: Icon(
                             Icons.expand_more,
                             color: theme.textQuaternary,
@@ -288,7 +298,10 @@ class _GuidePageState extends State<GuidePage>
               ),
               // Content — animated height on collapse/expand
               AnimatedSize(
-                duration: const Duration(milliseconds: 250),
+                duration: motionDuration(
+                  context,
+                  const Duration(milliseconds: 250),
+                ),
                 curve: Curves.easeInOut,
                 child: isExpanded
                     ? Padding(

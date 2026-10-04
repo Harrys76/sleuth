@@ -8,6 +8,7 @@ import '../models/ai_chat_adapter.dart';
 import '../models/performance_issue.dart';
 import '../utils/ai_context_builder.dart';
 import 'issue_card.dart';
+import 'motion.dart';
 import 'sleuth_theme.dart';
 
 /// Full-screen AI chat page for contextual conversations about a specific
@@ -83,11 +84,17 @@ class _AiChatPageState extends State<AiChatPage>
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
-    )..forward();
+    );
     _entranceCurve = CurvedAnimation(
       parent: _entranceController,
       curve: Curves.easeOut,
     );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
   }
 
   @override
@@ -184,11 +191,16 @@ class _AiChatPageState extends State<AiChatPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-        );
+        final end = _scrollController.position.maxScrollExtent;
+        if (reducedMotionOf(context)) {
+          _scrollController.jumpTo(end);
+        } else {
+          _scrollController.animateTo(
+            end,
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
+          );
+        }
       }
     });
   }

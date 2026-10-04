@@ -55,7 +55,14 @@
 - Escape unfocuses a focused overlay text field, then closes the open
   page, then the dashboard; a focused app text field or an open app
   dialog or sheet keeps its Escape.
-- The Ask AI shimmer stops under reduce motion.
+- Reduced motion honours both the Android animator duration scale
+  (`disableAnimations`) and iOS Reduce Motion
+  (`AccessibilityFeatures.reduceMotion`, which Flutter does not put in
+  `MediaQueryData`). Under either, page entrances, expand and collapse,
+  scrolls to an encyclopedia entry or the chat's last message, the toast
+  fade, the severity chip colour and the rebuild count tween take no
+  time, and the Ask AI shimmer stops (also when the setting changes while
+  it runs).
 - The AI chat page has a `Material` surface; its text field no longer
   asserts `debugCheckHasMaterial` in debug builds.
 - Example: `ext.sleuthDemo.a11y` (accessibility settings, overlay text

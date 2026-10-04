@@ -194,7 +194,8 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   @override
   void didChangeAccessibilityFeatures() {
-    // High contrast picks the high-contrast presets.
+    // High contrast picks the high-contrast presets. Reduced motion is
+    // read live (`reducedMotionOf`) when each animation starts.
     if (mounted) setState(() {});
   }
 

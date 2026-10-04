@@ -321,7 +321,7 @@ The overlay is a developer tool drawn over a live app; it is built to be usable 
 - **Touch targets:** controls are at least 48 × 48 dp. The card header's compact controls (highlight, theme, minimize, maximize, restore) are 36 × 48 so they fit the default 300 dp card; that is above the WCAG 2.5.8 minimum of 24 dp. Below 280 dp minimize and maximize are hidden. Close is 48 × 48.
 - **Contrast:** text tokens meet WCAG AA (4.5:1) on every overlay surface in the dark, light and high-contrast themes. Badges draw primary text on a light tint of their colour with a 1 px border in that colour.
 - **High contrast:** `SleuthThemeData.highContrastDark()` / `highContrastLight()` raise secondary text, strengthen borders, make badge fills opaque and widen the source accent. They are picked automatically when `MediaQuery.highContrastOf` is true (reported on iOS) and no theme is set, and for the toggle's Light or Dark; on other platforms pass one to `Sleuth.updateTheme`. State cues (chip borders, chevrons, the pin) stay at full opacity.
-- **Reduced motion:** animations run at the platform's reduced duration; the Ask AI shimmer stops.
+- **Reduced motion:** honours both the Android animator duration scale (`disableAnimations`) and iOS Reduce Motion (`AccessibilityFeatures.reduceMotion`). Page entrances, expand and collapse, scrolls to an entry, the toast fade, severity chips and the rebuild count change at once, and the Ask AI shimmer stops. An animation already running when the setting changes finishes at its old speed.
 - **Keyboard:** Escape first unfocuses a focused overlay text field, then closes the open page, then the dashboard. A focused text field or an open dialog or sheet in your app keeps its Escape.
 
 ## AI Chat

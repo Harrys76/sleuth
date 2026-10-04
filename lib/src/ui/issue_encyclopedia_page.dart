@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
 import '../utils/issue_explanation_builder.dart';
+import 'motion.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
@@ -78,7 +79,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
-    )..forward();
+    );
 
     // Pre-expand and prepare scroll-to target. Normalise to the
     // encyclopedia key (strips parametric `:<param>` / dynamic
@@ -92,6 +93,12 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     }
 
     _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
   }
 
   @override
@@ -114,13 +121,13 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
 
   void _scrollToTarget() {
     final target = _scrollTargetKey;
-    if (_scrollTargetScrolled || target == null) return;
+    if (!mounted || _scrollTargetScrolled || target == null) return;
     final key = _entryKeys[target];
     if (key?.currentContext == null) return;
     _scrollTargetScrolled = true;
     Scrollable.ensureVisible(
       key!.currentContext!,
-      duration: const Duration(milliseconds: 300),
+      duration: motionDuration(context, const Duration(milliseconds: 300)),
       curve: Curves.easeOutCubic,
     );
   }
@@ -135,13 +142,14 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   void _openRelated(String id) {
     final key = _keyForEntry(id);
     setState(() => _expandedEntries.add(id));
+    final duration = motionDuration(context, const Duration(milliseconds: 300));
     // Scroll to the target after next frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = key.currentContext;
       if (ctx != null) {
         Scrollable.ensureVisible(
           ctx,
-          duration: const Duration(milliseconds: 300),
+          duration: duration,
           curve: Curves.easeOutCubic,
         );
       }
@@ -481,7 +489,10 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
                       ),
                       AnimatedRotation(
                         turns: isExpanded ? 0.5 : 0,
-                        duration: const Duration(milliseconds: 200),
+                        duration: motionDuration(
+                          context,
+                          const Duration(milliseconds: 200),
+                        ),
                         child: Icon(
                           Icons.expand_more,
                           color: theme.textQuaternary,
@@ -499,7 +510,10 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             _entryContent(stableId, effectiveEntry, theme)
           else
             AnimatedSize(
-              duration: const Duration(milliseconds: 250),
+              duration: motionDuration(
+                context,
+                const Duration(milliseconds: 250),
+              ),
               curve: Curves.easeInOut,
               child: isExpanded
                   ? _entryContent(stableId, effectiveEntry, theme)

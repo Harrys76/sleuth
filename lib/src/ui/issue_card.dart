@@ -4,6 +4,7 @@ import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import '../models/performance_issue.dart';
 import '../models/recurrence_trend.dart';
 import '../utils/issue_metadata_builder.dart';
+import 'motion.dart';
 import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
@@ -1329,7 +1330,7 @@ class _AskAiShimmerLink extends StatefulWidget {
 }
 
 class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _controller;
 
   @override
@@ -1339,14 +1340,26 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
       vsync: this,
       duration: const Duration(seconds: 2),
     );
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // `repeat()` is not shortened by the reduce-motion setting, so the
-    // sweep stops and the gradient rests at its midpoint.
-    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+    _syncMotion();
+  }
+
+  /// iOS Reduce Motion does not change [MediaQueryData], so a flip of it
+  /// arrives here rather than through [didChangeDependencies].
+  @override
+  void didChangeAccessibilityFeatures() {
+    if (mounted) _syncMotion();
+  }
+
+  /// `repeat()` is not shortened by the reduce-motion setting, so the
+  /// sweep stops and the gradient rests at its midpoint.
+  void _syncMotion() {
+    if (reducedMotionOf(context)) {
       _controller.value = 0.5;
     } else if (!_controller.isAnimating) {
       _controller.repeat();
@@ -1355,6 +1368,7 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
   }
