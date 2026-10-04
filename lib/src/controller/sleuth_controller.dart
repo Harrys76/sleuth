@@ -15,6 +15,8 @@ import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 import '../validation/profile_capture_schema.dart';
 import '../ui/floating_issues_card.dart';
 import '../ui/highlight_overlay.dart';
+import '../ui/overlay_ui_state.dart';
+import '../persistence/sleuth_state_store.dart';
 import '../ui/trigger_button.dart';
 import '../ui/sleuth_theme.dart';
 import '../analyzer/causal_graph.dart';
@@ -84,6 +86,9 @@ class SleuthController {
     : config = config ?? const SleuthConfig(),
       _captureBuffer = JankCaptureBuffer(
         capacity: (config ?? const SleuthConfig()).captureBufferCapacity,
+      ),
+      uiStateReady = ValueNotifier<bool>(
+        (config ?? const SleuthConfig()).stateStore == null,
       ) {
     // Runtime validation for fields that cannot be asserted in a const
     // constructor because Duration operators are not const-evaluable.
@@ -483,6 +488,104 @@ class SleuthController {
   /// the highlights list. Set by the UI when highlights aren't ready yet.
   PerformanceIssue? pendingIssueSelection;
 
+  // -- Overlay UI state --
+
+  /// Overlay UI state: dashboard open, trigger anchor, card geometry,
+  /// hidden issues and severity filter. Survives dashboard open/close and
+  /// hot reload; persisted through [SleuthConfig.stateStore] when set.
+  ///
+  /// Overlay only: [latestIssues], [suppressedCountNotifier],
+  /// `ext.sleuth.*`, route sessions and recurrence never read it.
+  final OverlayUiState overlayUiState = OverlayUiState();
+
+  /// True once [overlayUiState] holds its startup value: immediately when
+  /// no store is configured, otherwise after the store's read completes,
+  /// fails, or times out (2 s). The trigger button paints only when true.
+  final ValueNotifier<bool> uiStateReady;
+
+  static const Duration _stateStoreReadTimeout = Duration(seconds: 2);
+  static const Duration _stateStoreWriteDebounce = Duration(milliseconds: 500);
+
+  bool _uiStateLoadStarted = false;
+  Timer? _uiStateLoadTimer;
+  Timer? _uiStateWriteTimer;
+  String? _lastPersistedUiState;
+  bool _stateStoreReadErrorLogged = false;
+  bool _stateStoreWriteErrorLogged = false;
+
+  /// Reads the configured store once and applies it to [overlayUiState],
+  /// then starts saving changes. Idempotent; never throws.
+  void _startOverlayUiStateLoad() {
+    if (_uiStateLoadStarted || _disposed) return;
+    _uiStateLoadStarted = true;
+    final store = config.stateStore;
+    if (store == null) {
+      uiStateReady.value = true;
+      return;
+    }
+    final completer = Completer<String?>();
+    _uiStateLoadTimer = Timer(_stateStoreReadTimeout, () {
+      if (!completer.isCompleted) {
+        completer.completeError(
+          TimeoutException('state store read', _stateStoreReadTimeout),
+        );
+      }
+    });
+    Future<String?>.sync(store.read).then(
+      (value) {
+        if (!completer.isCompleted) completer.complete(value);
+      },
+      onError: (Object e, StackTrace _) {
+        if (!completer.isCompleted) completer.completeError(e);
+      },
+    );
+    completer.future
+        .then<void>((raw) {
+          if (_disposed || raw == null) return;
+          final decoded = jsonDecode(raw);
+          if (decoded is! Map<String, Object?>) {
+            throw const FormatException('state is not a JSON object');
+          }
+          overlayUiState.loadJson(decoded);
+        })
+        .catchError((Object e) {
+          if (_stateStoreReadErrorLogged) return;
+          _stateStoreReadErrorLogged = true;
+          debugPrint('Sleuth: overlay state not restored: $e');
+        })
+        .whenComplete(() {
+          _uiStateLoadTimer?.cancel();
+          _uiStateLoadTimer = null;
+          if (_disposed) return;
+          _lastPersistedUiState = jsonEncode(overlayUiState.toJson());
+          overlayUiState.addListener(_scheduleOverlayUiStateWrite);
+          uiStateReady.value = true;
+        });
+  }
+
+  void _scheduleOverlayUiStateWrite() {
+    if (_disposed) return;
+    _uiStateWriteTimer?.cancel();
+    _uiStateWriteTimer = Timer(_stateStoreWriteDebounce, _writeOverlayUiState);
+  }
+
+  void _writeOverlayUiState() {
+    _uiStateWriteTimer = null;
+    final store = config.stateStore;
+    if (_disposed || store == null) return;
+    final json = jsonEncode(overlayUiState.toJson());
+    // Session-only changes (dashboard open/close) leave the JSON as is.
+    if (json == _lastPersistedUiState) return;
+    _lastPersistedUiState = json;
+    Future<void>.sync(() => store.write(json)).catchError((Object e) {
+      // Retry with the next change.
+      if (_lastPersistedUiState == json) _lastPersistedUiState = null;
+      if (_stateStoreWriteErrorLogged) return;
+      _stateStoreWriteErrorLogged = true;
+      debugPrint('Sleuth: overlay state not saved: $e');
+    });
+  }
+
   /// Clear the selected highlight.
   void clearSelectedHighlight() {
     selectedHighlightNotifier.value = null;
@@ -657,7 +760,9 @@ class SleuthController {
 
   /// Initialize all detectors and connect to VM service.
   Future<void> initialize() async {
-    if (_initialized || kReleaseMode) return;
+    if (kReleaseMode) return;
+    _startOverlayUiStateLoad();
+    if (_initialized) return;
 
     _initializeDetectors();
 
@@ -4758,6 +4863,11 @@ class SleuthController {
     _gcEventBuffer.clear();
     _platformChannelBuffer.clear();
     _themeOverride.dispose();
+    _uiStateLoadTimer?.cancel();
+    _uiStateLoadTimer = null;
+    _uiStateWriteTimer?.cancel();
+    _uiStateWriteTimer = null;
+    overlayUiState.removeListener(_scheduleOverlayUiStateWrite);
 
     // Restore HttpOverrides before disposing detector
     if (_httpOverrides != null) {
@@ -4810,6 +4920,8 @@ class SleuthController {
     selectedHighlightNotifier.dispose();
     suppressedCountNotifier.dispose();
     routeHistoryNotifier.dispose();
+    overlayUiState.dispose();
+    uiStateReady.dispose();
   }
 }
 
@@ -4855,6 +4967,7 @@ class SleuthConfig {
     this.autoFrameBudget = true,
     this.profilePlatformChannels = false,
     this.maxElementsPerScan = 0,
+    this.stateStore,
   }) : assert(
          fpsTarget >= 1 && fpsTarget <= 120,
          'fpsTarget must be between 1 and 120. '
@@ -5499,13 +5612,22 @@ class SleuthConfig {
   /// [DetectorType.platformChannel] is not enabled.
   final bool profilePlatformChannels;
 
+  /// Where the overlay keeps its UI state (trigger position, card
+  /// geometry, hidden issues, severity filter) across app restarts.
+  ///
+  /// Default `null`: the state lasts for the session (it survives opening
+  /// and closing the dashboard and hot reload). See [SleuthStateStore]
+  /// for the contract and an example; [InMemorySleuthStateStore] suits
+  /// tests.
+  final SleuthStateStore? stateStore;
+
   /// Sentinel used by [copyWith] to distinguish "not passed" from "set to null".
   static const Object _sentinel = Object();
 
   /// Returns a copy of this config with the given fields replaced.
   ///
   /// For nullable fields ([theme], [advanced], [networkExcludePatterns],
-  /// [aiChat]), pass the explicit value to override — including `null` to
+  /// [aiChat], [stateStore]), pass the explicit value to override — including `null` to
   /// clear. Fields not passed retain their current value.
   ///
   /// ```dart
@@ -5554,6 +5676,7 @@ class SleuthConfig {
     bool? autoFrameBudget,
     bool? profilePlatformChannels,
     int? maxElementsPerScan,
+    Object? stateStore = _sentinel,
   }) {
     return SleuthConfig(
       theme: identical(theme, _sentinel)
@@ -5619,6 +5742,9 @@ class SleuthConfig {
       profilePlatformChannels:
           profilePlatformChannels ?? this.profilePlatformChannels,
       maxElementsPerScan: maxElementsPerScan ?? this.maxElementsPerScan,
+      stateStore: identical(stateStore, _sentinel)
+          ? this.stateStore
+          : stateStore as SleuthStateStore?,
     );
   }
 }

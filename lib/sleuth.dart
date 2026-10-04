@@ -73,6 +73,7 @@ import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
 import 'src/models/startup_metrics.dart';
+import 'src/ui/overlay_ui_state.dart';
 import 'src/ui/sleuth_overlay.dart';
 import 'src/vm/poll_timings.dart';
 import 'src/ui/sleuth_theme.dart';
@@ -92,6 +93,9 @@ export 'src/detectors/stream_resource_detector.dart'
     show StreamResourcePollResult;
 export 'src/controller/detector_thresholds.dart';
 export 'src/ui/sleuth_theme.dart' show SleuthThemeData;
+export 'src/ui/overlay_ui_state.dart'
+    show OverlayUiState, TriggerEdge, CardWindowState;
+export 'src/persistence/sleuth_state_store.dart';
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
@@ -925,6 +929,26 @@ class Sleuth {
         .cast<RouteSession?>()
         .firstWhere((s) => s?.routeName == routeName, orElse: () => null)
         ?.healthScore;
+  }
+
+  /// The overlay's UI state: dashboard open, trigger anchor, card
+  /// geometry, hidden issues and severity filter. Null when Sleuth has not
+  /// been initialised or in release mode.
+  ///
+  /// Advanced: the overlay drives this itself. Hiding issues or filtering
+  /// severities here changes only what the overlay shows; `ext.sleuth.*`,
+  /// snapshots and budgets still report every issue.
+  static OverlayUiState? get overlayUiState {
+    if (kReleaseMode) return null;
+    return _controller?.overlayUiState;
+  }
+
+  /// Whether [overlayUiState] holds its startup value (the configured
+  /// `SleuthConfig.stateStore` has been read, failed, or timed out).
+  /// False when Sleuth has not been initialised or in release mode.
+  static bool get isOverlayUiStateReady {
+    if (kReleaseMode) return false;
+    return _controller?.uiStateReady.value ?? false;
   }
 
   /// Update the overlay theme at runtime.
