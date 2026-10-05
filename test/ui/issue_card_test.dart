@@ -4,6 +4,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/recurrence_trend.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
+
+import '../helpers/contrast_helpers.dart';
+
+const _presets = [
+  SleuthThemeData(),
+  SleuthThemeData.light(),
+  SleuthThemeData.highContrastDark(),
+  SleuthThemeData.highContrastLight(),
+];
 
 PerformanceIssue _testIssue({
   IssueCategory category = IssueCategory.build,
@@ -559,6 +569,86 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.binding.hasScheduledFrame, isTrue);
     });
+
+    testWidgets('link text is a solid token readable on every card fill; '
+        'only the icon shimmers', (tester) async {
+      const label = 'Ask AI about this issue';
+      for (final theme in _presets) {
+        for (final (highlighted, jankFlash) in [
+          (false, false),
+          (true, false),
+          (false, true),
+        ]) {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: SleuthTheme(
+                  data: theme,
+                  child: IssueCard(
+                    issue: _testIssue(),
+                    initiallyExpanded: true,
+                    highlighted: highlighted,
+                    jankFlash: jankFlash,
+                    onAskAi: () {},
+                  ),
+                ),
+              ),
+            ),
+          );
+          final text = tester.widget<Text>(find.text(label)).style!.color!;
+          final fill = tester.widget<Card>(find.byType(Card)).color!;
+          expect(text, theme.textSecondary);
+          expect(
+            wcagContrast(text, fill),
+            greaterThanOrEqualTo(4.5),
+            reason: '${theme.brightness.name} on $fill',
+          );
+          // A shader over the text would replace its colour.
+          expect(
+            find.ancestor(
+              of: find.text(label),
+              matching: find.byType(ShaderMask),
+            ),
+            findsNothing,
+          );
+          expect(
+            find.ancestor(
+              of: find.byIcon(Icons.auto_awesome),
+              matching: find.byType(ShaderMask),
+            ),
+            findsOneWidget,
+          );
+        }
+      }
+    });
+  });
+
+  testWidgets('the highlight checkbox check keeps 3:1 on its fill', (
+    tester,
+  ) async {
+    for (final theme in _presets) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SleuthTheme(
+              data: theme,
+              child: IssueCard(
+                issue: _testIssue(),
+                locatable: true,
+                highlighted: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      final box = tester.widget<Checkbox>(find.byType(Checkbox));
+      expect(box.activeColor, theme.checkboxActive);
+      expect(
+        wcagContrast(box.checkColor!, box.activeColor!),
+        greaterThanOrEqualTo(3),
+        reason: theme.brightness.name,
+      );
+    }
   });
 
   group('Inline category and confidence badges', () {

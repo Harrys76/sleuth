@@ -16,6 +16,7 @@ import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/rebuild_stats_page.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
+import '../helpers/contrast_helpers.dart';
 import '../helpers/overlay_harness.dart';
 
 PerformanceIssue _pinIssue({
@@ -341,14 +342,15 @@ void main() {
 
     // Lightweight pump for banner tests — the scan loop needs a Scaffold
     // above the floating card for `_findVisiblePageContext` to succeed.
-    Widget pumpCardForBanner(SleuthController c) {
+    Widget pumpCardForBanner(SleuthController c, {SleuthThemeData? theme}) {
+      final card = FloatingIssuesCard(
+        controller: c,
+        onClose: () {},
+        isDebugMode: false,
+      );
       return MaterialApp(
         home: Scaffold(
-          body: FloatingIssuesCard(
-            controller: c,
-            onClose: () {},
-            isDebugMode: false,
-          ),
+          body: theme == null ? card : SleuthTheme(data: theme, child: card),
         ),
       );
     }
@@ -543,6 +545,61 @@ void main() {
         isNull,
       );
     });
+
+    for (final (name, theme) in [
+      ('dark', const SleuthThemeData()),
+      ('light', const SleuthThemeData.light()),
+      ('highContrastDark', const SleuthThemeData.highContrastDark()),
+      ('highContrastLight', const SleuthThemeData.highContrastLight()),
+    ]) {
+      testWidgets('$name: the collapsed pause indicator keeps 3:1 on the '
+          'banner', (tester) async {
+        controller.dispose();
+        controller = SleuthController(
+          config: const SleuthConfig(
+            treeScanInterval: Duration(seconds: 1),
+            enabledDetectors: {DetectorType.frameTiming},
+          ),
+        );
+        controller.initializeDetectorsForTest();
+        final fake = _FakeCoordinator();
+        controller.debugCoordinatorForTest = fake;
+
+        await tester.pumpWidget(pumpCardForBanner(controller, theme: theme));
+        await tester.pumpAndSettle();
+        await primeAndMergeCounts(tester, controller, fake, {'TinyCard': 4});
+
+        final header = find.text('Rebuilds: 4 across 1 widget');
+        await tester.ensureVisible(header);
+        await tester.tap(header);
+        await tester.pump();
+        await tester.ensureVisible(find.byIcon(Icons.pause));
+        await tester.tap(find.byIcon(Icons.pause));
+        await tester.pump();
+        await tester.tap(header);
+        await tester.pump();
+
+        final pause = find.byIcon(Icons.pause);
+        final icon = tester.widget<Icon>(pause).color!;
+        // The banner's tint, the nearest filled box behind the icon.
+        final tint = tester
+            .widgetList<DecoratedBox>(
+              find.ancestor(of: pause, matching: find.byType(DecoratedBox)),
+            )
+            .map((box) => box.decoration)
+            .whereType<BoxDecoration>()
+            .firstWhere((d) => d.color != null)
+            .color!;
+        for (final host in const [Color(0xFF000000), Color(0xFFFFFFFF)]) {
+          final banner = composite(tint, composite(theme.cardBackground, host));
+          expect(
+            wcagContrast(composite(icon, banner), banner),
+            greaterThanOrEqualTo(3),
+            reason: 'over $host',
+          );
+        }
+      });
+    }
 
     testWidgets('panel is collapsed by default — top rows are hidden', (
       tester,

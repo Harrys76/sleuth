@@ -6,6 +6,7 @@ import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 import 'package:sleuth/src/ui/trigger_button.dart';
 
+import '../helpers/contrast_helpers.dart';
 import '../helpers/overlay_harness.dart';
 
 void main() {
@@ -512,9 +513,8 @@ void main() {
       expect(fractionOf(landscape, 400), closeTo(0.5, 0.01));
     });
 
-    testWidgets('semantics label carries the visible issue count', (
-      tester,
-    ) async {
+    testWidgets('semantics label carries the visible issue and critical '
+        'counts', (tester) async {
       setView(tester);
       issues.value = const [
         PerformanceIssue(
@@ -537,7 +537,11 @@ void main() {
         ),
       ];
       await tester.pumpWidget(app());
-      expect(find.bySemanticsLabel('Open Sleuth, 2 issues'), findsOneWidget);
+      // The red fill shows a critical issue; the label says so too.
+      expect(
+        find.bySemanticsLabel('Open Sleuth, 2 issues, 1 critical'),
+        findsOneWidget,
+      );
       expect(find.text('2'), findsOneWidget);
 
       state.hide(OverlayUiState.hideKeyFor(issues.value[1]));
@@ -604,6 +608,93 @@ void main() {
           tester.widget<Icon>(findLogo()).color,
           dark ? theme.triggerIconOnLightFill : theme.triggerIconColor,
         );
+      });
+    }
+
+    /// Three frames at [fps], or none for the warm-up dash.
+    FrameStatsBuffer frames(double? fps) {
+      final buffer = FrameStatsBuffer();
+      if (fps == null) return buffer;
+      for (var i = 0; i < 3; i++) {
+        buffer.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: Duration.zero,
+            rasterDuration: Duration.zero,
+            timestamp: DateTime(2026),
+            totalSpan: Duration(microseconds: 1000000 ~/ fps),
+          ),
+        );
+      }
+      return buffer;
+    }
+
+    for (final (name, theme) in [
+      ('dark', const SleuthThemeData()),
+      ('light', const SleuthThemeData.light()),
+      ('highContrastDark', const SleuthThemeData.highContrastDark()),
+      ('highContrastLight', const SleuthThemeData.highContrastLight()),
+    ]) {
+      testWidgets('$name: the FPS number sits on an opaque surface it '
+          'contrasts with', (tester) async {
+        final issues = ValueNotifier(<PerformanceIssue>[]);
+        final vm = ValueNotifier(false);
+        final fps = ValueNotifier(FrameStatsBuffer());
+        addTearDown(() {
+          issues.dispose();
+          vm.dispose();
+          fps.dispose();
+        });
+        await tester.pumpWidget(
+          wrap(
+            SleuthTheme(
+              data: theme,
+              child: TriggerButton(
+                issuesNotifier: issues,
+                vmConnectedNotifier: vm,
+                frameStatsNotifier: fps,
+                isDebugMode: false,
+                onTap: () {},
+              ),
+            ),
+          ),
+        );
+        for (final (value, label) in [
+          (60.0, '60'),
+          (40.0, '40'),
+          (10.0, '10'),
+          (null, '—'),
+        ]) {
+          fps.value = frames(value);
+          await tester.pump();
+          final number = find.text(label);
+          final color = tester.widget<Text>(number).style!.color!;
+          final backing = find.ancestor(
+            of: number,
+            matching: find.descendant(
+              of: find.byType(TriggerButton),
+              matching: find.byType(DecoratedBox),
+            ),
+          );
+          expect(backing, findsWidgets, reason: label);
+          final decoration =
+              tester.widget<DecoratedBox>(backing.first).decoration
+                  as BoxDecoration;
+          final surface = decoration.color!;
+          expect(surface.a, 1, reason: '$label surface is opaque');
+          expect(
+            wcagContrast(color, surface),
+            greaterThanOrEqualTo(4.5),
+            reason: label,
+          );
+          // The severity accent stays visible on the border.
+          if (value != null) {
+            expect(
+              (decoration.border! as Border).top.color,
+              theme.fpsColor(value),
+            );
+          }
+        }
       });
     }
 

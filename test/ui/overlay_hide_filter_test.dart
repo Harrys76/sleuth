@@ -9,6 +9,9 @@ import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/hidden_issues_page.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
+
+import '../helpers/contrast_helpers.dart';
 
 PerformanceIssue _issue(
   String id, {
@@ -45,7 +48,7 @@ void main() {
 
   /// Card in a tall view so several rows are tappable, with the platform
   /// channel recorded.
-  Future<void> pumpCard(WidgetTester tester) async {
+  Future<void> pumpCard(WidgetTester tester, {SleuthThemeData? theme}) async {
     tester.view.physicalSize = const Size(800, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -65,14 +68,15 @@ void main() {
         null,
       ),
     );
+    final card = FloatingIssuesCard(
+      controller: controller,
+      onClose: () {},
+      isDebugMode: false,
+    );
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: FloatingIssuesCard(
-            controller: controller,
-            onClose: () {},
-            isDebugMode: false,
-          ),
+          body: theme == null ? card : SleuthTheme(data: theme, child: card),
         ),
       ),
     );
@@ -97,6 +101,20 @@ void main() {
         w.properties.selected != null &&
         (w.properties.label?.contains(' $severity, ') ?? false),
   );
+
+  /// Border of the [severity] chip's pill.
+  BorderSide pillBorder(WidgetTester tester, String severity) {
+    final pill = tester.widget<DecoratedBox>(
+      find
+          .descendant(of: chip(severity), matching: find.byType(DecoratedBox))
+          .first,
+    );
+    return ((pill.decoration as BoxDecoration).border! as Border).top;
+  }
+
+  /// [icon] inside the [severity] chip.
+  Finder chipGlyph(String severity, IconData icon) =>
+      find.descendant(of: chip(severity), matching: find.byIcon(icon));
 
   /// Ids of the cards on screen, top to bottom.
   List<String> rowOrder(WidgetTester tester, List<String> ids) {
@@ -1080,16 +1098,11 @@ void main() {
       expect(find.bySemanticsLabel('1 warning, on'), findsOneWidget);
       expect(tester.getSize(chip('warning')).width, greaterThanOrEqualTo(48));
 
-      final pill = tester.widget<DecoratedBox>(
-        find
-            .descendant(
-              of: chip('warning'),
-              matching: find.byType(DecoratedBox),
-            )
-            .first,
-      );
-      final border = (pill.decoration as BoxDecoration).border! as Border;
-      expect(border.top.color.a, closeTo(0.6, 0.01));
+      const theme = SleuthThemeData();
+      final border = pillBorder(tester, 'warning');
+      expect(border.color, theme.severityWarningText);
+      expect(border.width, 1.5);
+      expect(chipGlyph('warning', Icons.check), findsOneWidget);
 
       // A tap in the part of the hit box that overlaps the list toggles.
       final list = tester.getRect(find.byType(ListView));
@@ -1101,8 +1114,41 @@ void main() {
         find.bySemanticsLabel('1 warning, off, tap to show'),
         findsOneWidget,
       );
+      // Off: a dot instead of the check, and the plain border.
+      expect(chipGlyph('warning', Icons.check), findsNothing);
+      expect(pillBorder(tester, 'warning').width, 1);
       await drainToasts(tester);
     });
+
+    for (final (name, theme) in [
+      ('dark', const SleuthThemeData()),
+      ('light', const SleuthThemeData.light()),
+      ('highContrastDark', const SleuthThemeData.highContrastDark()),
+      ('highContrastLight', const SleuthThemeData.highContrastLight()),
+    ]) {
+      testWidgets('$name: a selected chip border keeps 3:1 against the card', (
+        tester,
+      ) async {
+        controller.issuesNotifier.value = [
+          _issue('c', severity: IssueSeverity.critical),
+          _issue('w'),
+          _issue('o', severity: IssueSeverity.ok),
+        ];
+        await pumpCard(tester, theme: theme);
+        for (final severity in ['critical', 'warning', 'ok']) {
+          expect(chipGlyph(severity, Icons.check), findsOneWidget);
+          final border = pillBorder(tester, severity).color;
+          for (final host in const [Color(0xFF000000), Color(0xFFFFFFFF)]) {
+            final card = composite(theme.cardBackground, host);
+            expect(
+              wcagContrast(composite(border, card), card),
+              greaterThanOrEqualTo(3),
+              reason: '$severity over $host',
+            );
+          }
+        }
+      });
+    }
 
     testWidgets('chips report selection to screen readers', (tester) async {
       controller.issuesNotifier.value = [_issue('w')];

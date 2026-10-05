@@ -71,7 +71,6 @@ const _nonWidgetTypes = <String>{
   'RegExp',
   'RoundedRectangleBorder',
   'ScrollController',
-  'Shadow',
   'Size',
   'StringBuffer',
   'TextEditingController',

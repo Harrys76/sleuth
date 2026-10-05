@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart' show Brightness, ThemeData;
+import 'package:flutter/material.dart'
+    show Brightness, ColorScheme, DynamicSchemeVariant, ThemeData;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
@@ -32,7 +33,8 @@ Map<String, Color> _surfaces(SleuthThemeData t) => {
   'fixHintBackground': t.fixHintBackground,
 };
 
-/// Every (text, background) pair the overlay draws, with its minimum ratio.
+/// Every (foreground, background) pair the overlay draws, with its minimum
+/// ratio: 4.5:1 for text, 3:1 for icons, strips and borders.
 List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
   final surfaces = _surfaces(t);
   final pairs = <(String, Color, Color, double)>[];
@@ -119,6 +121,54 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
   );
   add('checkboxActive on cardDefault', t.checkboxActive, t.cardDefault, 3);
   add('trigger count', t.textPrimary, t.triggerBadgeBg);
+  // The trigger's FPS number and warm-up dash on their badge-coloured pill.
+  for (final fps in [60.0, 40.0, 10.0]) {
+    add('trigger FPS $fps', t.fpsTextColor(fps), t.triggerBadgeBg);
+  }
+  add('trigger FPS warm-up dash', t.textTertiary, t.triggerBadgeBg);
+  // The Ask AI link text on the card fills an expanded card can have.
+  for (final s in ['cardDefault', 'cardHighlighted', 'cardJankFlash']) {
+    add('Ask AI link on $s', t.textSecondary, surfaces[s]!);
+  }
+  // Non-text indicators: 3:1 against what they sit on.
+  for (final source in [...ObservationSource.values, null]) {
+    for (final s in [
+      'cardDefault',
+      'cardHighlighted',
+      'cardJankFlash',
+      'cardBackground/black',
+      'cardBackground/white',
+    ]) {
+      add(
+        'source accent ${source?.name ?? 'none'} on $s',
+        t.sourceAccentColor(source),
+        surfaces[s]!,
+        3,
+      );
+    }
+  }
+  add(
+    'checkbox check on checkboxActive',
+    SleuthThemeData.onColor(t.checkboxActive),
+    t.checkboxActive,
+    3,
+  );
+  for (final s in ['cardBackground/black', 'cardBackground/white']) {
+    for (final severity in IssueSeverity.values) {
+      add(
+        'selected ${severity.name} chip border on $s',
+        t.severityTextColor(severity),
+        surfaces[s]!,
+        3,
+      );
+    }
+    add(
+      'rebuild stats paused icon on $s',
+      t.textSecondary,
+      composite(t.categoryBuild.withValues(alpha: 0.1), surfaces[s]!),
+      3,
+    );
+  }
   add('trigger icon on critical', t.triggerIconColor, t.severityCritical, 3);
   add(
     'trigger icon on warning',
@@ -129,6 +179,28 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
   add('trigger icon on ok', t.triggerIconOnLightFill, t.severityOk, 3);
   return pairs;
 }
+
+/// The pairs of [t] below their minimum, with the measured ratio.
+List<String> _failures(SleuthThemeData t) => [
+  for (final (name, fg, bg, min) in _pairs(t))
+    if (wcagContrast(fg, bg) < min)
+      '$name: ${wcagContrast(fg, bg).toStringAsFixed(2)} < $min',
+];
+
+/// Seeds whose fidelity and content schemes put the seed's own mid-tone
+/// colour in `primaryContainer`.
+const _vividSeeds = [
+  Color(0xFF6750A4),
+  Color(0xFFE91E63),
+  Color(0xFF4CAF50),
+  Color(0xFFFF9800),
+  Color(0xFF2196F3),
+  Color(0xFF795548),
+  Color(0xFF9C27B0),
+  Color(0xFF009688),
+  Color(0xFFFFEB3B),
+  Color(0xFFF44336),
+];
 
 void main() {
   group('contrast', () {
@@ -147,13 +219,14 @@ void main() {
     });
 
     for (final preset in _presets.entries) {
-      test('${preset.key}: every text pair meets its minimum', () {
-        final failures = [
-          for (final (name, fg, bg, min) in _pairs(preset.value))
-            if (wcagContrast(fg, bg) < min)
-              '$name: ${wcagContrast(fg, bg).toStringAsFixed(2)} < $min',
-        ];
-        expect(failures, isEmpty);
+      test('${preset.key}: every drawn pair meets its minimum', () {
+        expect(_failures(preset.value), isEmpty);
+      });
+    }
+
+    for (final preset in _presets.entries) {
+      test('${preset.key}: the trigger badge colour is opaque', () {
+        expect(preset.value.triggerBadgeBg.a, 1);
       });
     }
 
@@ -166,24 +239,10 @@ void main() {
       Color(0xFF00838F),
     ];
     for (final brightness in Brightness.values) {
-      test('fromSeed (${brightness.name}) text passes on every surface', () {
+      test('fromSeed (${brightness.name}) every pair meets its minimum', () {
         for (final seed in seeds) {
           final t = SleuthThemeData.fromSeed(seed, brightness: brightness);
-          final surfaces = _surfaces(t);
-          for (final text in [
-            t.textPrimary,
-            t.textSecondary,
-            t.textTertiary,
-            t.textQuaternary,
-          ]) {
-            for (final s in surfaces.entries) {
-              expect(
-                wcagContrast(text, s.value),
-                greaterThanOrEqualTo(4.5),
-                reason: 'seed $seed ${brightness.name}: $text on ${s.key}',
-              );
-            }
-          }
+          expect(_failures(t), isEmpty, reason: 'seed $seed');
           // Never light text on a light surface or dark on dark.
           final surfaceDark =
               ThemeData.estimateBrightnessForColor(t.pageBackground) ==
@@ -202,6 +261,94 @@ void main() {
         }
       });
     }
+
+    test('fromSeed keeps the scheme surfaces and text when they pass', () {
+      for (final seed in seeds) {
+        final scheme = ColorScheme.fromSeed(seedColor: seed);
+        final t = SleuthThemeData.fromColorScheme(scheme);
+        expect(t.pageBackground, scheme.surface, reason: 'seed $seed');
+        expect(t.cardDefault, scheme.surfaceContainerHighest);
+        expect(t.cardHighlighted, scheme.primaryContainer);
+        expect(t.textPrimary, scheme.onSurface);
+        expect(t.checkboxActive, scheme.primary);
+      }
+    });
+
+    for (final variant in [
+      DynamicSchemeVariant.fidelity,
+      DynamicSchemeVariant.content,
+    ]) {
+      for (final brightness in Brightness.values) {
+        test('fromColorScheme (${variant.name}, ${brightness.name}) every '
+            'pair meets its minimum', () {
+          for (final seed in _vividSeeds) {
+            final scheme = ColorScheme.fromSeed(
+              seedColor: seed,
+              brightness: brightness,
+              dynamicSchemeVariant: variant,
+            );
+            expect(
+              _failures(SleuthThemeData.fromColorScheme(scheme)),
+              isEmpty,
+              reason: 'seed $seed',
+            );
+          }
+        });
+      }
+    }
+
+    test('fromColorScheme replaces only the unreadable surface', () {
+      final scheme = ColorScheme.fromSeed(
+        seedColor: const Color(0xFF6750A4),
+        dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
+      );
+      final t = SleuthThemeData.fromColorScheme(scheme);
+      // The mid-tone primary container goes back to the preset's.
+      expect(t.cardHighlighted, const SleuthThemeData.light().cardHighlighted);
+      expect(t.pageBackground, scheme.surface);
+      expect(t.cardDefault, scheme.surfaceContainerHighest);
+      expect(t.textPrimary, scheme.onSurface);
+    });
+
+    test('fromColorScheme on mid-grey surfaces with black text falls back '
+        'surfaces and text together', () {
+      const grey = Color(0xFF777777);
+      final scheme = const ColorScheme.light().copyWith(
+        surface: grey,
+        surfaceContainerLowest: grey,
+        surfaceContainerLow: grey,
+        surfaceContainer: grey,
+        surfaceContainerHigh: grey,
+        surfaceContainerHighest: grey,
+        primaryContainer: grey,
+        secondaryContainer: grey,
+        tertiaryContainer: grey,
+        errorContainer: grey,
+        onSurface: _black,
+        onSurfaceVariant: _black,
+        outline: _black,
+      );
+      final t = SleuthThemeData.fromColorScheme(scheme);
+      expect(_failures(t), isEmpty);
+      expect(t.pageBackground, isNot(grey));
+      expect(t.cardDefault, isNot(grey));
+    });
+
+    test('fromColorScheme falls back an unreadable primary', () {
+      const yellow = Color(0xFFFFEB3B);
+      final scheme = const ColorScheme.light().copyWith(
+        primary: yellow,
+        onPrimary: _white,
+      );
+      final t = SleuthThemeData.fromColorScheme(scheme);
+      expect(_failures(t), isEmpty);
+      const light = SleuthThemeData.light();
+      expect(t.checkboxActive, light.checkboxActive);
+      expect(t.aiChatUserBubbleBg, light.aiChatUserBubbleBg);
+      expect(t.aiChatUserBubbleText, light.aiChatUserBubbleText);
+      // A step circle draws black or white by contrast on any fill.
+      expect(t.guideStepAccent, yellow);
+    });
   });
 
   group('presets', () {

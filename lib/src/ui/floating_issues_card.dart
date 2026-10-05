@@ -3210,6 +3210,7 @@ class _SeverityChip extends StatelessWidget {
                         color,
                         tinted: theme.severityTextColor(severity),
                       ),
+                      indicatorColor: theme.severityTextColor(severity),
                       count: count,
                       selected: selected,
                     ),
@@ -3225,20 +3226,27 @@ class _SeverityChip extends StatelessWidget {
 }
 
 /// The visible pill of a [_SeverityChip]; animates between selected
-/// (severity fill at 0.15, border at 0.6) and unselected (border token at
-/// 0.5, muted text) over 200 ms, or at once under reduced motion.
+/// (severity fill at [SleuthThemeData.badgeFillAlpha], a 1.5 px border in
+/// [indicatorColor]) and unselected (border token at 0.5, muted text) over
+/// 200 ms, or at once under reduced motion. A check before the count marks
+/// a selected chip and a dot an unselected one, so the state does not rest
+/// on colour alone.
 class _SeverityChipPill extends StatefulWidget {
   const _SeverityChipPill({
     required this.color,
     required this.textColor,
+    required this.indicatorColor,
     required this.count,
     required this.selected,
   });
 
   final Color color;
 
-  /// Count and dot colour when selected.
+  /// Count and check colour when selected.
   final Color textColor;
+
+  /// Border colour when selected: 3:1 or more against the card.
+  final Color indicatorColor;
   final int count;
   final bool selected;
 
@@ -3288,12 +3296,13 @@ class _SeverityChipPillState extends State<_SeverityChipPill>
         color: color.withValues(alpha: theme.badgeFillAlpha * t),
         borderRadius: BorderRadius.circular(theme.radiusMd),
         border: Border.all(
-          // High contrast keeps both state borders at full strength.
+          // High contrast keeps the unselected border at full strength.
           color: Color.lerp(
             theme.border.withValues(alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.5),
-            color.withValues(alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.6),
+            widget.indicatorColor,
             t,
           )!,
+          width: 1 + 0.5 * t,
         ),
       ),
       child: Padding(
@@ -3304,13 +3313,16 @@ class _SeverityChipPillState extends State<_SeverityChipPill>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: foreground,
-                shape: BoxShape.circle,
+            if (widget.selected)
+              Icon(Icons.check, size: 10, color: foreground)
+            else
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: foreground,
+                  shape: BoxShape.circle,
+                ),
+                child: const SizedBox(width: 6, height: 6),
               ),
-              child: const SizedBox(width: 6, height: 6),
-            ),
             const SizedBox(width: 3),
             Text(
               '${widget.count}',
@@ -3767,13 +3779,9 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
               // no visual signal that the displayed total is frozen.
               if (!_expanded && _paused) ...[
                 SizedBox(width: theme.spacingXxs),
-                Icon(
-                  Icons.pause,
-                  size: 10,
-                  color: color.withValues(
-                    alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.5,
-                  ),
-                ),
+                // A text token keeps the state icon at 3:1 or more on
+                // the tinted banner.
+                Icon(Icons.pause, size: 10, color: theme.textSecondary),
               ],
               if (_expanded) ...[
                 Semantics(

@@ -67,7 +67,8 @@ void main() {
 
       final containers = tester.widgetList<Container>(find.byType(Container));
       final accent = containers.where(
-        (c) => hasLeftBorderColor(c, const Color(0xFF8B5CF6)),
+        (c) =>
+            hasLeftBorderColor(c, const SleuthThemeData().sourceDebugCallback),
       );
       expect(accent, isNotEmpty);
     });
@@ -85,7 +86,8 @@ void main() {
 
       final containers = tester.widgetList<Container>(find.byType(Container));
       final accent = containers.where(
-        (c) => hasLeftBorderColor(c, const Color(0xFF8B5CF6)),
+        (c) =>
+            hasLeftBorderColor(c, const SleuthThemeData().sourceDebugCallback),
       );
       expect(accent, isNotEmpty);
     });
@@ -97,7 +99,7 @@ void main() {
 
       final containers = tester.widgetList<Container>(find.byType(Container));
       final accent = containers.where(
-        (c) => hasLeftBorderColor(c, const Color(0xFF6B7280)),
+        (c) => hasLeftBorderColor(c, const SleuthThemeData().sourceStructural),
       );
       expect(accent, isNotEmpty);
     });
@@ -107,7 +109,7 @@ void main() {
 
       final containers = tester.widgetList<Container>(find.byType(Container));
       final accent = containers.where(
-        (c) => hasLeftBorderColor(c, const Color(0xFF4B5563)),
+        (c) => hasLeftBorderColor(c, const SleuthThemeData().sourceNone),
       );
       expect(accent, isNotEmpty);
     });

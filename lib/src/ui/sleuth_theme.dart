@@ -67,7 +67,8 @@ import '../models/performance_issue.dart';
 ///   confidence and source colours stay Sleuth's.
 ///
 /// Text tokens meet WCAG AA (4.5:1) on every surface token in all four
-/// presets. Badges draw [textPrimary] on a [badgeFillAlpha] tint of their
+/// presets, and the source accents keep 3:1 against the issue cards.
+/// Badges draw [textPrimary] on a [badgeFillAlpha] tint of their
 /// accent with a 1 px accent border; severity badges use the severity text
 /// tokens. With opaque fills (`badgeFillAlpha == 1`, the high-contrast
 /// presets) badge text is black or white, whichever contrasts more.
@@ -121,11 +122,11 @@ class SleuthThemeData {
     this.confidenceLikely = const Color(0xFFF59E0B),
     this.confidencePossible = const Color(0xFF6B7280),
 
-    // ── Source accents (left border on issue cards) ──
+    // ── Source accents (left border on issue cards, 3:1 on the cards) ──
     this.sourceVmTimeline = const Color(0xFF10B981),
-    this.sourceDebugCallback = const Color(0xFF8B5CF6),
-    this.sourceStructural = const Color(0xFF6B7280),
-    this.sourceNone = const Color(0xFF4B5563),
+    this.sourceDebugCallback = const Color(0xFFA78BFA),
+    this.sourceStructural = const Color(0xFF9CA3AF),
+    this.sourceNone = const Color(0xFF8B93A0),
 
     // ── Fix effort ──
     this.effortQuick = const Color(0xFF10B981),
@@ -238,16 +239,24 @@ class SleuthThemeData {
   /// Light theme for light-background apps.
   ///
   /// Inverts surfaces (dark → white/light gray) and text (white → near-black)
-  /// while keeping all semantic accent colors (severity, category, confidence,
-  /// source, effort) identical. Badge and banner pairs are swapped
-  /// (dark bg + light text → light bg + dark text).
+  /// while keeping the severity, category, confidence and effort accents
+  /// identical. The source accents are deeper shades of the same hues, so
+  /// the strip keeps 3:1 against the light cards. Badge and banner pairs
+  /// are swapped (dark bg + light text → light bg + dark text).
   ///
-  /// Tokens not overridden here (e.g. [guideStepAccent], [guideTipIcon])
-  /// retain their dark-theme values because they are used on colored
-  /// backgrounds where the dark value provides correct contrast.
+  /// Tokens not overridden here keep their dark-theme values. Among them
+  /// [guideStepAccent] fills the guide's step circles, whose numbers are
+  /// black or white by contrast ([onColor]), and [guideTipIcon] colours
+  /// the guide's tip icons, which sit beside the tip text and carry no
+  /// meaning of their own.
   const SleuthThemeData.light()
     : this(
         brightness: Brightness.light,
+        // Source accents (deeper, for the light cards)
+        sourceVmTimeline: const Color(0xFF047857),
+        sourceDebugCallback: const Color(0xFF7C3AED),
+        sourceStructural: const Color(0xFF6B7280),
+        sourceNone: const Color(0xFF4B5563),
         // Surfaces
         cardBackground: const Color(0xF5FFFFFF),
         pageBackground: const Color(0xFFF9FAFB),
@@ -357,6 +366,8 @@ class SleuthThemeData {
         gripDots: const Color(0xFF6B7280),
         checkboxActive: const Color(0xFF2563EB),
         triggerBadgeBg: const Color(0xFFE5E7EB),
+        sourceVmTimeline: const Color(0xFF047857),
+        sourceDebugCallback: const Color(0xFF7C3AED),
         sourceStructural: const Color(0xFF374151),
         sourceNone: const Color(0xFF6B7280),
         badgeFillAlpha: 1,
@@ -379,13 +390,18 @@ class SleuthThemeData {
   /// [SleuthThemeData.light], whichever matches the brightness of
   /// `scheme.surface` (which also sets [brightness]).
   ///
-  /// Each text token is checked against each surface for 4.5:1. When the
-  /// scheme's text fails, `onSurfaceVariant` replaces `outline` for
-  /// [textQuaternary]; when that fails too, the whole text group (primary
-  /// to quaternary) comes from the preset whose brightness matches
-  /// [pageBackground], so surfaces are never paired with text of the
-  /// wrong brightness. That fallback is not checked again: on a mid-tone
-  /// surface the preset text can still fall below 4.5:1.
+  /// Every pair the overlay draws on a surface is checked: text and
+  /// severity text at 4.5:1 (the translucent [cardBackground] over a black
+  /// and a white host), badges over their tint, the source accent strip at
+  /// 3:1. The text group (primary to quaternary) is tried in order: the
+  /// scheme's, the scheme's with `onSurfaceVariant` for [textQuaternary],
+  /// then the preset's. With each, a scheme surface that fails takes the
+  /// preset's value instead, and the group is kept only when every pair
+  /// then passes, so a surface and the text drawn on it fall back
+  /// together. The preset text always passes on the preset surfaces.
+  /// [checkboxActive] falls back to the preset's, then to [textPrimary];
+  /// the chat bubble pair falls back to the preset's when `onPrimary` on
+  /// `primary` is below 4.5:1.
   ///
   /// Build the theme once and pass the same instance to
   /// `SleuthConfig.theme` or `Sleuth.updateTheme`: the overlay compares
@@ -396,20 +412,7 @@ class SleuthThemeData {
     final base = brightness == Brightness.dark
         ? const SleuthThemeData()
         : const SleuthThemeData.light();
-    final surfaces = <Color>[
-      scheme.surface,
-      scheme.surfaceContainer,
-      scheme.surfaceContainerHigh,
-      scheme.surfaceContainerHighest,
-      scheme.primaryContainer,
-      scheme.errorContainer,
-      base.aboutBackground,
-      base.fixHintBackground,
-    ];
-    bool passes(List<Color> texts) => texts.every(
-      (text) => surfaces.every((s) => contrastRatio(text, s) >= 4.5),
-    );
-    final candidates = <List<Color>>[
+    final textGroups = <List<Color>>[
       [
         scheme.onSurface,
         scheme.onSurfaceVariant,
@@ -422,35 +425,54 @@ class SleuthThemeData {
         scheme.onSurfaceVariant,
         scheme.onSurfaceVariant,
       ],
-    ];
-    final text = candidates.firstWhere(
-      passes,
-      orElse: () => [
+      [
         base.textPrimary,
         base.textSecondary,
         base.textTertiary,
         base.textQuaternary,
       ],
-    );
-    return base.copyWith(
-      brightness: brightness,
-
-      pageBackground: scheme.surface,
-      cardBackground: scheme.surfaceContainer.withAlpha(0xF5),
-      sectionBackground: scheme.surfaceContainerHigh,
-      cardDefault: scheme.surfaceContainerHighest,
-      cardHighlighted: scheme.primaryContainer,
-      cardJankFlash: scheme.errorContainer,
-      border: scheme.outlineVariant,
-      textPrimary: text[0],
-      textSecondary: text[1],
-      textTertiary: text[2],
-      textQuaternary: text[3],
-      checkboxActive: scheme.primary,
-      guideStepAccent: scheme.primary,
-      aiChatUserBubbleBg: scheme.primary,
-      aiChatUserBubbleText: scheme.onPrimary,
-    );
+    ];
+    for (final text in textGroups) {
+      final surfaces = <_SchemeSurface, Color>{
+        _SchemeSurface.page: scheme.surface,
+        _SchemeSurface.card: scheme.surfaceContainer.withAlpha(0xF5),
+        _SchemeSurface.section: scheme.surfaceContainerHigh,
+        _SchemeSurface.cardDefault: scheme.surfaceContainerHighest,
+        _SchemeSurface.highlighted: scheme.primaryContainer,
+        _SchemeSurface.jankFlash: scheme.errorContainer,
+      };
+      SleuthThemeData build() => base.copyWith(
+        brightness: brightness,
+        pageBackground: surfaces[_SchemeSurface.page],
+        cardBackground: surfaces[_SchemeSurface.card],
+        sectionBackground: surfaces[_SchemeSurface.section],
+        cardDefault: surfaces[_SchemeSurface.cardDefault],
+        cardHighlighted: surfaces[_SchemeSurface.highlighted],
+        cardJankFlash: surfaces[_SchemeSurface.jankFlash],
+        border: scheme.outlineVariant,
+        textPrimary: text[0],
+        textSecondary: text[1],
+        textTertiary: text[2],
+        textQuaternary: text[3],
+        guideStepAccent: scheme.primary,
+      );
+      var theme = build();
+      var failing = theme._unreadableSurfaces();
+      // A pair on a preset surface (the about and fix-hint boxes, the
+      // trigger badge) fails: only other text can fix it.
+      if (failing.contains(null)) continue;
+      if (failing.isNotEmpty) {
+        for (final surface in failing) {
+          surfaces[surface!] = base._surface(surface);
+        }
+        theme = build();
+        failing = theme._unreadableSurfaces();
+        if (failing.isNotEmpty) continue;
+      }
+      return theme._withSchemeAccents(scheme, base);
+    }
+    // Not reached: the preset text passes on every preset surface.
+    return base.copyWith(brightness: brightness);
   }
 
   /// [SleuthThemeData.fromColorScheme] for `ColorScheme.fromSeed`.
@@ -471,8 +493,12 @@ class SleuthThemeData {
     return (hi + 0.05) / (lo + 0.05);
   }
 
-  /// Whether this is a dark or a light theme. Picks the header toggle icon
-  /// and the high-contrast variant.
+  /// Whether this is a dark or a light theme: the presets set it to match
+  /// their surfaces and [SleuthThemeData.fromColorScheme] to the scheme's
+  /// surface. Descriptive only; the overlay reads nothing from it. The
+  /// header toggle icon follows the stored theme mode, and the
+  /// high-contrast preset is picked from that mode or the platform
+  /// brightness.
   final Brightness brightness;
 
   // ── Severity text ──
@@ -492,9 +518,9 @@ class SleuthThemeData {
   /// the high-contrast presets.
   final double badgeFillAlpha;
 
-  /// Focus indicator width: 2 in the high-contrast presets, 0 otherwise.
-  /// The overlay's own controls are touch targets without keyboard focus
-  /// and draw no ring.
+  /// Reserved for a keyboard focus indicator: 2 in the high-contrast
+  /// presets, 0 otherwise. The overlay does not read it; its controls are
+  /// touch targets without keyboard focus and draw no ring.
   final double focusRingWidth;
 
   /// Width of the source accent on the left edge of an issue card.
@@ -715,6 +741,141 @@ class SleuthThemeData {
         : white;
   }
 
+  /// This theme's value for [surface].
+  Color _surface(_SchemeSurface surface) => switch (surface) {
+    _SchemeSurface.page => pageBackground,
+    _SchemeSurface.card => cardBackground,
+    _SchemeSurface.section => sectionBackground,
+    _SchemeSurface.cardDefault => cardDefault,
+    _SchemeSurface.highlighted => cardHighlighted,
+    _SchemeSurface.jankFlash => cardJankFlash,
+  };
+
+  /// Surfaces with a pair below its minimum, as checked by
+  /// [SleuthThemeData.fromColorScheme]; null stands for a pair on a
+  /// surface the scheme does not set.
+  Set<_SchemeSurface?> _unreadableSurfaces() {
+    const black = Color(0xFF000000);
+    const white = Color(0xFFFFFFFF);
+    final failing = <_SchemeSurface?>{};
+    void check(_SchemeSurface? on, Color fg, Color bg, [double min = 4.5]) {
+      if (contrastRatio(fg, bg) < min) failing.add(on);
+    }
+
+    final texts = [
+      textPrimary,
+      textSecondary,
+      textTertiary,
+      textQuaternary,
+      severityCriticalText,
+      severityWarningText,
+      severityOkText,
+    ];
+    final cardOverBlack = Color.alphaBlend(cardBackground, black);
+    final cardOverWhite = Color.alphaBlend(cardBackground, white);
+    final surfaces = <(_SchemeSurface?, Color)>[
+      (_SchemeSurface.page, pageBackground),
+      (_SchemeSurface.card, cardOverBlack),
+      (_SchemeSurface.card, cardOverWhite),
+      (_SchemeSurface.section, sectionBackground),
+      (_SchemeSurface.cardDefault, cardDefault),
+      (_SchemeSurface.highlighted, cardHighlighted),
+      (_SchemeSurface.jankFlash, cardJankFlash),
+      (null, aboutBackground),
+      (null, fixHintBackground),
+    ];
+    for (final (on, bg) in surfaces) {
+      for (final fg in texts) {
+        check(on, fg, bg);
+      }
+    }
+    // Trigger: the issue count, the FPS number and its warm-up dash.
+    for (final fg in [textPrimary, textTertiary, ...texts.skip(4)]) {
+      check(null, fg, triggerBadgeBg);
+    }
+    // Severity badges: severity text over the severity tint.
+    for (final severity in IssueSeverity.values) {
+      final accent = severityColor(severity);
+      final fg = badgeTextOn(accent, tinted: severityTextColor(severity));
+      for (final (on, bg) in [
+        (_SchemeSurface.cardDefault, cardDefault),
+        (_SchemeSurface.highlighted, cardHighlighted),
+        (_SchemeSurface.card, cardOverBlack),
+      ]) {
+        check(on, fg, Color.alphaBlend(badgeFill(accent), bg));
+      }
+    }
+    // Category, confidence, effort and effects badges.
+    final accents = [
+      for (final c in IssueCategory.values) categoryColor(c),
+      for (final c in IssueConfidence.values) confidenceColor(c),
+      for (final e in FixEffort.values) effortColor(e),
+      effectsBadge,
+    ];
+    for (final accent in accents) {
+      for (final (on, bg) in <(_SchemeSurface?, Color)>[
+        (_SchemeSurface.cardDefault, cardDefault),
+        (_SchemeSurface.highlighted, cardHighlighted),
+        (null, aboutBackground),
+        (null, fixHintBackground),
+      ]) {
+        check(on, badgeTextOn(accent), Color.alphaBlend(badgeFill(accent), bg));
+      }
+    }
+    for (final (on, bg) in [
+      (_SchemeSurface.cardDefault, cardDefault),
+      (_SchemeSurface.highlighted, cardHighlighted),
+    ]) {
+      check(on, disclaimerText, bg);
+    }
+    // Source accent strip on the card fills and next to the card.
+    for (final source in [...ObservationSource.values, null]) {
+      final accent = sourceAccentColor(source);
+      for (final (on, bg) in [
+        (_SchemeSurface.cardDefault, cardDefault),
+        (_SchemeSurface.highlighted, cardHighlighted),
+        (_SchemeSurface.jankFlash, cardJankFlash),
+        (_SchemeSurface.card, cardOverBlack),
+        (_SchemeSurface.card, cardOverWhite),
+      ]) {
+        check(on, accent, bg, 3);
+      }
+    }
+    // Rebuild-stats icons on the build-tinted banner.
+    for (final bg in [cardOverBlack, cardOverWhite]) {
+      final banner = Color.alphaBlend(categoryBuild.withValues(alpha: 0.1), bg);
+      check(_SchemeSurface.card, textSecondary, banner, 3);
+    }
+    return failing;
+  }
+
+  /// This theme with the scheme's [checkboxActive] and chat bubble pair
+  /// where they are readable on its surfaces, else [preset]'s, else
+  /// [textPrimary] for [checkboxActive].
+  SleuthThemeData _withSchemeAccents(
+    ColorScheme scheme,
+    SleuthThemeData preset,
+  ) {
+    const black = Color(0xFF000000);
+    const white = Color(0xFFFFFFFF);
+    bool readable(Color c) =>
+        contrastRatio(c, pageBackground) >= 4.5 &&
+        contrastRatio(c, Color.alphaBlend(cardBackground, black)) >= 4.5 &&
+        contrastRatio(c, Color.alphaBlend(cardBackground, white)) >= 4.5 &&
+        contrastRatio(c, cardDefault) >= 3;
+    final bubble = contrastRatio(scheme.onPrimary, scheme.primary) >= 4.5;
+    return copyWith(
+      checkboxActive: [
+        scheme.primary,
+        preset.checkboxActive,
+      ].firstWhere(readable, orElse: () => textPrimary),
+      aiChatUserBubbleBg: bubble ? scheme.primary : preset.aiChatUserBubbleBg,
+      aiChatUserBubbleText: bubble
+          ? scheme.onPrimary
+          : preset.aiChatUserBubbleText,
+    );
+  }
+
   /// Returns a copy with the specified fields overridden.
   ///
   /// Tip: when overriding badge or banner colors, always set both the `Bg`
@@ -926,6 +1087,9 @@ class SleuthThemeData {
     );
   }
 }
+
+/// A surface [SleuthThemeData.fromColorScheme] takes from the scheme.
+enum _SchemeSurface { page, card, section, cardDefault, highlighted, jankFlash }
 
 /// Provides [SleuthThemeData] to overlay widgets via the widget tree.
 ///

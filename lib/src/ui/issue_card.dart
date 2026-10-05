@@ -417,6 +417,7 @@ class _IssueCardState extends State<IssueCard> {
                     materialTapTargetSize: MaterialTapTargetSize.padded,
                     side: BorderSide(color: theme.textQuaternary, width: 1.5),
                     activeColor: theme.checkboxActive,
+                    checkColor: SleuthThemeData.onColor(theme.checkboxActive),
                   ),
                 ),
               ),
@@ -1340,12 +1341,14 @@ Widget _linkHitBox({
   );
 }
 
-/// Animated shimmer "Ask AI" link with purple-blue-pink gradient.
+/// "Ask AI" link: [SleuthThemeData.textSecondary] text beside a sparkle
+/// icon that a purple-blue-pink gradient sweeps across.
 ///
-/// Owns its own [AnimationController] so the shimmer only runs while this
-/// widget is in the tree (card expanded + onAskAi configured). The gradient
-/// area is tiny (single text line + icon) so the [ShaderMask] saveLayer
-/// cost is negligible.
+/// The text stays a solid token, readable on every card fill; the
+/// shimmer is decoration on the icon only. Owns its own
+/// [AnimationController] so the shimmer only runs while this widget is
+/// in the tree (card expanded + onAskAi configured), and the icon has
+/// its own [RepaintBoundary] so a tick repaints the icon alone.
 class _AskAiShimmerLink extends StatefulWidget {
   const _AskAiShimmerLink({required this.onTap});
 
@@ -1402,53 +1405,53 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    return RepaintBoundary(
-      child: _linkHitBox(
-        label: 'Ask AI about this issue',
-        onTap: widget.onTap,
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, child) {
-            // Sweep a full-width gradient across the widget. The gradient
-            // stretches 2 alignment-units (= full widget width) and travels
-            // from off-screen left (-3) to off-screen right (+3), so the
-            // shimmer enters at the icon and exits past the last letter.
-            final dx = _controller.value * 6.0 - 3.0;
-            return ShaderMask(
-              shaderCallback: (bounds) => LinearGradient(
-                begin: Alignment(dx, 0),
-                end: Alignment(dx + 2.0, 0),
-                colors: [
-                  theme.aiShimmerStart,
-                  theme.aiShimmerMid,
-                  theme.aiShimmerEnd,
-                  theme.aiShimmerStart,
-                ],
-                stops: const [0.0, 0.33, 0.66, 1.0],
-              ).createShader(bounds),
-              blendMode: BlendMode.srcIn,
-              child: child,
-            );
-          },
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.auto_awesome, size: 13),
-              SizedBox(width: theme.spacingXs),
-              Flexible(
-                child: Text(
-                  'Ask AI about this issue',
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: theme.fontXs,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
+    return _linkHitBox(
+      label: 'Ask AI about this issue',
+      onTap: widget.onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                // The gradient is one icon wide (2 alignment units) and
+                // travels from -3 to +3, so the sweep enters and leaves
+                // off the icon.
+                final dx = _controller.value * 6.0 - 3.0;
+                return ShaderMask(
+                  shaderCallback: (bounds) => LinearGradient(
+                    begin: Alignment(dx, 0),
+                    end: Alignment(dx + 2.0, 0),
+                    colors: [
+                      theme.aiShimmerStart,
+                      theme.aiShimmerMid,
+                      theme.aiShimmerEnd,
+                      theme.aiShimmerStart,
+                    ],
+                    stops: const [0.0, 0.33, 0.66, 1.0],
+                  ).createShader(bounds),
+                  blendMode: BlendMode.srcIn,
+                  child: child,
+                );
+              },
+              child: const Icon(Icons.auto_awesome, size: 13),
+            ),
           ),
-        ),
+          SizedBox(width: theme.spacingXs),
+          Flexible(
+            child: Text(
+              'Ask AI about this issue',
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: TextStyle(
+                color: theme.textSecondary,
+                fontSize: theme.fontXs,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

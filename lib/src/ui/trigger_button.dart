@@ -18,6 +18,11 @@ import 'text_scale_clamp.dart';
 /// - Red: critical issues / FPS < 50% of target
 /// - ⚠️ badge: debug mode
 ///
+/// The FPS number sits on an opaque [SleuthThemeData.triggerBadgeBg] pill
+/// in the severity text colour, with the FPS colour on the pill's border.
+/// The spoken label gives the issue count and, when there are any, the
+/// critical count.
+///
 /// The badge and colour count the cards the overlay would show (hidden
 /// cards and filtered severities excluded). The button stays inside the
 /// view padding and above the keyboard. A drag snaps it to the nearest
@@ -244,6 +249,9 @@ class _TriggerButtonState extends State<TriggerButton> {
       listenable: _listenable(),
       builder: (context) {
         final visible = _state.visibleIssues(widget.issuesNotifier.value);
+        final critical = visible
+            .where((i) => i.severity == IssueSeverity.critical)
+            .length;
         return _TriggerLayout(
           delegate: _TriggerLayoutDelegate(
             viewPadding: viewPadding,
@@ -264,9 +272,11 @@ class _TriggerButtonState extends State<TriggerButton> {
             onTap: widget.onTap,
             child: Semantics(
               button: true,
+              // The red fill means a critical issue; the label says so.
               label:
                   'Open Sleuth, ${visible.length} '
-                  '${visible.length == 1 ? 'issue' : 'issues'}',
+                  '${visible.length == 1 ? 'issue' : 'issues'}'
+                  '${critical > 0 ? ', $critical critical' : ''}',
               onTap: widget.onTap,
               customSemanticsActions: {
                 const CustomSemanticsAction(label: 'Move to left edge'): () =>
@@ -379,15 +389,32 @@ class _TriggerButtonState extends State<TriggerButton> {
               0.0,
               widget.fpsTarget.toDouble(),
             );
-            return Text(
-              isWarming ? '—' : fps.toStringAsFixed(0),
-              style: TextStyle(
-                color: isWarming
-                    ? theme.textTertiary
-                    : theme.fpsColor(fps, target: widget.fpsTarget),
-                fontSize: theme.fontBase,
-                fontWeight: FontWeight.bold,
-                shadows: [Shadow(color: theme.shadow, blurRadius: 4)],
+            // The number sits on the opaque badge colour, not the host,
+            // in a text token readable there; the border carries the
+            // severity accent.
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.triggerBadgeBg,
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                border: Border.all(
+                  color: isWarming
+                      ? theme.border
+                      : theme.fpsColor(fps, target: widget.fpsTarget),
+                  width: 1.5,
+                ),
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
+                child: Text(
+                  isWarming ? '—' : fps.toStringAsFixed(0),
+                  style: TextStyle(
+                    color: isWarming
+                        ? theme.textTertiary
+                        : theme.fpsTextColor(fps, target: widget.fpsTarget),
+                    fontSize: theme.fontBase,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             );
           },
