@@ -43,11 +43,13 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     this.maxFrameRasterFloorUs = 8000,
     this.minRasterDominantFrames = 3,
     this.startupPhaseWindowSeconds = 5,
+    String? Function()? sourceRouteProvider,
     int? Function()? appStartMonotonicUsForTest,
   }) : assert(
          minRasterDominantFrames >= 1,
          'minRasterDominantFrames must be >= 1.',
        ),
+       _sourceRouteProvider = sourceRouteProvider ?? (() => null),
        _appStartForTest = appStartMonotonicUsForTest,
        super(
          type: DetectorType.gpuPressure,
@@ -79,6 +81,10 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   /// controller wires it from
   /// `DetectorThresholds.startupPhaseWindowSeconds`.
   final int startupPhaseWindowSeconds;
+
+  /// Route active when a frame-leg issue is emitted, stamped on it as
+  /// [PerformanceIssue.sourceRoute]. Wired by the controller.
+  final String? Function() _sourceRouteProvider;
 
   /// Test-only override for the app-start monotonic anchor, mirroring
   /// `FrameTimingDetector`. Tests pass `() => Timeline.now - ageUs`.
@@ -267,6 +273,12 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     final delta = Timeline.now - appStart;
     if (delta < 0) return false;
     return delta < startupPhaseWindowSeconds * 1000000;
+  }
+
+  /// Starts a new frame window at a route change: raster-dominant frames
+  /// seen on the previous route no longer count toward the frame leg.
+  void markRouteEpoch() {
+    _resetFrameLeg();
   }
 
   void _resetFrameLeg() {
@@ -484,6 +496,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         fixEffort: effort,
         observationSource: ObservationSource.frameTiming,
         detectedAt: DateTime.now(),
+        sourceRoute: _sourceRouteProvider(),
         dedupIdentityMicros: frameLeg.identityUs,
         extraTraceArgs: {
           'source': 'frame_timing',

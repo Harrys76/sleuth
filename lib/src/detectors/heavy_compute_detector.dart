@@ -167,7 +167,13 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
         if (durationUs > worstUs) worstUs = durationUs;
       }
       if (over > 0) {
-        fresh.add(_createGenericIssue(worstUs, batchCount: over));
+        fresh.add(
+          _createGenericIssue(
+            worstUs,
+            batchCount: over,
+            batchMaxTimestampUs: data.maxTimestampUs,
+          ),
+        );
       }
     }
 
@@ -247,7 +253,14 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     );
   }
 
-  PerformanceIssue _createGenericIssue(int durationUs, {int batchCount = 1}) {
+  /// Issue for a batch that carries build durations without timestamps.
+  /// The batch's newest event timestamp (when known) identifies it for
+  /// capture-mode dedup.
+  PerformanceIssue _createGenericIssue(
+    int durationUs, {
+    int batchCount = 1,
+    int batchMaxTimestampUs = -1,
+  }) {
     final ms = durationUs / 1000;
     final (hint, effort) = FixHintBuilder.heavyCompute(durationMs: ms);
     return PerformanceIssue(
@@ -266,6 +279,9 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
+      dedupIdentityMicros: batchMaxTimestampUs >= 0
+          ? batchMaxTimestampUs
+          : null,
       // Same observed-axis stamping as the enriched path so the audit
       // gate's cross-check applies to fallback emissions too.
       extraTraceArgs: {'observedDurationMs': ms.toString()},

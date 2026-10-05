@@ -930,6 +930,37 @@ void main() {
       expect(visible.map((i) => i.stableId).toList(), ['parent']);
     });
 
+    test('a parent id shared by two issues: the instance listing the '
+        'child decides', () {
+      PerformanceIssue parent(IssueSeverity severity, {bool owns = false}) =>
+          _pinIssue(
+            id: 'parent',
+            severity: severity,
+          ).copyWith(downstreamIds: owns ? const ['child'] : null);
+      final child = _pinIssue(
+        id: 'child',
+        severity: IssueSeverity.critical,
+        rootCauseIds: ['parent'],
+      );
+
+      // The critical instance does not list the child; the warning one
+      // that does is less severe, so the child stays visible.
+      var visible = computeVisibleIssues([
+        parent(IssueSeverity.critical),
+        parent(IssueSeverity.warning, owns: true),
+        child,
+      ]);
+      expect(visible, contains(child));
+
+      // The critical instance lists it: collapsed under that card.
+      visible = computeVisibleIssues([
+        parent(IssueSeverity.critical, owns: true),
+        parent(IssueSeverity.warning),
+        child,
+      ]);
+      expect(visible, isNot(contains(child)));
+    });
+
     test('two parents: child visible for every parent/child severity mix', () {
       for (final childSeverity in IssueSeverity.values) {
         for (final aSeverity in IssueSeverity.values) {

@@ -58,7 +58,7 @@ List<_Batch> _buildBatches(int replays) {
   final pendingPaint = <int, List<Map<String, dynamic>>>{};
   final pendingRaster = <int, List<Map<String, dynamic>>>{};
   final pendingShader = <int, List<Map<String, dynamic>>>{};
-  final pendingChannel = <String, int>{};
+  final pendingChannel = PendingChannelBegins();
   final cursors = <int, TimelineCursor>{};
 
   final batches = <_Batch>[];

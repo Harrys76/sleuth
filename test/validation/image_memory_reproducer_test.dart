@@ -8,21 +8,29 @@
 // `MemoryImage`, decoded with `precacheImage` inside `runAsync`, at an
 // explicit device pixel ratio of 2.0. The rule:
 //
-//   needed  = display box (dp) × dpr, per axis
+//   needed  = display box (dp) × dpr, per axis; for a decode shown by
+//             several widgets, the largest on each axis
 //   ratio   = min(decodedW / neededW, decodedH / neededH)
 //   wasted  = (decodedW × decodedH − neededW × neededH) × 4 bytes
 //
-//   - an image qualifies when ratio >= 1.5 (min, so a BoxFit.cover crop in
+//   - widgets showing one decode (one image cache entry) count it once;
+//   - a decode qualifies when ratio >= 1.5 (min, so a BoxFit.cover crop in
 //     one axis is not waste);
-//   - the issue emits when qualifying images waste >= 1 MiB in total;
+//   - the issue emits when qualifying decodes waste >= 1 MiB in total;
 //   - severity is critical at >= 16 MiB in total, else warning.
+//
+// Each widget below gets its own copy of the bytes (a MemoryImage key is
+// the byte buffer), so it decodes separately, unless the test is about a
+// shared decode.
 //
 // Boundaries pinned below:
 //   - ratio: 560 px at 200 dp (1.4) never qualifies; 600 px (1.5) does.
-//   - total: two 400 px images at 100 dp (960,000 B) silent; three
+//   - total: two 400 px decodes at 100 dp (960,000 B) silent; three
 //     (1,440,000 B) fire.
-//   - severity: one 2048 px image at 100 dp (16,617,216 B) is a warning;
+//   - severity: one 2048 px decode at 100 dp (16,617,216 B) is a warning;
 //     two (33,234,432 B) are critical.
+//   - sharing: five widgets of one 1200 px decode at 100 dp waste one
+//     decode's 5,600,000 B (a warning), not five.
 //
 // Skips: ResizeImage providers, BoxFit.none, centerSlice, repeat, an image
 // not yet decoded (first scan silent, fires after decode), and
@@ -37,6 +45,9 @@ import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/decoded_image_helpers.dart';
 import '_helpers/structural_reproducer_harness.dart';
+
+/// A copy of [bytes] that decodes as its own image cache entry.
+Uint8List _copy(Uint8List bytes) => Uint8List.fromList(bytes);
 
 Widget _page(List<Widget> images) => Align(
   alignment: Alignment.topLeft,
@@ -96,8 +107,8 @@ void main() {
       setDevicePixelRatio(tester, 2.0);
       final bytes = await pngBytes(tester, width: 600, height: 600);
       final issues = await _scanDecoded(tester, detector, [
-        _image(bytes, 200),
-        _image(bytes, 200),
+        _image(_copy(bytes), 200),
+        _image(_copy(bytes), 200),
       ]);
       expect(issues, hasStableId('uncached_images'));
     });
@@ -108,8 +119,8 @@ void main() {
       setDevicePixelRatio(tester, 2.0);
       final bytes = await pngBytes(tester, width: 400, height: 400);
       final issues = await _scanDecoded(tester, detector, [
-        _image(bytes, 100),
-        _image(bytes, 100),
+        _image(_copy(bytes), 100),
+        _image(_copy(bytes), 100),
       ]);
       expect(detector.uncachedImages, hasLength(2));
       expect(issues, lacksStableId('uncached_images'));
@@ -120,7 +131,7 @@ void main() {
       setDevicePixelRatio(tester, 2.0);
       final bytes = await pngBytes(tester, width: 400, height: 400);
       final issues = await _scanDecoded(tester, detector, [
-        for (var i = 0; i < 3; i++) _image(bytes, 100),
+        for (var i = 0; i < 3; i++) _image(_copy(bytes), 100),
       ]);
       final issue = issues.singleWhere((i) => i.stableId == 'uncached_images');
       expect(issue.severity, IssueSeverity.warning);
@@ -143,11 +154,59 @@ void main() {
       setDevicePixelRatio(tester, 2.0);
       final bytes = await pngBytes(tester, width: 2048, height: 2048);
       final issues = await _scanDecoded(tester, detector, [
-        _image(bytes, 100),
-        _image(bytes, 100),
+        _image(_copy(bytes), 100),
+        _image(_copy(bytes), 100),
       ]);
       final issue = issues.singleWhere((i) => i.stableId == 'uncached_images');
       expect(issue.severity, IssueSeverity.critical);
+    });
+
+    testWidgets('five widgets of one decode report that decode once', (
+      tester,
+    ) async {
+      setDevicePixelRatio(tester, 2.0);
+      final bytes = await pngBytes(tester, width: 1200, height: 1200);
+      final issues = await _scanDecoded(tester, detector, [
+        for (var i = 0; i < 5; i++) _image(bytes, 100),
+      ]);
+      final issue = issues.singleWhere((i) => i.stableId == 'uncached_images');
+      expect(issue.severity, IssueSeverity.warning);
+      expect(issue.extraTraceArgs?['wastedBytes'], '5600000');
+      expect(issue.extraTraceArgs?['imageCount'], '1');
+      expect(issue.extraTraceArgs?['widgetCount'], '5');
+      expect(issue.detail, contains('shown by 5 widgets'));
+      expect(detector.uncachedImages.single.widgetCount, 5);
+    });
+
+    testWidgets('a shared decode is measured against its largest widget', (
+      tester,
+    ) async {
+      setDevicePixelRatio(tester, 2.0);
+      final bytes = await pngBytes(tester, width: 1200, height: 1200);
+      // 100 dp and 300 dp @ 2x: the decode must serve 600 px.
+      final issues = await _scanDecoded(tester, detector, [
+        _image(bytes, 100),
+        _image(bytes, 300),
+      ]);
+      final img = detector.uncachedImages.single;
+      expect(img.ratio, 2.0);
+      expect(img.wastedBytes, (1440000 - 360000) * 4);
+      expect(img.displayedWidth, 300);
+      expect(issues, hasStableId('uncached_images'));
+    });
+
+    testWidgets('a shared decode one widget needs in full is not waste', (
+      tester,
+    ) async {
+      setDevicePixelRatio(tester, 2.0);
+      final bytes = await pngBytes(tester, width: 1200, height: 1200);
+      // A 500 dp widget needs 1000 px: ratio 1.2 for the shared decode.
+      final issues = await _scanDecoded(tester, detector, [
+        for (var i = 0; i < 5; i++) _image(bytes, 100),
+        _image(bytes, 500),
+      ]);
+      expect(detector.uncachedImages, isEmpty);
+      expect(issues, lacksStableId('uncached_images'));
     });
 
     testWidgets('BoxFit.cover crop whose smaller axis matches the box '

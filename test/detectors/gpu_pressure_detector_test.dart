@@ -560,6 +560,34 @@ void main() {
         expect(issue!.dedupIdentityMicros, isNull);
       });
 
+      testWidgets('a route epoch drops the dominant frames seen before it', (
+        tester,
+      ) async {
+        feed([12000, 12000]);
+        detector.markRouteEpoch();
+        feed([12000], startUs: 2 * 16667);
+        expect(raster(await scan(tester)), isNull);
+
+        // Three on the new route emit.
+        feed([12000, 12000, 12000], startUs: 100000);
+        expect(raster(await scan(tester)), isNotNull);
+      });
+
+      testWidgets('the issue keeps the route active at emission', (
+        tester,
+      ) async {
+        var route = '/feed';
+        detector = GpuPressureDetector(
+          sourceRouteProvider: () => route,
+          appStartMonotonicUsForTest: () => Timeline.now - ageUs,
+        );
+        feed([12000, 12000, 12000]);
+        final issue = raster(await scan(tester))!;
+        route = '/settings';
+        expect(issue.sourceRoute, '/feed');
+        expect(raster(detector.issues)!.sourceRoute, '/feed');
+      });
+
       testWidgets('3 frames with raster above the frame budget → critical', (
         tester,
       ) async {

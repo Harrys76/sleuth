@@ -422,7 +422,7 @@ void main() {
         final base = DateTime(2026, 5, 3);
         var clock = base;
         final replayDetector = PlatformChannelDetector(clock: () => clock);
-        final pending = <String, int>{};
+        final pending = PendingChannelBegins();
         final windowCounts = <int>[];
         var maxDur = 0;
         final issues = <PerformanceIssue>[];

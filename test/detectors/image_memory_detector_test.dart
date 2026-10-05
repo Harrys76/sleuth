@@ -1,11 +1,16 @@
 import 'dart:typed_data';
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/image_memory_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/decoded_image_helpers.dart';
+
+/// A copy of [bytes] that decodes as its own image cache entry
+/// (`MemoryImage` keys on the byte buffer).
+Uint8List _copy(Uint8List bytes) => Uint8List.fromList(bytes);
 
 /// Images in a non-scrolling, wrapping layout under the test view.
 Widget _page(List<Widget> images) => Directionality(
@@ -82,7 +87,7 @@ void main() {
         final bytes = await pngBytes(tester, width: 400, height: 400);
         await pumpDecoded(
           tester,
-          _page([for (var i = 0; i < 3; i++) _image(bytes, 100)]),
+          _page([for (var i = 0; i < 3; i++) _image(_copy(bytes), 100)]),
         );
         scan(tester);
 
@@ -125,7 +130,7 @@ void main() {
         final bytes = await pngBytes(tester, width: 2048, height: 2048);
         await pumpDecoded(
           tester,
-          _page([for (var i = 0; i < 4; i++) _image(bytes, 100)]),
+          _page([for (var i = 0; i < 4; i++) _image(_copy(bytes), 100)]),
         );
         scan(tester);
 
@@ -180,7 +185,7 @@ void main() {
         final bytes = await pngBytes(tester, width: 1200, height: 1200);
         await pumpDecoded(
           tester,
-          _page([for (var i = 0; i < 7; i++) _image(bytes, 50)]),
+          _page([for (var i = 0; i < 7; i++) _image(_copy(bytes), 50)]),
         );
         scan(tester);
 
@@ -207,6 +212,7 @@ void main() {
 
         expect(issue()!.extraTraceArgs, {
           'imageCount': '2',
+          'widgetCount': '2',
           'worstRatio': '6.00',
           'wastedBytes': '${5600000 + 480000}',
         });
@@ -363,6 +369,29 @@ void main() {
         expect(detector.uncachedImages, hasLength(1));
       });
 
+      testWidgets('a RawImage without a decode leaves the pair open for '
+          'the next RawImage', (tester) async {
+        setDevicePixelRatio(tester, 2.0);
+        final bytes = await pngBytes(tester, width: 1200, height: 1200);
+        await pumpDecoded(
+          tester,
+          _page([
+            _image(
+              bytes,
+              100,
+              frameBuilder: (_, child, _, _) => Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [const RawImage(width: 10, height: 10), child],
+              ),
+            ),
+          ]),
+          expectDecoded: false,
+        );
+        expect(find.byType(RawImage), findsNWidgets(2));
+        scan(tester);
+        expect(detector.uncachedImages.single.decodedWidth, 1200);
+      });
+
       testWidgets("an Image inside another Image's loadingBuilder pairs with "
           'the inner one only', (tester) async {
         setDevicePixelRatio(tester, 2.0);
@@ -445,6 +474,47 @@ void main() {
         await decodeImages(tester);
         scan(tester);
         expect(detector.uncachedImages.single.devicePixelRatio, 2.0);
+      });
+
+      testWidgets('with neither a MediaQuery nor a RenderView the pair is '
+          'not measured', (tester) async {
+        final bytes = await pngBytes(tester, width: 1200, height: 1200);
+        final provider = MemoryImage(bytes);
+        await pumpDecoded(
+          tester,
+          _page([Image(image: provider, width: 100, height: 100)]),
+        );
+
+        // A tree built off screen: its render root is not a RenderView.
+        final root = RenderPositionedBox(alignment: Alignment.topLeft);
+        final pipelineOwner = PipelineOwner()..rootNode = root;
+        final buildOwner = BuildOwner(focusManager: FocusManager());
+        final rootElement = RenderObjectToWidgetAdapter<RenderBox>(
+          container: root,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Image(image: provider, width: 100, height: 100),
+          ),
+        ).attachToRenderTree(buildOwner);
+        buildOwner.buildScope(rootElement);
+        root.layout(BoxConstraints.loose(const Size(800, 600)));
+        addTearDown(() {
+          buildOwner.finalizeTree();
+          pipelineOwner.rootNode = null;
+        });
+
+        RawImage? raw;
+        void find(Element e) {
+          if (e.widget is RawImage) raw = e.widget as RawImage;
+          e.visitChildren(find);
+        }
+
+        rootElement.visitChildren(find);
+        expect(raw?.image, isNotNull, reason: 'decode not delivered');
+
+        detector.scanTree(rootElement);
+        expect(detector.uncachedImages, isEmpty);
+        expect(detector.issues, isEmpty);
       });
 
       testWidgets('the scan registers no MediaQuery dependency', (

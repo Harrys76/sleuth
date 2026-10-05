@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/sleuth.dart';
-import 'package:sleuth/src/vm/timeline_parser.dart' show TimelineParser;
+import 'package:sleuth/src/vm/timeline_parser.dart'
+    show PendingChannelBegins, TimelineParser;
 import 'package:vm_service/vm_service.dart' show TimelineEvent;
 
 import '../helpers/timeline_test_helpers.dart';
@@ -273,7 +274,7 @@ void main() {
         'pid': 1,
         'tid': 1,
       })!;
-      final pending = <String, int>{};
+      final pending = PendingChannelBegins();
       // Call 'a' completes in the same batch; call 'b' in the next one.
       controller.feedTimelineDataForTest(
         TimelineParser.parse([

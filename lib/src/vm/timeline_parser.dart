@@ -168,6 +168,84 @@ class TimelineCursor {
   }
 }
 
+/// Async platform-channel calls whose `b` event was seen and whose `e`
+/// has not arrived yet, carried across parse calls.
+///
+/// Begins are kept per call `id` in arrival order. An `e` pairs with the
+/// earliest open begin of its `id` on the same thread, else the earliest
+/// open begin of that `id`, so an id reused before its first call ends
+/// still yields one duration per call. At most
+/// [TimelineParser.pendingChannelBeginsCap] begins are kept; beyond that
+/// the oldest is dropped.
+class PendingChannelBegins {
+  final Map<String, List<({int tid, int ts, int seq})>> _byId = {};
+  int _length = 0;
+  int _nextSeq = 0;
+
+  /// Open begins across every id.
+  int get length => _length;
+
+  /// Whether no begin is open.
+  bool get isEmpty => _length == 0;
+
+  /// Whether a begin for [id] is open.
+  bool containsId(String id) => _byId.containsKey(id);
+
+  /// Records the `b` of call [id] on thread [tid] at [ts].
+  void add(String id, {required int tid, required int ts}) {
+    (_byId[id] ??= []).add((tid: tid, ts: ts, seq: _nextSeq++));
+    _length++;
+    while (_length > TimelineParser.pendingChannelBeginsCap) {
+      _dropOldest();
+    }
+  }
+
+  /// Removes and returns the begin timestamp the `e` of call [id] on
+  /// thread [tid] pairs with, or null when none is open.
+  int? take(String id, {required int tid}) {
+    final begins = _byId[id];
+    if (begins == null) return null;
+    var index = begins.indexWhere((b) => b.tid == tid);
+    if (index == -1) index = 0;
+    final begin = begins.removeAt(index);
+    if (begins.isEmpty) _byId.remove(id);
+    _length--;
+    return begin.ts;
+  }
+
+  /// Drops every begin older than [cutoffTs].
+  void evictBefore(int cutoffTs) {
+    _byId.removeWhere((_, begins) {
+      final before = begins.length;
+      begins.removeWhere((b) => b.ts < cutoffTs);
+      _length -= before - begins.length;
+      return begins.isEmpty;
+    });
+  }
+
+  /// Drops every begin.
+  void clear() {
+    _byId.clear();
+    _length = 0;
+  }
+
+  void _dropOldest() {
+    String? oldestId;
+    var oldestSeq = -1;
+    for (final entry in _byId.entries) {
+      final seq = entry.value.first.seq;
+      if (oldestId == null || seq < oldestSeq) {
+        oldestId = entry.key;
+        oldestSeq = seq;
+      }
+    }
+    if (oldestId == null) return;
+    final begins = _byId[oldestId]!..removeAt(0);
+    if (begins.isEmpty) _byId.remove(oldestId);
+    _length--;
+  }
+}
+
 class TimelineParser {
   TimelineParser._();
 
@@ -399,10 +477,10 @@ class TimelineParser {
   /// frame. Skia X-form emissions continue through the unchanged X
   /// branch above. Null = fresh per call.
   ///
-  /// [pendingChannelBegins] maps an async platform-channel call `id` to
-  /// its `b` timestamp so the matching `e` (same or later batch) yields a
-  /// [PlatformChannelCall] with a duration. Capped at
-  /// [pendingChannelBeginsCap] (oldest dropped). Null = fresh per call.
+  /// [pendingChannelBegins] holds the open `b` events of async
+  /// platform-channel calls so the matching `e` (same or later batch)
+  /// yields a [PlatformChannelCall] with a duration (see
+  /// [PendingChannelBegins]). Null = fresh per call.
   ///
   /// [cursorsByTid] is a per-thread cross-call dedup cursor; events
   /// with `ts < cursor.lastTs`, or with `ts == cursor.lastTs` and a
@@ -422,7 +500,7 @@ class TimelineParser {
     Map<int, List<Map<String, dynamic>>>? pendingPaintBegins,
     Map<int, List<Map<String, dynamic>>>? pendingRasterBegins,
     Map<int, List<Map<String, dynamic>>>? pendingShaderBegins,
-    Map<String, int>? pendingChannelBegins,
+    PendingChannelBegins? pendingChannelBegins,
     Map<int, TimelineCursor>? cursorsByTid,
     int minTimestampUs = 0,
   }) {
@@ -447,7 +525,7 @@ class TimelineParser {
         pendingRasterBegins ?? <int, List<Map<String, dynamic>>>{};
     final pendingShaders =
         pendingShaderBegins ?? <int, List<Map<String, dynamic>>>{};
-    final pendingChannels = pendingChannelBegins ?? <String, int>{};
+    final pendingChannels = pendingChannelBegins ?? PendingChannelBegins();
     final cursors = cursorsByTid ?? <int, TimelineCursor>{};
     final channels = <TimelineEvent>[];
     final channelCalls = <PlatformChannelCall>[];
@@ -742,17 +820,15 @@ class TimelineParser {
           final rawId = json['id'];
           final id = rawId?.toString();
           final ts = json['ts'] as int?;
+          final rawTid = json['tid'];
+          final tid = rawTid is int ? rawTid : 0;
           if (ph == 'b') {
             channels.add(event);
             if (id != null && ts != null) {
-              pendingChannels.remove(id);
-              pendingChannels[id] = ts;
-              if (pendingChannels.length > pendingChannelBeginsCap) {
-                pendingChannels.remove(pendingChannels.keys.first);
-              }
+              pendingChannels.add(id, tid: tid, ts: ts);
             }
           } else if (id != null && ts != null) {
-            final beginTs = pendingChannels.remove(id);
+            final beginTs = pendingChannels.take(id, tid: tid);
             if (beginTs != null && ts >= beginTs) {
               channelCalls.add(
                 PlatformChannelCall(

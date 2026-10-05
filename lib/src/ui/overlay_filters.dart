@@ -13,7 +13,8 @@ import '../models/performance_issue.dart';
 ///  2. Single-parent downstream collapses under its parent when that
 ///     parent is present AND the parent's severity is at least the
 ///     child's — the parent's expanded "Related effects" sub-list shows
-///     it. A child more severe than its only parent stays standalone so
+///     it. When several issues share the parent's id, the severity is
+///     that of the instances listing the child in `downstreamIds`. A child more severe than its only parent stays standalone so
 ///     a critical effect is never hidden under a warning card. If the
 ///     parent is suppressed (not in the visible set), the downstream
 ///     re-surfaces standalone so an orphan effect is not silently lost.
@@ -30,13 +31,21 @@ List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
     IssueSeverity.warning => 1,
     IssueSeverity.ok => 0,
   };
-  // id → highest severity rank among issues carrying that id.
+  // id → highest severity rank among issues carrying that id, and among
+  // the instances of that id that list a given child as a downstream
+  // effect (the instances whose card shows it).
   final severityById = <String, int>{};
+  final ownerSeverity = <(String, String), int>{};
   for (final i in issues) {
     final id = i.stableId ?? i.title;
     final r = rank(i.severity);
     final prev = severityById[id];
     if (prev == null || r > prev) severityById[id] = r;
+    for (final child in i.downstreamIds ?? const <String>[]) {
+      final key = (id, child);
+      final prevOwner = ownerSeverity[key];
+      if (prevOwner == null || r > prevOwner) ownerSeverity[key] = r;
+    }
   }
   return issues.where((i) {
     final parents = i.rootCauseIds;
@@ -48,8 +57,13 @@ List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
     // accepted redundancy.
     if (parents.length >= 2) return true;
     // Single-parent: collapse under a present parent that is at least as
-    // severe; surface when the parent is suppressed or less severe.
-    final parentRank = severityById[parents.first];
+    // severe; surface when the parent is suppressed or less severe. When
+    // several issues share the parent's id, the one that lists this child
+    // decides; another instance's severity does not.
+    final parentId = parents.first;
+    final parentRank =
+        ownerSeverity[(parentId, i.stableId ?? i.title)] ??
+        severityById[parentId];
     if (parentRank == null) return true;
     return parentRank < rank(i.severity);
   }).toList();

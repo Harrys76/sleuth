@@ -133,4 +133,49 @@ void main() {
       expect(gpu.startupPhaseWindowSeconds, 7);
     });
   });
+
+  group('raster_dominance across a route change', () {
+    Widget app() => MaterialApp(
+      initialRoute: '/home',
+      onGenerateRoute: (settings) => MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => Scaffold(body: SizedBox(key: ValueKey(settings.name))),
+      ),
+    );
+
+    BuildContext root(WidgetTester tester) =>
+        tester.element(find.byType(MaterialApp));
+
+    testWidgets('dominant frames from the previous route do not count', (
+      tester,
+    ) async {
+      final c = _controller();
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      c.scanTreeFullPathForTest(root(tester));
+
+      c.handleTimingsForTest(_rasterBound(2));
+      tester.state<NavigatorState>(find.byType(Navigator)).pushNamed('/b');
+      await tester.pumpAndSettle();
+      c.handleTimingsForTest(_rasterBound(1));
+      c.scanTreeFullPathForTest(root(tester));
+
+      expect(c.activeRouteSessionForTest!.routeName, '/b');
+      expect(_raster(c), isEmpty);
+    });
+
+    testWidgets('the issue carries the route it was emitted on', (
+      tester,
+    ) async {
+      final c = _controller();
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      c.scanTreeFullPathForTest(root(tester));
+
+      c.handleTimingsForTest(_rasterBound(5));
+      c.scanTreeFullPathForTest(root(tester));
+
+      expect(_raster(c).single.sourceRoute, '/home');
+    });
+  });
 }

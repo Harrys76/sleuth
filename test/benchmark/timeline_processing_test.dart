@@ -182,7 +182,7 @@ void main() {
       pendingPaintBegins: {},
       pendingRasterBegins: {},
       pendingShaderBegins: {},
-      pendingChannelBegins: {},
+      pendingChannelBegins: PendingChannelBegins(),
       cursorsByTid: cursors,
     );
 

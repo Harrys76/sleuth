@@ -1559,13 +1559,14 @@ void main() {
     });
 
     test('cross-batch pair completes through pendingChannelBegins', () {
-      final pending = <String, int>{};
+      final pending = PendingChannelBegins();
       final first = TimelineParser.parse([
         ev('b', id: 'a', ts: 1000),
       ], pendingChannelBegins: pending);
       expect(first.platformChannelEvents, hasLength(1));
       expect(first.platformChannelCalls, isEmpty);
-      expect(pending, {'a': 1000});
+      expect(pending.length, 1);
+      expect(pending.containsId('a'), isTrue);
 
       final second = TimelineParser.parse([
         ev('e', id: 'a', ts: 7000),
@@ -1573,17 +1574,52 @@ void main() {
       expect(second.platformChannelEvents, isEmpty);
       expect(second.platformChannelCalls.single.durationUs, 6000);
       expect(second.hasData, isTrue);
-      expect(pending, isEmpty);
+      expect(pending.isEmpty, isTrue);
+    });
+
+    test('a reused id pairs each end with the earliest open begin', () {
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000),
+        ev('b', id: 'a', ts: 2000),
+        ev('e', id: 'a', ts: 5000),
+        ev('e', id: 'a', ts: 9000),
+      ]);
+      expect(data.platformChannelEvents, hasLength(2));
+      expect(data.platformChannelCalls.map((c) => (c.beginTs, c.durationUs)), [
+        (1000, 4000),
+        (2000, 7000),
+      ]);
+    });
+
+    test('an end pairs with a begin of its own thread first', () {
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000, tid: 1),
+        ev('b', id: 'a', ts: 2000, tid: 2),
+        ev('e', id: 'a', ts: 2500, tid: 2),
+        ev('e', id: 'a', ts: 6000, tid: 1),
+      ]);
+      expect(data.platformChannelCalls.map((c) => (c.beginTs, c.durationUs)), [
+        (2000, 500),
+        (1000, 5000),
+      ]);
+    });
+
+    test('an end on another thread still pairs with the open begin', () {
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000, tid: 1),
+        ev('e', id: 'a', ts: 3000, tid: 7),
+      ]);
+      expect(data.platformChannelCalls.single.durationUs, 2000);
     });
 
     test('unpaired b counts but yields no call', () {
-      final pending = <String, int>{};
+      final pending = PendingChannelBegins();
       final data = TimelineParser.parse([
         ev('b', id: 'a', ts: 1000),
       ], pendingChannelBegins: pending);
       expect(data.platformChannelEvents, hasLength(1));
       expect(data.platformChannelCalls, isEmpty);
-      expect(pending, hasLength(1));
+      expect(pending.length, 1);
     });
 
     test('e without b is ignored', () {
@@ -1600,14 +1636,14 @@ void main() {
     });
 
     test('pending begins are capped, dropping the oldest', () {
-      final pending = <String, int>{};
+      final pending = PendingChannelBegins();
       const cap = TimelineParser.pendingChannelBeginsCap;
       TimelineParser.parse([
         for (var i = 0; i <= cap; i++) ev('b', id: 'c$i', ts: 1000 + i),
       ], pendingChannelBegins: pending);
-      expect(pending, hasLength(cap));
-      expect(pending.containsKey('c0'), isFalse);
-      expect(pending.containsKey('c$cap'), isTrue);
+      expect(pending.length, cap);
+      expect(pending.containsId('c0'), isFalse);
+      expect(pending.containsId('c$cap'), isTrue);
 
       final data = TimelineParser.parse([
         ev('e', id: 'c0', ts: 9000),

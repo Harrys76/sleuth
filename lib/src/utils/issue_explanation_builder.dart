@@ -1383,18 +1383,22 @@ class IssueExplanationBuilder {
           '• Ratio — decoded pixels over needed pixels on the smaller axis, '
           'so a BoxFit.cover crop is not counted as waste. An image counts '
           'at 1.5× or more.\n\n'
+          '• Shared decodes — widgets showing the same image cache entry '
+          'share one decode. It is counted once, against the largest size '
+          'any of those widgets needs, and the entry says how many widgets '
+          'show it.\n\n'
           '• Wasted memory — (decoded W×H − needed W×H) × 4 bytes, summed '
-          'over the counted images. Alert: ≥ 1 MiB in total; critical at '
-          '≥ 16 MiB.\n\n'
+          'over the distinct decodes counted. Alert: ≥ 1 MiB in total; '
+          'critical at ≥ 16 MiB.\n\n'
           '• Each entry lists the decoded size in pixels and the display '
           'size in dp with the device pixel ratio.\n\n'
           '• Source: Structural tree walk over decoded images.',
       whyItMatters:
           'A 4000×3000 photo decoded at full resolution consumes ~48MB of '
           'memory (width × height × 4 bytes). If displayed in a 200×150 '
-          'widget at 3× it needs ~1MB, so ~47MB is wasted. In a list with '
-          'many images, this can consume hundreds of megabytes of native '
-          'memory.',
+          'widget at 3× it needs ~1MB, so ~47MB is wasted. In a list of '
+          'many different images, this can consume hundreds of megabytes of '
+          'native memory.',
       howToFix:
           'Add cacheWidth and/or cacheHeight to decode at display size. '
           'Use the device pixel ratio for sharp rendering: '

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -23,6 +24,7 @@ class UncachedImageInfo {
     this.devicePixelRatio = 1,
     this.ratio = 0,
     this.wastedBytes = 0,
+    this.widgetCount = 1,
   });
 
   /// Human-readable image source (URL, asset path, file path, or type name).
@@ -49,15 +51,34 @@ class UncachedImageInfo {
 
   /// RGBA bytes decoded beyond what the display box needs.
   final int wastedBytes;
+
+  /// Number of widgets showing this one decode. The display fields
+  /// describe the largest of them; [ratio] and [wastedBytes] are measured
+  /// against the largest needed size on each axis.
+  final int widgetCount;
 }
+
+/// One measured `Image` → `RawImage` pair of the current scan. The
+/// decoded image is held only until [ImageMemoryDetector.finalizeScan].
+typedef _MeasuredUse = ({
+  ui.Image decoded,
+  ImageProvider provider,
+  Element imageElement,
+  RenderBox renderBox,
+  double width,
+  double height,
+  double dpr,
+});
 
 /// Detects images decoded at a larger resolution than they are shown.
 ///
 /// **Structural Detector** — pairs each [Image] with the [RawImage] it
 /// builds, reads the decoded `ui.Image` size, the render box size, and the
 /// device pixel ratio, and reports images whose decode is well above the
-/// physical pixels the box needs. Only the decoded dimensions are read;
-/// the `ui.Image` itself is never kept.
+/// physical pixels the box needs. Widgets showing the same decode (one
+/// image cache entry, so `ui.Image.isCloneOf`) count it once, against
+/// the largest size any of them needs. The `ui.Image` handles are held
+/// only for the scan that reads them.
 class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   ImageMemoryDetector({
     this.oversizeRatio = 1.5,
@@ -87,6 +108,9 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   final List<({Rect rect, RenderObject renderObject, String detail})>
   _pendingHighlights = [];
 
+  /// Pairs measured in the current scan, grouped by decode at its end.
+  final List<_MeasuredUse> _uses = [];
+
   /// Image elements entered and not yet left, innermost last. Each pairs
   /// with the first [RawImage] below it, once.
   final List<({Element image, bool paired})> _imageFrames = [];
@@ -104,7 +128,8 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  /// Oversized images found in the last scan, before the total-bytes gate.
+  /// Oversized decodes found in the last scan, one entry per decode
+  /// however many widgets show it, before the total-bytes gate.
   List<UncachedImageInfo> get uncachedImages =>
       List.unmodifiable(_uncachedImages);
 
@@ -115,6 +140,7 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
     _uncachedImages.clear();
     _pendingHighlights.clear();
     _imageFrames.clear();
+    _uses.clear();
   }
 
   @override
@@ -127,8 +153,11 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
     if (widget is RawImage && _imageFrames.isNotEmpty) {
       final frame = _imageFrames.last;
       if (frame.paired) return;
-      _imageFrames.last = (image: frame.image, paired: true);
-      _measure(frame.image, element, widget);
+      // Paired once measured; a RawImage that cannot be measured yet (no
+      // decode, no layout, no device pixel ratio) leaves the pair open.
+      if (_measure(frame.image, element, widget)) {
+        _imageFrames.last = (image: frame.image, paired: true);
+      }
     }
   }
 
@@ -140,65 +169,115 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  void _measure(Element imageElement, Element rawElement, RawImage raw) {
+  /// Records the pair for [finalizeScan]. Returns false when the pair
+  /// cannot be measured yet; true when it was recorded or is skipped by
+  /// rule.
+  bool _measure(Element imageElement, Element rawElement, RawImage raw) {
     final provider = (imageElement.widget as Image).image;
-    if (provider is ResizeImage) return;
+    if (provider is ResizeImage) return true;
     // Resizing the decode would change what is shown, not only its
     // resolution: an unscaled crop, a nine-patch, or a tiled image.
     if (raw.fit == BoxFit.none ||
         raw.centerSlice != null ||
         raw.repeat != ImageRepeat.noRepeat) {
-      return;
+      return true;
     }
     final decoded = raw.image;
-    if (decoded == null) return;
-    final decodedW = decoded.width;
-    final decodedH = decoded.height;
+    if (decoded == null) return false;
 
     final ro = rawElement.renderObject;
-    if (ro is! RenderBox || !ro.hasSize) return;
+    if (ro is! RenderBox || !ro.hasSize) return false;
     final size = ro.size;
-    if (size.width <= 0 || size.height <= 0) return;
+    if (size.width <= 0 || size.height <= 0) return false;
 
     final dpr = _devicePixelRatio(rawElement, ro);
-    final neededW = size.width * dpr;
-    final neededH = size.height * dpr;
-    final ratio = math.min(decodedW / neededW, decodedH / neededH);
-    if (ratio < oversizeRatio) return;
-    final wastedBytes = ((decodedW * decodedH - neededW * neededH) * 4).round();
+    if (dpr == null || dpr <= 0) return false;
+    _uses.add((
+      decoded: decoded,
+      provider: provider,
+      imageElement: imageElement,
+      renderBox: ro,
+      width: size.width,
+      height: size.height,
+      dpr: dpr,
+    ));
+    return true;
+  }
 
-    final sourceName = extractSourceName(provider);
-    _uncachedImages.add(
-      UncachedImageInfo(
-        sourceName: sourceName,
-        ancestorChain: buildAncestorChain(imageElement),
-        decodedWidth: decodedW,
-        decodedHeight: decodedH,
-        displayedWidth: size.width,
-        displayedHeight: size.height,
-        devicePixelRatio: dpr,
-        ratio: ratio,
-        wastedBytes: wastedBytes,
-      ),
-    );
-    final rect = getGlobalRect(ro);
-    if (rect != null) {
-      _pendingHighlights.add((
-        rect: rect,
-        renderObject: ro,
-        detail:
-            '${_providerTypeName(provider)}: $sourceName\n'
-            'Decoded ${decodedW}x$decodedH px for '
-            '${_dp(size.width)}x${_dp(size.height)} dp @ ${_dp(dpr)}x '
-            '(${ratio.toStringAsFixed(1)}x)',
-      ));
+  /// Groups the scan's pairs by decode and records each decode whose
+  /// size is at least [oversizeRatio] times the largest needed size of
+  /// its widgets.
+  void _evaluateUses() {
+    final groups = <List<_MeasuredUse>>[];
+    for (final use in _uses) {
+      final group = groups
+          .where((g) => g.first.decoded.isCloneOf(use.decoded))
+          .firstOrNull;
+      if (group == null) {
+        groups.add([use]);
+      } else {
+        group.add(use);
+      }
     }
+    for (final group in groups) {
+      final decodedW = group.first.decoded.width;
+      final decodedH = group.first.decoded.height;
+      var neededW = 0.0;
+      var neededH = 0.0;
+      var largest = group.first;
+      for (final use in group) {
+        neededW = math.max(neededW, use.width * use.dpr);
+        neededH = math.max(neededH, use.height * use.dpr);
+        if (use.width * use.height * use.dpr * use.dpr >
+            largest.width * largest.height * largest.dpr * largest.dpr) {
+          largest = use;
+        }
+      }
+      final ratio = math.min(decodedW / neededW, decodedH / neededH);
+      if (ratio < oversizeRatio) continue;
+      final wastedBytes = ((decodedW * decodedH - neededW * neededH) * 4)
+          .round();
+      final first = group.first;
+      final sourceName = extractSourceName(first.provider);
+      _uncachedImages.add(
+        UncachedImageInfo(
+          sourceName: sourceName,
+          ancestorChain: buildAncestorChain(first.imageElement),
+          decodedWidth: decodedW,
+          decodedHeight: decodedH,
+          displayedWidth: largest.width,
+          displayedHeight: largest.height,
+          devicePixelRatio: largest.dpr,
+          ratio: ratio,
+          wastedBytes: wastedBytes,
+          widgetCount: group.length,
+        ),
+      );
+      for (final use in group) {
+        final rect = getGlobalRect(use.renderBox);
+        if (rect == null) continue;
+        final useRatio = math.min(
+          decodedW / (use.width * use.dpr),
+          decodedH / (use.height * use.dpr),
+        );
+        _pendingHighlights.add((
+          rect: rect,
+          renderObject: use.renderBox,
+          detail:
+              '${_providerTypeName(use.provider)}: $sourceName\n'
+              'Decoded ${decodedW}x$decodedH px for '
+              '${_dp(use.width)}x${_dp(use.height)} dp @ ${_dp(use.dpr)}x '
+              '(${useRatio.toStringAsFixed(1)}x)',
+        ));
+      }
+    }
+    _uses.clear();
   }
 
   /// Device pixel ratio for [element], read without registering a
   /// dependency: the nearest [MediaQuery], else the render tree's root
-  /// [RenderView].
-  static double _devicePixelRatio(Element element, RenderObject ro) {
+  /// [RenderView]; null when neither is reachable.
+  static double? _devicePixelRatio(Element element, RenderObject ro) {
     final mq = element.getInheritedWidgetOfExactType<MediaQuery>();
     if (mq != null) return mq.data.devicePixelRatio;
     RenderObject? current = ro;
@@ -206,12 +285,13 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
       if (current is RenderView) return current.flutterView.devicePixelRatio;
       current = current.parent;
     }
-    return 1.0;
+    return null;
   }
 
   @override
   void finalizeScan() {
     _imageFrames.clear();
+    _evaluateUses();
     if (_uncachedImages.isEmpty) {
       _pendingHighlights.clear();
       return;
@@ -226,6 +306,10 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
     }
 
     final count = _uncachedImages.length;
+    final widgetCount = _uncachedImages.fold<int>(
+      0,
+      (sum, img) => sum + img.widgetCount,
+    );
     final worstRatio = _uncachedImages.map((img) => img.ratio).reduce(math.max);
     final severity = totalWasted >= criticalWastedBytes
         ? IssueSeverity.critical
@@ -239,7 +323,9 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
               '  • ${img.sourceName}: decoded '
               '${img.decodedWidth}×${img.decodedHeight} px, shown at '
               '${_dp(img.displayedWidth)}×${_dp(img.displayedHeight)} dp '
-              '@ ${_dp(img.devicePixelRatio)}x\n    in ${img.ancestorChain}',
+              '@ ${_dp(img.devicePixelRatio)}x'
+              '${img.widgetCount > 1 ? '; shown by ${img.widgetCount} widgets' : ''}'
+              '\n    in ${img.ancestorChain}',
         )
         .join('\n');
 
@@ -258,8 +344,10 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
         detail:
             '$count image${count == 1 ? '' : 's'} decoded at least '
             '${oversizeRatio.toStringAsFixed(1)}× the physical pixels '
-            'their display box needs, wasting ~${_mb(totalWasted)} MB of '
-            'decoded memory.\n\n$imageList',
+            'their display box needs'
+            '${widgetCount > count ? ' (shown by $widgetCount widgets)' : ''}'
+            ', wasting ~${_mb(totalWasted)} MB of decoded memory.'
+            '\n\n$imageList',
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
@@ -268,6 +356,7 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
             'still grow later',
         extraTraceArgs: {
           'imageCount': '$count',
+          'widgetCount': '$widgetCount',
           'worstRatio': worstRatio.toStringAsFixed(2),
           'wastedBytes': '$totalWasted',
         },
@@ -323,6 +412,7 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
     _uncachedImages.clear();
     _pendingHighlights.clear();
     _imageFrames.clear();
+    _uses.clear();
   }
 
   @override
@@ -332,16 +422,19 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
         'Hermetic reproducer decodes real PNGs (engine-encoded test images '
         'through Image.memory + precacheImage) at explicit device pixel '
         'ratios and pins the measured rule: each Image pairs once with the '
-        'first RawImage it builds; an image qualifies when '
+        'first RawImage it can measure; widgets showing one decode '
+        '(ui.Image.isCloneOf) count it once, against the largest needed '
+        'size on each axis; a decode qualifies when '
         'min(decodedW / (boxW × dpr), decodedH / (boxH × dpr)) >= 1.5; the '
-        'issue emits when the qualifying images waste >= 1 MiB of RGBA '
+        'issue emits when the qualifying decodes waste >= 1 MiB of RGBA '
         'bytes in total and is critical at >= 16 MiB. Pinned silent: a '
         'single 400 px image at 100 dp @ 2x (480 KB), ratio 1.4 at any '
         'count, a BoxFit.cover crop whose smaller axis matches, '
         'BoxFit.none, centerSlice, repeat, ResizeImage providers, and an '
         'image not yet decoded (absence, then presence after decode). '
         'Device pixel ratio comes from the nearest MediaQuery without a '
-        'dependency, else the root RenderView. BoxDecoration images are '
+        'dependency, else the root RenderView; with neither the pair is not '
+        'measured. BoxDecoration images are '
         'not reported: their decoded image is private to the painter, so '
         'no measurement is possible. Confidence is likely: decode and '
         'display are measured, but a widget may legitimately grow later. '

@@ -1127,6 +1127,7 @@ class SleuthController {
           rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
           startupPhaseWindowSeconds:
               config.thresholds.startupPhaseWindowSeconds,
+          sourceRouteProvider: _currentRouteName,
         ),
       ),
       DetectorType.layoutBottleneck: LayoutBottleneckDetector.new,
@@ -2806,8 +2807,14 @@ class SleuthController {
       active?.endedAt = DateTime.now();
       // Jank is judged per route: start a new frame window and drop the
       // previous route's jank issues before this tick aggregates, so they
-      // never reach the new session.
+      // never reach the new session. Raster-dominant frames from a
+      // previous route likewise stop counting.
       _frameTiming.markRouteEpoch();
+      if (active != null) {
+        for (final d in _detectors) {
+          if (d is GpuPressureDetector) d.markRouteEpoch();
+        }
+      }
       final newRoute =
           currentName ?? '<unnamed-${_nextUnnamedId(currentHashKey)}>';
       // Skip session creation for ignored routes, but still reset back-off.

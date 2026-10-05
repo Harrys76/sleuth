@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -55,6 +56,27 @@ void main() {
         ..updateFrameBudget(8333);
       d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [9000]));
       expect(d.issues.single.extraTraceArgs!['observedDurationMs'], '9.0');
+    });
+  });
+
+  group('HeavyComputeDetector without phase events', () {
+    test('the batch\'s newest timestamp identifies the issue', () {
+      final d = HeavyComputeDetector();
+      d.processTimelineData(
+        ParsedTimelineData(
+          buildScopeDurations: const [20000],
+          maxTimestampUs: 123456789,
+        ),
+      );
+      expect(d.issues.single.dedupIdentityMicros, 123456789);
+    });
+
+    test('no timestamp, no identity', () {
+      final d = HeavyComputeDetector();
+      d.processTimelineData(
+        ParsedTimelineData(buildScopeDurations: const [20000]),
+      );
+      expect(d.issues.single.dedupIdentityMicros, isNull);
     });
   });
 
