@@ -281,7 +281,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.textContaining('Widget not currently visible'), findsNothing);
-    });
+      // Semantics on would triple the display time.
+    }, semanticsEnabled: false);
   });
 
   group('Interaction context scoring (3.8.3)', () {

@@ -296,6 +296,34 @@ abstract interface class OverlayLayerHost {
   int get openLayerDepth;
 }
 
+/// A full-screen layer over the card.
+enum _OverlayLayer { hidden, guide, detail, chat, startup, rebuildStats }
+
+/// Scroll controller of the issue list. [keepOffset] records the attached
+/// list's offset before the list unmounts; the next list attached starts
+/// there, once.
+class _IssueListScrollController extends ScrollController {
+  double? _kept;
+
+  /// The recorded offset, or 0.
+  double get keptOffset => _kept ?? 0;
+
+  void keepOffset() {
+    _kept = hasClients && position.hasPixels ? position.pixels : null;
+  }
+
+  void dropKeptOffset() => _kept = null;
+
+  @override
+  double get initialScrollOffset => _kept ?? super.initialScrollOffset;
+
+  @override
+  void attach(ScrollPosition position) {
+    super.attach(position);
+    _kept = null;
+  }
+}
+
 class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     implements OverlayLayerHost {
   OverlayUiState get _ui => widget.controller.overlayUiState;
@@ -388,8 +416,30 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   final OverlayToastController _toast = OverlayToastController();
 
-  /// Open-layer count reported through [FloatingIssuesCard.onLayersChanged].
-  int _reportedLayerDepth = 0;
+  /// Open layers reported through [FloatingIssuesCard.onLayersChanged].
+  Set<_OverlayLayer> _reportedLayers = const {};
+
+  /// Focus scope of each full-screen layer, focused when the layer opens
+  /// so keys and traversal stay on the page.
+  final Map<_OverlayLayer, FocusScopeNode> _layerScopes = {};
+
+  /// [listKeyFor] occurrence key of the issue card whose Learn more or Ask
+  /// AI opened the open layer; null for every other opener. Screen reader
+  /// focus returns to that card, else to the header, when the layer
+  /// closes.
+  String? _layerOpener;
+
+  /// The header's semantics node: screen reader focus lands there when
+  /// the dashboard opens.
+  final GlobalKey _headerKey = GlobalKey(debugLabel: 'Sleuth header');
+
+  /// Scroll position of the issue list, kept while a page covers the card
+  /// (the list unmounts under it).
+  final _IssueListScrollController _listScroll = _IssueListScrollController();
+
+  /// Accessible navigation as of the last build; with
+  /// [SemanticsBinding.semanticsEnabled] it sets the toast timing.
+  bool _accessibleNavigation = false;
 
   bool _debugBannerDismissed = false;
   bool _showHidden = false;
@@ -464,10 +514,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
     _ui.addListener(_onUiStateChanged);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
+    SemanticsBinding.instance.addSemanticsEnabledListener(_syncToastTiming);
     _readGeometry();
     _lastSeverityFilter = {..._ui.severityFilter};
     _lastHiddenKeys = {..._ui.hiddenKeys};
     _onVerdictChanged();
+    // The trigger that opened the dashboard is gone; a screen reader
+    // continues at the card's header.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && openLayerDepth == 0) _focusSemantics(_headerKey);
+    });
   }
 
   /// [OverlayUiState]'s geometry when the card last read or wrote it. A
@@ -585,36 +641,48 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   /// Escape closes the innermost layer, then the card. Runs before focus
-  /// dispatch, so no focus is taken from the app. The key event still
-  /// reaches the focused widget afterwards, so Escape is left to the app
-  /// when its focus is in a text field or in a dismissible route (a
-  /// dialog or sheet closes on Escape through `DismissIntent`).
+  /// dispatch, so no focus is taken from the app. With only the card
+  /// open, the key event still reaches the app's focused widget
+  /// afterwards, so Escape is left to the app when its focus is in a text
+  /// field or in a dismissible route (a dialog or sheet closes on Escape
+  /// through `DismissIntent`). With a page or the Hidden list open the
+  /// app holds no focus, and Escape always closes the layer.
   bool _onKeyEvent(KeyEvent event) {
     if (!mounted ||
         event is! KeyDownEvent ||
         event.logicalKey != LogicalKeyboardKey.escape) {
       return false;
     }
+    if (openLayerDepth == 0 && _appTakesEscape()) return false;
+    if (!closeInnermostLayer()) widget.onClose();
+    return true;
+  }
+
+  /// Whether the app's focused widget handles Escape itself. The route
+  /// lookup subscribes the focused element to its route: 3.32 has no
+  /// route lookup without a dependency, so it runs last.
+  bool _appTakesEscape() {
     final focusContext = FocusManager.instance.primaryFocus?.context;
-    if (focusContext != null &&
+    return focusContext != null &&
         focusContext.mounted &&
         focusContext.findAncestorStateOfType<_FloatingIssuesCardState>() !=
             this &&
         (focusContext.findAncestorWidgetOfExactType<EditableText>() != null ||
-            (ModalRoute.of(focusContext)?.barrierDismissible ?? false))) {
-      return false;
-    }
-    if (!closeInnermostLayer()) widget.onClose();
-    return true;
+            (ModalRoute.of(focusContext)?.barrierDismissible ?? false));
   }
 
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
+    SemanticsBinding.instance.removeSemanticsEnabledListener(_syncToastTiming);
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     _toast.dispose();
+    _listScroll.dispose();
+    for (final scope in _layerScopes.values) {
+      scope.dispose();
+    }
     _quietTimer?.cancel();
     for (final timer in _newKeyTimers.values) {
       timer.cancel();
@@ -775,14 +843,76 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Number of layers open above the card: one per open full-screen
   /// page plus the Hidden list.
   @override
-  int get openLayerDepth => [
-    _showAiChat,
-    _showDetail,
-    _showRebuildStats,
-    _showStartupDetail,
-    _showGuide,
-    _showHidden,
-  ].where((open) => open).length;
+  int get openLayerDepth => _openLayers().length;
+
+  Set<_OverlayLayer> _openLayers() => {
+    if (_showHidden) _OverlayLayer.hidden,
+    if (_showGuide) _OverlayLayer.guide,
+    if (_showDetail) _OverlayLayer.detail,
+    if (_showAiChat) _OverlayLayer.chat,
+    if (_showStartupDetail) _OverlayLayer.startup,
+    if (_showRebuildStats) _OverlayLayer.rebuildStats,
+  };
+
+  /// Runs after the layer change has been reported: [opened] (when
+  /// given) takes focus, so the app's focus leaves for the page; with
+  /// every layer closed, a screen reader goes back to the opener.
+  void _afterLayersChanged(_OverlayLayer? opened) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (opened != null) {
+        if (_openLayers().contains(opened)) {
+          _layerScopes[opened]?.requestFocus();
+        }
+      } else if (openLayerDepth == 0) {
+        _refocusOpener();
+      }
+    });
+  }
+
+  /// Moves screen reader focus to the issue card that opened the closed
+  /// layer, else to the header. Input focus is the app's (see
+  /// `SleuthOverlay`), so only the accessibility focus moves.
+  void _refocusOpener() {
+    final opener = _layerOpener;
+    _layerOpener = null;
+    RenderObject? target;
+    if (opener != null) {
+      final wanted = ValueKey<String>(opener);
+      void visit(Element element) {
+        if (target != null) return;
+        if (element.widget is IssueCard && element.widget.key == wanted) {
+          target = element.renderObject;
+          return;
+        }
+        element.visitChildElements(visit);
+      }
+
+      context.visitChildElements(visit);
+    }
+    if (target == null) {
+      _focusSemantics(_headerKey);
+    } else {
+      target!.sendSemanticsEvent(const FocusSemanticEvent());
+    }
+  }
+
+  /// Asks the platform screen reader to move to [key]'s semantics node.
+  static void _focusSemantics(GlobalKey key) => key.currentContext
+      ?.findRenderObject()
+      ?.sendSemanticsEvent(const FocusSemanticEvent());
+
+  /// Toasts stay three times longer, and an Undo toast waits to be used
+  /// or dismissed, while a screen reader or another assistive service is
+  /// on: accessible navigation, or semantics enabled (switch access,
+  /// voice control).
+  void _syncToastTiming() {
+    final assisted =
+        _accessibleNavigation || SemanticsBinding.instance.semanticsEnabled;
+    _toast
+      ..durationScale = assisted ? 3 : 1
+      ..holdActions = assisted;
+  }
 
   @override
   bool closeInnermostLayer() {
@@ -1169,9 +1299,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _cachedMinHeight = minHeight;
     _cachedMaxHeight = maxAllowedHeight;
     final theme = SleuthTheme.of(context);
-    // Toasts stay three times longer while a screen reader is on.
-    _toast.durationScale =
-        (MediaQuery.maybeAccessibleNavigationOf(context) ?? false) ? 3 : 1;
+    _accessibleNavigation =
+        MediaQuery.maybeAccessibleNavigationOf(context) ?? false;
+    _syncToastTiming();
 
     _cardOffset ??= Offset(
       screenSize.width - safe.right - effectiveWidth - 5,
@@ -1185,12 +1315,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       keyboardHeight,
     );
 
-    final layerDepth = openLayerDepth;
-    if (layerDepth != _reportedLayerDepth) {
-      // The list was unmounted under the page and comes back at the top.
-      if (layerDepth == 0) _listAtTop = true;
-      _reportedLayerDepth = layerDepth;
+    final layers = _openLayers();
+    final layerDepth = layers.length;
+    if (!setEquals(layers, _reportedLayers)) {
+      // The list unmounts under the page and comes back where it was.
+      if (_reportedLayers.isEmpty) _listScroll.keepOffset();
+      if (layerDepth == 0) _listAtTop = _listScroll.keptOffset <= 0;
+      final opened = layers.difference(_reportedLayers);
+      _reportedLayers = layers;
       widget.onLayersChanged?.call();
+      _afterLayersChanged(opened.isEmpty ? null : opened.last);
     }
 
     return Stack(
@@ -1225,6 +1359,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           // Issues and the suppressed count are read live; hidden keys
           // rebuild the card through `_onUiStateChanged`.
           _page(
+            _OverlayLayer.hidden,
             SleuthListenableBuilder(
               listenable: _hiddenPageSources(),
               builder: (context) => HiddenIssuesPage(
@@ -1240,24 +1375,31 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             ),
           ),
         if (_showGuide)
-          _page(GuidePage(onClose: () => setState(() => _showGuide = false))),
+          _page(
+            _OverlayLayer.guide,
+            GuidePage(onClose: () => setState(() => _showGuide = false)),
+          ),
         if (_showDetail)
           _page(
+            _OverlayLayer.detail,
             IssueEncyclopediaPage(
               onClose: _closeDetail,
               scrollToStableId: _detailStableId,
               contextIssue: _detailContextIssue,
             ),
           ),
-        if (_showAiChat) _page(_buildAiChatPage(_chatIssueKey!)),
+        if (_showAiChat)
+          _page(_OverlayLayer.chat, _buildAiChatPage(_chatIssueKey!)),
         if (_showStartupDetail)
           _page(
+            _OverlayLayer.startup,
             StartupMetricsPage(
               onClose: () => setState(() => _showStartupDetail = false),
             ),
           ),
         if (_showRebuildStats && _rebuildStatsSnapshot != null)
           _page(
+            _OverlayLayer.rebuildStats,
             RebuildStatsPage(
               routeDisplayName: _rebuildStatsRouteName,
               countsByType: _rebuildStatsSnapshot!,
@@ -1348,11 +1490,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     );
   }
 
-  /// A full-screen page over the card. While one is open, [SleuthOverlay]
-  /// drops the app's semantics below the overlay (see
-  /// [OverlayLayerHost.openLayerDepth]), so a screen reader stays on the
-  /// page; the floating card alone leaves the app reachable.
-  static Widget _page(Widget page) => Positioned.fill(child: page);
+  /// A full-screen page over the card, in its own focus scope. While one
+  /// is open, [SleuthOverlay] drops the app's semantics below the overlay
+  /// and excludes the app's focus (see [OverlayLayerHost.openLayerDepth]),
+  /// so a screen reader and the keyboard stay on the page; the floating
+  /// card alone leaves the app reachable.
+  Widget _page(_OverlayLayer layer, Widget page) => Positioned.fill(
+    child: FocusScope(
+      node: _layerScopes.putIfAbsent(
+        layer,
+        () => FocusScopeNode(debugLabel: 'Sleuth ${layer.name}'),
+      ),
+      includeSemantics: false,
+      child: page,
+    ),
+  );
 
   /// Triggered by [_RebuildStatsBanner] when its frozen snapshot is
   /// discarded by an automatic resume on route change. Shows a toast so
@@ -1722,6 +1874,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // back. The pan recognizer is kept out of semantics: its scroll
     // actions would move the card by most of its own size.
     return Semantics(
+      key: _headerKey,
       container: true,
       explicitChildNodes: true,
       label: 'Sleuth',
@@ -2053,6 +2206,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         if (visibleIssues.isEmpty) {
           // The next list starts at the top.
           _listAtTop = true;
+          _listScroll.dropKeptOffset();
           final allHidden = unfiltered.isEmpty;
           return _IssuesSummaryBar.above(
             chromeScale: chromeScale,
@@ -2143,6 +2297,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               child: NotificationListener<ScrollNotification>(
                 onNotification: _onListScroll,
                 child: ListView.builder(
+                  controller: _listScroll,
                   padding: EdgeInsets.all(theme.spacingSm),
                   itemCount: orderedIssues.length,
                   // Keyed-reorder remount fix: without a
@@ -2310,6 +2465,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                               _detailStableId = issue.stableId;
                               _detailContextIssue = issue;
                               _showDetail = true;
+                              _layerOpener = issueKey;
                             })
                           : null,
                       onAskAi: widget.controller.config.aiChat != null
@@ -2317,6 +2473,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                               _chatIssueKey = listKeyFor(issue);
                               _chatIssue = issue;
                               _showAiChat = true;
+                              _layerOpener = issueKey;
                             })
                           : null,
                       onCopy: () => _copyIssue(issue),
@@ -3361,6 +3518,13 @@ class _SeverityChipPillState extends State<_SeverityChipPill>
 
   void _tick() => setState(() {});
 
+  /// Reduced motion turned on mid-change finishes it.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    settleIfMotionReduced(context, _selection);
+  }
+
   @override
   void didUpdateWidget(_SeverityChipPill oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -3371,6 +3535,7 @@ class _SeverityChipPillState extends State<_SeverityChipPill>
       } else {
         _selection.reverse();
       }
+      settleOnReducedMotion(context, _selection);
     }
   }
 

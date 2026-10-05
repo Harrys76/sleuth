@@ -125,9 +125,10 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     final key = _entryKeys[target];
     if (key?.currentContext == null) return;
     _scrollTargetScrolled = true;
-    Scrollable.ensureVisible(
+    ensureVisibleWithMotion(
+      context,
       key!.currentContext!,
-      duration: motionDuration(context, const Duration(milliseconds: 300)),
+      duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
     );
   }
@@ -142,14 +143,14 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   void _openRelated(String id) {
     final key = _keyForEntry(id);
     setState(() => _expandedEntries.add(id));
-    final duration = motionDuration(context, const Duration(milliseconds: 300));
     // Scroll to the target after next frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = key.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
+      if (mounted && ctx != null) {
+        ensureVisibleWithMotion(
+          context,
           ctx,
-          duration: duration,
+          duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutCubic,
         );
       }

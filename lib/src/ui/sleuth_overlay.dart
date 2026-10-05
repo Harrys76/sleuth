@@ -23,6 +23,10 @@ import 'text_scale_clamp.dart';
 /// - System back closes the innermost open overlay layer (focused text
 ///   field, full-screen page, Hidden list, then the dashboard) before the
 ///   app sees it; with nothing open, back goes to the app untouched.
+/// - While a full-screen page or the Hidden list is open, the app can
+///   hold no focus: keys, text input and traversal stay on the page, and
+///   the app's focused node gets focus back when the last one closes. The
+///   floating card alone leaves the app's focus alone.
 ///
 /// Back handling runs through [WidgetsBindingObserver.didPopRoute]: the
 /// overlay registers its observer before the app's `WidgetsApp`, so it is
@@ -72,6 +76,20 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   /// True while a full-screen page or the Hidden list is open; the app's
   /// semantics are dropped so a screen reader stays on the page.
   final ValueNotifier<bool> _fullScreenLayerOpen = ValueNotifier(false);
+
+  /// Key of the [ExcludeFocus] around the app; it keeps the app's subtree
+  /// in place and tells app focus from overlay focus.
+  final GlobalKey _appFocusKey = GlobalKey(debugLabel: 'Sleuth app focus');
+
+  /// Whether the app's focus is excluded: [_fullScreenLayerOpen], applied
+  /// after the frame that reported the change (the card reports from its
+  /// own build).
+  bool _appFocusExcluded = false;
+
+  /// The app's primary focus when the exclusion began, restored when it
+  /// ends.
+  FocusNode? _appFocusBeforeLayer;
+  bool _focusSyncScheduled = false;
 
   @override
   void initState() {
@@ -131,8 +149,85 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     final Object? host = _cardKey.currentState;
     _fullScreenLayerOpen.value =
         _layerOpen && host is OverlayLayerHost && host.openLayerDepth > 0;
+    _scheduleFocusSync();
     _requestFrameworkBack();
     _watchAppNavigation();
+  }
+
+  // ── App focus while a full-screen layer is open ─────────────────────
+
+  /// Applies [_fullScreenLayerOpen] to the app's focus after the frame:
+  /// layer changes are reported from the card's build, where the app's
+  /// [ExcludeFocus] cannot be rebuilt.
+  void _scheduleFocusSync() {
+    if (_focusSyncScheduled) return;
+    _focusSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusSyncScheduled = false;
+      _syncAppFocus();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Excludes the app's focus when a layer opened, remembering the app's
+  /// focused node; when the last layer closed, lets the app take focus
+  /// again and, after that rebuild, gives the node its focus back. The
+  /// card focuses the page itself.
+  void _syncAppFocus() {
+    if (!mounted) return;
+    final exclude = _fullScreenLayerOpen.value;
+    if (exclude == _appFocusExcluded) return;
+    if (exclude) {
+      // Without app focus now, a node still waiting for its restore (a
+      // layer reopened right after closing) is kept.
+      final focus = FocusManager.instance.primaryFocus;
+      if (focus != null && _isAppFocus(focus)) _appFocusBeforeLayer = focus;
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _restoreAppFocus());
+    }
+    setState(() => _appFocusExcluded = exclude);
+  }
+
+  /// Gives the node focused before the layer opened its focus back, when
+  /// it is still in the tree and focusable and the app has not taken
+  /// focus itself.
+  void _restoreAppFocus() {
+    // Excluded again: the node waits for the next close.
+    if (!mounted || _appFocusExcluded) return;
+    final node = _appFocusBeforeLayer;
+    _appFocusBeforeLayer = null;
+    if (node == null) return;
+    final nodeContext = node.context;
+    if (nodeContext == null ||
+        !nodeContext.mounted ||
+        node.parent == null ||
+        !node.canRequestFocus) {
+      return;
+    }
+    final current = FocusManager.instance.primaryFocus;
+    if (current != null && _isAppFocus(current)) return;
+    // A scope (a route with nothing focused inside) gets focus itself,
+    // not a child it focused earlier.
+    if (node is FocusScopeNode) {
+      node.requestScopeFocus();
+    } else {
+      node.requestFocus();
+    }
+  }
+
+  /// Whether [node] belongs to the app below the overlay.
+  bool _isAppFocus(FocusNode node) {
+    final appElement = _appFocusKey.currentContext;
+    final nodeContext = node.context;
+    if (appElement == null || nodeContext == null || !nodeContext.mounted) {
+      return false;
+    }
+    var inApp = false;
+    nodeContext.visitAncestorElements((ancestor) {
+      inApp = identical(ancestor, appElement);
+      return !inApp;
+    });
+    return inApp;
   }
 
   void _requestFrameworkBack() {
@@ -292,7 +387,8 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   @override
   void didChangeAccessibilityFeatures() {
     // High contrast picks the high-contrast presets. Reduced motion is
-    // read live (`reducedMotionOf`) when each animation starts.
+    // read when each animation starts, and running ones settle through
+    // motion.dart.
     if (mounted) setState(() {});
   }
 
@@ -328,7 +424,12 @@ class _SleuthOverlayState extends State<SleuthOverlay>
                 widget.controller.onScrollActivity(notification);
                 return false;
               },
-              child: widget.child,
+              // Always present, so excluding focus never remounts the app.
+              child: ExcludeFocus(
+                key: _appFocusKey,
+                excluding: _appFocusExcluded,
+                child: widget.child,
+              ),
             ),
 
             // Widget highlight borders (when enabled)

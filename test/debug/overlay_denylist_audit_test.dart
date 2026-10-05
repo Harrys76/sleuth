@@ -52,6 +52,8 @@ const _nonWidgetTypes = <String>{
   'CustomSemanticsAction',
   'Duration',
   'FocusNode',
+  'FocusScopeNode',
+  'FocusSemanticEvent',
   'FormatException',
   'Function',
   'GlobalKey',

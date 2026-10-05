@@ -88,6 +88,7 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Snapshot copied to clipboard'), findsNothing);
-    });
+      // Semantics on would triple the display time.
+    }, semanticsEnabled: false);
   });
 }

@@ -138,4 +138,158 @@ void main() {
       expect(find.text('Copied'), findsNothing);
     });
   });
+
+  group('Reduced motion turned on mid-run', () {
+    const settings = {
+      'reduceMotion': FakeAccessibilityFeatures(reduceMotion: true),
+      'disableAnimations': FakeAccessibilityFeatures(disableAnimations: true),
+    };
+
+    for (final MapEntry(key: label, value: features) in settings.entries) {
+      testWidgets('a running Guide entrance comes to rest at once under '
+          '$label', (tester) async {
+        await tester.pumpWidget(MaterialApp(home: GuidePage(onClose: () {})));
+        await tester.pump(const Duration(milliseconds: 100));
+        final page = find.byType(GuidePage);
+        expect(fadeOpacities(tester, page).any((o) => o < 1), isTrue);
+
+        setFeatures(tester, features);
+        await tester.pump();
+        expect(fadeOpacities(tester, page), everyElement(1.0));
+        // No ticker left running.
+        expect(tester.binding.transientCallbackCount, 0);
+      });
+
+      testWidgets('a running toast fade-in finishes at once under $label', (
+        tester,
+      ) async {
+        final toast = OverlayToastController();
+        addTearDown(toast.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Stack(children: [OverlayToast(controller: toast)]),
+          ),
+        );
+        toast.show('Copied');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        final fade = fadeOpacities(tester, find.byType(OverlayToast)).single;
+        expect(fade, inExclusiveRange(0, 1));
+
+        setFeatures(tester, features);
+        await tester.pump();
+        expect(fadeOpacities(tester, find.byType(OverlayToast)), [1.0]);
+        toast.dismiss();
+        await tester.pump();
+      });
+
+      testWidgets('a running toast fade-out finishes at once under $label', (
+        tester,
+      ) async {
+        final toast = OverlayToastController();
+        addTearDown(toast.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Stack(children: [OverlayToast(controller: toast)]),
+          ),
+        );
+        toast.show('Copied');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        toast.dismiss();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(find.text('Copied'), findsOneWidget);
+
+        setFeatures(tester, features);
+        await tester.pump();
+        expect(find.text('Copied'), findsNothing);
+      });
+
+      testWidgets('a running animateScrollTo jumps to its end under $label', (
+        tester,
+      ) async {
+        final controller = ScrollController();
+        addTearDown(controller.dispose);
+        late BuildContext context;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (c) {
+                context = c;
+                return ListView(
+                  controller: controller,
+                  children: [
+                    for (var i = 0; i < 50; i++)
+                      SizedBox(height: 100, child: Text('row $i')),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+        animateScrollTo(
+          context,
+          controller,
+          2000,
+          duration: const Duration(seconds: 1),
+          curve: Curves.linear,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(controller.offset, inExclusiveRange(0, 2000));
+
+        setFeatures(tester, features);
+        await tester.pump();
+        expect(controller.offset, 2000);
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(controller.offset, 2000);
+      });
+
+      testWidgets('a running ensureVisibleWithMotion jumps to its end under '
+          '$label', (tester) async {
+        final controller = ScrollController();
+        addTearDown(controller.dispose);
+        final target = GlobalKey();
+        late BuildContext context;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (c) {
+                context = c;
+                return SingleChildScrollView(
+                  controller: controller,
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < 50; i++)
+                        SizedBox(
+                          key: i == 30 ? target : null,
+                          height: 100,
+                          child: Text('row $i'),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+        ensureVisibleWithMotion(
+          context,
+          target.currentContext!,
+          duration: const Duration(seconds: 1),
+          curve: Curves.linear,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(controller.offset, inExclusiveRange(0, 3000));
+
+        setFeatures(tester, features);
+        await tester.pump();
+        expect(controller.offset, 3000);
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(controller.offset, 3000);
+      });
+    }
+  });
 }

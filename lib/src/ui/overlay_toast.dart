@@ -24,6 +24,7 @@ class OverlayToastModel {
     this.tone = OverlayToastTone.info,
     this.actionLabel,
     this.onAction,
+    this.held = false,
   });
 
   final String text;
@@ -35,6 +36,10 @@ class OverlayToastModel {
 
   /// Runs at most once, and only while this toast is the current one.
   final VoidCallback? onAction;
+
+  /// Shown while [OverlayToastController.holdActions] was on: the toast
+  /// stays past [duration] and carries a Dismiss button.
+  final bool held;
 }
 
 /// Single-slot toast queue: a new toast replaces the current one and
@@ -51,10 +56,30 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
   Timer? _timer;
   bool _disposed = false;
 
+  /// The current toast once its display time ran out while held.
+  OverlayToastModel? _expired;
+
   /// Multiplier for every display time. The card sets 3 while a screen
-  /// reader is on (`MediaQuery.accessibleNavigationOf`), so toasts stay
-  /// long enough to be announced and acted on.
+  /// reader or another assistive service is on (accessible navigation or
+  /// semantics enabled), so toasts stay long enough to be announced and
+  /// acted on.
   double durationScale = 1;
+
+  /// While true, a toast with an action stays after its display time until
+  /// the action runs, it is dismissed or another toast replaces it, as a
+  /// `SnackBar` with an action does under accessible navigation. The card
+  /// sets it together with [durationScale]. Turned off, a held toast whose
+  /// time has run out leaves.
+  bool get holdActions => _holdActions;
+  bool _holdActions = false;
+  set holdActions(bool value) {
+    if (value == _holdActions) return;
+    _holdActions = value;
+    final expired = _expired;
+    if (!value && expired != null && identical(this.value, expired)) {
+      dismiss();
+    }
+  }
 
   /// Shows [text], replacing any current toast. [duration] defaults to
   /// [actionDuration] when an action is given, else [infoDuration]; it is
@@ -76,11 +101,18 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
       duration:
           (duration ?? (hasAction ? actionDuration : infoDuration)) *
           durationScale,
+      held: hasAction && _holdActions,
     );
     _timer?.cancel();
+    _expired = null;
     _timer = Timer(model.duration, () {
       _timer = null;
-      if (!_disposed && value == model) value = null;
+      if (_disposed || !identical(value, model)) return;
+      if (model.onAction != null && _holdActions) {
+        _expired = model;
+      } else {
+        value = null;
+      }
     });
     value = model;
   }
@@ -94,11 +126,17 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
     action?.call();
   }
 
+  /// Hides [model] if it is still the current toast.
+  void dismissIfCurrent(OverlayToastModel model) {
+    if (!_disposed && identical(value, model)) dismiss();
+  }
+
   /// Hides the current toast.
   void dismiss() {
     if (_disposed) return;
     _timer?.cancel();
     _timer = null;
+    _expired = null;
     value = null;
   }
 
@@ -114,7 +152,10 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
 /// Bottom-anchored toast for the overlay, rendered inside the card's
 /// [Stack] (the overlay has no [ScaffoldMessenger] above it). Sits above
 /// the keyboard and the bottom safe-area inset, fades in and out over
-/// 200 ms (at once under reduced motion), and announces itself to screen readers as a live region.
+/// 200 ms (at once under reduced motion, and a running fade finishes when
+/// reduced motion turns on), and announces itself to screen readers as a
+/// live region. A held toast ([OverlayToastModel.held]) adds a Dismiss
+/// button and a dismiss semantics action.
 class OverlayToast extends StatelessWidget {
   const OverlayToast({super.key, required this.controller});
 
@@ -135,8 +176,11 @@ class OverlayToast extends StatelessWidget {
       bottom: theme.spacingXl + bottomInset,
       child: ValueListenableBuilder<OverlayToastModel?>(
         valueListenable: controller,
-        builder: (context, model, _) =>
-            _ToastFade(model: model, onAction: controller.runAction),
+        builder: (context, model, _) => _ToastFade(
+          model: model,
+          onAction: controller.runAction,
+          onDismiss: controller.dismissIfCurrent,
+        ),
       ),
     );
   }
@@ -145,10 +189,15 @@ class OverlayToast extends StatelessWidget {
 /// Fades a toast in when it appears and out when it is dismissed; a
 /// replacement fades in from transparent. A fading-out toast ignores taps.
 class _ToastFade extends StatefulWidget {
-  const _ToastFade({required this.model, required this.onAction});
+  const _ToastFade({
+    required this.model,
+    required this.onAction,
+    required this.onDismiss,
+  });
 
   final OverlayToastModel? model;
   final ValueChanged<OverlayToastModel> onAction;
+  final ValueChanged<OverlayToastModel> onDismiss;
 
   @override
   State<_ToastFade> createState() => _ToastFadeState();
@@ -175,11 +224,15 @@ class _ToastFadeState extends State<_ToastFade>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // First call only: a toast present at insertion fades in.
+    // First call only: a toast present at insertion fades in. Later calls
+    // (reduced motion turned on among them) finish a running fade.
     if (_shown != null && _opacity.status == AnimationStatus.dismissed) {
       _opacity
         ..duration = motionDuration(context, OverlayToast._fade)
         ..forward();
+      settleOnReducedMotion(context, _opacity);
+    } else {
+      settleIfMotionReduced(context, _opacity);
     }
   }
 
@@ -195,6 +248,7 @@ class _ToastFadeState extends State<_ToastFade>
     } else {
       _opacity.reverse();
     }
+    settleOnReducedMotion(context, _opacity);
   }
 
   void _onStatus(AnimationStatus status) {
@@ -223,6 +277,7 @@ class _ToastFadeState extends State<_ToastFade>
           key: ObjectKey(shown),
           model: shown,
           onAction: () => widget.onAction(shown),
+          onDismiss: () => widget.onDismiss(shown),
         ),
       ),
     );
@@ -230,10 +285,16 @@ class _ToastFadeState extends State<_ToastFade>
 }
 
 class _ToastBody extends StatelessWidget {
-  const _ToastBody({super.key, required this.model, required this.onAction});
+  const _ToastBody({
+    super.key,
+    required this.model,
+    required this.onAction,
+    required this.onDismiss,
+  });
 
   final OverlayToastModel model;
   final VoidCallback onAction;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -247,6 +308,9 @@ class _ToastBody extends StatelessWidget {
       child: Semantics(
         liveRegion: true,
         container: true,
+        // A held toast stays until used or dismissed; screen readers get a
+        // dismiss action next to the Dismiss button.
+        onDismiss: model.held ? onDismiss : null,
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: background,
@@ -307,6 +371,23 @@ class _ToastBody extends StatelessWidget {
                               ),
                             ),
                           ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (model.held)
+                  Semantics(
+                    container: true,
+                    button: true,
+                    label: 'Dismiss',
+                    child: GestureDetector(
+                      onTap: onDismiss,
+                      behavior: HitTestBehavior.opaque,
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Center(
+                          child: Icon(Icons.close, size: 16, color: foreground),
                         ),
                       ),
                     ),

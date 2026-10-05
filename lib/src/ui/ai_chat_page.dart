@@ -519,16 +519,13 @@ class _AiChatPageState extends State<AiChatPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_scrollController.hasClients) {
-        final end = _scrollController.position.maxScrollExtent;
-        if (reducedMotionOf(context)) {
-          _scrollController.jumpTo(end);
-        } else {
-          _scrollController.animateTo(
-            end,
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeOut,
-          );
-        }
+        animateScrollTo(
+          context,
+          _scrollController,
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
