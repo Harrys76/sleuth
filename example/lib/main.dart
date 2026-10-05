@@ -1,13 +1,13 @@
 import 'dart:async' show unawaited;
-import 'dart:convert' show jsonEncode;
+import 'dart:convert' show base64Encode, jsonEncode;
+import 'dart:ui' as ui;
 import 'dart:developer' as developer;
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RendererBinding;
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show Clipboard;
 import 'package:sleuth/sleuth.dart';
 
@@ -914,6 +914,32 @@ void _registerDemoExtensions() {
       handle.dispose();
     }
   });
+  // PNG of the whole screen (base64) for hands-free visual checks. Uses
+  // the root layer, so it includes the overlay.
+  developer.registerExtension('ext.sleuthDemo.screenshot', (
+    method,
+    params,
+  ) async {
+    await WidgetsBinding.instance.endOfFrame;
+    final view = RendererBinding.instance.renderViews.first;
+    // The root layer is the only whole-screen surface; `debugLayer` is
+    // debug-only and this must work in profile too.
+    // ignore: invalid_use_of_protected_member
+    final layer = view.layer;
+    if (layer is! OffsetLayer) return _demoError({'error': 'no_layer'});
+    final bounds = Offset.zero & view.flutterView.physicalSize;
+    final image = await layer.toImage(bounds);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    if (bytes == null) return _demoError({'error': 'no_bytes'});
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({
+        'png': base64Encode(bytes.buffer.asUint8List()),
+        'width': image.width,
+        'height': image.height,
+      }),
+    );
+  });
   developer.registerExtension('ext.sleuthDemo.overlayState', (
     method,
     params,
@@ -990,6 +1016,7 @@ List<Map<String, Object?>> _semanticsNodes() {
         nodes.add({
           'label': data.label,
           'value': data.value,
+          'y': double.parse((rect.top / dpr).toStringAsFixed(1)),
           'w': double.parse((rect.width / dpr).toStringAsFixed(1)),
           'h': double.parse((rect.height / dpr).toStringAsFixed(1)),
           'button': data.flagsCollection.isButton,
