@@ -534,8 +534,14 @@ class SleuthController {
   bool _stateStoreReadErrorLogged = false;
   bool _stateStoreWriteErrorLogged = false;
 
-  /// Set when the store's read timed out: this session does not write.
+  /// Set when the store's read timed out or failed (an exception,
+  /// malformed JSON, a newer schema): this session does not write, so the
+  /// stored file is left as it is.
   bool _stateStoreWritesDisabled = false;
+
+  /// [overlayUiState] as the store's contents alone would set it,
+  /// serialized; null when the store held nothing.
+  String? _loadedUiState;
   bool _uiStateWriteInFlight = false;
 
   /// A write was due while another was in flight; one more runs, with the
@@ -578,16 +584,24 @@ class SleuthController {
           if (decoded is! Map<String, Object?>) {
             throw const FormatException('state is not a JSON object');
           }
+          _loadedUiState = jsonEncode(
+            OverlayUiState.fromJson(decoded).toJson(),
+          );
           overlayUiState.loadJson(decoded);
         })
         .catchError((Object e) {
+          final timedOut = _stateStoreWritesDisabled;
+          // A file this session cannot read (or a newer release wrote) is
+          // left alone rather than replaced with defaults.
+          _stateStoreWritesDisabled = true;
           if (_stateStoreReadErrorLogged) return;
           _stateStoreReadErrorLogged = true;
           debugPrint(
-            _stateStoreWritesDisabled
+            timedOut
                 ? 'Sleuth: overlay state store read timed out; changes '
                       'this session are not saved'
-                : 'Sleuth: overlay state not restored: $e',
+                : 'Sleuth: overlay state not restored ($e); changes this '
+                      'session are not saved',
           );
         })
         .whenComplete(() {
@@ -595,8 +609,15 @@ class SleuthController {
           _uiStateLoadTimer = null;
           if (_disposed) return;
           if (!_stateStoreWritesDisabled) {
-            _lastPersistedUiState = jsonEncode(overlayUiState.toJson());
+            // The baseline is what the store holds; a change made while
+            // the read was pending differs from it and is written once.
+            _lastPersistedUiState =
+                _loadedUiState ?? jsonEncode(OverlayUiState().toJson());
+            _loadedUiState = null;
             overlayUiState.addListener(_scheduleOverlayUiStateWrite);
+            if (jsonEncode(overlayUiState.toJson()) != _lastPersistedUiState) {
+              _scheduleOverlayUiStateWrite();
+            }
           }
           uiStateReady.value = true;
         });

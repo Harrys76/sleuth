@@ -7,6 +7,7 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/persistence/sleuth_state_store.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
 import 'package:sleuth/src/vm/service_extension_handlers.dart';
 
 import '../helpers/overlay_harness.dart';
@@ -51,11 +52,27 @@ class _SlowWriteStore implements SleuthStateStore {
 }
 
 class _ThrowingStore implements SleuthStateStore {
+  final List<String> writes = [];
+
   @override
   Future<String?> read() => throw StateError('no access');
 
   @override
-  Future<void> write(String json) async {}
+  Future<void> write(String json) async => writes.add(json);
+}
+
+/// Store holding [content] that records every write.
+class _RecordingStore implements SleuthStateStore {
+  _RecordingStore(this.content);
+
+  final String? content;
+  final List<String> writes = [];
+
+  @override
+  Future<String?> read() async => content;
+
+  @override
+  Future<void> write(String json) async => writes.add(json);
 }
 
 PerformanceIssue _issue(String id) => PerformanceIssue(
@@ -148,6 +165,149 @@ void main() {
       });
     }
 
+    testWidgets('after a failed read the session never writes', (tester) async {
+      final store = _ThrowingStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+      await tester.pump();
+      expect(controller.uiStateReady.value, isTrue);
+
+      controller.overlayUiState.hide('k');
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.overlayUiState.hiddenKeys, {'k'});
+      expect(store.writes, isEmpty);
+    });
+
+    for (final unreadable in [
+      'not json',
+      '{"schemaVersion": 2, "hiddenKeys": ["x"]}',
+    ]) {
+      testWidgets('after an unreadable state the session never writes: '
+          '$unreadable', (tester) async {
+        final store = _RecordingStore(unreadable);
+        final controller = _controller(store);
+        await tester.pump();
+        expect(controller.uiStateReady.value, isTrue);
+
+        controller.overlayUiState
+          ..hide('k')
+          ..toggleSeverity(IssueSeverity.ok);
+        await tester.pump(const Duration(seconds: 1));
+        controller.dispose();
+        await tester.pump(const Duration(seconds: 1));
+        expect(store.writes, isEmpty);
+      });
+    }
+
+    testWidgets('a change made during the read is written once after the '
+        'merge', (tester) async {
+      final store = _ControlledStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+
+      controller.overlayUiState.hide('local');
+      store.readCompleter.complete(
+        jsonEncode({
+          'schemaVersion': 1,
+          'hiddenKeys': ['loaded'],
+        }),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(store.writes, hasLength(1));
+      final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
+      expect(saved['hiddenKeys'], ['loaded', 'local']);
+    });
+
+    testWidgets('a change during the read that matches the stored state '
+        'does not write', (tester) async {
+      final store = _ControlledStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+
+      controller.overlayUiState
+        ..hide('loaded')
+        ..dashboardOpen = true;
+      store.readCompleter.complete(
+        jsonEncode({
+          'schemaVersion': 1,
+          'hiddenKeys': ['loaded'],
+        }),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(store.writes, isEmpty);
+    });
+
+    testWidgets('a key shown again during the read stays shown', (
+      tester,
+    ) async {
+      final store = _ControlledStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+
+      controller.overlayUiState
+        ..hide('a')
+        ..unhide('a');
+      store.readCompleter.complete(
+        jsonEncode({
+          'schemaVersion': 1,
+          'hiddenKeys': ['a', 'b'],
+        }),
+      );
+      await tester.pump();
+      expect(controller.overlayUiState.hiddenKeys, {'b'});
+
+      await tester.pump(const Duration(milliseconds: 600));
+      final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
+      expect(saved['hiddenKeys'], ['b']);
+    });
+
+    testWidgets('restore all during the read drops the stored keys', (
+      tester,
+    ) async {
+      final store = _ControlledStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+
+      controller.overlayUiState
+        ..hide('x')
+        ..restoreAll()
+        ..hide('y');
+      store.readCompleter.complete(
+        jsonEncode({
+          'schemaVersion': 1,
+          'hiddenKeys': ['a', 'b'],
+        }),
+      );
+      await tester.pump();
+      expect(controller.overlayUiState.hiddenKeys, {'y'});
+      await tester.pump(const Duration(milliseconds: 600));
+      final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
+      expect(saved['hiddenKeys'], ['y']);
+    });
+
+    testWidgets('updateTheme during the read keeps System over a stored '
+        'Dark', (tester) async {
+      final store = _ControlledStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+
+      const theme = SleuthThemeData.highContrastDark();
+      controller.updateTheme(theme);
+      store.readCompleter.complete(
+        jsonEncode({'schemaVersion': 1, 'themeMode': 'dark'}),
+      );
+      await tester.pump();
+
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
+      expect(controller.themeOverride.value, same(theme));
+      await tester.pump(const Duration(milliseconds: 600));
+      final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
+      expect(saved['themeMode'], 'system');
+    });
+
     testWidgets('a read that never completes is cut at 2 s', (tester) async {
       final controller = _controller(_ControlledStore());
       addTearDown(controller.dispose);
@@ -213,6 +373,9 @@ void main() {
       });
       // Untouched fields come from the store.
       expect(state.cardWidth, 420);
+      // The merged state differs from the stored one: one write.
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(store.writes, hasLength(1));
     });
 
     testWidgets('no store: ready from construction', (tester) async {

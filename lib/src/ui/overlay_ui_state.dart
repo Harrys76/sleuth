@@ -112,6 +112,11 @@ class OverlayUiState extends ChangeNotifier {
   bool _severityDirty = false;
   bool _themeDirty = false;
 
+  // Keys shown again since construction, and whether every key was. A
+  // later [loadJson] does not bring them back.
+  final Set<String> _unhiddenKeys = {};
+  bool _restoredAll = false;
+
   // ── Dashboard ─────────────────────────────────────────────────────────
 
   /// Whether the dashboard card is open. Session only; not persisted.
@@ -218,6 +223,7 @@ class OverlayUiState extends ChangeNotifier {
   /// makes it the newest; past [maxHiddenKeys] the oldest key is evicted.
   void hide(String key) {
     if (_hiddenKeys.isNotEmpty && _hiddenKeys.last == key) return;
+    _unhiddenKeys.remove(key);
     _hiddenKeys
       ..remove(key)
       ..add(key);
@@ -231,6 +237,7 @@ class OverlayUiState extends ChangeNotifier {
   /// Shows [key] again. Returns false when it was not hidden.
   bool unhide(String key) {
     if (!_hiddenKeys.remove(key)) return false;
+    _unhiddenKeys.add(key);
     _hiddenDirty = true;
     notifyListeners();
     return true;
@@ -240,6 +247,8 @@ class OverlayUiState extends ChangeNotifier {
   void restoreAll() {
     if (_hiddenKeys.isEmpty) return;
     _hiddenKeys.clear();
+    _unhiddenKeys.clear();
+    _restoredAll = true;
     _hiddenDirty = true;
     notifyListeners();
   }
@@ -291,11 +300,14 @@ class OverlayUiState extends ChangeNotifier {
   /// [SleuthThemeMode.dark] take precedence over a `Sleuth.updateTheme`
   /// override and `SleuthConfig.theme`; `Sleuth.updateTheme` with a theme
   /// sets [SleuthThemeMode.system].
+  ///
+  /// Setting the mode, even to its current value, marks it as chosen in
+  /// this session, so a later [loadJson] keeps it.
   SleuthThemeMode get themeMode => _themeMode;
   set themeMode(SleuthThemeMode value) {
+    _themeDirty = true;
     if (_themeMode == value) return;
     _themeMode = value;
-    _themeDirty = true;
     notifyListeners();
   }
 
@@ -334,7 +346,8 @@ class OverlayUiState extends ChangeNotifier {
   /// severity filter and the theme mode are taken from [json] only when
   /// untouched;
   /// hidden keys from [json] are merged in, with the keys hidden here
-  /// kept as the newest.
+  /// kept as the newest, except keys shown again here (all of them after
+  /// [restoreAll]).
   ///
   /// Throws [FormatException], leaving the state unchanged, when
   /// `schemaVersion` is missing, not an integer, or newer than
@@ -387,9 +400,12 @@ class OverlayUiState extends ChangeNotifier {
       _restoreHeight = _validExtent(_doubleFromJson(json['restoreHeight']));
     }
     final localHidden = _hiddenDirty ? _hiddenKeys.toList() : const <String>[];
-    _hiddenKeys
-      ..clear()
-      ..addAll(keptHidden);
+    _hiddenKeys.clear();
+    if (!_restoredAll) {
+      for (final key in keptHidden) {
+        if (!_unhiddenKeys.contains(key)) _hiddenKeys.add(key);
+      }
+    }
     for (final key in localHidden) {
       _hiddenKeys
         ..remove(key)
