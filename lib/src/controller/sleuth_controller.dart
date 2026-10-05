@@ -522,7 +522,6 @@ class SleuthController {
   /// closing the dashboard (which unmounts the card) does not lose them.
   /// In memory only: never persisted, exported or sent anywhere but the
   /// configured adapter. Cleared on [dispose].
-  @internal
   final Map<Object, List<AiChatMessage>> aiChatHistories = {};
 
   /// True once [overlayUiState] holds its startup value: immediately when
