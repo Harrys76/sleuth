@@ -10,6 +10,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../utils/animation_owner_names.dart';
+import '../utils/overlay_ownership.dart';
 import '../utils/widget_location.dart';
 import 'debug_snapshot.dart';
 
@@ -656,6 +657,8 @@ class DebugInstrumentationCoordinator {
   };
 
   void _handleRebuildDirtyWidget(Element element, bool builtOnce) {
+    // Sleuth's own overlay widgets are not the app's rebuilds.
+    if (OverlayOwnership.isOverlayOwned(element)) return;
     // First observation of this element = initial build (don't count).
     // Every subsequent observation = real rebuild. The framework's
     // `builtOnce` parameter is unreliable (see `_elementSeen` docs), so we
@@ -709,6 +712,8 @@ class DebugInstrumentationCoordinator {
     }
 
     final element = creator.element;
+    // Sleuth's own overlay paints count nowhere, not even in the total.
+    if (OverlayOwnership.isOverlayOwned(element)) return;
     final typeName = _typeName(element.widget.runtimeType);
     if (semanticsOnlyWidgets.contains(typeName) &&
         SemanticsBinding.instance.semanticsEnabled) {

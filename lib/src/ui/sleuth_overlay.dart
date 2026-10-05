@@ -8,6 +8,7 @@ import 'package:flutter/services.dart'
 
 import '../../sleuth.dart' show Sleuth;
 import '../controller/sleuth_controller.dart';
+import '../utils/overlay_ownership.dart';
 import 'trigger_button.dart';
 import 'floating_issues_card.dart';
 import 'highlight_overlay.dart';
@@ -95,6 +96,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   void initState() {
     super.initState();
     if (!kReleaseMode) {
+      OverlayOwnership.register(context as Element, _appFocusKey);
       WidgetsBinding.instance.addObserver(this);
       widget.controller.themeOverride.addListener(_onThemeChanged);
       _dashboardOpen = widget.controller.overlayUiState.dashboardOpen;
@@ -590,6 +592,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   @override
   void dispose() {
+    OverlayOwnership.unregister(context as Element, _appFocusKey);
     _fullScreenLayerOpen.dispose();
     widget.controller.themeOverride.removeListener(_onThemeChanged);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);

@@ -195,6 +195,12 @@
   `ExcludeSemantics`, `BlockSemantics`, `IndexedSemantics`,
   `_GestureSemantics`), so VoiceOver or TalkBack no longer raises
   `repaint_debug_Semantics`. The VM `excessive_repaint` axis is unchanged.
+- Debug rebuild and paint counts leave out Sleuth's own overlay. With the
+  dashboard open, a debug build reported the card's widgets
+  (`rebuild_debug_IssueCard`, `rebuild_debug_SleuthListenableBuilder`,
+  `repaint_debug_Padding`, ...) as the app's. The overlay registers its
+  subtree, and an element under it (but not under the app it wraps) is
+  skipped; the decision is cached per element.
 - Example: demo subtitles fit 40 characters, demo file headers follow the
   home-screen numbering, tile titles use `titleMedium`, and category
   header icons use the theme's primary color.
