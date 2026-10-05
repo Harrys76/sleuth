@@ -912,19 +912,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               contextIssue: _detailContextIssue,
             ),
           ),
-        if (_showAiChat)
-          _page(
-            AiChatPage(
-              issue: _findIssueByStableId(_chatIssueStableId!),
-              allIssues: widget.controller.issuesNotifier.value,
-              adapter: widget.controller.config.aiChat!,
-              history: _chatHistories[_chatIssueStableId!] ?? const [],
-              onHistoryChanged: (msgs) =>
-                  _chatHistories[_chatIssueStableId!] = msgs,
-              onClose: _closeAiChat,
-              onNotify: (message) => _toast.show(message),
-            ),
-          ),
+        if (_showAiChat) _page(_buildAiChatPage(_chatIssueStableId!)),
         if (_showStartupDetail)
           _page(
             StartupMetricsPage(
@@ -943,6 +931,28 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // card and any full-screen page.
         OverlayToast(controller: _toast),
       ],
+    );
+  }
+
+  /// The chat about the issue keyed [chatKey]. The history callback
+  /// holds [chatKey]: the page commits a stopped reply from `dispose`,
+  /// after close or prune has cleared [_chatIssueStableId]. A write for
+  /// an issue that is no longer reported is dropped, as
+  /// [_pruneStaleState] would drop it.
+  Widget _buildAiChatPage(String chatKey) {
+    return AiChatPage(
+      issue: _findIssueByStableId(chatKey),
+      allIssues: widget.controller.issuesNotifier.value,
+      adapter: widget.controller.config.aiChat!,
+      history: _chatHistories[chatKey] ?? const [],
+      onHistoryChanged: (msgs) {
+        final reported = widget.controller.issuesNotifier.value.any(
+          (i) => (i.stableId ?? i.title) == chatKey,
+        );
+        if (reported) _chatHistories[chatKey] = msgs;
+      },
+      onClose: _closeAiChat,
+      onNotify: (message) => _toast.show(message),
     );
   }
 

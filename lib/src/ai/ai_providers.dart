@@ -93,6 +93,100 @@ String extractGoogleToken(String jsonData) {
 }
 
 // ---------------------------------------------------------------------------
+// Stream errors
+// ---------------------------------------------------------------------------
+
+/// A failure reported by an AI provider: a non-200 response or an error
+/// frame inside the event stream.
+///
+/// [statusCode] is the HTTP status, or the status an error frame's type
+/// stands for (`rate_limit_error` is 429), or null when unknown.
+class AiProviderException implements Exception {
+  const AiProviderException(this.message, {this.statusCode});
+
+  /// The provider's message (for an HTTP failure, the response body).
+  final String message;
+
+  /// HTTP status, when known.
+  final int? statusCode;
+
+  @override
+  String toString() => statusCode == null
+      ? 'AiProviderException: $message'
+      : 'AiProviderException ($statusCode): $message';
+}
+
+/// HTTP status an error frame's `error.type` stands for, per the
+/// Anthropic error types.
+const Map<String, int> _errorTypeStatus = {
+  'invalid_request_error': 400,
+  'authentication_error': 401,
+  'permission_error': 403,
+  'not_found_error': 404,
+  'request_too_large': 413,
+  'rate_limit_error': 429,
+  'api_error': 500,
+  'overloaded_error': 529,
+};
+
+/// Returns the error carried by an SSE data payload, or null when the
+/// payload is not an error.
+///
+/// Anthropic sends `{"type":"error","error":{"type":...,"message":...}}`
+/// mid-stream; OpenAI-compatible servers and Gemini send
+/// `{"error":{"message":...}}` (Gemini adds a numeric `code`).
+AiProviderException? extractStreamError(String jsonData) {
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(jsonData);
+  } catch (_) {
+    return null;
+  }
+  if (decoded is! Map<String, dynamic>) return null;
+  final error = decoded['error'];
+  if (decoded['type'] != 'error' && error == null) return null;
+  if (error is String) return AiProviderException(error);
+  if (error is! Map<String, dynamic>) {
+    return AiProviderException(jsonData);
+  }
+  final message = error['message'];
+  final type = error['type'];
+  final code = error['code'];
+  final status = code is int
+      ? code
+      : (type is String ? _errorTypeStatus[type] : null);
+  return AiProviderException(
+    message is String ? message : jsonData,
+    statusCode: status,
+  );
+}
+
+/// Turns decoded SSE text [chunks] into text tokens.
+///
+/// `data: [DONE]` ends the stream (the upstream subscription is
+/// cancelled, so the connection is not read to its end), and a data
+/// frame carrying an error ([extractStreamError]) raises it as a stream
+/// error. Payloads that yield an empty token are skipped.
+Stream<String> sseTokens(
+  Stream<String> chunks,
+  String Function(String data) extractToken,
+) async* {
+  final parser = SseLineParser();
+  await for (final chunk in chunks) {
+    for (final line in parser.addChunk(chunk)) {
+      if (!line.startsWith('data:')) continue;
+      var data = line.substring(5);
+      if (data.startsWith(' ')) data = data.substring(1);
+      if (data == '[DONE]') return;
+      final error = extractStreamError(data);
+      if (error != null) throw error;
+      final token = extractToken(data);
+      if (token.isNotEmpty) yield token;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Shared SSE streaming helper
 // ---------------------------------------------------------------------------
 
@@ -129,25 +223,18 @@ Stream<String> _streamSse({
 
       if (response.statusCode != 200) {
         final responseBody = await response.transform(utf8.decoder).join();
-        throw HttpException(
+        throw AiProviderException(
           'AI provider returned ${response.statusCode}: $responseBody',
-          uri: uri,
+          statusCode: response.statusCode,
         );
       }
 
-      final parser = SseLineParser();
-      await for (final chunk in response.transform(utf8.decoder)) {
+      await for (final token in sseTokens(
+        response.transform(utf8.decoder),
+        extractToken,
+      )) {
         if (controller.isClosed) break;
-        for (final line in parser.addChunk(chunk)) {
-          if (line.startsWith('data: ')) {
-            final data = line.substring(6);
-            if (data == '[DONE]') break;
-            final token = extractToken(data);
-            if (token.isNotEmpty) {
-              controller.add(token);
-            }
-          }
-        }
+        controller.add(token);
       }
       if (!controller.isClosed) await controller.close();
     } catch (e) {

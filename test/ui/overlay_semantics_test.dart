@@ -265,8 +265,9 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
 
+      // The field stays editable so the next question can be drafted.
       final field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.readOnly, isTrue);
+      expect(field.readOnly, isFalse);
       expect(field.enabled, isNot(false));
       final editable = tester.state<EditableTextState>(
         find.byType(EditableText),

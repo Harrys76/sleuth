@@ -604,7 +604,7 @@ class DebugInstrumentationCoordinator {
     'TweenAnimationBuilder',
     'ValueListenableBuilder',
     'Wrap',
-    // --- Sleuth overlay widget classes (40) ---
+    // --- Sleuth overlay widget classes (41) ---
     'FloatingIssuesCard',
     '_StatusRow',
     '_ThroughputDetailRow',
@@ -629,6 +629,7 @@ class DebugInstrumentationCoordinator {
     'StartupMetricsPage',
     'AiChatPage',
     '_StarterChip',
+    '_ChatTextAction',
     'GuidePage',
     '_GuideStep',
     '_LegendRow',
