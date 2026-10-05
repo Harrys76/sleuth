@@ -89,9 +89,9 @@ class ProfileCaptureSchema {
   ///
   /// Throws [FormatException] with a precise message on any violation.
   ///
-  /// The inverse-ratio half of the AB-1 cross-check is skipped when the
-  /// capture's `sleuthMetadata.role` is `'below'`. Below-leg semantics
-  /// intentionally pair a tiny `expectedMagnitude.observed`
+  /// The inverse-ratio half of the trace-vs-observed cross-check is
+  /// skipped when the capture's `sleuthMetadata.role` is `'below'`.
+  /// Below-leg semantics intentionally pair a tiny `expectedMagnitude.observed`
   /// (sub-threshold workload, e.g. 0.5 ms) with a normal-sized scenario
   /// span (~250 ms including flushTimelineNow + dwell), producing
   /// inverse-ratios well above the 100× ceiling that would otherwise
@@ -102,12 +102,12 @@ class ProfileCaptureSchema {
     final decoded = _decodeUtf8(rawBytes);
     final normalised = _stripBomAndNormaliseLineEndings(decoded);
 
-    // CODEX-R6-2: Detect duplicate JSON keys before jsonDecode collapses
-    // them. RFC 8259 §4 permits duplicates; Dart's `jsonDecode` silently
-    // takes the last write. Without this check an attacker (or a
-    // well-meaning contributor with an editor glitch) can craft a fixture
-    // that presents one value to a human reviewer and certifies a
-    // different value to the schema validator — a review-bypass surface.
+    // Duplicate JSON keys are rejected before jsonDecode collapses them.
+    // RFC 8259 §4 permits duplicates; Dart's `jsonDecode` silently takes
+    // the last write. Without this check an attacker (or a well-meaning
+    // contributor with an editor glitch) can craft a fixture that shows
+    // one value to a person reading the file and certifies a different
+    // value to the schema validator.
     _detectDuplicateKeys(normalised);
 
     final Object? root;
@@ -155,14 +155,14 @@ class ProfileCaptureSchema {
       throw FormatException(
         'Invalid `sleuthMetadata.role`: ${role == null ? 'null' : '"$role"'}. '
         'Must be exactly one of ${allowedRoles.toList()..sort()} '
-        '(case-sensitive). Below-leg AB-1 inverse-ratio bypass is '
+        '(case-sensitive). The below-leg inverse-ratio bypass is '
         'driven by this field — typos default to enforcement and '
         'will surface as false-positive failures.',
       );
     }
     // Below-leg semantics: sub-threshold workload paired with normal-
     // sized scenario span (workload + flushTimelineNow + dwell). The
-    // AB-1 inverse-ratio half false-positives on this shape — its 100×
+    // inverse-ratio half false-positives on this shape — its 100×
     // ceiling is meant to catch fabricated at/above captures
     // (markers bracketing unrelated work). _requireNoIssueTraceRecord
     // is the actual contract for below-role honesty.
@@ -231,9 +231,10 @@ class ProfileCaptureSchema {
         '"traceEvents" must be a JSON array of Chrome Trace events.',
       );
     }
-    // CODEX-R3-1: an empty or near-empty traceEvents array means the
-    // capture is a hollow wrapper — the `runtimeVerified` claim can then
-    // be fabricated without any actual profile-mode data backing it.
+    // Minimum trace-event count: an empty or near-empty traceEvents
+    // array means the capture is a hollow wrapper — the `runtimeVerified`
+    // claim can then be fabricated without any actual profile-mode data
+    // backing it.
     if (raw.length < minTraceEvents) {
       throw FormatException(
         '"traceEvents" has only ${raw.length} entries — a real profile-'
@@ -267,7 +268,7 @@ class ProfileCaptureSchema {
       }
       if (workTracePhases.contains(ph)) workPhaseCount++;
     }
-    // AB-1 phase-set assertion: without this, a wrapper of 11 `M`-phase
+    // Work-phase assertion: without this, a wrapper of 11 `M`-phase
     // metadata events or 11 `i`-phase instant markers satisfied every
     // other check in this routine yet carried zero runtime evidence. A
     // capture that claims profile-mode bracketing must actually contain
@@ -283,7 +284,7 @@ class ProfileCaptureSchema {
     }
   }
 
-  /// AB-1 cross-check: a capture that pairs a hand-authored
+  /// Trace-vs-observed cross-check: a capture that pairs a hand-authored
   /// `expectedMagnitude.observed` with a trace whose scenario-marker
   /// span is orders of magnitude smaller than the claim almost certainly
   /// describes a fabricated export. For time-unit magnitudes (`ms`,
@@ -295,7 +296,7 @@ class ProfileCaptureSchema {
   /// requests, …) no cross-check is attempted — the trace cannot
   /// meaningfully certify those.
   ///
-  /// Bundle F tightened the ratio from 100_000 → 100. The prior bound
+  /// The ratio is 100, down from 100_000. The prior bound
   /// admitted realistic 100×–10_000× fabrication (observed: 1000 ms
   /// paired with a 1–10 ms span). A real profile-mode capture of a
   /// 1000 ms scenario emits markers bracketing the full 1000 ms;
@@ -303,7 +304,7 @@ class ProfileCaptureSchema {
   /// just before/after the scenario, driver framework preamble) but
   /// not order-of-magnitude drift.
   ///
-  /// R3-NEW-1 (Bundle F): span is now bound to scenario markers, not
+  /// The span is bound to scenario markers, not
   /// the global `minTs/maxTs` over every work-phase event. The prior
   /// implementation iterated the full trace, so an attacker could
   /// pad a single unrelated event at `ts=1_000_000` and inflate the
@@ -312,12 +313,14 @@ class ProfileCaptureSchema {
 
   /// Canonical name for the "begin" scenario-marker instant event.
   /// Exactly one must appear in a time-unit capture. Its `ts` is the
-  /// start of the scoped work window used for the AB-1 cross-check.
+  /// start of the scoped work window used for the trace-vs-observed
+  /// cross-check.
   static const String scenarioBeginMarker = 'sleuth.scenario.begin';
 
   /// Canonical name for the "end" scenario-marker instant event.
   /// Exactly one must appear in a time-unit capture. Its `ts` is the
-  /// end of the scoped work window used for the AB-1 cross-check.
+  /// end of the scoped work window used for the trace-vs-observed
+  /// cross-check.
   static const String scenarioEndMarker = 'sleuth.scenario.end';
 
   static void _crossCheckTraceVsObserved(
@@ -326,7 +329,7 @@ class ProfileCaptureSchema {
     bool skipInverseRatio = false,
   }) {
     final magnitude = metadata['expectedMagnitude'] as Map<String, Object?>;
-    // AGR-1 (Bundle E): these early-returns used to be silent opt-outs
+    // Unit is mandatory: these early-returns used to be silent opt-outs
     // that fired on `unit: null`, `unit: 42`, or a novel spelling —
     // the most important cross-check this schema runs was one typo
     // away from being disabled. `_validateExpectedMagnitude` now
@@ -364,7 +367,7 @@ class ProfileCaptureSchema {
       // Chrome Trace JSON — emits Dart's `Timeline.instantSync(...)` as
       // `ph: 'n'` (async nestable instant) rather than `'i'`. Accept all
       // three so a capture round-trips regardless of which export path
-      // produced it. The AB-1 assertion (scenario markers must be 0-dur
+      // produced it. The cross-check assertion (scenario markers must be 0-dur
       // instant-class events, one begin + one end, inside the scenario
       // window) remains intact across the expanded set.
       if (ph != 'i' && ph != 'I' && ph != 'n') continue;
@@ -385,10 +388,11 @@ class ProfileCaptureSchema {
         'Capture is missing scenario markers. A time-unit capture must '
         'emit exactly one "$scenarioBeginMarker" and one '
         '"$scenarioEndMarker" instant event (ph="i", "I", or "n") so '
-        'the AB-1 cross-check can bound the observed magnitude against a '
-        'scoped work window. The global min/max over every work-phase '
-        'event was bypassable by padding unrelated events to inflate '
-        'the denominator. Got begin=$beginCount, end=$endCount.',
+        'the trace-vs-observed cross-check can bound the observed '
+        'magnitude against a scoped work window. The global min/max '
+        'over every work-phase event was bypassable by padding '
+        'unrelated events to inflate the denominator. '
+        'Got begin=$beginCount, end=$endCount.',
       );
     }
     if (beginCount != 1 || endCount != 1) {
@@ -421,7 +425,7 @@ class ProfileCaptureSchema {
     // `spanMicros > 0` is checked above, so the derived ratios should be
     // finite positive today. If any upstream change regresses that,
     // comparing a non-finite ratio against `maxObservedToSpanRatio` would
-    // silently bypass the AB-1 assertion (`NaN > x` is false, and
+    // silently bypass the cross-check assertion (`NaN > x` is false, and
     // `Infinity > x` short-circuits without revealing which side blew up).
     // Reject explicitly so the diagnostic surfaces the offending derived
     // value before the threshold check.
@@ -429,15 +433,15 @@ class ProfileCaptureSchema {
       throw FormatException(
         'Derived "observed × unit" is non-finite ($observedMicros µs). '
         'Upstream finite-positive guard on expectedMagnitude.observed '
-        'regressed; AB-1 cross-check cannot proceed.',
+        'regressed; trace-vs-observed cross-check cannot proceed.',
       );
     }
     final ratio = observedMicros / spanMicros;
     if (!ratio.isFinite) {
       throw FormatException(
         'Derived trace-vs-observed ratio is non-finite '
-        '($observedMicros µs / $spanMicros µs = $ratio). AB-1 '
-        'cross-check cannot proceed.',
+        '($observedMicros µs / $spanMicros µs = $ratio). '
+        'Trace-vs-observed cross-check cannot proceed.',
       );
     }
     if (ratio > maxObservedToSpanRatio) {
@@ -463,8 +467,8 @@ class ProfileCaptureSchema {
     if (!inverseRatio.isFinite) {
       throw FormatException(
         'Derived inverse trace-vs-observed ratio is non-finite '
-        '($spanMicros µs / $observedMicros µs = $inverseRatio). AB-1 '
-        'cross-check cannot proceed.',
+        '($spanMicros µs / $observedMicros µs = $inverseRatio). '
+        'Trace-vs-observed cross-check cannot proceed.',
       );
     }
     if (inverseRatio > maxObservedToSpanRatio) {
@@ -510,8 +514,9 @@ class ProfileCaptureSchema {
         'command that produced the capture.',
       );
     }
-    // CLAUDE-R1-3: without this check, `captureCommand: "fvm flutter run"`
-    // (no --profile) or `captureCommand: "."` satisfied the schema. The
+    // Profile-mode command: without this check,
+    // `captureCommand: "fvm flutter run"` (no --profile) or
+    // `captureCommand: "."` would satisfy the schema. The
     // whole point of runtimeVerified is that the capture came from
     // profile mode on a pinned device — the captured command must say so.
     if (!captureCommand.contains('--profile')) {
@@ -533,11 +538,11 @@ class ProfileCaptureSchema {
     }
   }
 
-  /// CODEX-R6-2: Minimal JSON scanner that walks the normalised text
-  /// and flags duplicate keys within the same object. `dart:convert`'s
+  /// Duplicate-key rule: a minimal JSON scanner that walks the normalised
+  /// text and flags duplicate keys within the same object. `dart:convert`'s
   /// `jsonDecode` takes the last write on duplicate keys silently, so
-  /// an attacker can hide a second value from a human reviewer. This
-  /// scanner runs before `jsonDecode` and throws a precise
+  /// an attacker can hide a second value from a person reading the
+  /// file. This scanner runs before `jsonDecode` and throws a precise
   /// [FormatException] identifying the offending key.
   ///
   /// The scanner only tracks object and array nesting plus string
@@ -590,8 +595,8 @@ class ProfileCaptureSchema {
               'Duplicate JSON key "$decoded" in the same object. RFC '
               '8259 permits duplicate keys; Sleuth rejects them '
               'because `jsonDecode` silently takes the last write, '
-              'which is a review-bypass surface — an attacker can '
-              'show one value to a reviewer and certify another.',
+              'so an attacker could show one value to a person '
+              'reading the file and certify another.',
             );
           }
           stack.last.nextIsKey = false;
@@ -665,11 +670,11 @@ class ProfileCaptureSchema {
   /// that `jsonDecode` treats as identical are also treated as identical
   /// here.
   ///
-  /// AB-2: the previous implementation fell back to the verbatim raw
-  /// bytes on `\u…`, so `"captureDate"` and `"\u0063aptureDate"` compared
-  /// as distinct in our scanner while `jsonDecode` collapsed them to the
-  /// same key and silently took last-write-wins. That is precisely the
-  /// review-bypass surface the duplicate-key scanner exists to close, so
+  /// Escapes are decoded in full. A scanner that fell back to the
+  /// verbatim raw bytes on `\u…` would compare `"captureDate"` and
+  /// `"\u0063aptureDate"` as distinct while `jsonDecode` collapses them
+  /// to the same key and silently takes last-write-wins. That is the
+  /// hidden-value surface the duplicate-key scanner exists to close, so
   /// full `\u` decoding is required for soundness.
   static String _decodeJsonStringContent(String raw) {
     if (!raw.contains(r'\')) return raw;
@@ -958,7 +963,7 @@ class ProfileCaptureSchema {
     final at = _parseOrThrowWithLabel(atFile, 'at');
     final above = _parseOrThrowWithLabel(aboveFile, 'above');
 
-    // AGR-1 (Bundle E): cross-check that all three captures declare the
+    // Unit equality: cross-check that all three captures declare the
     // same unit AND it equals the caller's `unit`. Without this a tier
     // raise could assemble a bracket from captures in mismatched scales
     // (`below` in ms, `at` in µs, `above` in s) and the observed-vs-
@@ -990,21 +995,20 @@ class ProfileCaptureSchema {
       }
     }
 
-    // NEW-CODEX-1 (Bundle G): provenance cross-check. Three captures
-    // bracketing a threshold are only comparable if they came from the
-    // same reference environment — same device, same OS version, same
-    // Flutter major.minor.patch. Before Bundle G, `validateBracket`
-    // checked only the numeric observed vs threshold relationship, so a
-    // bracket could assemble `below` from a Pixel 7 / Android 14 run,
-    // `at` from an iPhone 13 mini / iOS 17.6.1 run, and `above` from
-    // yet a third environment. `_validateExpectedMagnitude` +
-    // `_validateDevicePolicy` enforce that each capture individually
-    // names an approved (device, OS) pair and pinned Flutter major.minor,
-    // but neither step cross-references the triad. This loop closes
-    // that gap: any mismatch on device, OS, or full Flutter version
-    // across the three captures is a provenance error, and the
-    // bracketing rule should not be interpreted against the claimed
-    // threshold.
+    // Provenance cross-check: three captures bracketing a threshold are
+    // only comparable if they came from the same reference environment —
+    // same device, same OS version, same Flutter major.minor.patch.
+    // Without this loop, `validateBracket` would check only the numeric
+    // observed vs threshold relationship, so a bracket could assemble
+    // `below` from a Pixel 7 / Android 14 run, `at` from an iPhone 13
+    // mini / iOS 17.6.1 run, and `above` from yet a third environment.
+    // `_validateExpectedMagnitude` + `_validateDevicePolicy` enforce that
+    // each capture individually names an approved (device, OS) pair and
+    // pinned Flutter major.minor, but neither step cross-references the
+    // triad. This loop closes that gap: any mismatch on device, OS, or
+    // full Flutter version across the three captures is a provenance
+    // error, and the bracketing rule should not be interpreted against
+    // the claimed threshold.
     for (final field in const <String>[
       'device',
       'deviceOsVersion',
@@ -1712,13 +1716,13 @@ class ProfileCaptureSchema {
         'within its declared bounds.',
       );
     }
-    // AGR-1 (Bundle E): unit is mandatory. The AB-1 trace/observed
-    // cross-check needs a unit to convert `observed` into microseconds,
-    // and the bracketing rule must compare all three captures against a
-    // shared scale. Before Bundle E, unit was optional — a capture with
-    // no unit declared was silently accepted AND silently disabled the
-    // AB-1 ratio assertion, turning the single most important runtime
-    // cross-check into an opt-in field. Now a missing or non-String
+    // Unit is mandatory. The trace-vs-observed cross-check needs a unit
+    // to convert `observed` into microseconds, and the bracketing rule
+    // must compare all three captures against a shared scale. An
+    // optional unit would let a capture with no unit declared pass
+    // silently AND disable the trace-vs-observed ratio assertion,
+    // turning the single most important runtime cross-check into an
+    // opt-in field. Now a missing or non-String
     // unit is a hard parse failure, and the unit must be in the
     // approved set so authors can't hide behind novel spellings
     // (`millis`, `millisecond`, `Ms`).
@@ -1745,10 +1749,11 @@ class ProfileCaptureSchema {
   }
 
   /// Allowed values for `expectedMagnitude.unit`. Time units are
-  /// recognised by `_unitToMicroseconds` and participate in the AB-1
-  /// cross-check; non-time units pass the shape/positivity/invariant
-  /// checks and skip the cross-check (a trace cannot certify bytes or
-  /// frame counts). New units are a schema change — bump when adding.
+  /// recognised by `_unitToMicroseconds` and participate in the
+  /// trace-vs-observed cross-check; non-time units pass the
+  /// shape/positivity/invariant checks and skip the cross-check (a
+  /// trace cannot certify bytes or frame counts). New units are a
+  /// schema change — bump when adding.
   static const Set<String> approvedUnits = {
     // Time
     'ns', 'us', 'µs', 'ms', 's', 'sec', 'seconds',
@@ -1762,7 +1767,7 @@ class ProfileCaptureSchema {
     'bytes/sec',
     // Ratios — used by FrameTimingDetector.jank_detected (jankPercent
     // observation over rolling 240-frame buffer; denominator-independent
-    // axis under v0.19.6+ percent-axis bracket convention). Skips AB-1
+    // axis under v0.19.6+ percent-axis bracket convention). Skips the
     // time-unit cross-check (a trace cannot certify a percent), but
     // participates in observedAxisArgKey + observedAxisReduction='last'
     // cross-check.
@@ -1777,9 +1782,10 @@ class ProfileCaptureSchema {
       );
     }
     final trimmed = raw.trim();
-    // CODEX-R1-4 / AB-3: `DateTime.tryParse` silently rolls over
-    // out-of-range components — "2026-13-45" parses as 2027-02-14,
-    // "2026-04-18T25:61:00Z" parses as 2026-04-19T02:01:00Z. A capture
+    // Literal date components are range-checked: `DateTime.tryParse`
+    // silently rolls over out-of-range components — "2026-13-45" parses
+    // as 2027-02-14, "2026-04-18T25:61:00Z" parses as
+    // 2026-04-19T02:01:00Z. A capture
     // whose literal components silently drift almost certainly reflects
     // an authoring bug we should surface, not absorb.
     //
@@ -1872,7 +1878,7 @@ class ProfileCaptureSchema {
     }
     try {
       final bytes = file.readAsBytesSync();
-      // `parse()` reads `sleuthMetadata.role` to drive the AB-1
+      // `parse()` reads `sleuthMetadata.role` to drive the
       // inverse-ratio bypass for below-role captures (sub-threshold
       // workload paired with normal-sized scenario span). The role
       // field is the canonical signal — no shim needed here.
@@ -1921,7 +1927,7 @@ class ProfileCaptureSchema {
 
   static String _readUnit(Map<String, Object?> metadata) {
     final magnitude = metadata['expectedMagnitude'] as Map<String, Object?>;
-    // AGR-1 (Bundle E): `_validateExpectedMagnitude` has already run and
+    // `_validateExpectedMagnitude` has already run and
     // guaranteed unit is a non-empty String in the approved set.
     return magnitude['unit'] as String;
   }

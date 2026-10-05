@@ -475,8 +475,8 @@ class Sleuth {
   /// capture procedures. The matching `sleuth.scenario.end` marker MUST be
   /// emitted via [markScenarioEnd] on the same isolate before the work
   /// being measured completes — `ProfileCaptureSchema.validateBracket`
-  /// requires the pair so the AB-1 cross-check can compute span/observed
-  /// ratios.
+  /// requires the pair so the trace-vs-observed cross-check can compute
+  /// span/observed ratios.
   ///
   /// No-op in release mode AND when [SleuthConfig.captureMode] is false
   /// (the default). Production app sessions never emit these markers.
