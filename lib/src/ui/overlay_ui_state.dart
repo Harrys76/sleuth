@@ -74,6 +74,13 @@ class OverlayUiState extends ChangeNotifier {
   /// accepts.
   static const int schemaVersion = 1;
 
+  /// Hide keys of keep-alive issues from releases that numbered the
+  /// scrollable by position (`excessive_keep_alive:3`). The number named
+  /// whichever scrollable sat there, so such keys are dropped on load.
+  static final RegExp _legacyHideKey = RegExp(
+    r'^excessive_keep_alive:\d+(\|.*)?$',
+  );
+
   /// Maximum number of hidden keys kept. Hiding beyond it evicts the
   /// oldest key.
   static const int maxHiddenKeys = 200;
@@ -356,7 +363,7 @@ class OverlayUiState extends ChangeNotifier {
     final hidden = <String>[
       if (json['hiddenKeys'] case final List<Object?> keys)
         for (final k in keys)
-          if (k is String && k.isNotEmpty) k,
+          if (k is String && k.isNotEmpty && !_legacyHideKey.hasMatch(k)) k,
     ];
     final keptHidden = hidden.length > maxHiddenKeys
         ? hidden.sublist(hidden.length - maxHiddenKeys)

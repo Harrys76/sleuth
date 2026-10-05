@@ -52,7 +52,7 @@ test/
 - **Three-tier verdict**: Correlated (VM timeline matched per-frame) > Full (VM batch) > Basic (FrameTiming only). Falls back automatically.
 - **Evidence tier ledger**: every built-in detector carries `DetectorMetadata` declaring its `EvidenceTier` (`unvalidated` / `reproducerOnly` / `runtimeVerified` / `externallyCited`). Raises require a hermetic reproducer + audit-gate entries. Ledger: `doc/validation_ledger.md`.
 - **Reproducer path convention**: `reproducerPath` points at `test/validation/<d>_reproducer_test.dart` (purpose-written, v0.16.3 / v0.17.1) or `test/detectors/<d>_detector_test.dart` (reused unit tests, v0.17.2). Both pass `isPathInsideRepo`. Pick whichever fits the detector's test shape.
-- **Family declaration**: `coveredStableIds` for bare/colon-parametric families (`excessive_keep_alive:<TypeName>~<key>`, key = sanitised `ValueKey` or same-type ordinal); `parametricFamilies` (since v0.17.3) for underscore-parametric (`repaint_debug_<typeName>`). Matcher requires non-empty suffix after `_`.
+- **Family declaration**: `coveredStableIds` for bare/colon-parametric families (`excessive_keep_alive:<TypeName>~<part>`, part = `k-` + sanitised `ValueKey` or pre-order same-type ordinal, repeats `-2`, `-3`); `parametricFamilies` (since v0.17.3) for underscore-parametric (`repaint_debug_<typeName>`). Matcher requires non-empty suffix after `_`.
 - Test helpers live in `test/helpers/` — `benchmark_helpers.dart` and `timeline_test_helpers.dart`.
 
 ## Conventions

@@ -1726,11 +1726,12 @@ class IssueExplanationBuilder {
           '(default, configurable).\n\n'
           '• Memory per subtree — Each kept-alive page retains its full '
           'widget/element tree, controllers, and cached data.\n\n'
-          '• Issue id — `excessive_keep_alive:<Type>~<key>` names the '
-          'PageView or TabBarView: its string or number ValueKey, or its '
-          'position among unkeyed scrollables of that type (`~1` is the '
-          'first in the tree). A ValueKey keeps the id, and a hide, '
-          'stable when the layout changes.\n\n'
+          '• Issue id — `excessive_keep_alive:<Type>~<part>` names the '
+          'PageView or TabBarView: `k-` and its string or number '
+          'ValueKey (`~k-feed`), or its position among unkeyed '
+          'scrollables of that type (`~1` is the first in the tree). Two '
+          'with the same part get `-2`, `-3`. A ValueKey keeps the id, '
+          'and a hide, stable when the layout changes.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
           'Keep-alive subtrees consume memory even when invisible. With many '

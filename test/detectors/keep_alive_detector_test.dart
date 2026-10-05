@@ -791,8 +791,8 @@ void main() {
       await visitAll(tester, second);
 
       expect(ids(detector, tester), [
-        'excessive_keep_alive:PageView~feed_main_tab_1_x_y_z',
-        'excessive_keep_alive:PageView~2_5',
+        'excessive_keep_alive:PageView~k-feed_main_tab_1_x_y_z',
+        'excessive_keep_alive:PageView~k-2_5',
       ]);
     });
 
@@ -808,7 +808,7 @@ void main() {
       await visitAll(tester, first);
 
       expect(ids(detector, tester), [
-        'excessive_keep_alive:PageView~${'k' * 24}',
+        'excessive_keep_alive:PageView~k-${'k' * 24}',
       ]);
     });
 
@@ -826,10 +826,149 @@ void main() {
       expect(ids(detector, tester), ['excessive_keep_alive:PageView~1']);
     });
 
+    testWidgets('a number key and the first unkeyed scrollable differ', (
+      tester,
+    ) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(first: first, second: second, firstKey: const ValueKey(1)),
+      );
+      await visitAll(tester, first);
+      await visitAll(tester, second);
+
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~k-1',
+        'excessive_keep_alive:PageView~1',
+      ]);
+    });
+
+    testWidgets('keys that sanitise alike get a numbered suffix', (
+      tester,
+    ) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(
+          first: first,
+          second: second,
+          firstKey: const ValueKey('a.b'),
+          secondKey: const ValueKey('a_b'),
+        ),
+      );
+      await visitAll(tester, first);
+      await visitAll(tester, second);
+
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~k-a_b',
+        'excessive_keep_alive:PageView~k-a_b-2',
+      ]);
+    });
+
+    testWidgets('two tab views with the same key get distinct ids', (
+      tester,
+    ) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      Widget tabs() => DefaultTabController(
+        length: 3,
+        child: SizedBox(
+          height: 200,
+          child: TabBarView(
+            key: const ValueKey('gallery'),
+            children: List.generate(
+              3,
+              (i) => _KeepAlivePage(key: ValueKey(i), label: 'G$i'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Column(
+            children: [
+              SizedBox(height: 200, child: tabs()),
+              SizedBox(height: 200, child: tabs()),
+            ],
+          ),
+        ),
+      );
+      for (final view in find.byType(TabBarView).evaluate().toList()) {
+        final controller = DefaultTabController.of(view);
+        for (var i = 1; i < 3; i++) {
+          controller.index = i;
+          await tester.pumpAndSettle();
+        }
+        controller.index = 0;
+        await tester.pumpAndSettle();
+      }
+
+      detector.scanTree(tester.element(find.byType(MaterialApp)));
+      expect(
+        [for (final i in detector.issues) i.stableId],
+        [
+          'excessive_keep_alive:TabBarView~k-gallery',
+          'excessive_keep_alive:TabBarView~k-gallery-2',
+        ],
+      );
+    });
+
+    testWidgets('an unkeyed outer pager keeps its id when its inner pagers '
+        'change', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final outer = PageController();
+      addTearDown(outer.dispose);
+      Widget nested(int inner) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          height: 400,
+          width: 400,
+          child: PageView(
+            controller: outer,
+            children: List.generate(
+              4,
+              (i) => _KeepAliveHost(
+                key: ValueKey('o$i'),
+                child: Column(
+                  children: [
+                    for (var j = 0; j < inner; j++)
+                      SizedBox(
+                        height: 50,
+                        child: PageView(children: [Text('o$i-$j')]),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      String? outerId() {
+        detector.scanTree(tester.element(find.byType(Directionality).first));
+        return detector.issues
+            .singleWhere((i) => i.title.contains('4 in PageView'))
+            .stableId;
+      }
+
+      await tester.pumpWidget(nested(1));
+      await visitAll(tester, outer);
+      expect(outerId(), 'excessive_keep_alive:PageView~1');
+
+      await tester.pumpWidget(nested(3));
+      await tester.pumpAndSettle();
+      expect(outerId(), 'excessive_keep_alive:PageView~1');
+    });
+
     test('ids map to the encyclopedia entry', () {
       for (final id in [
         'excessive_keep_alive:PageView~1',
-        'excessive_keep_alive:TabBarView~feed_main',
+        'excessive_keep_alive:TabBarView~k-feed_main',
+        'excessive_keep_alive:TabBarView~k-gallery-2',
       ]) {
         expect(IssueExplanationBuilder.canonicalId(id), 'excessive_keep_alive');
         expect(IssueExplanationBuilder.explain(id), isNotNull);
@@ -941,5 +1080,26 @@ class _ConfigurableKeepAlivePageState extends State<_ConfigurableKeepAlivePage>
   Widget build(BuildContext context) {
     super.build(context);
     return Center(child: Text(widget.label));
+  }
+}
+
+/// Keeps [child] alive as a page.
+class _KeepAliveHost extends StatefulWidget {
+  const _KeepAliveHost({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<_KeepAliveHost> createState() => _KeepAliveHostState();
+}
+
+class _KeepAliveHostState extends State<_KeepAliveHost>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

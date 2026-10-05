@@ -277,7 +277,8 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
     );
     if (!hasHeapPressure) return issues;
 
-    // Find keep-alive issues (prefix match — stableId is 'excessive_keep_alive:$route')
+    // Find keep-alive issues (prefix match: the stableId is
+    // 'excessive_keep_alive:<TypeName>~<part>').
     final keepAliveIndices = <int>[];
     for (var i = 0; i < issues.length; i++) {
       final id = issues[i].stableId;

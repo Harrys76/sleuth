@@ -180,6 +180,27 @@ void main() {
       expect(state.hiddenKeys.toList(), ['x', 'y', 'a', 'b']);
     });
 
+    test('loadJson drops positional keep-alive hide keys', () {
+      final state = OverlayUiState()
+        ..loadJson({
+          'schemaVersion': 1,
+          'hiddenKeys': [
+            'excessive_keep_alive:0',
+            'excessive_keep_alive:12|PageView',
+            'excessive_keep_alive:PageView~1',
+            'excessive_keep_alive:PageView~k-feed|PageView',
+            'excessive_keep_alive:1x',
+            'heap_growing',
+          ],
+        });
+      expect(state.hiddenKeys.toList(), [
+        'excessive_keep_alive:PageView~1',
+        'excessive_keep_alive:PageView~k-feed|PageView',
+        'excessive_keep_alive:1x',
+        'heap_growing',
+      ]);
+    });
+
     test('a non-finite anchor fraction clears the anchor', () {
       final state = OverlayUiState()
         ..triggerAnchor = (edge: TriggerEdge.left, fraction: 0.5)

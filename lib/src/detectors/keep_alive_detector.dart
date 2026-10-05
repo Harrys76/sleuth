@@ -33,12 +33,17 @@ class _ScrollableAccumulator {
     this.element, {
     Element? reportAs,
     this.isBarrier = false,
+    this.idSuffix = '',
   }) : reportAs = reportAs ?? element;
   final Element element;
 
   /// Element whose name, chain, and rect the issue reports. A
   /// `TabBarView`'s internal `PageView` reports as the `TabBarView`.
   final Element reportAs;
+
+  /// `<TypeName>~<part>` of the issue id, taken when the accumulator is
+  /// pushed. Empty for barriers.
+  final String idSuffix;
 
   /// A non-page scrollable (ListView, GridView, CustomScrollView, ...).
   /// Keep-alives directly under it belong to it and are never counted;
@@ -99,23 +104,31 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
   _scrollableData = [];
   final List<_ScrollableAccumulator> _scrollableStack = [];
 
-  /// Same-type ordinal of each unkeyed reported scrollable, in post-order,
-  /// and the next ordinal per type. Every page scrollable takes one,
-  /// whether or not it keeps pages alive, so an id holds when another
-  /// scrollable starts keeping pages alive.
-  final Map<Element, int> _ordinals = {};
+  /// Id suffix of each reported scrollable, taken in tree order (when
+  /// its accumulator is pushed), the next ordinal per type, and the
+  /// suffixes used this scan. Every unkeyed page scrollable takes an
+  /// ordinal, whether or not it keeps pages alive, so an id holds when
+  /// another scrollable starts keeping pages alive or a nested one
+  /// changes.
+  final Map<Element, String> _suffixes = {};
   final Map<String, int> _nextOrdinal = {};
+  final Set<String> _usedSuffixes = {};
 
   /// Longest key part of an id.
   static const int _maxKeyLength = 24;
 
   static final RegExp _unsafeIdChars = RegExp(r'[^A-Za-z0-9_-]');
 
-  /// The part of `excessive_keep_alive:<TypeName>~<part>` after `~`: the
-  /// scrollable's `ValueKey` value when it is a string or number (chars
-  /// outside `[A-Za-z0-9_-]` become `_`, cut to 24), else the
-  /// same-type ordinal.
-  String _idPart(Element report, String typeName) {
+  /// `<TypeName>~<part>` for [report]: `k-` and its `ValueKey` value when
+  /// that is a string or number (chars outside `[A-Za-z0-9_-]` become
+  /// `_`, cut to 24), else its same-type ordinal. A suffix already used
+  /// this scan gets `-2`, `-3`, ... A `TabBarView`'s `PageView` reuses
+  /// the `TabBarView`'s suffix.
+  String _suffixFor(Element report) => _suffixes[report] ??= _newSuffix(report);
+
+  String _newSuffix(Element report) {
+    final typeName = _idTypeName(typeNameCache.lookup(report.widget));
+    String? part;
     final key = report.widget.key;
     if (key is ValueKey) {
       final value = key.value;
@@ -124,12 +137,16 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
         if (text.length > _maxKeyLength) {
           text = text.substring(0, _maxKeyLength);
         }
-        if (text.isNotEmpty) return text;
+        if (text.isNotEmpty) part = 'k-$text';
       }
     }
-    final ordinal = _ordinals[report] ??= (_nextOrdinal[typeName] =
-        (_nextOrdinal[typeName] ?? 0) + 1);
-    return '$ordinal';
+    part ??= '${_nextOrdinal[typeName] = (_nextOrdinal[typeName] ?? 0) + 1}';
+    final base = '$typeName~$part';
+    var suffix = base;
+    for (var n = 2; !_usedSuffixes.add(suffix); n++) {
+      suffix = '$base-$n';
+    }
+    return suffix;
   }
 
   /// Reported type name as an id part: generic arguments dropped, chars
@@ -143,8 +160,13 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
     _highlights.clear();
     _scrollableData.clear();
     _scrollableStack.clear();
-    _ordinals.clear();
+    _clearIds();
+  }
+
+  void _clearIds() {
+    _suffixes.clear();
     _nextOrdinal.clear();
+    _usedSuffixes.clear();
   }
 
   @override
@@ -197,7 +219,13 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
               typeNameCache.lookup(enclosing.element.widget) == 'TabBarView'
           ? enclosing.element
           : null;
-      _scrollableStack.add(_ScrollableAccumulator(element, reportAs: reportAs));
+      _scrollableStack.add(
+        _ScrollableAccumulator(
+          element,
+          reportAs: reportAs,
+          idSuffix: _suffixFor(reportAs ?? element),
+        ),
+      );
     } else if (widget is ScrollView ||
         widget is NestedScrollView ||
         widget is SingleChildScrollView) {
@@ -212,8 +240,6 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
       final acc = _scrollableStack.removeLast();
       if (acc.isBarrier) return;
       final report = acc.reportAs;
-      final typeName = _idTypeName(typeNameCache.lookup(report.widget));
-      final idSuffix = '$typeName~${_idPart(report, typeName)}';
       if (acc.count > 0) {
         _scrollableData.add((
           chain: buildAncestorChain(report),
@@ -224,7 +250,7 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
               : null,
           renderObject: report.renderObject,
           typeName: typeNameCache.lookup(report.widget),
-          idSuffix: idSuffix,
+          idSuffix: acc.idSuffix,
         ));
       }
     }
@@ -233,8 +259,7 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void finalizeScan() {
     _scrollableStack.clear();
-    _ordinals.clear();
-    _nextOrdinal.clear();
+    _clearIds();
     for (final data in _scrollableData) {
       if (data.count > threshold) {
         final avgSubtreeSize = data.count > 0
@@ -296,8 +321,7 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
     _highlights.clear();
     _scrollableData.clear();
     _scrollableStack.clear();
-    _ordinals.clear();
-    _nextOrdinal.clear();
+    _clearIds();
   }
 
   @override
@@ -305,7 +329,7 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
     tier: EvidenceTier.reproducerOnly,
     rationale:
         'Hermetic reproducer pins the parameterised '
-        '`excessive_keep_alive:<TypeName>~<key>` family on a PageView '
+        '`excessive_keep_alive:<TypeName>~<part>` family on a PageView '
         'with AutomaticKeepAliveClientMixin pages, above '
         '`threshold` (strict-greater). Pages are visited via '
         'PageController.jumpToPage so `_isActiveKeepAlive` reads '
@@ -318,10 +342,12 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
         'ListView/GridView/CustomScrollView/NestedScrollView/'
         'SingleChildScrollView are barriers, so a TabBarView emits once '
         'and list items inside a page are not counted. The id names the '
-        'reported scrollable: its string or number `ValueKey` value '
-        '(sanitised to `[A-Za-z0-9_-]`, 24 chars), else its ordinal '
-        'among unkeyed page scrollables of the same type in tree order, '
-        'so it holds when another scrollable starts keeping pages alive. '
+        'reported scrollable: `k-` and its string or number `ValueKey` '
+        'value (sanitised to `[A-Za-z0-9_-]`, 24 chars), else its '
+        'ordinal among unkeyed page scrollables of the same type, taken '
+        'in tree order before its children, so it holds when another '
+        'scrollable starts keeping pages alive or a nested one changes; '
+        'a suffix repeated within a scan gets `-2`, `-3`. '
         'Not yet runtime-verified on a profile-mode capture.',
     reproducerPath: 'test/validation/keep_alive_reproducer_test.dart',
     coveredStableIds: {'excessive_keep_alive'},

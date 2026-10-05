@@ -1,6 +1,6 @@
 // Hermetic reproducer for [KeepAliveDetector].
 //
-// Pins the parameterised `excessive_keep_alive:<TypeName>~<key>` family via the real
+// Pins the parameterised `excessive_keep_alive:<TypeName>~<part>` family via the real
 // `scanTree(root)` entry point on a materialised `PageView` with
 // `AutomaticKeepAliveClientMixin` pages. Threshold: 1 so small counts
 // cross. `_isActiveKeepAlive` reads render-object parent-data — pages
@@ -80,7 +80,7 @@ void main() {
     // --- excessive_keep_alive (parameterised) --------------------------
 
     testWidgets(
-      'excessive_keep_alive:<TypeName>~<key>: 4-page PageView above threshold=1 '
+      'excessive_keep_alive:<TypeName>~<part>: 4-page PageView above threshold=1 '
       'fires (all pages opt in)',
       (tester) async {
         final detector = KeepAliveDetector(threshold: 1);
@@ -101,7 +101,7 @@ void main() {
           isNotEmpty,
           reason:
               'PageView with 4 visited opt-in pages > threshold=1 '
-              'must emit excessive_keep_alive:<TypeName>~<key>.',
+              'must emit excessive_keep_alive:<TypeName>~<part>.',
         );
         // Every emitted stableId starts with the family prefix.
         for (final issue in keepAliveIssues) {
