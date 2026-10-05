@@ -4,7 +4,7 @@ import 'package:flutter/scheduler.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 2: Non-Lazy ListView
+// Demo 3: Non-Lazy ListView
 // Triggers: ListView detector (>20 children)
 // ─────────────────────────────────────────
 

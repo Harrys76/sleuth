@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ───────────────────────────────────────────────
-// Combined Demo 1: Social Feed
+// Demo 22: Combined: Social Feed
 // ───────────────────────────────────────────────
 // Triggers: ImageMemory, LayoutBottleneck, Rebuild/SetStateScope
 // Correlation: Rule 2 (merge rebuild+setState), Rule 4 (escalate image+memory)

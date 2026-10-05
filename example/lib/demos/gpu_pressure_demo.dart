@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 22: GPU Pressure
+// Demo 8: GPU Pressure
 // Triggers: GpuPressure detector (structural nodes + per-frame raster
 // timing; the VM timeline confirms when connected)
 // ─────────────────────────────────────────

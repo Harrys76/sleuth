@@ -65,6 +65,26 @@ captures").
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 
+## AI chat
+
+Ask AI talks to a local [Ollama](https://ollama.com) server through its
+OpenAI-compatible API (`llama3.2`). On a device, `localhost` is the device,
+so point the app at the machine running Ollama:
+
+```bash
+cd example && flutter run --dart-define=SLEUTH_AI_BASE_URL=http://192.168.1.20:11434
+```
+
+To check the chat without a model, `--dart-define=SLEUTH_AI_FAKE=<mode>`
+swaps in a scripted adapter (`lib/fake_ai_adapter.dart`):
+
+| Mode | Reply |
+|------|-------|
+| `ok` | Three sentences, then done |
+| `fail` | HTTP 503 after 300 ms (Provider error, Retry, Copy error) |
+| `stall` | One token, then nothing (Reply stalled after 15 s) |
+| `partial` | Two tokens, then an error (partial text kept on screen, Reply failed) |
+
 ## Overlay state and remote drive
 
 The app passes `FileSleuthStateStore` (`lib/file_state_store.dart`) as

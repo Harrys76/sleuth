@@ -355,6 +355,10 @@ config: SleuthConfig(
 
 Built-in adapters automatically exclude their provider URLs from network monitoring. When no adapter is configured, the "Ask AI" link is hidden.
 
+**Replies.** While a reply is on its way the send button becomes Stop; the input stays editable so you can draft the next question (sending it waits for the reply). Stop keeps the text received so far, marked "(stopped)", and so does closing the chat mid-reply. A reply times out after 30 s without a first token or 15 s between tokens, whatever the adapter; after 5 s the chat shows "Still waiting for a reply". A failed reply shows a short reason (API key rejected, Rate limited, Provider error, Offline, a timeout, or Reply failed) with **Retry** and **Copy error**. The error text never enters the conversation, so it is not sent back to the provider; a question left unanswered offers Retry when the chat reopens, and a new question joins it rather than following it as a second user turn. Throw from your adapter's stream to report a failure: an error whose text reads `returned 429` or `status 429` (any 4xx/5xx code) gets the matching reason, and a `SocketException` reads Offline.
+
+**What is sent.** The system prompt holds the issue (title, detail, fix hint, widget, route, ancestor chain, causes and effects), its encyclopedia entry, up to five other active issues by title, and a Session section: current route, presented and throughput FPS, the latest frame verdict, active issue counts by severity, the number of issues you hid (not their titles), debug or profile build, connection mode and platform. A caption above the input summarises it (`Context: /home · 58 FPS · 12 issues`), and Copy conversation ends with the context sent. Route names, widget names and issue text go to your provider; if your routes carry user data, use a custom adapter that redacts `request.systemPrompt`.
+
 ## Custom Detectors
 
 Plug in domain-specific detectors alongside the built-in 20. Three shapes are supported:
@@ -455,6 +459,8 @@ Issues include a confidence level reflecting evidence quality:
 | **Possible** | Structural heuristic only | Non-lazy list with 50 children found |
 
 Issues are ranked by evidence tier: confirmed critical > likely critical > confirmed warning > possible critical > likely warning > possible warning > ok. A structural guess ranks below a warning observed at runtime; frame impact and recurrence only order issues within a tier.
+
+The overlay holds the collapsed card order while the dashboard is open, so a card does not move under your finger: new issues enter at the top (below any expanded cards), a severity promotion moves at once, and other rank changes apply after 10 s without a touch on the list. Opening the dashboard, changing the severity filter, and hiding or restoring a card show the ranker's order again. Exports, `ext.sleuth.*` and MCP always use the ranker's order.
 
 The causal graph follows the same evidence rule: a `possible` issue is never shown as the cause of a `likely` or `confirmed` one. An effect with one cause collapses under it only when the cause is at least as severe; an effect with two or more causes always stays in the main list.
 

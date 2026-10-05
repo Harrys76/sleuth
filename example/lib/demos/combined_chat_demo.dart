@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import '../demo_scaffold.dart';
 
 // ───────────────────────────────────────────────
-// Combined Demo 4: Chat App
+// Demo 23: Combined: Chat App
 // ───────────────────────────────────────────────
 // Triggers: Rebuild, SetStateScope, KeepAlive, PlatformChannel, ImageMemory
 // Interaction-dependent issues — problems that only appear during active use.

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 4: Always-Repaint CustomPainter
+// Demo 6: Always-Repaint CustomPainter
 // Triggers: CustomPainter detector
 // ─────────────────────────────────────────
 

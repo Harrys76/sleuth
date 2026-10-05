@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 21: Memory Pressure
+// Demo 13: Memory Pressure
 // Triggers: MemoryPressure detector (VM-only, heap growth + GC pressure)
 // ─────────────────────────────────────────
 

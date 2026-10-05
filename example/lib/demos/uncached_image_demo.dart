@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 5: Uncached Images
+// Demo 12: Uncached Images
 // Triggers: ImageMemory detector
 // ─────────────────────────────────────────
 

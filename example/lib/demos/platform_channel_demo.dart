@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 20: Platform Channel Traffic
+// Demo 18: Platform Channel Traffic
 // Triggers: PlatformChannel detector (VM-only, >20 calls/sec)
 // ─────────────────────────────────────────
 

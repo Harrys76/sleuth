@@ -156,8 +156,8 @@ typedef HeldIssueOrder = ({
 /// rose since [heldSeverities] moves at once, to just above the first
 /// held key the ranker places below it. Any other difference from the
 /// ranker's order, new keys' placement included, is reported as
-/// `pending` for the host to apply in a quiet period. Issues sharing a key stay together, in
-/// ranker order.
+/// `pending` for the host to apply in a quiet period. Issues sharing a
+/// key stay together, in ranker order.
 ///
 /// Runs before [applyFreezeZone]: the freeze snapshot captures the held
 /// order, and new keys land at the top of the flow below the frozen

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 // ─────────────────────────────────────────
-// Demo 23: Tabbed Shell
+// Demo 20: Tabbed Shell
 // Triggers: ListView, ImageMemory and LayoutBottleneck detectors, one per
 // tab, scoped to the visible tab of an IndexedStack
 // ─────────────────────────────────────────

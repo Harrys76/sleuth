@@ -47,6 +47,7 @@ import 'demos/tracked_resource_capture_screen.dart';
 import 'demos/tracked_resource_demo.dart';
 import 'demos/shader_jank_demo.dart';
 import 'demos/uncached_image_demo.dart';
+import 'fake_ai_adapter.dart';
 import 'file_state_store.dart';
 
 void main() {
@@ -68,11 +69,9 @@ void main() {
         // Overlay state (trigger edge, card geometry, hidden issues,
         // severity filter) survives restarts through a JSON file.
         stateStore: FileSleuthStateStore(),
-        aiChat: AiChatAdapter.openAi(
-          apiKey: 'ollama', // Ollama ignores this but the field is required
-          baseUrl: 'http://localhost:11434',
-          model: 'llama3.2',
-        ),
+        // Ask AI in the overlay. See [_aiChatAdapter] for the local
+        // Ollama default, `SLEUTH_AI_BASE_URL` and `SLEUTH_AI_FAKE`.
+        aiChat: _aiChatAdapter(),
         // Rebuild-detector data sources (off by default to keep the
         // minimal install cheap). Both are needed for the Rebuild
         // Hotspot demo — and for every other rebuild-related issue:
@@ -86,9 +85,8 @@ void main() {
         //     `FlutterTimeline.debugCollect()` drain, so PROFILE mode
         //     populates `RouteSession.rebuildCountsByType`. That powers
         //     the always-on `_RebuildStatsBanner` panel on the floating
-        //     issues card and the `RebuildStatsPage` drilldown (the
-        //     v0.15.0 `rebuild_hotspot_summary` rollup IssueCard was
-        //     replaced by this inline panel in v0.15.2). The per-widget
+        //     issues card and the `RebuildStatsPage` drilldown. The
+        //     per-widget
         //     events are recorded inside the BUILD scopes, so the
         //     VM-timeline `rebuild_activity` build-time share includes
         //     that instrumentation cost.
@@ -117,6 +115,36 @@ void main() {
         ],
       ),
     ),
+  );
+}
+
+/// The overlay's AI chat adapter.
+///
+/// Defaults to a local Ollama server through its OpenAI-compatible API
+/// (Ollama ignores the API key, which the adapter requires). On a device,
+/// `localhost` is the device itself: point the app at the machine running
+/// Ollama with
+///
+///     --dart-define=SLEUTH_AI_BASE_URL=http://192.168.1.20:11434
+///
+/// `--dart-define=SLEUTH_AI_FAKE=ok|fail|stall|partial` swaps in
+/// [FakeAiChatAdapter], a scripted reply for checking the chat's reply,
+/// failure, stall and partial-reply states without a model.
+AiChatAdapter _aiChatAdapter() {
+  const fakeMode = String.fromEnvironment('SLEUTH_AI_FAKE');
+  final fake = FakeAiChatAdapter.forMode(fakeMode);
+  if (fake != null) return fake;
+  if (fakeMode.isNotEmpty) {
+    debugPrint('Sleuth demo: unknown SLEUTH_AI_FAKE=$fakeMode');
+  }
+  const baseUrl = String.fromEnvironment(
+    'SLEUTH_AI_BASE_URL',
+    defaultValue: 'http://localhost:11434',
+  );
+  return AiChatAdapter.openAi(
+    apiKey: 'ollama',
+    baseUrl: baseUrl,
+    model: 'llama3.2',
   );
 }
 
@@ -212,6 +240,7 @@ class _DemoHomeState extends State<DemoHome> {
               return _CategoryHeader(
                 title: category.title,
                 icon: category.icon,
+                color: category.demos.first.color,
               );
             }
             remaining--;
@@ -231,25 +260,33 @@ class _DemoHomeState extends State<DemoHome> {
 // ── Category header ──
 
 class _CategoryHeader extends StatelessWidget {
-  const _CategoryHeader({required this.title, required this.icon});
+  const _CategoryHeader({
+    required this.title,
+    required this.icon,
+    required this.color,
+  });
 
   final String title;
   final IconData icon;
 
+  /// The category's hue (its first demo's color), used for the icon; the
+  /// title keeps the theme's text color for contrast.
+  final Color color;
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+          Icon(icon, size: 18, color: color),
           const SizedBox(width: 8),
           Text(
             title,
-            style: TextStyle(
-              fontSize: 14,
+            style: theme.textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w700,
-              color: Theme.of(context).colorScheme.primary,
+              color: theme.colorScheme.onSurface,
             ),
           ),
         ],
@@ -276,7 +313,7 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
       _DemoRoute(
         icon: Icons.insights,
         title: 'Rebuild Hotspot (Dashboard)',
-        subtitle: 'Rebuild Stats rollup + drilldown (profile)',
+        subtitle: 'Rebuild Stats rollup + drilldown',
         color: Colors.pink,
         builder: (_) => const RebuildHotspotDemo(),
       ),
@@ -399,14 +436,14 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
       _DemoRoute(
         icon: Icons.stream,
         title: 'Stream Resource Leaks',
-        subtitle: 'StreamResource detector (Timer + Controller leaks)',
+        subtitle: 'StreamResource: Timer + Controller leaks',
         color: Colors.deepPurple,
         builder: (_) => const StreamResourceDemo(),
       ),
       _DemoRoute(
         icon: Icons.bookmark_added,
         title: 'Tracked Resource Leaks',
-        subtitle: 'Sleuth.trackResource opt-in retention tracking',
+        subtitle: 'Sleuth.trackResource retention tracking',
         color: Colors.indigo,
         builder: (_) => const TrackedResourceDemo(),
       ),
@@ -465,7 +502,7 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
       _DemoRoute(
         icon: Icons.extension_outlined,
         title: 'Custom Detector Cookbook',
-        subtitle: 'Tooltip • Slow frame • Raster hot spot (cookbook)',
+        subtitle: 'Tooltip • Slow frame • Raster hot spot',
         color: Colors.deepPurple,
         builder: (_) => const CustomDetectorCookbookDemo(),
       ),
@@ -507,14 +544,14 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
       _DemoRoute(
         icon: Icons.speed,
         title: 'HeavyCompute',
-        subtitle: 'heavy_compute warning + critical brackets',
+        subtitle: 'heavy_compute warning + critical',
         color: Colors.purple,
         builder: (_) => const HeavyComputeCaptureScreen(),
       ),
       _DemoRoute(
         icon: Icons.refresh,
         title: 'RebuildActivity',
-        subtitle: 'rebuild_activity warning + critical brackets',
+        subtitle: 'rebuild_activity warning + critical',
         color: Colors.teal,
         builder: (_) => const RebuildActivityCaptureScreen(),
       ),
@@ -563,7 +600,7 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
       _DemoRoute(
         icon: Icons.track_changes,
         title: 'TrackedResource',
-        subtitle: 'tracked_resource_concurrent warning bracket',
+        subtitle: 'tracked_resource_concurrent warning',
         color: Colors.teal,
         builder: (_) => const TrackedResourceCaptureScreen(),
       ),
@@ -1104,6 +1141,7 @@ class _DemoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Card(
@@ -1113,15 +1151,11 @@ class _DemoTile extends StatelessWidget {
             backgroundColor: demo.color.withValues(alpha: 0.15),
             child: Icon(demo.icon, color: demo.color),
           ),
-          title: Text(
-            demo.title,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
+          title: Text(demo.title, style: theme.textTheme.titleSmall),
           subtitle: Text(
             demo.subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.outline,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           trailing: const Icon(Icons.chevron_right),

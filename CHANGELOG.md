@@ -76,6 +76,61 @@
   scale, overflow reports, semantics nodes), `ext.sleuthDemo.theme`, and
   `ext.sleuthDemo.overlay action=setTheme`.
 
+### AI chat, list stability and issue ids
+
+- AI chat replies have states. A failed reply shows a short reason (API
+  key rejected, Rate limited, Provider error, Offline, No reply in 30 s,
+  Reply stalled, Reply failed) with Retry and Copy error; the error text
+  is never added to the conversation or sent back to the provider. Retry
+  asks again without adding a turn.
+- Stop ends a reply and keeps the text received so far, marked
+  "(stopped)". Closing the chat, system back, and the issue disappearing
+  keep it the same way, once. A question left without a reply offers
+  Retry when the chat reopens, and a new question joins it, so a provider
+  never receives two user turns in a row.
+- Replies time out after 30 s without a first token or 15 s between
+  tokens, for every adapter; after 5 s the thinking row reads "Still
+  waiting for a reply". The built-in transport ends the stream at
+  `[DONE]` instead of reading the connection to its end, and raises
+  error frames (Anthropic `{"type":"error"}`, OpenAI-compatible and
+  Gemini `{"error":...}`) instead of ending as if done.
+- The input stays editable while a reply streams; sending then shows
+  "Wait for the reply, or stop it". Messages are capped at 4000
+  characters, with a counter past 80 %. The streaming reply is a live
+  region whose label changes at most every 2 s.
+- The prompt gains a "## Session" section: current route, presented and
+  throughput FPS, the latest frame verdict, active issue counts by
+  severity, the number of hidden issues (never their titles), build mode,
+  connection mode and platform. A caption above the input shows what is
+  sent, and Copy conversation ends with the context sent.
+- Collapsed issue cards hold their order while the dashboard is open.
+  New issues enter at the top of the list (below any expanded cards) with
+  a wider source accent for 2 s, a severity promotion moves at once, and
+  other rank changes apply after 10 s without a touch on the list. The
+  hold resets when the dashboard opens, on a severity filter change, and
+  on hide or unhide. Exports, `ext.sleuth.*` and MCP keep the ranker's
+  order.
+- `excessive_keep_alive` ids name the scrollable instead of its position:
+  `excessive_keep_alive:<TypeName>~<key>`, with the scrollable's string
+  or number `ValueKey` (sanitised to `[A-Za-z0-9_-]`, 24 characters), else
+  its ordinal among unkeyed page scrollables of that type
+  (`excessive_keep_alive:PageView~1`). A hide now survives another
+  scrollable starting to keep pages alive. Hides stored under the old
+  `excessive_keep_alive:<i>` ids no longer match; they stay in the Hidden
+  list until restored.
+- While a screen reader is on, the debug paint counts leave out the
+  framework's semantics-only widgets (`Semantics`, `MergeSemantics`,
+  `ExcludeSemantics`, `BlockSemantics`, `IndexedSemantics`,
+  `_GestureSemantics`), so VoiceOver or TalkBack no longer raises
+  `repaint_debug_Semantics`. The VM `excessive_repaint` axis is unchanged.
+- Example: demo subtitles fit 40 characters, demo file headers follow the
+  home-screen numbering, tiles use the theme's text styles, and category
+  headers take their category's hue. `--dart-define=SLEUTH_AI_BASE_URL`
+  points the Ollama adapter at another machine, and
+  `--dart-define=SLEUTH_AI_FAKE=ok|fail|stall|partial` swaps in a scripted
+  adapter. `ext.sleuthDemo.a11y` releases its semantics handle after each
+  dump.
+
 ## 0.37.0
 
 - Scan-root detection works on Flutter 3.47: `IndexedStack` no longer wraps
