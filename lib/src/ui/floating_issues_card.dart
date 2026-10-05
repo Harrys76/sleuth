@@ -152,12 +152,13 @@ typedef HeldIssueOrder = ({
 /// [visibleIssues] is the ranker's order; [heldKeys] the list keys
 /// ([listKeyFor]) in the order the user sees, or null to adopt the
 /// ranker's order. Held keys keep their order and keys that left drop
-/// out. New keys go to the top, in ranker order. A key whose severity
-/// rose since [heldSeverities] moves at once, to just above the first
-/// held key the ranker places below it. Any other difference from the
+/// out. New keys go to the top, in ranker order. When [promote] is true,
+/// a key whose severity rose since [heldSeverities] moves at once, to
+/// just above the first held key the ranker places below it, and only
+/// when that is higher than where it sits. Any other difference from the
 /// ranker's order, new keys' placement included, is reported as
 /// `pending` for the host to apply in a quiet period. Issues sharing a
-/// key stay together, in ranker order.
+/// key stay together, in ranker order, on every call.
 ///
 /// Runs before [applyFreezeZone]: the freeze snapshot captures the held
 /// order, and new keys land at the top of the flow below the frozen
@@ -167,6 +168,7 @@ HeldIssueOrder holdIssueOrder({
   required List<PerformanceIssue> visibleIssues,
   required List<String>? heldKeys,
   Map<String, IssueSeverity> heldSeverities = const {},
+  bool promote = true,
 }) {
   final byKey = <String, List<PerformanceIssue>>{};
   for (final issue in visibleIssues) {
@@ -178,7 +180,7 @@ HeldIssueOrder holdIssueOrder({
   };
   if (heldKeys == null) {
     return (
-      issues: visibleIssues,
+      issues: [for (final k in rankKeys) ...byKey[k]!],
       keys: rankKeys,
       severities: severities,
       added: const <String>{},
@@ -194,22 +196,25 @@ HeldIssueOrder holdIssueOrder({
     for (final k in rankKeys)
       if (!heldSet.contains(k)) k,
   };
-  final kept = <String>[];
-  final promoted = <String>[];
-  for (final k in heldKeys) {
-    if (!byKey.containsKey(k)) continue;
-    final before = heldSeverities[k];
-    if (before != null && severities[k]!.index > before.index) {
-      promoted.add(k);
-    } else {
-      kept.add(k);
+  final kept = <String>[
+    for (final k in heldKeys)
+      if (byKey.containsKey(k)) k,
+  ];
+  if (promote) {
+    final promoted = <String>[
+      for (final k in kept)
+        if (heldSeverities[k] case final before?
+            when severities[k]!.index > before.index)
+          k,
+    ]..sort((a, b) => rankIndex[a]!.compareTo(rankIndex[b]!));
+    for (final p in promoted) {
+      final current = kept.indexOf(p);
+      kept.removeAt(current);
+      var at = kept.indexWhere((k) => rankIndex[k]! > rankIndex[p]!);
+      if (at < 0) at = kept.length;
+      // A promotion never moves a card down.
+      kept.insert(at < current ? at : current, p);
     }
-  }
-  promoted.sort((a, b) => rankIndex[a]!.compareTo(rankIndex[b]!));
-  for (final p in promoted) {
-    var at = kept.indexWhere((k) => rankIndex[k]! > rankIndex[p]!);
-    if (at < 0) at = kept.length;
-    kept.insert(at, p);
   }
   final keys = <String>[
     for (final k in rankKeys)
@@ -344,10 +349,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Pointers down on the list; the quiet timer waits for them to lift.
   int _pointersDown = 0;
 
-  /// Cards that entered the held list recently, drawn with a wider
-  /// source accent for [_newCardAccent].
-  Set<String> _newKeys = const {};
-  Timer? _newKeysTimer;
+  /// Whether the list was scrolled to the top at its last scroll
+  /// notification. A pending change applies only there.
+  bool _listAtTop = true;
+
+  /// A screen reader is running (accessible navigation or semantics on):
+  /// the order changes only on open, a filter change, or hide and unhide.
+  /// Set each build.
+  bool _screenReader = false;
+
+  /// Cards that entered the held list recently, each drawn with a wider
+  /// source accent for [_newCardAccent] from its own arrival.
+  final Map<String, Timer> _newKeyTimers = {};
   static const Duration _newCardAccent = Duration(seconds: 2);
 
   final OverlayToastController _toast = OverlayToastController();
@@ -536,7 +549,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     _toast.dispose();
     _quietTimer?.cancel();
-    _newKeysTimer?.cancel();
+    for (final timer in _newKeyTimers.values) {
+      timer.cancel();
+    }
+    _newKeyTimers.clear();
     _preTransitionOffset = null;
     _preTransitionWidth = null;
     _preTransitionHeight = null;
@@ -555,22 +571,30 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   /// Records the order [held] put on screen and schedules a pending
-  /// change. Called while building the list.
+  /// change (never under a screen reader). Called while building the
+  /// list.
   void _recordHeldOrder(HeldIssueOrder held) {
     _heldKeys = held.keys;
     _heldSeverities = held.severities;
-    if (!held.pending) {
+    if (!held.pending || _screenReader) {
       _quietTimer?.cancel();
       _quietTimer = null;
     } else if (_quietTimer == null) {
       _armQuietTimer();
     }
-    if (held.added.isNotEmpty) {
-      _newKeys = {..._newKeys, ...held.added};
-      _newKeysTimer?.cancel();
-      _newKeysTimer = Timer(_newCardAccent, () {
-        _newKeysTimer = null;
-        if (mounted) setState(() => _newKeys = const {});
+    for (final key in held.added) {
+      _newKeyTimers[key]?.cancel();
+      _newKeyTimers[key] = Timer(_newCardAccent, () {
+        if (_newKeyTimers.remove(key) != null && mounted) setState(() {});
+      });
+    }
+    // Cards that left the list drop their accent.
+    if (_newKeyTimers.isNotEmpty) {
+      final present = held.keys.toSet();
+      _newKeyTimers.removeWhere((key, timer) {
+        if (present.contains(key)) return false;
+        timer.cancel();
+        return true;
       });
     }
   }
@@ -580,20 +604,34 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _quietTimer = Timer(_quietPeriod, _onQuietPeriod);
   }
 
+  /// Applies the pending change, unless a finger is down or the list is
+  /// scrolled away from the top: then it waits for the next quiet period.
   void _onQuietPeriod() {
     _quietTimer = null;
-    if (!mounted) return;
-    if (_pointersDown > 0) {
+    if (!mounted ||
+        _screenReader ||
+        SemanticsBinding.instance.semanticsEnabled) {
+      return;
+    }
+    if (_pointersDown > 0 || !_listAtTop) {
       _armQuietTimer();
       return;
     }
     setState(_releaseHeldOrder);
   }
 
-  /// A touch, drag or wheel on the list restarts the quiet period of a
-  /// pending change.
+  /// A touch, drag, wheel, trackpad gesture or scroll on the list
+  /// restarts the quiet period of a pending change.
   void _onListActivity() {
     if (_quietTimer != null) _armQuietTimer();
+  }
+
+  bool _onListScroll(ScrollNotification notification) {
+    if (notification.depth == 0) {
+      _listAtTop = notification.metrics.pixels <= 0;
+      _onListActivity();
+    }
+    return false;
   }
 
   void _onListPointerDown(PointerDownEvent _) {
@@ -1778,6 +1816,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         );
 
         if (visibleIssues.isEmpty) {
+          // The next list starts at the top.
+          _listAtTop = true;
           final allHidden = unfiltered.isEmpty;
           return _IssuesSummaryBar.above(
             chromeScale: chromeScale,
@@ -1803,10 +1843,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         //
         // The held order runs first, so the freeze snapshot captures
         // what the user saw and new cards enter the flow below it.
+        _screenReader =
+            MediaQuery.accessibleNavigationOf(context) ||
+            SemanticsBinding.instance.semanticsEnabled;
         final held = holdIssueOrder(
           visibleIssues: visibleIssues,
           heldKeys: _heldKeys,
           heldSeverities: _heldSeverities,
+          promote: !_screenReader,
         );
         _recordHeldOrder(held);
         final heldIssues = held.issues;
@@ -1864,177 +1908,195 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               onPointerUp: _onListPointerUp,
               onPointerCancel: _onListPointerUp,
               onPointerSignal: (_) => _onListActivity(),
-              child: ListView.builder(
-                padding: EdgeInsets.all(theme.spacingSm),
-                itemCount: orderedIssues.length,
-                // Keyed-reorder remount fix: without a
-                // `findChildIndexCallback`, `SliverChildBuilderDelegate`
-                // cannot locate a keyed child whose index has shifted
-                // between builds, so Flutter destroys the Element and
-                // builds a fresh one — which resets `_IssueCardState`
-                // (loses expansion, scroll, and all local UI state).
-                // This hits any issue whose rank position moves when
-                // the ranker reorders the list. Cards are already
-                // `ValueKey`-stamped with `listKeyFor`; this callback
-                // just tells the sliver where each key landed.
-                //
-                // Looks up `orderedIndexByKey` (the POST-pin map) so
-                // the sliver locates keyed children at their rendered
-                // positions. Using the pre-pin list here would remount
-                // every pinned card on the first render after pin
-                // application, which resets `_IssueCardState` — the
-                // very bug the `ValueKey` + findChildIndexCallback
-                // pair exists to prevent.
-                findChildIndexCallback: (Key key) {
-                  if (key is! ValueKey<String>) return null;
-                  return orderedIndexByKey[key.value];
-                },
-                itemBuilder: (_, index) {
-                  final issue = orderedIssues[index];
-                  final locatable = _isLocatableIssue(issue);
-                  final issueKey = listKeyFor(issue);
-                  final isHighlighted =
-                      selectedHighlight != null &&
-                      locatable &&
-                      _selectedIssueId == issueKey;
+              onPointerPanZoomStart: (_) => _onListActivity(),
+              onPointerPanZoomUpdate: (_) => _onListActivity(),
+              // Scrolls that reach no Listener (a screen reader's scroll
+              // action) also hold it back, and report the offset.
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _onListScroll,
+                child: ListView.builder(
+                  padding: EdgeInsets.all(theme.spacingSm),
+                  itemCount: orderedIssues.length,
+                  // Keyed-reorder remount fix: without a
+                  // `findChildIndexCallback`, `SliverChildBuilderDelegate`
+                  // cannot locate a keyed child whose index has shifted
+                  // between builds, so Flutter destroys the Element and
+                  // builds a fresh one — which resets `_IssueCardState`
+                  // (loses expansion, scroll, and all local UI state).
+                  // This hits any issue whose rank position moves when
+                  // the ranker reorders the list. Cards are already
+                  // `ValueKey`-stamped with `listKeyFor`; this callback
+                  // just tells the sliver where each key landed.
+                  //
+                  // Looks up `orderedIndexByKey` (the POST-pin map) so
+                  // the sliver locates keyed children at their rendered
+                  // positions. Using the pre-pin list here would remount
+                  // every pinned card on the first render after pin
+                  // application, which resets `_IssueCardState` — the
+                  // very bug the `ValueKey` + findChildIndexCallback
+                  // pair exists to prevent.
+                  findChildIndexCallback: (Key key) {
+                    if (key is! ValueKey<String>) return null;
+                    return orderedIndexByKey[key.value];
+                  },
+                  itemBuilder: (_, index) {
+                    final issue = orderedIssues[index];
+                    final locatable = _isLocatableIssue(issue);
+                    final issueKey = listKeyFor(issue);
+                    final isHighlighted =
+                        selectedHighlight != null &&
+                        locatable &&
+                        _selectedIssueId == issueKey;
 
-                  // Look up downstream issue objects for root issues.
-                  // Uses the precomputed stableId→issue map (O(1) per
-                  // lookup) so this resolution does not blow up to
-                  // O(n²) on tall overlays.
-                  List<PerformanceIssue>? downstream;
-                  if (issue.downstreamIds != null &&
-                      issue.downstreamIds!.isNotEmpty) {
-                    downstream = <PerformanceIssue>[];
-                    for (final downId in issue.downstreamIds!) {
-                      final found = stableIdToIssue[downId];
-                      if (found != null) downstream.add(found);
-                    }
-                  }
-
-                  // Resolve parent issues for the multi-parent "Caused
-                  // by" badge. parentIssues is null when no annotation
-                  // exists or when every parent is suppressed by the
-                  // ranker. Suppressed-but-annotated parents surface
-                  // as a count for the IssueCard's "(+N not shown)"
-                  // annotation so a partial parent list does not look
-                  // complete.
-                  List<PerformanceIssue>? parents;
-                  var suppressedParentCount = 0;
-                  final parentIds = issue.rootCauseIds;
-                  if (parentIds != null && parentIds.isNotEmpty) {
-                    parents = <PerformanceIssue>[];
-                    for (final parentId in parentIds) {
-                      final found = stableIdToIssue[parentId];
-                      if (found != null) {
-                        parents.add(found);
-                      } else {
-                        suppressedParentCount++;
+                    // Look up downstream issue objects for root issues.
+                    // Uses the precomputed stableId→issue map (O(1) per
+                    // lookup) so this resolution does not blow up to
+                    // O(n²) on tall overlays.
+                    List<PerformanceIssue>? downstream;
+                    if (issue.downstreamIds != null &&
+                        issue.downstreamIds!.isNotEmpty) {
+                      downstream = <PerformanceIssue>[];
+                      for (final downId in issue.downstreamIds!) {
+                        final found = stableIdToIssue[downId];
+                        if (found != null) downstream.add(found);
                       }
                     }
-                    if (parents.isEmpty) parents = null;
-                  }
 
-                  // Capture the build-time `index` into a local so the
-                  // `onExpandedChanged` closure closes over a
-                  // deterministic value instead of whatever `index`
-                  // would be at callback-time (which could be stale
-                  // if a scan tick fired between build and tap).
-                  final capturedIndex = index;
-
-                  // Capture the build-time visibleIssues reference so
-                  // the snapshot taken on 0→1 expand reflects what the
-                  // user actually saw, NOT a newer value that may have
-                  // been published to `issuesNotifier` between the
-                  // frame commit and the tap arriving. Defensive copy
-                  // is made inside the callback so the snapshot
-                  // outlives this build closure without being aliased
-                  // to the live list.
-                  final capturedVisibleIssues = heldIssues;
-
-                  // The list `capturedIndex` indexes. An expansion below the
-                  // frozen zone re-captures the snapshot from it.
-                  final capturedOrdered = orderedIssues;
-
-                  return IssueCard(
-                    key: ValueKey(listKeys[index]),
-                    issue: issue,
-                    recurrenceTrendOf: () =>
-                        widget.controller.recurrenceTrends[issue.stableId ??
-                            issue.title],
-                    scanTick: widget.controller.scanTickNotifier,
-                    deepInstrumentationActive:
-                        widget.controller.isDeepInstrumentationActive,
-                    initiallyExpanded: _expandedIndices.containsKey(issueKey),
-                    collapseEpoch: _collapseEpoch,
-                    onExpandedChanged: (expanded) {
-                      setState(() {
-                        if (expanded) {
-                          // 0→1 transition: capture snapshot before
-                          // recording the expand entry so the class
-                          // invariant (snapshot != null ↔ map not
-                          // empty) holds at every observable state.
-                          if (_expandedIndices.isEmpty) {
-                            _orderSnapshot = List<PerformanceIssue>.of(
-                              capturedVisibleIssues,
-                            );
-                          } else if (capturedIndex >
-                              _expandedIndices.values.reduce(math.max)) {
-                            // The zone grows past the snapshot's frozen
-                            // slice, whose tail may no longer match the rows
-                            // on screen. Re-capture what the user sees so
-                            // the new index points into the list it came
-                            // from.
-                            final snapshot = List<PerformanceIssue>.of(
-                              capturedOrdered,
-                            );
-                            _repointExpansions(snapshot);
-                            _orderSnapshot = snapshot;
-                          }
-                          _expandedIndices[issueKey] = capturedIndex;
+                    // Resolve parent issues for the multi-parent "Caused
+                    // by" badge. parentIssues is null when no annotation
+                    // exists or when every parent is suppressed by the
+                    // ranker. Suppressed-but-annotated parents surface
+                    // as a count for the IssueCard's "(+N not shown)"
+                    // annotation so a partial parent list does not look
+                    // complete.
+                    List<PerformanceIssue>? parents;
+                    var suppressedParentCount = 0;
+                    final parentIds = issue.rootCauseIds;
+                    if (parentIds != null && parentIds.isNotEmpty) {
+                      parents = <PerformanceIssue>[];
+                      for (final parentId in parentIds) {
+                        final found = stableIdToIssue[parentId];
+                        if (found != null) {
+                          parents.add(found);
                         } else {
-                          _expandedIndices.remove(issueKey);
-                          // 1→0 transition: release the snapshot so
-                          // the next expand captures a fresh one from
-                          // whatever the ranker currently shows.
-                          if (_expandedIndices.isEmpty) {
-                            _orderSnapshot = null;
-                          }
+                          suppressedParentCount++;
                         }
-                      });
-                    },
-                    locatable: locatable,
-                    highlighted: isHighlighted,
-                    onHighlightChanged: locatable
-                        ? (checked) =>
-                              _onHighlightChanged(checked, issueKey, issue)
-                        : null,
-                    jankCorrelated: _cachedJankKeys.contains(
-                      issue.stableId ?? issue.title,
-                    ),
-                    jankFlash: false,
-                    downstreamIssues: downstream,
-                    parentIssues: parents,
-                    suppressedParentCount: suppressedParentCount,
-                    onLearnMore:
-                        IssueExplanationBuilder.explain(issue.stableId) != null
-                        ? () => setState(() {
-                            _detailStableId = issue.stableId;
-                            _detailContextIssue = issue;
-                            _showDetail = true;
-                          })
-                        : null,
-                    onAskAi: widget.controller.config.aiChat != null
-                        ? () => setState(() {
-                            _chatIssueStableId = issue.stableId ?? issue.title;
-                            _showAiChat = true;
-                          })
-                        : null,
-                    onCopy: () => _copyIssue(issue),
-                    onHide: () => _hideIssue(issue),
-                    isNew: _newKeys.contains(issueKey),
-                  );
-                },
+                      }
+                      if (parents.isEmpty) parents = null;
+                    }
+
+                    // Capture the build-time `index` into a local so the
+                    // `onExpandedChanged` closure closes over a
+                    // deterministic value instead of whatever `index`
+                    // would be at callback-time (which could be stale
+                    // if a scan tick fired between build and tap).
+                    final capturedIndex = index;
+
+                    // Capture the build-time visibleIssues reference so
+                    // the snapshot taken on 0→1 expand reflects what the
+                    // user actually saw, NOT a newer value that may have
+                    // been published to `issuesNotifier` between the
+                    // frame commit and the tap arriving. Defensive copy
+                    // is made inside the callback so the snapshot
+                    // outlives this build closure without being aliased
+                    // to the live list.
+                    final capturedVisibleIssues = heldIssues;
+
+                    // The list `capturedIndex` indexes. An expansion below the
+                    // frozen zone re-captures the snapshot from it.
+                    final capturedOrdered = orderedIssues;
+
+                    return IssueCard(
+                      key: ValueKey(listKeys[index]),
+                      issue: issue,
+                      recurrenceTrendOf: () =>
+                          widget.controller.recurrenceTrends[issue.stableId ??
+                              issue.title],
+                      scanTick: widget.controller.scanTickNotifier,
+                      deepInstrumentationActive:
+                          widget.controller.isDeepInstrumentationActive,
+                      initiallyExpanded: _expandedIndices.containsKey(issueKey),
+                      collapseEpoch: _collapseEpoch,
+                      onExpandedChanged: (expanded) {
+                        setState(() {
+                          if (expanded) {
+                            // 0→1 transition: capture snapshot before
+                            // recording the expand entry so the class
+                            // invariant (snapshot != null ↔ map not
+                            // empty) holds at every observable state.
+                            if (_expandedIndices.isEmpty) {
+                              _orderSnapshot = List<PerformanceIssue>.of(
+                                capturedVisibleIssues,
+                              );
+                            } else if (capturedIndex >
+                                _expandedIndices.values.reduce(math.max)) {
+                              // The zone grows past the snapshot's frozen
+                              // slice, whose tail may no longer match the rows
+                              // on screen. Re-capture what the user sees so
+                              // the new index points into the list it came
+                              // from.
+                              final snapshot = List<PerformanceIssue>.of(
+                                capturedOrdered,
+                              );
+                              _repointExpansions(snapshot);
+                              _orderSnapshot = snapshot;
+                            }
+                            _expandedIndices[issueKey] = capturedIndex;
+                          } else {
+                            _expandedIndices.remove(issueKey);
+                            // 1→0 transition: release the snapshot so
+                            // the next expand captures a fresh one from
+                            // whatever the ranker currently shows. The
+                            // order on screen becomes the held order, so
+                            // nothing moves under the finger; a pending
+                            // change waits for the next quiet period.
+                            if (_expandedIndices.isEmpty) {
+                              _orderSnapshot = null;
+                              _heldKeys = [
+                                ...{
+                                  for (final i in capturedOrdered)
+                                    listKeyFor(i),
+                                },
+                              ];
+                            }
+                          }
+                        });
+                      },
+                      locatable: locatable,
+                      highlighted: isHighlighted,
+                      onHighlightChanged: locatable
+                          ? (checked) =>
+                                _onHighlightChanged(checked, issueKey, issue)
+                          : null,
+                      jankCorrelated: _cachedJankKeys.contains(
+                        issue.stableId ?? issue.title,
+                      ),
+                      jankFlash: false,
+                      downstreamIssues: downstream,
+                      parentIssues: parents,
+                      suppressedParentCount: suppressedParentCount,
+                      onLearnMore:
+                          IssueExplanationBuilder.explain(issue.stableId) !=
+                              null
+                          ? () => setState(() {
+                              _detailStableId = issue.stableId;
+                              _detailContextIssue = issue;
+                              _showDetail = true;
+                            })
+                          : null,
+                      onAskAi: widget.controller.config.aiChat != null
+                          ? () => setState(() {
+                              _chatIssueStableId =
+                                  issue.stableId ?? issue.title;
+                              _showAiChat = true;
+                            })
+                          : null,
+                      onCopy: () => _copyIssue(issue),
+                      onHide: () => _hideIssue(issue),
+                      isNew: _newKeyTimers.containsKey(issueKey),
+                    );
+                  },
+                ),
               ),
             ),
           ),

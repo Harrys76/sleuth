@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -292,7 +293,7 @@ void main() {
       expect(rowOrder(tester, ids), ['a', 'e', 'd', 'c', 'b']);
       expect(find.byIcon(Icons.push_pin), findsNWidgets(2));
       expect(tester.takeException(), isNull);
-    });
+    }, semanticsEnabled: false);
 
     testWidgets('Undo of a card hidden above the expanded card brings it '
         'back below the frozen zone', (tester) async {
@@ -336,7 +337,7 @@ void main() {
       expect(rowOrder(tester, ids), ids);
       await tester.pump(const Duration(seconds: 1));
       expect(rowOrder(tester, ids), ['d', 'c', 'b', 'a']);
-    });
+    }, semanticsEnabled: false);
 
     testWidgets('a touch on the list restarts the quiet period', (
       tester,
@@ -360,7 +361,7 @@ void main() {
 
       await tester.pump(const Duration(seconds: 10));
       expect(rowOrder(tester, ids), ['d', 'c', 'b', 'a']);
-    });
+    }, semanticsEnabled: false);
 
     testWidgets('a severity promotion moves at once', (tester) async {
       await pumpABCD(tester);
@@ -372,7 +373,7 @@ void main() {
       ];
       await tester.pump();
       expect(rowOrder(tester, ids), ['c', 'a', 'b', 'd']);
-    });
+    }, semanticsEnabled: false);
 
     testWidgets('a new issue enters at the top with a wider accent', (
       tester,
@@ -397,7 +398,7 @@ void main() {
       expect(card('n').isNew, isFalse);
       await tester.pump(const Duration(seconds: 8));
       expect(rowOrder(tester, all), ['a', 'b', 'c', 'n', 'd']);
-    });
+    }, semanticsEnabled: false);
 
     testWidgets('a new issue enters below the frozen zone', (tester) async {
       await pumpABCD(tester);
@@ -414,7 +415,7 @@ void main() {
         'd',
       ]);
       await tester.pump(const Duration(seconds: 10));
-    });
+    }, semanticsEnabled: false);
 
     testWidgets('a removed issue leaves its slot to the next card', (
       tester,
@@ -427,7 +428,7 @@ void main() {
       expect(rowOrder(tester, ids), ['a', 'c', 'd']);
       await tester.pump(const Duration(seconds: 10));
       expect(rowOrder(tester, ids), ['d', 'c', 'a']);
-    });
+    }, semanticsEnabled: false);
 
     testWidgets('a severity filter change adopts the ranker order', (
       tester,
@@ -448,6 +449,180 @@ void main() {
       await tester.pump();
       expect(rowOrder(tester, ids), ['d', 'c', 'b', 'a']);
     });
+
+    testWidgets('collapsing the last expanded card keeps the order on '
+        'screen', (tester) async {
+      await pumpABCD(tester);
+      await expand(tester, 'b');
+      controller.issuesNotifier.value = [
+        for (final id in ['n', 'a', 'b', 'c', 'd']) _issue(id),
+      ];
+      await tester.pump();
+      const all = ['a', 'b', 'c', 'd', 'n'];
+      expect(rowOrder(tester, all), ['a', 'b', 'n', 'c', 'd']);
+
+      // Collapse: nothing moves under the finger.
+      await expand(tester, 'b');
+      expect(rowOrder(tester, all), ['a', 'b', 'n', 'c', 'd']);
+      await tester.pump(const Duration(seconds: 5));
+      expect(rowOrder(tester, all), ['a', 'b', 'n', 'c', 'd']);
+      await tester.pump(const Duration(seconds: 10));
+      expect(rowOrder(tester, all), ['n', 'a', 'b', 'c', 'd']);
+    }, semanticsEnabled: false);
+
+    testWidgets('under a screen reader the order changes only on reset '
+        'points', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(accessibleNavigation: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        _issue('d', severity: IssueSeverity.critical),
+        _issue('c'),
+        _issue('b'),
+        _issue('a'),
+      ];
+      await tester.pump();
+      // Neither the promotion nor the quiet period moves a card.
+      expect(rowOrder(tester, ids), ids);
+      await tester.pump(const Duration(seconds: 30));
+      expect(rowOrder(tester, ids), ids);
+
+      controller.overlayUiState.hide('b');
+      await tester.pump();
+      expect(rowOrder(tester, ids), ['d', 'c', 'a']);
+    });
+
+    testWidgets('with semantics on, the quiet period applies nothing', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['d', 'c', 'b', 'a']) _issue(id),
+      ];
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 30));
+      expect(rowOrder(tester, ids), ids);
+      handle.dispose();
+    });
+
+    testWidgets('a scroll restarts the quiet period and the change waits '
+        'for the top', (tester) async {
+      final many = [for (var i = 0; i < 30; i++) 'r$i'];
+      controller.issuesNotifier.value = [for (final id in many) _issue(id)];
+      await pumpCard(tester);
+      controller.issuesNotifier.value = [
+        for (final id in many.reversed) _issue(id),
+      ];
+      await tester.pump();
+      final position = tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byType(ListView),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          )
+          .position;
+
+      await tester.pump(const Duration(seconds: 8));
+      // A scroll with no pointer (a screen reader's scroll action).
+      position.jumpTo(120);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 9));
+      expect(find.text('Title r29'), findsNothing);
+      // Still scrolled away at the next quiet period: held.
+      await tester.pump(const Duration(seconds: 2));
+      expect(rowOrder(tester, ['r4', 'r5']), ['r4', 'r5']);
+      position.jumpTo(0);
+      await tester.pump();
+      expect(rowOrder(tester, ['r0', 'r1']), ['r0', 'r1']);
+      await tester.pump(const Duration(seconds: 10));
+      expect(rowOrder(tester, ['r29', 'r0']), ['r29']);
+    }, semanticsEnabled: false);
+
+    testWidgets('a trackpad gesture restarts the quiet period', (tester) async {
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['d', 'c', 'b', 'a']) _issue(id),
+      ];
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 8));
+
+      final gesture = await tester.createGesture(
+        kind: PointerDeviceKind.trackpad,
+      );
+      await gesture.panZoomStart(tester.getCenter(find.text('Title b')));
+      await gesture.panZoomUpdate(
+        tester.getCenter(find.text('Title b')),
+        pan: const Offset(0, 4),
+      );
+      await gesture.panZoomEnd();
+      await tester.pump(const Duration(seconds: 5));
+      expect(rowOrder(tester, ids), ids);
+      await tester.pump(const Duration(seconds: 6));
+      expect(rowOrder(tester, ids), ['d', 'c', 'b', 'a']);
+    }, semanticsEnabled: false);
+
+    testWidgets('each new card keeps its accent for its own 2 s, without '
+        'moving the layout', (tester) async {
+      await pumpABCD(tester);
+      final before = tester.getTopLeft(find.text('Title a'));
+      controller.issuesNotifier.value = [
+        for (final id in ['a', 'b', 'c', 'd', 'n']) _issue(id),
+      ];
+      await tester.pump();
+      IssueCard card(String id) => tester.widget<IssueCard>(
+        find.ancestor(
+          of: find.text('Title $id'),
+          matching: find.byType(IssueCard),
+        ),
+      );
+      expect(card('n').isNew, isTrue);
+      final titleN = tester.getTopLeft(find.text('Title n'));
+      expect(titleN.dx, before.dx);
+
+      await tester.pump(const Duration(milliseconds: 1500));
+      controller.issuesNotifier.value = [
+        for (final id in ['a', 'b', 'c', 'd', 'n', 'm']) _issue(id),
+      ];
+      await tester.pump();
+      expect(card('m').isNew, isTrue);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(card('n').isNew, isFalse);
+      expect(card('m').isNew, isTrue);
+      expect(tester.getTopLeft(find.text('Title n')).dx, before.dx);
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(card('m').isNew, isFalse);
+      await tester.pump(const Duration(seconds: 10));
+    }, semanticsEnabled: false);
+
+    testWidgets('a new card that leaves drops its accent', (tester) async {
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['a', 'b', 'c', 'd', 'n']) _issue(id),
+      ];
+      await tester.pump();
+      controller.issuesNotifier.value = [for (final id in ids) _issue(id)];
+      await tester.pump();
+      // Back within its 2 s: a new arrival, so a fresh accent.
+      controller.issuesNotifier.value = [
+        for (final id in ['a', 'b', 'c', 'd', 'n']) _issue(id),
+      ];
+      await tester.pump(const Duration(milliseconds: 1900));
+      final card = tester.widget<IssueCard>(
+        find.ancestor(
+          of: find.text('Title n'),
+          matching: find.byType(IssueCard),
+        ),
+      );
+      expect(card.isNew, isTrue);
+      await tester.pump(const Duration(seconds: 12));
+    }, semanticsEnabled: false);
 
     testWidgets('a hide adopts the ranker order', (tester) async {
       await pumpABCD(tester);

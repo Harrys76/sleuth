@@ -130,8 +130,9 @@ class IssueCard extends StatefulWidget {
   /// already dropped its expansion entry).
   final int collapseEpoch;
 
-  /// The card just entered the list: its source accent is drawn twice as
-  /// wide.
+  /// The card just entered the list: its source accent is painted twice
+  /// as wide over the content edge, and the card's semantics carry the
+  /// hint "New".
   final bool isNew;
 
   @override
@@ -256,6 +257,7 @@ class _IssueCardState extends State<IssueCard> {
       button: true,
       expanded: _expanded,
       label: issue.title,
+      hint: widget.isNew ? 'New' : null,
       onTap: _toggle,
       onLongPress: widget.onCopy,
       onLongPressHint: widget.onCopy == null ? null : 'Copy details',
@@ -289,12 +291,22 @@ class _IssueCardState extends State<IssueCard> {
               border: Border(
                 left: BorderSide(
                   color: theme.sourceAccentColor(issue.observationSource),
-                  width: widget.isNew
-                      ? theme.sourceAccentWidth * 2
-                      : theme.sourceAccentWidth,
+                  width: theme.sourceAccentWidth,
                 ),
               ),
             ),
+            // A new card's wider accent paints over the content edge, so
+            // the layout does not move when it fades.
+            foregroundDecoration: widget.isNew
+                ? BoxDecoration(
+                    border: Border(
+                      left: BorderSide(
+                        color: theme.sourceAccentColor(issue.observationSource),
+                        width: theme.sourceAccentWidth * 2,
+                      ),
+                    ),
+                  )
+                : null,
             child: Padding(
               padding: const EdgeInsets.all(10),
               child: LayoutBuilder(

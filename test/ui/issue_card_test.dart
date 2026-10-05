@@ -59,6 +59,30 @@ RecurrenceTrend _stableTrend(int presentCount, int totalLength) {
 }
 
 void main() {
+  testWidgets('a new card carries the hint New and keeps its layout', (
+    tester,
+  ) async {
+    final issue = _testIssue(title: 'Fresh');
+    Widget card(bool isNew) => MaterialApp(
+      home: Scaffold(
+        body: IssueCard(issue: issue, isNew: isNew),
+      ),
+    );
+    await tester.pumpWidget(card(false));
+    final plain = tester.getRect(find.text('Fresh'));
+    expect(
+      tester.getSemantics(find.byType(IssueCard)).getSemanticsData().hint,
+      isEmpty,
+    );
+
+    await tester.pumpWidget(card(true));
+    expect(tester.getRect(find.text('Fresh')), plain);
+    expect(
+      tester.getSemantics(find.byType(IssueCard)).getSemanticsData().hint,
+      'New',
+    );
+  });
+
   testWidgets('expanded body reads as separate nodes, not one utterance', (
     tester,
   ) async {

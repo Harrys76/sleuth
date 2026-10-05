@@ -1794,6 +1794,56 @@ void main() {
       expect(r.issues.map((i) => i.stableId), ['B', 'A', 'A']);
     });
 
+    test('null held keys group issues sharing a key', () {
+      final r = holdIssueOrder(
+        visibleIssues: [
+          _pinIssue(id: 'A'),
+          _pinIssue(id: 'B'),
+          _pinIssue(id: 'A'),
+        ],
+        heldKeys: null,
+      );
+      expect(r.keys, ['A', 'B']);
+      expect(r.issues.map((i) => i.stableId), ['A', 'A', 'B']);
+    });
+
+    test('a promotion never moves a card down', () {
+      final r = holdIssueOrder(
+        visibleIssues: [
+          _pinIssue(id: 'A', severity: IssueSeverity.critical),
+          _pinIssue(id: 'D', severity: IssueSeverity.critical),
+          _pinIssue(id: 'B'),
+          _pinIssue(id: 'C'),
+        ],
+        heldKeys: ['D', 'A', 'B', 'C'],
+        heldSeverities: const {
+          'A': IssueSeverity.critical,
+          'B': IssueSeverity.warning,
+          'C': IssueSeverity.warning,
+          'D': IssueSeverity.warning,
+        },
+      );
+      expect(r.keys, ['D', 'A', 'B', 'C']);
+      expect(r.pending, isTrue);
+    });
+
+    test('promote: false holds a promotion like any rank change', () {
+      final r = holdIssueOrder(
+        visibleIssues: [
+          _pinIssue(id: 'B', severity: IssueSeverity.critical),
+          _pinIssue(id: 'A'),
+        ],
+        heldKeys: ['A', 'B'],
+        heldSeverities: const {
+          'A': IssueSeverity.warning,
+          'B': IssueSeverity.warning,
+        },
+        promote: false,
+      );
+      expect(r.keys, ['A', 'B']);
+      expect(r.pending, isTrue);
+    });
+
     test('the same order is not pending', () {
       final r = holdIssueOrder(
         visibleIssues: issues(['A', 'B']),
