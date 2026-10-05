@@ -36,14 +36,35 @@
   Taller / Shorter / Wider / Narrower on the resize grip (normal window
   state), Move to left / right edge on the trigger; the header and grip
   read the card size back. Toasts stay three times longer while a screen
-  reader is on. AI chat keeps focus while a reply streams and announces
+  reader or another assistive service is on (`accessibleNavigation` or
+  semantics enabled), and a toast with an action stays until it is used or
+  dismissed (a Dismiss button appears). The trigger label names the
+  critical count (`Open Sleuth, 3 issues, 1 critical`).
+- Full-screen pages and the Hidden list take keyboard focus from the app
+  while open (an `ExcludeFocus` around the app, switched after the frame)
+  and give it back on close, so typing, Tab, Enter and Space no longer
+  reach the app behind them and the soft keyboard closes. Closing a page
+  restores the issue list's scroll position and moves screen-reader focus
+  to the card that opened it; opening the dashboard focuses its header.
+- Moves and resizes, by touch or screen-reader action, fit the whole card
+  in the usable area above the keyboard; a maximized card has no move
+  actions and its grip does not resize it. The footer wraps on a narrow
+  card so Hidden keeps a 48 x 48 target and its full label. Startup
+  metrics and Rebuild stats titles wrap at large text. In AI chat the
+  issue context is sized from the height left above the keyboard, so the
+  input and Send stay visible. AI chat keeps focus while a reply streams and announces
   Thinking and the reply.
 - Contrast: tertiary and quaternary text, `checkboxActive` and the AI chat
   bubble are retuned for WCAG AA on every surface. New severity text tokens
   (`severityCriticalText`, `severityWarningText`, `severityOkText`) for
   severity-hued text; badges draw `textPrimary` on their tint with a 1 px
   accent border. The trigger icon is dark on the warning and OK fills
-  (`triggerIconOnLightFill`).
+  (`triggerIconOnLightFill`). The trigger's FPS number sits on an opaque
+  pill in `fpsTextColor` with the severity as its border. The Ask AI link
+  text uses `textSecondary`; the shimmer stays on its sparkle. Severity
+  chips show a check when on and a dot when off, with a 3:1 border; the
+  highlight checkbox's check, the paused rebuild icon and the source
+  accent strips reach 3:1.
 - `SleuthThemeData.highContrastDark()` / `highContrastLight()`: picked
   automatically when the platform reports high contrast and no theme is
   set; state cues stay at full opacity and the structural and no-source
@@ -52,24 +73,26 @@
 - `SleuthThemeData.fromColorScheme(ColorScheme)` and
   `fromSeed(Color, {brightness})` map surfaces and text from a Material
   scheme, with a per-group contrast fallback to the Sleuth preset of the
-  same brightness (the fallback is not re-checked against mid-tone
-  surfaces).
+  same brightness; every text, check and chip pair is then re-checked
+  against the scheme's surfaces, and a surface its text still cannot
+  clear falls back with it (a mid-tone container from the `fidelity` or
+  `content` variants, for example).
 - The header theme toggle cycles System, Light and Dark with a toast and
   persists the choice (`OverlayUiState.themeMode`, `SleuthThemeMode`,
   JSON key `themeMode`). Precedence: Light or Dark > `Sleuth.updateTheme` >
   `SleuthConfig.theme` > auto. System shows an `updateTheme` override
   again; `updateTheme` with a theme sets the toggle to System.
 - Escape unfocuses a focused overlay text field, then closes the open
-  page, then the dashboard; a focused app text field or an open app
-  dialog or sheet keeps its Escape.
+  page, then the dashboard; with only the card open, a focused app text
+  field or an open app dialog or sheet keeps its Escape.
 - Reduced motion honours both the Android animator duration scale
   (`disableAnimations`) and iOS Reduce Motion
   (`AccessibilityFeatures.reduceMotion`, which Flutter does not put in
   `MediaQueryData`). Under either, page entrances, expand and collapse,
   scrolls to an encyclopedia entry or the chat's last message, the toast
   fade, the severity chip colour and the rebuild count tween take no
-  time, and the Ask AI shimmer stops (also when the setting changes while
-  it runs).
+  time, and the Ask AI shimmer stops. Turning either setting on while an
+  animation runs finishes it at once, scrolls included.
 - The AI chat page has a `Material` surface; its text field no longer
   asserts `debugCheckHasMaterial` in debug builds.
 - Example: `ext.sleuthDemo.a11y` (accessibility settings, overlay text
