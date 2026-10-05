@@ -81,6 +81,7 @@ import 'src/vm/poll_timings.dart';
 import 'src/ui/sleuth_theme.dart';
 
 // Public API exports
+export 'src/ai/ai_providers.dart' show AiProviderException;
 export 'src/models/ai_chat_adapter.dart';
 export 'src/models/performance_issue.dart';
 export 'src/models/frame_stats.dart';

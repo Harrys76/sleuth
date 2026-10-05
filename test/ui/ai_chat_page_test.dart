@@ -1005,7 +1005,9 @@ void main() {
 
       expect(controller.hasListener, isFalse);
       expect(histories.last.last.role, AiChatRole.assistant);
-      expect(histories.last.last.text, 'Partial answer (stopped)');
+      // The mark is shown, not stored in the text.
+      expect(histories.last.last.text, 'Partial answer');
+      expect(histories.last.last.stopped, isTrue);
       expect(find.text('Partial answer (stopped)'), findsOneWidget);
       expect(find.text('Retry'), findsNothing);
       expect(find.byIcon(Icons.send), findsOneWidget);
@@ -1096,7 +1098,8 @@ void main() {
         (h) => h.isNotEmpty && h.last.role == AiChatRole.assistant,
       );
       expect(commits, hasLength(1));
-      expect(commits.single.last.text, 'Half (stopped)');
+      expect(commits.single.last.text, 'Half');
+      expect(commits.single.last.stopped, isTrue);
     });
 
     testWidgets('a history ending with a question offers Retry', (
@@ -1373,6 +1376,339 @@ void main() {
       expect(find.text('Some text'), findsOneWidget);
       expect(histories.single.map((m) => m.text), ['Q']);
       expect(controller.hasListener, isFalse);
+    });
+
+    /// Records what the page writes to the clipboard.
+    String? Function() captureClipboard(WidgetTester tester) {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied =
+                (call.arguments as Map<String, dynamic>)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      return () => copied;
+    }
+
+    testWidgets('a stall says how much text arrived before it', (tester) async {
+      final copied = captureClipboard(tester);
+      final controller = StreamController<String>();
+      await tester.pumpWidget(
+        page(adapter: AiChatAdapter(sendMessage: (_) => controller.stream)),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'Q');
+      controller.add('Some text');
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.text('Reply stalled'), findsOneWidget);
+
+      await tester.tap(find.text('Copy error'));
+      await tester.pump();
+      expect(
+        copied(),
+        'The reply stalled after 9 characters: no more text arrived '
+        'within 15 s.',
+      );
+    });
+
+    testWidgets('a longer first-token timeout lets a slow reply through', (
+      tester,
+    ) async {
+      final controller = StreamController<String>();
+      await tester.pumpWidget(
+        page(
+          adapter: AiChatAdapter(
+            sendMessage: (_) => controller.stream,
+            firstTokenTimeout: const Duration(minutes: 2),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'Q');
+      await tester.pump(const Duration(seconds: 40));
+      expect(find.text('No reply in 30 s'), findsNothing);
+      expect(find.text('Still waiting for a reply'), findsOneWidget);
+      controller.add('Late answer');
+      await controller.close();
+      await tester.pump();
+      expect(find.text('Late answer'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+    });
+
+    testWidgets('the first-token timeout names its own length', (tester) async {
+      final controller = StreamController<String>();
+      await tester.pumpWidget(
+        page(
+          adapter: AiChatAdapter(
+            sendMessage: (_) => controller.stream,
+            firstTokenTimeout: const Duration(minutes: 2),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'Q');
+      await tester.pump(const Duration(minutes: 2));
+      expect(find.text('No reply in 2 min'), findsOneWidget);
+      expect(controller.hasListener, isFalse);
+    });
+
+    for (final (label, off) in [('null', null), ('zero', Duration.zero)]) {
+      testWidgets('timeouts set to $label never end a reply', (tester) async {
+        final controller = StreamController<String>();
+        final histories = <List<AiChatMessage>>[];
+        await tester.pumpWidget(
+          page(
+            adapter: AiChatAdapter(
+              sendMessage: (_) => controller.stream,
+              firstTokenTimeout: off,
+              stallTimeout: off,
+            ),
+            onHistoryChanged: histories.add,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await send(tester, 'Q');
+        await tester.pump(const Duration(minutes: 10));
+        expect(find.textContaining('No reply in'), findsNothing);
+        expect(controller.hasListener, isTrue);
+        controller.add('Slow ');
+        await tester.pump();
+        await tester.pump(const Duration(minutes: 10));
+        expect(find.text('Reply stalled'), findsNothing);
+        controller.add('answer');
+        await controller.close();
+        await tester.pump();
+        expect(histories.last.last.text, 'Slow answer');
+      });
+    }
+
+    testWidgets('an empty chunk restarts the current wait', (tester) async {
+      final controller = StreamController<String>();
+      await tester.pumpWidget(
+        page(adapter: AiChatAdapter(sendMessage: (_) => controller.stream)),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'Q');
+      await tester.pump(const Duration(seconds: 20));
+      controller.add('');
+      await tester.pump(const Duration(seconds: 20));
+      // 40 s after the send, 20 s after the last sign of life.
+      expect(find.text('No reply in 30 s'), findsNothing);
+      expect(find.text('Still waiting for a reply'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 10));
+      expect(find.text('No reply in 30 s'), findsOneWidget);
+    });
+
+    testWidgets('a stopped reply reaches the provider with the note after '
+        'its code fence', (tester) async {
+      final requests = <AiChatRequest>[];
+      final histories = <List<AiChatMessage>>[];
+      final controller = StreamController<String>();
+      await tester.pumpWidget(
+        page(
+          adapter: AiChatAdapter(
+            sendMessage: (request) {
+              requests.add(request);
+              return requests.length == 1
+                  ? controller.stream
+                  : Stream.value('ok');
+            },
+          ),
+          onHistoryChanged: histories.add,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'Q');
+      controller.add('Try:\n```dart\nfoo(');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.stop));
+      await tester.pump();
+      expect(find.text('Try:\n```dart\nfoo( (stopped)'), findsOneWidget);
+
+      await send(tester, 'And?');
+      await tester.pump();
+      final sent = requests[1].history;
+      expect(sent.map((m) => m.role), [
+        AiChatRole.user,
+        AiChatRole.assistant,
+        AiChatRole.user,
+      ]);
+      expect(
+        sent[1].text,
+        'Try:\n```dart\nfoo(\n```\n\n'
+        '(The user stopped this reply before it finished.)',
+      );
+      // The history keeps the text as it arrived, marked stopped.
+      final stored = histories.last[1];
+      expect(stored.text, 'Try:\n```dart\nfoo(');
+      expect(stored.stopped, isTrue);
+      expect(histories.last.last.text, 'ok');
+      expect(histories.last.last.stopped, isFalse);
+    });
+
+    testWidgets('a stopped reply in the history is shown and copied marked', (
+      tester,
+    ) async {
+      final copied = captureClipboard(tester);
+      final requests = <AiChatRequest>[];
+      await tester.pumpWidget(
+        page(
+          adapter: AiChatAdapter(
+            sendMessage: (request) {
+              requests.add(request);
+              return Stream.value('ok');
+            },
+          ),
+          history: const [
+            AiChatMessage(role: AiChatRole.user, text: 'Q'),
+            AiChatMessage(
+              role: AiChatRole.assistant,
+              text: 'Half',
+              stopped: true,
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Half (stopped)'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.copy_all_outlined));
+      await tester.pump();
+      expect(copied(), contains('Half (stopped)'));
+
+      // Copy message copies the reply's own text.
+      await tester.tap(find.byIcon(Icons.copy));
+      await tester.pump();
+      expect(copied(), 'Half');
+
+      await send(tester, 'More?');
+      await tester.pump();
+      expect(
+        requests.single.history[1].text,
+        'Half\n\n(The user stopped this reply before it finished.)',
+      );
+    });
+
+    testWidgets('a stream that cannot be listened to fails at once', (
+      tester,
+    ) async {
+      final used = StreamController<String>();
+      used.stream.listen((_) {});
+      await tester.pumpWidget(
+        page(adapter: AiChatAdapter(sendMessage: (_) => used.stream)),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'Q');
+      expect(tester.takeException(), isNull);
+      expect(find.text('Reply failed'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.byIcon(Icons.send), findsOneWidget);
+      // Nothing is left running to fail it again later.
+      await tester.pump(const Duration(seconds: 30));
+      expect(find.text('No reply in 30 s'), findsNothing);
+      await used.close();
+    });
+
+    testWidgets('an error is logged and copied with credentials masked', (
+      tester,
+    ) async {
+      final copied = captureClipboard(tester);
+      final logged = <String>[];
+      final previous = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) logged.add(message);
+      };
+      try {
+        await tester.pumpWidget(
+          page(
+            adapter: AiChatAdapter(
+              sendMessage: (_) => Stream<String>.error(
+                HttpException(
+                  'Connection closed',
+                  uri: Uri.parse(
+                    'https://example.com/v1/chat?api_key=SECRET42&alt=sse',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await send(tester, 'Q');
+        await tester.tap(find.text('Copy error'));
+        await tester.pump();
+      } finally {
+        debugPrint = previous;
+      }
+
+      expect(copied(), contains('api_key=[redacted]&alt=sse'));
+      expect(copied(), isNot(contains('SECRET42')));
+      final log = logged.where((m) => m.startsWith('Sleuth AI error'));
+      expect(log, hasLength(1));
+      expect(log.single, contains('api_key=[redacted]'));
+      expect(log.single, isNot(contains('SECRET42')));
+    });
+
+    testWidgets('a drag on the conversation puts the keyboard away', (
+      tester,
+    ) async {
+      await tester.pumpWidget(page(adapter: makeAdapter()));
+      await tester.pumpAndSettle();
+      final list = tester.widget<ListView>(
+        find.descendant(
+          of: find.byType(AiChatPage),
+          matching: find.byType(ListView),
+        ),
+      );
+      expect(
+        list.keyboardDismissBehavior,
+        ScrollViewKeyboardDismissBehavior.onDrag,
+      );
+    });
+
+    testWidgets('Retry leaves focus where it was at the tap', (tester) async {
+      final requests = <AiChatRequest>[];
+      await tester.pumpWidget(
+        page(
+          adapter: AiChatAdapter(
+            sendMessage: (request) {
+              requests.add(request);
+              return Stream.value('Answer');
+            },
+          ),
+          history: const [
+            AiChatMessage(role: AiChatRole.user, text: 'Unanswered'),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.focusNode!.hasFocus, isFalse);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Answer'), findsOneWidget);
+      // The keyboard does not rise over the reply.
+      expect(field.focusNode!.hasFocus, isFalse);
     });
 
     testWidgets('the streaming live region changes at most every 2 s', (
@@ -1674,15 +2010,204 @@ void main() {
         aiFailureReason(const HttpException('AI provider returned 503: busy')),
         'Provider error',
       );
-      expect(
-        aiFailureReason(const SocketException('Connection refused')),
-        'Offline',
-      );
       expect(aiFailureReason(Exception('weird')), 'Reply failed');
       expect(
         aiFailureReason(const AiProviderException('bad', statusCode: 400)),
         'Reply failed',
       );
+    });
+
+    test('reads the status from Dio, dart_openai and HTTP texts', () {
+      // Dio's DioException message.
+      expect(
+        aiFailureReason(
+          Exception(
+            'DioException [bad response]: This exception was thrown '
+            'because the response has a status code of 401 and '
+            'RequestOptions.validateStatus was configured to throw for '
+            'this status code.',
+          ),
+        ),
+        'API key rejected',
+      );
+      // dart_openai's RequestFailedException.
+      expect(
+        aiFailureReason(
+          Exception(
+            'RequestFailedException(message: Rate limit reached, '
+            'statusCode: 429)',
+          ),
+        ),
+        'Rate limited',
+      );
+      expect(
+        aiFailureReason(Exception('{"statusCode":503,"error":"busy"}')),
+        'Provider error',
+      );
+      expect(
+        aiFailureReason(Exception('HTTP/1.1 502 Bad Gateway')),
+        'Provider error',
+      );
+      expect(aiFailureReason(Exception('status_code=403')), 'API key rejected');
+      // A URL's port is not a status.
+      expect(
+        aiFailureReason(Exception('Bad URL http://localhost:11434/v1')),
+        'Reply failed',
+      );
+    });
+
+    test('tells no network from an unreachable provider', () {
+      expect(
+        aiFailureReason(
+          const SocketException(
+            'Failed host lookup: \'api.openai.com\'',
+            osError: OSError('nodename nor servname provided', 8),
+          ),
+        ),
+        'Offline',
+      );
+      expect(
+        aiFailureReason(
+          const SocketException(
+            'Connection failed',
+            osError: OSError('Network is unreachable', 101),
+          ),
+        ),
+        'Offline',
+      );
+      expect(
+        aiFailureReason(
+          const SocketException(
+            'Connection refused',
+            osError: OSError('Connection refused', 61),
+          ),
+        ),
+        "Can't reach the provider",
+      );
+      expect(
+        aiFailureReason(
+          const SocketException('Connection failed', osError: OSError('', 111)),
+        ),
+        "Can't reach the provider",
+      );
+      expect(
+        aiFailureReason(const SocketException('Connection refused')),
+        "Can't reach the provider",
+      );
+      // package:http and Dio wrap the socket error in their own text.
+      expect(
+        aiFailureReason(
+          Exception(
+            'ClientException with SocketException: Connection reset by '
+            'peer (OS Error: Connection reset by peer, errno = 54)',
+          ),
+        ),
+        "Can't reach the provider",
+      );
+      expect(
+        aiFailureReason(
+          Exception(
+            'DioException [connection error]: The connection errored: '
+            'Failed host lookup: \'api.anthropic.com\'',
+          ),
+        ),
+        'Offline',
+      );
+    });
+  });
+
+  group('redactSecrets', () {
+    test('masks credential query parameters and keeps the rest', () {
+      expect(
+        redactSecrets(
+          'HttpException: Connection closed, uri = '
+          'https://example.com/v1/chat?api_key=SECRET123&model=gpt-4o'
+          '&access_token=tok456#frag',
+        ),
+        'HttpException: Connection closed, uri = '
+        'https://example.com/v1/chat?api_key=[redacted]&model=gpt-4o'
+        '&access_token=[redacted]#frag',
+      );
+      expect(
+        redactSecrets('GET /x?key=abc&X-Amz-Signature=f00&page=2'),
+        'GET /x?key=[redacted]&X-Amz-Signature=[redacted]&page=2',
+      );
+      expect(redactSecrets('?password=hunter2'), '?password=[redacted]');
+    });
+
+    test('masks Bearer tokens and credential headers', () {
+      expect(
+        redactSecrets('401: invalid token Bearer abcdefgh12345678 sent'),
+        '401: invalid token Bearer [redacted] sent',
+      );
+      expect(
+        redactSecrets('Authorization: Bearer abc.def-ghi\nnext line'),
+        'Authorization: [redacted]\nnext line',
+      );
+      expect(
+        redactSecrets('{"x-api-key": "plain-secret", "type": "error"}'),
+        '{"x-api-key": "[redacted]", "type": "error"}',
+      );
+      expect(
+        redactSecrets('{"client_secret":"s3cr3t","max_tokens":4096}'),
+        '{"client_secret":"[redacted]","max_tokens":4096}',
+      );
+      // Words alone are not credentials.
+      expect(
+        redactSecrets('Missing Bearer token in the authorization header'),
+        'Missing Bearer token in the authorization header',
+      );
+    });
+
+    test('masks key-shaped strings', () {
+      expect(
+        redactSecrets('key sk-ant-api03-AbCdEfGh1234567890 rejected'),
+        'key [redacted] rejected',
+      );
+      expect(
+        redactSecrets('Google key AIzaSyA1234567890abcdefghijklmnopqrstu.'),
+        'Google key [redacted].',
+      );
+      expect(
+        redactSecrets('jwt eyJhbGciOiJI.eyJzdWIiOiIx.c2lnbmF0dXJl end'),
+        'jwt [redacted] end',
+      );
+      final long = 'a1' * 25;
+      expect(redactSecrets('token $long here'), 'token [redacted] here');
+      // A request id, a UUID and plain words stay readable.
+      const readable =
+          'request req_011CSHoEeqs5C35K2UUqR7Fy, id '
+          '123e4567-e89b-12d3-a456-426614174000: Service Unavailable';
+      expect(redactSecrets(readable), readable);
+    });
+  });
+
+  group('stoppedReplyForProvider', () {
+    const note = '(The user stopped this reply before it finished.)';
+
+    test('adds the note after the text', () {
+      expect(stoppedReplyForProvider('Half'), 'Half\n\n$note');
+    });
+
+    test('closes a code fence left open first', () {
+      expect(
+        stoppedReplyForProvider('Try:\n```dart\nfoo('),
+        'Try:\n```dart\nfoo(\n```\n\n$note',
+      );
+      expect(stoppedReplyForProvider('~~~\ncode\n'), '~~~\ncode\n~~~\n\n$note');
+      // A longer fence is closed by a run at least as long.
+      expect(
+        stoppedReplyForProvider('````md\n```\ninner\n```\n'),
+        '````md\n```\ninner\n```\n````\n\n$note',
+      );
+    });
+
+    test('leaves closed fences and inline code alone', () {
+      const closed = 'Use:\n```\nx()\n```\nthen `y';
+      expect(stoppedReplyForProvider(closed), '$closed\n\n$note');
+      // Backticks in the info string: not a fence.
+      const inline = '``` not `a` fence\nmore';
+      expect(stoppedReplyForProvider(inline), '$inline\n\n$note');
     });
   });
 
@@ -1740,6 +2265,38 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.text('Because (stopped)'), findsOneWidget);
       expect(find.text('Reply did not finish'), findsNothing);
+    });
+
+    testWidgets('closing with the Stop notice up hides it after the frame', (
+      tester,
+    ) async {
+      final stream = StreamController<String>();
+      await openChat(tester, stream);
+
+      await tester.enterText(find.byType(TextField), 'Why?');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      stream.add('Because');
+      await tester.pump();
+      // A second send while the reply streams raises the Stop notice.
+      await tester.enterText(find.byType(TextField), 'And?');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      const notice = 'Wait for the reply, or stop it';
+      expect(find.text(notice), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(AiChatPage), findsNothing);
+      expect(stream.hasListener, isFalse);
+
+      // Hidden after the close frame; the fade-out starts on the next.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.text(notice), findsNothing);
     });
 
     testWidgets('a controller swap closes the chat', (tester) async {

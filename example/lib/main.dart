@@ -148,6 +148,9 @@ AiChatAdapter _aiChatAdapter() {
     apiKey: 'ollama',
     baseUrl: baseUrl,
     model: 'llama3.2',
+    // Ollama loads the model on the first request, which can take longer
+    // than the default 30 s wait for the first text.
+    firstTokenTimeout: const Duration(seconds: 90),
   );
 }
 

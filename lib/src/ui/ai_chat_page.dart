@@ -84,8 +84,12 @@ class AiChatPage extends StatefulWidget {
 /// Short, user-facing reason for a failed reply.
 ///
 /// HTTP 401/403 is "API key rejected", 429 "Rate limited", 5xx "Provider
-/// error", a socket failure "Offline"; anything else "Reply failed". The
-/// full error text is only offered through Copy error.
+/// error" (the status of an [AiProviderException], else read from the
+/// error text: "returned 503", "status code of 401", "statusCode: 429");
+/// no network (a failed host lookup, the network unreachable or down) is
+/// "Offline"; a refused, unreachable, reset or timed-out connection is
+/// "Can't reach the provider"; anything else "Reply failed". The full
+/// error text is only offered through Copy error.
 @visibleForTesting
 String aiFailureReason(Object error) {
   final status = switch (error) {
@@ -97,22 +101,155 @@ String aiFailureReason(Object error) {
   if (status == 429) return 'Rate limited';
   if (status != null && status >= 500 && status < 600) return 'Provider error';
   final text = error.toString();
+  final errno = _errnoIn(text);
+  if (_offlinePattern.hasMatch(text) || _offlineErrnos.contains(errno)) {
+    return 'Offline';
+  }
   if (error is SocketException ||
       text.contains('SocketException') ||
-      text.contains('Failed host lookup')) {
-    return 'Offline';
+      _unreachablePattern.hasMatch(text) ||
+      _unreachableErrnos.contains(errno)) {
+    return "Can't reach the provider";
   }
   return 'Reply failed';
 }
 
+/// An HTTP status in an error's text: "returned 503" (the built-in
+/// providers), "status code of 401" (Dio), "statusCode: 429"
+/// (dart_openai), "status: 500", "HTTP/1.1 502".
 final RegExp _statusPattern = RegExp(
-  r'(?:returned|status(?: code)?:?)\s*(\d{3})\b',
+  r'(?:returned|status[ _-]?code|status|\bhttp(?:/[\d.]+)?)'
+  r'''(?:\s+of)?["']?\s*[:=]?\s*(\d{3})\b''',
   caseSensitive: false,
 );
 
 int? _statusIn(String text) {
   final match = _statusPattern.firstMatch(text);
   return match == null ? null : int.parse(match.group(1)!);
+}
+
+/// No network: the host name could not be resolved, or the network is
+/// unreachable or down.
+final RegExp _offlinePattern = RegExp(
+  'Failed host lookup|No address associated with hostname|'
+  'Network is unreachable|Network is down|'
+  'not connected to the internet|connection appears to be offline',
+  caseSensitive: false,
+);
+
+/// A network, but the provider's host does not answer.
+final RegExp _unreachablePattern = RegExp(
+  'Connection refused|No route to host|Host is unreachable|'
+  'Connection reset|Connection timed out|connection errored',
+  caseSensitive: false,
+);
+
+/// ENETDOWN and ENETUNREACH on iOS/macOS, Android/Linux and Windows.
+const Set<int> _offlineErrnos = {50, 51, 100, 101, 10050, 10051};
+
+/// ECONNRESET, ETIMEDOUT, ECONNREFUSED and EHOSTUNREACH on iOS/macOS,
+/// Android/Linux and Windows.
+const Set<int> _unreachableErrnos = {
+  54, 60, 61, 65, // iOS / macOS
+  104, 110, 111, 113, // Android / Linux
+  10054, 10060, 10061, 10065, // Windows
+};
+
+final RegExp _errnoPattern = RegExp(r'errno\s*=\s*(\d+)');
+
+int? _errnoIn(String text) {
+  final match = _errnoPattern.firstMatch(text);
+  return match == null ? null : int.parse(match.group(1)!);
+}
+
+/// [text] with credentials replaced by `[redacted]`, so an error can be
+/// logged and copied: values of URI query parameters and JSON string
+/// fields whose names look like a key, token, secret, password, auth or
+/// signature; `Authorization` and API-key header values; `Bearer`
+/// tokens; and key-shaped strings (`sk-…`, `AIza…`, JWTs, runs of 40 or
+/// more letters and digits). The rest of the text is kept.
+@visibleForTesting
+String redactSecrets(String text) {
+  var out = text;
+  for (final (pattern, keepPrefix) in _redactions) {
+    out = out.replaceAllMapped(
+      pattern,
+      (m) => keepPrefix ? '${m.group(1)}$_redacted' : _redacted,
+    );
+  }
+  return out;
+}
+
+const String _redacted = '[redacted]';
+
+/// A parameter or field name that looks like it holds a credential.
+const String _secretName =
+    r'[\w.\-]*(?:key|token|secret|passw(?:or)?d|pwd|auth|signature|sig|'
+    r'credential)[\w.\-]*';
+
+/// Each pattern, and whether its group 1 is kept before the mask.
+final List<(RegExp, bool)> _redactions = [
+  // Header values, to the end of the line, a quote, comma or brace.
+  (
+    RegExp(
+      r'((?:\b(?:proxy-)?authorization|\bx-(?:goog-)?api-key|\bapi-key)'
+      r'''["']?\s*[:=]\s*["']?)[^"'\r\n,}&]+''',
+      caseSensitive: false,
+    ),
+    true,
+  ),
+  (RegExp(r'(\bBearer\s+)[\w\-.~+/]{8,}=*', caseSensitive: false), true),
+  // URI query parameters: ?api_key=…, &access_token=…, &X-Amz-Signature=…
+  (RegExp('([?&]$_secretName=)[^&#\\s"\'<>]+', caseSensitive: false), true),
+  // JSON string fields: "api_key": "…"
+  (RegExp('("$_secretName"\\s*:\\s*")[^"]+', caseSensitive: false), true),
+  // Provider key shapes and JWTs.
+  (RegExp(r'\bsk-[\w\-]{16,}'), false),
+  (RegExp(r'\bAIza[\w\-]{30,}'), false),
+  (RegExp(r'\beyJ[\w\-]{8,}\.[\w\-]{8,}\.[\w\-]+'), false),
+  // Any other long run of letters and digits.
+  (
+    RegExp(r'(?<![\w\-])(?=[\w\-]*\d)(?=[\w\-]*[A-Za-z])[\w\-]{40,}(?![\w\-])'),
+    false,
+  ),
+];
+
+/// [text] of a stopped reply as the provider gets it: a code fence left
+/// open is closed, then a line of its own says the reply was stopped, so
+/// the note never lands inside code.
+@visibleForTesting
+String stoppedReplyForProvider(String text) =>
+    '${_closeOpenFence(text)}\n\n$_stoppedNoteForProvider';
+
+const String _stoppedNoteForProvider =
+    '(The user stopped this reply before it finished.)';
+
+/// The opening or closing line of a fenced code block: up to three
+/// spaces, then three or more backticks or tildes.
+final RegExp _fenceLine = RegExp(r'^ {0,3}(`{3,}|~{3,})(.*)$');
+
+/// [text], with a closing fence added when it ends inside a fenced code
+/// block.
+String _closeOpenFence(String text) {
+  String? open;
+  for (final raw in text.split('\n')) {
+    final line = raw.endsWith('\r') ? raw.substring(0, raw.length - 1) : raw;
+    final match = _fenceLine.firstMatch(line);
+    if (match == null) continue;
+    final run = match.group(1)!;
+    final rest = match.group(2)!;
+    if (open == null) {
+      // A backtick fence's info string has no backticks.
+      if (run.startsWith('`') && rest.contains('`')) continue;
+      open = run;
+    } else if (run[0] == open[0] &&
+        run.length >= open.length &&
+        rest.trim().isEmpty) {
+      open = null;
+    }
+  }
+  if (open == null) return text;
+  return '$text${text.endsWith('\n') ? '' : '\n'}$open';
 }
 
 /// Where the current reply is.
@@ -130,12 +267,6 @@ class _ReplyFailure {
 
 class _AiChatPageState extends State<AiChatPage>
     with SingleTickerProviderStateMixin {
-  /// Longest wait for the first token of a reply.
-  static const Duration _firstTokenTimeout = Duration(seconds: 30);
-
-  /// Longest gap between two tokens of a reply.
-  static const Duration _stallTimeout = Duration(seconds: 15);
-
   /// Wait before the thinking row reads "Still waiting for a reply".
   static const Duration _slowAfter = Duration(seconds: 5);
 
@@ -169,7 +300,9 @@ class _AiChatPageState extends State<AiChatPage>
   /// failure row, never written to the history.
   String? _failedPartial;
 
-  /// First-token, then stall, timeout of the reply in flight.
+  /// First-token, then stall, timeout of the reply in flight
+  /// ([AiChatAdapter.firstTokenTimeout], [AiChatAdapter.stallTimeout]);
+  /// null while the current one is off.
   Timer? _replyTimer;
   Timer? _slowTimer;
   Timer? _announceTimer;
@@ -180,8 +313,8 @@ class _AiChatPageState extends State<AiChatPage>
   String _streamAnnouncement = 'Reply in progress';
   bool _announcePending = false;
 
-  /// The input had focus when the last message was sent; focus returns to
-  /// it when the reply ends.
+  /// The input had focus when the last message was sent or Retry was
+  /// tapped; focus returns to it when the reply ends.
   bool _refocusAfterReply = false;
   String _streamBuffer = '';
   late List<AiChatMessage> _messages;
@@ -288,10 +421,12 @@ class _AiChatPageState extends State<AiChatPage>
   }
 
   /// Asks again for a reply to the unanswered question that ends the
-  /// history, without adding a turn.
+  /// history, without adding a turn. Focus returns to the input after the
+  /// reply only when the input had it at the tap, so the keyboard does
+  /// not rise over the reply.
   void _retry() {
     if (_inFlight || !_endsWithUserTurn) return;
-    _refocusAfterReply = true;
+    _refocusAfterReply = _focusNode.hasFocus;
     setState(() {
       _failure = null;
       _failedPartial = null;
@@ -323,7 +458,8 @@ class _AiChatPageState extends State<AiChatPage>
 
   /// The history as sent: consecutive user turns (a question asked after
   /// an unanswered one) joined into one, a blank line between, so no
-  /// provider gets two user turns in a row.
+  /// provider gets two user turns in a row; a stopped reply's text ends
+  /// with a note that it was stopped ([stoppedReplyForProvider]).
   List<AiChatMessage> _requestHistory() {
     final out = <AiChatMessage>[];
     for (final message in _messages) {
@@ -335,6 +471,14 @@ class _AiChatPageState extends State<AiChatPage>
           AiChatMessage(
             role: AiChatRole.user,
             text: '${previous.text}\n\n${message.text}',
+          ),
+        );
+      } else if (message.stopped) {
+        out.add(
+          AiChatMessage(
+            role: message.role,
+            text: stoppedReplyForProvider(message.text),
+            stopped: true,
           ),
         );
       } else {
@@ -367,7 +511,7 @@ class _AiChatPageState extends State<AiChatPage>
       _announcePending = false;
       _streamAnnouncement = 'Reply in progress';
     });
-    _armReplyTimer(_firstTokenTimeout, 'No reply in 30 s');
+    _armFirstTokenTimer();
     _slowTimer = Timer(_slowAfter, () {
       if (mounted && _state == _ReplyState.waiting) {
         setState(() => _slow = true);
@@ -375,37 +519,83 @@ class _AiChatPageState extends State<AiChatPage>
     });
     _scrollToBottom();
 
-    final Stream<String> stream;
+    // Listening can throw too (a single-subscription stream that was
+    // already listened to): the reply fails at once.
     try {
-      stream = widget.adapter.sendMessage(request);
+      _activeStream = widget.adapter
+          .sendMessage(request)
+          .listen(
+            _onToken,
+            onError: _onReplyError,
+            onDone: () => _finish(_ReplyState.done),
+            cancelOnError: true,
+          );
     } catch (e) {
       _onReplyError(e);
-      return;
     }
-    _activeStream = stream.listen(
-      _onToken,
-      onError: _onReplyError,
-      onDone: () => _finish(_ReplyState.done),
-      cancelOnError: true,
-    );
   }
 
-  void _armReplyTimer(Duration timeout, String reason) {
+  /// [timeout] when it is on: null, zero and negative turn it off.
+  static Duration? _enabled(Duration? timeout) =>
+      timeout == null || timeout <= Duration.zero ? null : timeout;
+
+  /// "30 s", "2 min" or "500 ms".
+  static String _formatTimeout(Duration timeout) {
+    final ms = timeout.inMilliseconds;
+    if (ms % 1000 != 0) return '$ms ms';
+    final seconds = timeout.inSeconds;
+    if (seconds >= 60 && seconds % 60 == 0) return '${seconds ~/ 60} min';
+    return '$seconds s';
+  }
+
+  /// Starts the wait for the reply's first text
+  /// ([AiChatAdapter.firstTokenTimeout]).
+  void _armFirstTokenTimer() {
     _replyTimer?.cancel();
-    _replyTimer = Timer(timeout, () {
-      _finish(
-        _ReplyState.failed,
-        failure: _ReplyFailure(
-          reason,
-          'No reply text arrived within ${timeout.inSeconds} s.',
-        ),
-      );
-    });
+    final timeout = _enabled(widget.adapter.firstTokenTimeout);
+    _replyTimer = timeout == null
+        ? null
+        : Timer(timeout, () {
+            final limit = _formatTimeout(timeout);
+            _finish(
+              _ReplyState.failed,
+              failure: _ReplyFailure(
+                'No reply in $limit',
+                'No reply text arrived within $limit.',
+              ),
+            );
+          });
+  }
+
+  /// Starts the wait for the reply's next text
+  /// ([AiChatAdapter.stallTimeout]).
+  void _armStallTimer() {
+    _replyTimer?.cancel();
+    final timeout = _enabled(widget.adapter.stallTimeout);
+    _replyTimer = timeout == null
+        ? null
+        : Timer(timeout, () {
+            final length = _streamBuffer.length;
+            _finish(
+              _ReplyState.failed,
+              failure: _ReplyFailure(
+                'Reply stalled',
+                'The reply stalled after $length '
+                    '${length == 1 ? 'character' : 'characters'}: no more '
+                    'text arrived within ${_formatTimeout(timeout)}.',
+              ),
+            );
+          });
   }
 
   void _onToken(String token) {
-    if (!mounted || !_inFlight || token.isEmpty) return;
-    _armReplyTimer(_stallTimeout, 'Reply stalled');
+    if (!mounted || !_inFlight) return;
+    if (token.isEmpty) {
+      // A sign of life without text: the current wait starts again.
+      _state == _ReplyState.waiting ? _armFirstTokenTimer() : _armStallTimer();
+      return;
+    }
+    _armStallTimer();
     _slowTimer?.cancel();
     _slowTimer = null;
     setState(() {
@@ -417,11 +607,15 @@ class _AiChatPageState extends State<AiChatPage>
     _scrollToBottom();
   }
 
+  /// Fails the reply with [error]'s short reason; the error text, with
+  /// credentials masked ([redactSecrets]), is logged outside release
+  /// builds and kept for Copy error.
   void _onReplyError(Object error) {
-    if (!kReleaseMode) debugPrint('Sleuth AI error: $error');
+    final text = redactSecrets('$error');
+    if (!kReleaseMode) debugPrint('Sleuth AI error: $text');
     _finish(
       _ReplyState.failed,
-      failure: _ReplyFailure(aiFailureReason(error), '$error'),
+      failure: _ReplyFailure(aiFailureReason(error), text),
     );
   }
 
@@ -457,20 +651,32 @@ class _AiChatPageState extends State<AiChatPage>
 
   static final RegExp _sentenceEnd = RegExp(r'[.!?](\s|$)');
 
-  /// Ends the reply in flight once; later calls do nothing.
-  ///
-  /// [_ReplyState.done] commits the reply. [_ReplyState.stopped] commits
-  /// the text received so far, marked " (stopped)", and records no
-  /// failure. [_ReplyState.failed] records [failure] and keeps the text
-  /// received so far on screen only. [notify] is false from [dispose]:
-  /// the history callback still runs, nothing else does.
   /// Hides the Stop notice raised while this reply was in flight.
   VoidCallback? _hideStopNotice;
 
+  /// Ends the reply in flight once; later calls do nothing.
+  ///
+  /// [_ReplyState.done] commits the reply. [_ReplyState.stopped] commits
+  /// the text received so far as a stopped reply
+  /// ([AiChatMessage.stopped]) and records no failure.
+  /// [_ReplyState.failed] records [failure] and keeps the text received
+  /// so far on screen only. [notify] is false from [dispose]: the history
+  /// callback still runs and the Stop notice is hidden after the frame
+  /// (the host's toast cannot rebuild while the tree is being torn down);
+  /// nothing else runs.
   void _finish(_ReplyState end, {_ReplyFailure? failure, bool notify = true}) {
     if (!_inFlight) return;
-    _hideStopNotice?.call();
+    final hideNotice = _hideStopNotice;
     _hideStopNotice = null;
+    if (hideNotice != null) {
+      if (notify) {
+        hideNotice();
+      } else {
+        WidgetsBinding.instance
+          ..addPostFrameCallback((_) => hideNotice())
+          ..ensureVisualUpdate();
+      }
+    }
     _cancelStream();
     _cancelTimers();
     final partial = _streamBuffer;
@@ -497,7 +703,8 @@ class _AiChatPageState extends State<AiChatPage>
           _messages.add(
             AiChatMessage(
               role: AiChatRole.assistant,
-              text: '$partial (stopped)',
+              text: partial,
+              stopped: true,
             ),
           );
           historyChanged = true;
@@ -517,8 +724,8 @@ class _AiChatPageState extends State<AiChatPage>
     _restoreFocus();
   }
 
-  /// Puts focus back on the input after a reply when it had focus at send
-  /// (always after Retry).
+  /// Puts focus back on the input after a reply when it had focus at the
+  /// send or Retry.
   void _restoreFocus() {
     if (_refocusAfterReply && !_focusNode.hasFocus) _focusNode.requestFocus();
     _refocusAfterReply = false;
@@ -766,7 +973,9 @@ class _AiChatPageState extends State<AiChatPage>
           : '### \u{1F916} Assistant';
       buf
         ..writeln(marker)
-        ..writeln(_escapeMd(msg.text.trim()))
+        ..writeln(
+          '${_escapeMd(msg.text.trim())}${msg.stopped ? _stoppedMark : ''}',
+        )
         ..writeln();
     }
     final session = _sentContext;
@@ -823,6 +1032,9 @@ class _AiChatPageState extends State<AiChatPage>
   Widget _buildMessageArea(SleuthThemeData theme) {
     return ListView(
       controller: _scrollController,
+      // Return keeps focus for the next question; a drag on the
+      // conversation puts the keyboard away.
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: EdgeInsets.symmetric(
         horizontal: theme.spacingLg,
         vertical: theme.spacingSm,
@@ -910,6 +1122,10 @@ class _AiChatPageState extends State<AiChatPage>
 
   static const double _avatarSize = 20;
 
+  /// Shown after a stopped reply ([AiChatMessage.stopped]), on screen and
+  /// in Copy conversation; never part of the reply's text.
+  static const String _stoppedMark = ' (stopped)';
+
   Widget _buildMessageBubble(AiChatMessage msg, SleuthThemeData theme) {
     final isUser = msg.role == AiChatRole.user;
     final labelInset = _avatarSize + theme.spacingMd;
@@ -939,8 +1155,20 @@ class _AiChatPageState extends State<AiChatPage>
       child: Semantics(
         container: true,
         liveRegion: !isUser && identical(msg, _messages.last),
-        child: Text(
-          msg.text,
+        child: Text.rich(
+          TextSpan(
+            text: msg.text,
+            children: [
+              if (msg.stopped)
+                TextSpan(
+                  text: _stoppedMark,
+                  style: TextStyle(
+                    color: theme.textTertiary,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+            ],
+          ),
           style: TextStyle(
             color: isUser ? theme.aiChatUserBubbleText : theme.textPrimary,
             fontSize: theme.fontSm,
