@@ -1739,7 +1739,7 @@ void main() {
       expect(find.byType(AiChatPage), findsNothing);
     });
 
-    testWidgets('a pruned issue closes the chat mid-reply without error', (
+    testWidgets('an open chat outlives its issue and keeps its history', (
       tester,
     ) async {
       final stream = StreamController<String>();
@@ -1751,13 +1751,22 @@ void main() {
       stream.add('Because');
       await tester.pump();
 
+      // The issue stops being reported: the chat stays open and the
+      // reply keeps streaming into it.
       controller.issuesNotifier.value = const [];
       await tester.pump(const Duration(milliseconds: 600));
-      expect(find.byType(AiChatPage), findsNothing);
+      expect(find.byType(AiChatPage), findsOneWidget);
       expect(tester.takeException(), isNull);
-      expect(stream.hasListener, isFalse);
+      expect(stream.hasListener, isTrue);
+      stream.add(' it rebuilds.');
+      await stream.close();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('Because it rebuilds.'), findsOneWidget);
 
-      // The issue comes back: the late write was dropped with it.
+      // Closing keeps the history until an issues update arrives without
+      // the issue; here the issue returns first, so the chat resumes.
+      await tester.tap(find.bySemanticsLabel('Close AI chat'));
+      await tester.pump(const Duration(milliseconds: 600));
       controller.issuesNotifier.value = [
         makeIssue(stableId: 'rebuild_activity', title: 'Rebuilds'),
       ];
@@ -1768,7 +1777,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.tap(find.text('Ask AI about this issue'));
       await tester.pump(const Duration(milliseconds: 600));
-      expect(find.text('Because (stopped)'), findsNothing);
+      expect(find.text('Because it rebuilds.'), findsOneWidget);
     });
   });
 }

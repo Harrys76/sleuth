@@ -744,7 +744,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   void _closeAiChat() => setState(() {
     _showAiChat = false;
     _chatIssueStableId = null;
+    _chatIssue = null;
   });
+
+  /// The open chat's issue as last reported, so the page outlives an
+  /// issue that stops being reported mid-conversation.
+  PerformanceIssue? _chatIssue;
 
   void _closeDetail() => setState(() {
     _showDetail = false;
@@ -813,6 +818,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (!_ui.toggleSeverity(severity)) {
       _toast.show('Keep at least one severity', tone: OverlayToastTone.warning);
     }
+  }
+
+  PerformanceIssue? _findLiveIssueByStableId(String key) {
+    for (final i in widget.controller.issuesNotifier.value) {
+      if ((i.stableId ?? i.title) == key) return i;
+    }
+    return null;
   }
 
   PerformanceIssue _findIssueByStableId(String key) {
@@ -918,14 +930,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       widget.controller.clearSelectedHighlight();
       changed = true;
     }
-    if (_showAiChat &&
-        _chatIssueStableId != null &&
-        !rawKeys.contains(_chatIssueStableId)) {
-      _chatIssueStableId = null;
-      _showAiChat = false;
-      changed = true;
-    }
-    _chatHistories.removeWhere((key, _) => !rawKeys.contains(key));
+    // An open chat outlives its issue (the page holds the last reported
+    // instance); only closed chats lose their history with the issue.
+    final openChat = _showAiChat ? _chatIssueStableId : null;
+    _chatHistories.removeWhere(
+      (key, _) => key != openChat && !rawKeys.contains(key),
+    );
     if (changed) setState(() {});
   }
 
@@ -1174,8 +1184,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// an issue that is no longer reported is dropped, as
   /// [_pruneStaleState] would drop it.
   Widget _buildAiChatPage(String chatKey) {
+    final live = _findLiveIssueByStableId(chatKey);
+    if (live != null) _chatIssue = live;
     return AiChatPage(
-      issue: _findIssueByStableId(chatKey),
+      issue: _chatIssue ?? _findIssueByStableId(chatKey),
       // Hidden issues reach the prompt as a count only.
       allIssues: [
         for (final issue in widget.controller.issuesNotifier.value)
@@ -1184,10 +1196,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       adapter: widget.controller.config.aiChat!,
       history: _chatHistories[chatKey] ?? const [],
       onHistoryChanged: (msgs) {
+        // A closed chat's history is kept only while its issue is
+        // reported; the open chat always keeps its own.
+        final open = _showAiChat && _chatIssueStableId == chatKey;
         final reported = widget.controller.issuesNotifier.value.any(
           (i) => (i.stableId ?? i.title) == chatKey,
         );
-        if (reported) _chatHistories[chatKey] = msgs;
+        if (open || reported) _chatHistories[chatKey] = msgs;
       },
       onClose: _closeAiChat,
       onNotify: (message) => _toast.show(message),
@@ -2088,6 +2103,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                           ? () => setState(() {
                               _chatIssueStableId =
                                   issue.stableId ?? issue.title;
+                              _chatIssue = issue;
                               _showAiChat = true;
                             })
                           : null,
