@@ -108,21 +108,34 @@
 
 - AI chat replies have states. A failed reply shows a short reason with
   Retry and Copy error: API key rejected (HTTP 401 or 403), Rate limited
-  (429), Provider error (5xx), Offline, No reply in 30 s and Reply stalled
-  (the timeouts); anything else reads Reply failed. The reason sits on its
+  (429), Provider error (5xx), Offline (no network), Can't reach the
+  provider (refused or unreachable host, such as a stopped local Ollama),
+  No reply in 30 s and Reply stalled (the timeouts); anything else reads
+  Reply failed. Status codes are read from Dio, dart_openai and plain
+  HTTP messages, and custom adapters can throw the exported
+  `AiProviderException(status)`. The error text is masked (credential
+  query parameters and JSON fields, Authorization and API-key headers,
+  bearer tokens, `sk-`/`AIza` keys) before it is logged or kept for Copy
+  error. The reason sits on its
   own line with the actions wrapped below it. The error text is never
   added to the conversation or sent back to the provider. Retry asks
   again without adding a turn; Retry and Stop give a selection click.
 - Stop ends a reply and keeps the text received so far, marked
-  "(stopped)". Closing the chat, system back, and the issue disappearing
+  "(stopped)" on screen and in Copy conversation; the provider receives
+  the partial text with any open code fence closed and the note on its
+  own line (`AiChatMessage.stopped`). Closing the chat, system back, and the issue disappearing
   keep it the same way, once. A question left without a reply shows
   "Reply did not finish" with Retry when the chat reopens. A new question
   after it keeps its own bubble; the request joins consecutive user turns
   with a blank line, so a provider never receives two user turns in a
   row.
 - Replies time out after 30 s without a first token or 15 s between
-  tokens, for every adapter; after 5 s the thinking row reads "Still
-  waiting for a reply". The built-in transport ends the stream at
+  tokens by default; `AiChatAdapter.firstTokenTimeout` and `stallTimeout`
+  change or turn off either (the example gives its local Ollama 90 s for
+  the first token), and an empty chunk from an adapter restarts the wait.
+  After 5 s the thinking row reads "Still waiting for a reply". Server-sent
+  events join their data lines before parsing, OpenAI string error codes
+  map to their status, and a non-stream JSON error body is raised. The built-in transport ends the stream at
   `[DONE]` instead of reading the connection to its end, and raises
   error frames (Anthropic `{"type":"error"}`, OpenAI-compatible and
   Gemini `{"error":...}` with a non-empty object or string) instead of
@@ -156,8 +169,15 @@
 - Cards that share a stable id and widget (a detector reporting several
   occurrences) keep their own expansion and highlight: expanding one no
   longer shows the other twice or drops it. Ask AI opens the chat for the
-  card it was tapped on, and chat history is kept per card (stable id and
-  widget), not per stable id.
+  card it was tapped on, and chat history is kept per card: detectors
+  that report one issue per widget under one id (`non_lazy_*`,
+  `wrap_layout_bottleneck`, `excessive_repaint_boundary` and the simple
+  structural detectors) stamp `PerformanceIssue.occurrenceId` from the
+  flagged element (not exported), and the chat is keyed and resolved by
+  it, never by title. Closing the chat while the Stop notice is up hides
+  the notice after the frame. Route names in the prompt drop any query
+  or fragment; related issue ids are named only for issues the prompt
+  already lists. Example: Shrink-wrapped Sections demo.
 - `excessive_keep_alive` ids name the scrollable instead of its position:
   `excessive_keep_alive:<TypeName>~<part>`, where the part is `k-` and
   the scrollable's string or number `ValueKey` (sanitised to
