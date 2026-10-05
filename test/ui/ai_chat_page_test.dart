@@ -8,6 +8,7 @@ import 'package:sleuth/src/ai/ai_providers.dart';
 import 'package:sleuth/src/models/ai_chat_adapter.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/ai_chat_page.dart';
+import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/utils/ai_session_context.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
@@ -928,7 +929,8 @@ void main() {
         expect(h.map((m) => m.text).join(), isNot(contains('boom')));
       }
 
-      // A new question after the failure joins the unanswered one.
+      // A new question after the failure joins the unanswered one in
+      // the request; the history keeps both bubbles.
       await send(tester, 'Q2');
       await tester.pump();
       expect(requests, hasLength(2));
@@ -936,6 +938,7 @@ void main() {
       expect(requests[1].history.single.role, AiChatRole.user);
       expect(requests[1].history.single.text, 'Q1\n\nQ2');
       expect(histories.last.map((m) => m.role), [
+        AiChatRole.user,
         AiChatRole.user,
         AiChatRole.assistant,
       ]);
@@ -1028,6 +1031,41 @@ void main() {
       expect(find.text('Retry'), findsOneWidget);
     });
 
+    testWidgets('Stop and Retry give a selection click', (tester) async {
+      final haptics = <Object?>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            haptics.add(call.arguments);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final controller = StreamController<String>.broadcast();
+      await tester.pumpWidget(
+        page(adapter: AiChatAdapter(sendMessage: (_) => controller.stream)),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'Q');
+      await tester.tap(find.byIcon(Icons.stop));
+      await tester.pump();
+      expect(haptics, ['HapticFeedbackType.selectionClick']);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      expect(haptics, hasLength(2));
+      await tester.tap(find.byIcon(Icons.stop));
+      await tester.pump();
+    });
+
     testWidgets('disposing mid-reply commits the partial text once', (
       tester,
     ) async {
@@ -1078,8 +1116,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // A question carried over from an earlier visit gets the quiet
+      // row, not the failure row.
       expect(find.text('Reply did not finish'), findsOneWidget);
       expect(find.text('Copy error'), findsNothing);
+      expect(find.byIcon(Icons.error_outline), findsNothing);
 
       await tester.tap(find.text('Retry'));
       await tester.pump();
@@ -1117,6 +1158,136 @@ void main() {
         AiChatRole.user,
       ]);
       expect(requests.single.history.last.text, 'C\n\nD');
+      // Both questions keep their own bubble.
+      expect(find.text('C'), findsOneWidget);
+      expect(find.text('D'), findsOneWidget);
+    });
+
+    testWidgets('a merged send keeps both questions in the history', (
+      tester,
+    ) async {
+      final requests = <AiChatRequest>[];
+      final histories = <List<AiChatMessage>>[];
+      await tester.pumpWidget(
+        page(
+          adapter: AiChatAdapter(
+            sendMessage: (request) {
+              requests.add(request);
+              if (requests.length == 1) {
+                return Stream<String>.error(
+                  const AiProviderException('down', statusCode: 503),
+                );
+              }
+              return Stream.value('Answer');
+            },
+          ),
+          history: const [AiChatMessage(role: AiChatRole.user, text: 'First')],
+          onHistoryChanged: histories.add,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'Second');
+      expect(find.text('Provider error'), findsOneWidget);
+      expect(histories.last.map((m) => m.text), ['First', 'Second']);
+      expect(requests.single.history.map((m) => m.text), ['First\n\nSecond']);
+
+      // Retry sends the same joined turn and adds no user turn.
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      await tester.pump();
+      expect(requests, hasLength(2));
+      expect(requests[1].history.map((m) => m.role), [AiChatRole.user]);
+      expect(requests[1].history.single.text, 'First\n\nSecond');
+      expect(histories.last.map((m) => m.text), ['First', 'Second', 'Answer']);
+    });
+
+    testWidgets('Copy conversation lists both bubbles of a merged send', (
+      tester,
+    ) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardText =
+                (call.arguments as Map<String, dynamic>)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await tester.pumpWidget(
+        page(
+          adapter: AiChatAdapter(sendMessage: (_) => Stream.value('Answer')),
+          history: const [AiChatMessage(role: AiChatRole.user, text: 'First')],
+        ),
+      );
+      await tester.pumpAndSettle();
+      await send(tester, 'Second');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.copy_all_outlined));
+      await tester.pump();
+      final text = clipboardText!;
+      expect('### \u{1F9D1} User'.allMatches(text), hasLength(2));
+      expect(text.indexOf('First'), lessThan(text.indexOf('Second')));
+      // Nothing was sent with a session provider: no context section.
+      expect(text, isNot(contains('## Context sent')));
+    });
+
+    testWidgets('the in-flight notice offers Stop', (tester) async {
+      final controller = StreamController<String>();
+      final actions = <String>[];
+      VoidCallback? stop;
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+            onNotifyAction: (message, label, onAction) {
+              actions.add('$message|$label');
+              stop = onAction;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await send(tester, 'First');
+      await send(tester, 'Second');
+      expect(actions, ['Wait for the reply, or stop it|Stop']);
+
+      stop!();
+      await tester.pump();
+      expect(controller.hasListener, isFalse);
+      expect(find.text('Stopped'), findsOneWidget);
+      expect(find.byIcon(Icons.send), findsOneWidget);
+    });
+
+    testWidgets('a cancel error from the adapter does not escape', (
+      tester,
+    ) async {
+      final controller = StreamController<String>(
+        onCancel: () => Future<void>.error(StateError('cancel failed')),
+      );
+      await tester.pumpWidget(
+        page(adapter: AiChatAdapter(sendMessage: (_) => controller.stream)),
+      );
+      await tester.pumpAndSettle();
+      await send(tester, 'Q');
+      await tester.tap(find.byIcon(Icons.stop));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Stopped'), findsOneWidget);
     });
 
     testWidgets('no first token in 30 s fails the reply', (tester) async {
@@ -1240,6 +1411,52 @@ void main() {
       expect(retry.height, greaterThanOrEqualTo(48));
       await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
       handle.dispose();
+    });
+
+    testWidgets('the failure row fits a 220 px card at 2x text', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: const MediaQueryData(
+              size: Size(220, 800),
+              textScaler: TextScaler.linear(2),
+            ),
+            child: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 220,
+                  child: AiChatPage(
+                    issue: makeIssue(),
+                    allIssues: const [],
+                    adapter: AiChatAdapter(
+                      sendMessage: (_) => Stream<String>.error(
+                        const AiProviderException('limit', statusCode: 429),
+                      ),
+                    ),
+                    history: const [],
+                    onHistoryChanged: (_) {},
+                    onClose: () {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await send(tester, 'Q');
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Rate limited'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Copy error'), findsOneWidget);
+      // The reason has its own line above the actions.
+      final reason = tester.getRect(find.text('Rate limited'));
+      final retry = tester.getRect(find.text('Retry'));
+      expect(retry.top, greaterThanOrEqualTo(reason.bottom));
     });
   });
 
@@ -1369,8 +1586,11 @@ void main() {
       controller.issuesNotifier.value = [
         makeIssue(stableId: 'rebuild_activity', title: 'Rebuilds'),
         makeIssue(stableId: 'secret_issue', title: 'Hidden secret title'),
+        makeIssue(stableId: 'gc_pressure', title: 'Other visible'),
       ];
       controller.overlayUiState.hide('secret_issue');
+      // A key for an issue no longer reported is not counted.
+      controller.overlayUiState.hide('gone_issue');
       await openDashboard(tester, controller);
       await tester.tap(find.text('Rebuilds'));
       await tester.pump(const Duration(milliseconds: 600));
@@ -1385,13 +1605,11 @@ void main() {
       await tester.pump();
 
       final prompt = requests.single.systemPrompt;
-      final session = prompt.substring(
-        prompt.indexOf('## Session'),
-        prompt.indexOf('## Other Active Issues'),
-      );
-      expect(session, contains('Hidden by user: 1'));
-      expect(session, contains('Active issues: 2 (0 critical, 2 warning'));
-      expect(session, isNot(contains('Hidden secret title')));
+      expect(prompt, contains('Hidden by user: 1'));
+      expect(prompt, contains('Active issues: 3 (0 critical, 3 warning'));
+      expect(prompt, contains('- Other visible'));
+      // Nowhere in the prompt, including the other-issues list.
+      expect(prompt, isNot(contains('Hidden secret title')));
     });
   });
 
@@ -1479,6 +1697,46 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.text('Because (stopped)'), findsOneWidget);
       expect(find.text('Reply did not finish'), findsNothing);
+    });
+
+    testWidgets('a controller swap closes the chat', (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SleuthController make() {
+        final c = SleuthController(
+          config: SleuthConfig(
+            aiChat: AiChatAdapter(sendMessage: (_) => Stream.value('ok')),
+            treeScanInterval: const Duration(hours: 1),
+          ),
+        )..initializeDetectorsForTest();
+        addTearDown(c.dispose);
+        c.issuesNotifier.value = [
+          makeIssue(stableId: 'rebuild_activity', title: 'Rebuilds'),
+        ];
+        return c;
+      }
+
+      Widget host(SleuthController c) => MaterialApp(
+        home: Scaffold(
+          body: FloatingIssuesCard(controller: c, onClose: () {}),
+        ),
+      );
+      final first = make();
+      await tester.pumpWidget(host(first));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rebuilds'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.ensureVisible(find.text('Ask AI about this issue'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('Ask AI about this issue'));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.byType(AiChatPage), findsOneWidget);
+
+      await tester.pumpWidget(host(make()));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(tester.takeException(), isNull);
+      expect(find.byType(AiChatPage), findsNothing);
     });
 
     testWidgets('a pruned issue closes the chat mid-reply without error', (

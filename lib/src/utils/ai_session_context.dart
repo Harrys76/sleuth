@@ -68,6 +68,18 @@ class AiSessionContext {
 
   int get issueCount => criticalCount + warningCount + okCount;
 
+  static final RegExp _whitespace = RegExp(r'\s+');
+
+  /// The first line of a verdict [reason], whitespace collapsed, cut
+  /// before any `Related:` part: the related issue's title may be one
+  /// the user hid.
+  static String summarizeReason(String reason) {
+    var line = reason.trimLeft().split('\n').first;
+    final related = line.indexOf('Related:');
+    if (related >= 0) line = line.substring(0, related);
+    return line.replaceAll(_whitespace, ' ').trim();
+  }
+
   /// FPS shown in the caption: throughput capped at the target, else the
   /// presented rate.
   int? get _shownFps {
@@ -102,8 +114,10 @@ class AiSessionContext {
       buf.writeln('Frame rate: ${rates.join(', ')}$target');
     }
     if (verdictPhase != null) {
-      final reason = verdictReason;
-      final shortReason = reason == null || reason.isEmpty
+      final reason = verdictReason == null
+          ? ''
+          : summarizeReason(verdictReason!);
+      final shortReason = reason.isEmpty
           ? ''
           : ': ${reason.length > maxReasonLength ? '${reason.substring(0, maxReasonLength)}…' : reason}';
       final mode = verdictMode == null ? '' : ' [$verdictMode]';

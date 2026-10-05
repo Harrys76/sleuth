@@ -92,5 +92,36 @@ void main() {
       expect(extractStreamError('not json'), isNull);
       expect(extractStreamError('[1, 2]'), isNull);
     });
+
+    test('an empty or false error field is not an error', () {
+      expect(extractStreamError('{"error":false,"choices":[]}'), isNull);
+      expect(extractStreamError('{"error":{},"choices":[]}'), isNull);
+      expect(extractStreamError('{"error":"","choices":[]}'), isNull);
+      expect(extractStreamError('{"error":null}'), isNull);
+      expect(extractStreamError('{"error":"Bad key"}')?.message, 'Bad key');
+      // A typed error frame raises whatever its error field holds.
+      expect(extractStreamError('{"type":"error","error":{}}'), isNotNull);
+    });
+
+    test('a payload with "error": false still yields its token', () async {
+      final tokens = await sseTokens(
+        Stream.value(
+          'data: {"error":false,"choices":[{"delta":{"content":"ok"}}]}\n',
+        ),
+        extractOpenAiToken,
+      ).toList();
+      expect(tokens, ['ok']);
+    });
+
+    test('a byte order mark before the first line is dropped', () async {
+      final tokens = await sseTokens(
+        Stream.fromIterable([
+          '\uFEFFdata: {"choices":[{"delta":{"content":"A"}}]}\n',
+          'data: {"choices":[{"delta":{"content":"B"}}]}\n',
+        ]),
+        extractOpenAiToken,
+      ).toList();
+      expect(tokens, ['A', 'B']);
+    });
   });
 }

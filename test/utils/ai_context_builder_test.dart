@@ -363,6 +363,26 @@ void main() {
       expect(line.length, lessThan(AiSessionContext.maxReasonLength + 40));
     });
 
+    test('a verdict reason keeps its first line, without Related', () {
+      final rendered = const AiSessionContext(
+        verdictPhase: PipelinePhase.build,
+        verdictReason:
+            'Build   phase took\t22 ms Related: Hidden title\n'
+            'Related: Hidden title\nMore detail',
+      ).render();
+      expect(rendered, isNot(contains('Hidden title')));
+      expect(rendered, isNot(contains('More detail')));
+      expect(
+        rendered,
+        contains('Latest frame verdict: build: Build phase took 22 ms\n'),
+      );
+      expect(
+        AiSessionContext.summarizeReason('Slow raster\nRelated: Secret'),
+        'Slow raster',
+      );
+      expect(AiSessionContext.summarizeReason('Related: Secret'), isEmpty);
+    });
+
     test('the caption names route, FPS capped at the target, and count', () {
       expect(session.caption(), 'Context: /catalog · 48 FPS · 12 issues');
       expect(

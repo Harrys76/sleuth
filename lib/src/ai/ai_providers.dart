@@ -134,7 +134,9 @@ const Map<String, int> _errorTypeStatus = {
 ///
 /// Anthropic sends `{"type":"error","error":{"type":...,"message":...}}`
 /// mid-stream; OpenAI-compatible servers and Gemini send
-/// `{"error":{"message":...}}` (Gemini adds a numeric `code`).
+/// `{"error":{"message":...}}` (Gemini adds a numeric `code`). A payload
+/// is an error when its `type` is `error`, or its `error` is a non-empty
+/// object or string; `"error": false`, `{}` or `""` is not.
 AiProviderException? extractStreamError(String jsonData) {
   final Object? decoded;
   try {
@@ -144,8 +146,11 @@ AiProviderException? extractStreamError(String jsonData) {
   }
   if (decoded is! Map<String, dynamic>) return null;
   final error = decoded['error'];
-  if (decoded['type'] != 'error' && error == null) return null;
-  if (error is String) return AiProviderException(error);
+  final carriesError =
+      (error is Map && error.isNotEmpty) ||
+      (error is String && error.isNotEmpty);
+  if (decoded['type'] != 'error' && !carriesError) return null;
+  if (error is String && error.isNotEmpty) return AiProviderException(error);
   if (error is! Map<String, dynamic>) {
     return AiProviderException(jsonData);
   }
@@ -163,6 +168,7 @@ AiProviderException? extractStreamError(String jsonData) {
 
 /// Turns decoded SSE text [chunks] into text tokens.
 ///
+/// A byte order mark at the start of the stream is dropped.
 /// `data: [DONE]` ends the stream (the upstream subscription is
 /// cancelled, so the connection is not read to its end), and a data
 /// frame carrying an error ([extractStreamError]) raises it as a stream
@@ -172,7 +178,13 @@ Stream<String> sseTokens(
   String Function(String data) extractToken,
 ) async* {
   final parser = SseLineParser();
-  await for (final chunk in chunks) {
+  var first = true;
+  await for (var chunk in chunks) {
+    if (first && chunk.isNotEmpty) {
+      first = false;
+      // A UTF-8 byte order mark before the first field.
+      if (chunk.startsWith('\uFEFF')) chunk = chunk.substring(1);
+    }
     for (final line in parser.addChunk(chunk)) {
       if (!line.startsWith('data:')) continue;
       var data = line.substring(5);

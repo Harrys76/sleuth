@@ -33,6 +33,7 @@ class AiChatPage extends StatefulWidget {
     required this.onHistoryChanged,
     required this.onClose,
     this.onNotify,
+    this.onNotifyAction,
     this.sessionContext,
   });
 
@@ -57,6 +58,15 @@ class AiChatPage extends StatefulWidget {
   /// Shows a short confirmation (copied, copy failed) in the host's
   /// toast. The page sits outside any [ScaffoldMessenger].
   final ValueChanged<String>? onNotify;
+
+  /// Shows a notice with an action (the send-while-replying notice offers
+  /// Stop). Null falls back to [onNotify] without the action.
+  final void Function(
+    String message,
+    String actionLabel,
+    VoidCallback onAction,
+  )?
+  onNotifyAction;
 
   /// The app's state for the prompt's "## Session" section, read when a
   /// message is sent and for the caption above the input. Null leaves
@@ -166,6 +176,11 @@ class _AiChatPageState extends State<AiChatPage>
   late List<AiChatMessage> _messages;
   bool _showStarters = true;
 
+  /// Text of the quiet row under an unanswered question: "Stopped" after
+  /// Stop, "Reply did not finish" for a question carried over from an
+  /// earlier visit.
+  String _stoppedNote = 'Stopped';
+
   /// Session context of the last request, for Copy conversation.
   AiSessionContext? _sentContext;
 
@@ -181,10 +196,11 @@ class _AiChatPageState extends State<AiChatPage>
     _messages = List.of(widget.history);
     if (_messages.isNotEmpty) _showStarters = false;
     // A conversation left with an unanswered question (the page closed
-    // while a reply failed or before it began) offers Retry.
+    // while a reply failed, was stopped, or before it began) offers Retry
+    // in the quiet row: the failure row is for a failure seen here.
     if (_endsWithUserTurn) {
-      _state = _ReplyState.failed;
-      _failure = const _ReplyFailure('Reply did not finish');
+      _state = _ReplyState.stopped;
+      _stoppedNote = 'Reply did not finish';
     }
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 400),
@@ -229,7 +245,15 @@ class _AiChatPageState extends State<AiChatPage>
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
     if (_inFlight) {
-      widget.onNotify?.call('Wait for the reply, or stop it');
+      const notice = 'Wait for the reply, or stop it';
+      final withAction = widget.onNotifyAction;
+      if (withAction != null) {
+        withAction(notice, 'Stop', () {
+          if (mounted) _stop();
+        });
+      } else {
+        widget.onNotify?.call(notice);
+      }
       return;
     }
 
@@ -239,19 +263,9 @@ class _AiChatPageState extends State<AiChatPage>
       _showStarters = false;
       _failure = null;
       _failedPartial = null;
-      // An unanswered question absorbs the new one: no provider gets two
-      // user turns in a row.
-      if (_endsWithUserTurn) {
-        final dangling = _messages.removeLast();
-        _messages.add(
-          AiChatMessage(
-            role: AiChatRole.user,
-            text: '${dangling.text}\n\n$trimmed',
-          ),
-        );
-      } else {
-        _messages.add(AiChatMessage(role: AiChatRole.user, text: trimmed));
-      }
+      // A question after an unanswered one keeps its own bubble; the
+      // request joins them ([_requestHistory]).
+      _messages.add(AiChatMessage(role: AiChatRole.user, text: trimmed));
     });
     widget.onHistoryChanged(List.of(_messages));
     _startReply();
@@ -269,7 +283,50 @@ class _AiChatPageState extends State<AiChatPage>
     _startReply();
   }
 
-  void _stop() => _finish(_ReplyState.stopped);
+  void _stop() {
+    if (!_inFlight) return;
+    _haptic();
+    _finish(_ReplyState.stopped);
+  }
+
+  void _onRetryTap() {
+    _haptic();
+    _retry();
+  }
+
+  static void _haptic() =>
+      unawaited(HapticFeedback.selectionClick().catchError((Object _) {}));
+
+  /// Cancels the reply subscription. An adapter whose cancel fails does
+  /// not reach the app's zone.
+  void _cancelStream() {
+    final sub = _activeStream;
+    _activeStream = null;
+    if (sub != null) unawaited(sub.cancel().catchError((Object _) {}));
+  }
+
+  /// The history as sent: consecutive user turns (a question asked after
+  /// an unanswered one) joined into one, a blank line between, so no
+  /// provider gets two user turns in a row.
+  List<AiChatMessage> _requestHistory() {
+    final out = <AiChatMessage>[];
+    for (final message in _messages) {
+      if (message.role == AiChatRole.user &&
+          out.isNotEmpty &&
+          out.last.role == AiChatRole.user) {
+        final previous = out.removeLast();
+        out.add(
+          AiChatMessage(
+            role: AiChatRole.user,
+            text: '${previous.text}\n\n${message.text}',
+          ),
+        );
+      } else {
+        out.add(message);
+      }
+    }
+    return out;
+  }
 
   /// Requests a reply to the history as it stands.
   void _startReply() {
@@ -282,11 +339,10 @@ class _AiChatPageState extends State<AiChatPage>
     );
     final request = AiChatRequest(
       systemPrompt: systemPrompt,
-      history: List.of(_messages),
+      history: _requestHistory(),
     );
 
-    _activeStream?.cancel();
-    _activeStream = null;
+    _cancelStream();
     _cancelTimers();
     setState(() {
       _state = _ReplyState.waiting;
@@ -394,8 +450,7 @@ class _AiChatPageState extends State<AiChatPage>
   /// the history callback still runs, nothing else does.
   void _finish(_ReplyState end, {_ReplyFailure? failure, bool notify = true}) {
     if (!_inFlight) return;
-    _activeStream?.cancel();
-    _activeStream = null;
+    _cancelStream();
     _cancelTimers();
     final partial = _streamBuffer;
     _streamBuffer = '';
@@ -416,6 +471,7 @@ class _AiChatPageState extends State<AiChatPage>
           historyChanged = true;
         }
       case _ReplyState.stopped:
+        _stoppedNote = 'Stopped';
         if (partial.isNotEmpty) {
           _messages.add(
             AiChatMessage(
@@ -610,7 +666,7 @@ class _AiChatPageState extends State<AiChatPage>
         ..writeln(_escapeMd(msg.text.trim()))
         ..writeln();
     }
-    final session = _sentContext ?? widget.sessionContext?.call();
+    final session = _sentContext;
     if (session != null) {
       buf
         ..writeln('---')
@@ -931,56 +987,72 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  /// Why the last reply failed, with Retry when the history ends with an
-  /// unanswered question and Copy error when there is error text.
+  /// Why the last reply failed, on its own line, with Retry when the
+  /// history ends with an unanswered question and Copy error when there
+  /// is error text, wrapped below it.
   Widget _buildFailureRow(_ReplyFailure failure, SleuthThemeData theme) {
     final canRetry = _endsWithUserTurn;
     final fullText = failure.fullText;
+    final inset = theme.spacingLg - theme.spacingSm;
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: theme.bannerWarningBg,
-          borderRadius: BorderRadius.circular(theme.radiusMd),
+          borderRadius: BorderRadius.circular(theme.radiusXxl),
         ),
         child: Padding(
-          padding: EdgeInsets.only(left: theme.spacingLg),
-          child: Row(
+          padding: EdgeInsets.all(theme.spacingSm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(
-                Icons.error_outline,
-                color: theme.bannerWarningText,
-                size: 14,
-              ),
-              SizedBox(width: theme.spacingSm),
-              Expanded(
-                child: Semantics(
-                  container: true,
-                  liveRegion: true,
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: theme.spacingMd),
-                    child: Text(
-                      failure.reason,
-                      style: TextStyle(
-                        color: theme.bannerWarningText,
-                        fontSize: theme.fontSm,
-                        fontWeight: FontWeight.w600,
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: inset,
+                  vertical: theme.spacingSm,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      color: theme.bannerWarningText,
+                      size: 14,
+                    ),
+                    SizedBox(width: theme.spacingSm),
+                    Expanded(
+                      child: Semantics(
+                        container: true,
+                        liveRegion: true,
+                        child: Text(
+                          failure.reason,
+                          style: TextStyle(
+                            color: theme.bannerWarningText,
+                            fontSize: theme.fontSm,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-              if (fullText != null)
-                _ChatTextAction(
-                  label: 'Copy error',
-                  color: theme.bannerWarningText,
-                  onTap: () => _copy(fullText, 'Error copied'),
-                ),
-              if (canRetry)
-                _ChatTextAction(
-                  label: 'Retry',
-                  color: theme.bannerWarningText,
-                  onTap: _retry,
+              if (fullText != null || canRetry)
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  children: [
+                    if (fullText != null)
+                      _ChatTextAction(
+                        label: 'Copy error',
+                        color: theme.bannerWarningText,
+                        onTap: () => _copy(fullText, 'Error copied'),
+                      ),
+                    if (canRetry)
+                      _ChatTextAction(
+                        label: 'Retry',
+                        color: theme.bannerWarningText,
+                        onTap: _onRetryTap,
+                      ),
+                  ],
                 ),
             ],
           ),
@@ -998,7 +1070,7 @@ class _AiChatPageState extends State<AiChatPage>
           SizedBox(width: _avatarSize + theme.spacingMd),
           Expanded(
             child: Text(
-              'Stopped',
+              _stoppedNote,
               style: TextStyle(
                 color: theme.textTertiary,
                 fontSize: theme.fontXs,
@@ -1008,7 +1080,7 @@ class _AiChatPageState extends State<AiChatPage>
           _ChatTextAction(
             label: 'Retry',
             color: theme.textSecondary,
-            onTap: _retry,
+            onTap: _onRetryTap,
           ),
         ],
       ),
@@ -1058,7 +1130,8 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  /// What the next message carries besides the conversation, one line.
+  /// What the next message carries besides the conversation, at most
+  /// two lines.
   Widget _buildContextCaption(AiSessionContext session, SleuthThemeData theme) {
     return Semantics(
       container: true,
@@ -1070,7 +1143,7 @@ class _AiChatPageState extends State<AiChatPage>
         ),
         child: Text(
           session.caption(),
-          maxLines: 1,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(color: theme.textTertiary, fontSize: theme.fontXs),
         ),
@@ -1218,7 +1291,8 @@ class _AiChatPageState extends State<AiChatPage>
   }
 }
 
-/// A text button in a chat row with a 48 x 48 minimum hit box.
+/// A text button in a chat row with a 48 x 48 minimum hit box, styled
+/// like the toast action.
 class _ChatTextAction extends StatelessWidget {
   const _ChatTextAction({
     required this.label,
@@ -1253,7 +1327,9 @@ class _ChatTextAction extends StatelessWidget {
                 style: TextStyle(
                   color: color,
                   fontSize: theme.fontSm,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.bold,
+                  decoration: TextDecoration.underline,
+                  decorationColor: color,
                 ),
               ),
             ),

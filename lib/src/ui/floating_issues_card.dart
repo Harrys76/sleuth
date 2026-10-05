@@ -496,6 +496,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _expandedIndices.clear();
       _orderSnapshot = null;
       _selectedIssueId = null;
+      _showAiChat = false;
       _chatIssueStableId = null;
       _chatHistories.clear();
       _cachedJankKeys = const {};
@@ -1137,7 +1138,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   Widget _buildAiChatPage(String chatKey) {
     return AiChatPage(
       issue: _findIssueByStableId(chatKey),
-      allIssues: widget.controller.issuesNotifier.value,
+      // Hidden issues reach the prompt as a count only.
+      allIssues: [
+        for (final issue in widget.controller.issuesNotifier.value)
+          if (!_ui.isHidden(issue)) issue,
+      ],
       adapter: widget.controller.config.aiChat!,
       history: _chatHistories[chatKey] ?? const [],
       onHistoryChanged: (msgs) {
@@ -1148,16 +1153,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       },
       onClose: _closeAiChat,
       onNotify: (message) => _toast.show(message),
+      onNotifyAction: (message, actionLabel, onAction) =>
+          _toast.show(message, actionLabel: actionLabel, onAction: onAction),
       sessionContext: _sessionContext,
     );
   }
 
   /// The app's state for the AI prompt: counts and rates only, the
-  /// hidden issues as a count.
+  /// hidden issues as a count of the reported issues the user hid.
   AiSessionContext _sessionContext() {
     final c = widget.controller;
-    var critical = 0, warning = 0, ok = 0;
+    var critical = 0, warning = 0, ok = 0, hidden = 0;
     for (final issue in c.issuesNotifier.value) {
+      if (_ui.isHidden(issue)) hidden++;
       switch (issue.severity) {
         case IssueSeverity.critical:
           critical++;
@@ -1186,7 +1194,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       criticalCount: critical,
       warningCount: warning,
       okCount: ok,
-      hiddenCount: _ui.hiddenKeys.length,
+      hiddenCount: hidden,
       isDebugMode: c.isDebugMode,
       connectionMode: computeConnectionMode(c),
       platform: defaultTargetPlatform.name,
