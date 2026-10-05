@@ -62,6 +62,26 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   final double paintTimePercentThreshold;
   final DateTime Function() _clock;
   final List<PerformanceIssue> _issues = [];
+
+  /// Issues from the latest debug snapshot (per-widget, else the debug
+  /// aggregate), kept until the next snapshot. Snapshots arrive with each
+  /// scan (every 2-5 s) and VM windows every ~1 s, so each source's
+  /// issues are kept between its own updates and [_issues] is rebuilt
+  /// from both on every evaluation; replacing everything from whichever
+  /// source just ticked made cards appear and vanish between ticks.
+  final List<PerformanceIssue> _debugIssues = [];
+
+  /// Issues from the latest closed VM window, kept until the next one.
+  final List<PerformanceIssue> _vmIssues = [];
+
+  /// The latest snapshot had per-widget issues (they win over the VM
+  /// share).
+  bool _debugPerWidget = false;
+
+  /// Gate B for the latest snapshot: every per-widget paint was
+  /// animation-owned, so the VM share is not reported.
+  bool _debugAllOwned = false;
+
   final List<WidgetHighlight> _highlights = [];
   static const int _maxHighlightsPerType = 3;
   bool _isEnabled = true;
@@ -151,6 +171,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     if (!value) {
       _paintTimeUs = 0;
       _pendingVmWindowPercent = null;
+      _vmIssues.clear();
       _pendingEnrichedDirtyTotal = 0;
       _stagedEnrichedDirtyTotal = null;
       // Capture-mode observables also clear on disconnect so a leg
@@ -271,6 +292,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     _pendingDebugSnapshot = null;
     _windowStart = _clock();
     _issues.clear();
+    _clearHeldIssues();
     _highlights.clear();
     _hotTypes = const {};
     _hotCounts.clear();
@@ -360,8 +382,10 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   ///
   /// Priority: debug per-widget > VM aggregate > debug aggregate.
   /// Per-widget paint attribution is more actionable than aggregate counts.
-  /// All staging is cleared up front to prevent stale data from a
-  /// lower-priority source from overwriting on the next scan tick.
+  /// A fresh debug snapshot replaces [_debugIssues], a fresh VM window
+  /// replaces [_vmIssues], and [_issues] is rebuilt from both, so a tick
+  /// of one source keeps the other source's issues. All staging is
+  /// consumed so a window or snapshot is evaluated once.
   void _evaluate() {
     final vmWindowPercent = _pendingVmWindowPercent;
     final debugSnapshot = _pendingDebugSnapshot;
@@ -372,40 +396,54 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
 
     if (!hasFreshVm && !hasFreshDebug) return;
 
-    _issues.clear();
-
     // Clear ALL staging regardless of which branch wins.
     _pendingVmWindowPercent = null;
     _pendingDebugSnapshot = null;
     // Unconditional clear — prevents enrichment leaking across branches.
     _stagedEnrichedDirtyTotal = null;
 
-    if (hasFreshDebug && debugSnapshot.paintCounts.isNotEmpty) {
+    if (hasFreshDebug) {
+      _issues.clear();
       // Per-widget debug path — best attribution.
-      // If no individual type crosses the threshold, fall through.
-      _evaluateDebugDataPerWidget(debugSnapshot);
-      if (_issues.isEmpty && hasFreshVm && vmWindowPercent > 0) {
-        // Gate B — suppress VM aggregate fallback when *every* per-widget
-        // paint is animation-owned. Without this guard, an animation that
-        // doesn't trip Gate A (sub-threshold per-widget rate but high
-        // aggregate) would still light up `excessive_repaint`.
-        if (_allPaintsAnimationOwned(debugSnapshot)) {
-          // Suppressed — all known activity is intentional animation work.
-        } else {
-          _evaluateVmData(vmWindowPercent, enrichedDirtyTotal);
-        }
-      } else if (_issues.isEmpty && debugSnapshot.totalPaintCount > 0) {
+      if (debugSnapshot.paintCounts.isNotEmpty) {
+        _evaluateDebugDataPerWidget(debugSnapshot);
+      }
+      _debugPerWidget = _issues.isNotEmpty;
+      // Gate B — the VM share is not reported while *every* per-widget
+      // paint is animation-owned. Without this guard, an animation that
+      // doesn't trip Gate A (sub-threshold per-widget rate but high
+      // aggregate) would still light up `excessive_repaint`.
+      _debugAllOwned =
+          !_debugPerWidget && _allPaintsAnimationOwned(debugSnapshot);
+      // The debug aggregate is shown only without a VM connection.
+      if (!_debugPerWidget && debugSnapshot.totalPaintCount > 0) {
         _evaluateDebugData(debugSnapshot);
       }
-    } else if (hasFreshVm) {
-      if (vmWindowPercent > 0) {
+      _debugIssues
+        ..clear()
+        ..addAll(_issues);
+    }
+
+    if (hasFreshVm) {
+      _issues.clear();
+      if (!_debugPerWidget && !_debugAllOwned && vmWindowPercent > 0) {
         _evaluateVmData(vmWindowPercent, enrichedDirtyTotal);
       }
-    } else if (hasFreshDebug) {
-      if (debugSnapshot.totalPaintCount > 0) {
-        _evaluateDebugData(debugSnapshot);
-      }
+      _vmIssues
+        ..clear()
+        ..addAll(_issues);
     }
+
+    _issues
+      ..clear()
+      ..addAll(_debugPerWidget || !_vmConnected ? _debugIssues : _vmIssues);
+  }
+
+  void _clearHeldIssues() {
+    _debugIssues.clear();
+    _vmIssues.clear();
+    _debugPerWidget = false;
+    _debugAllOwned = false;
   }
 
   /// VM timeline path — share of UI-thread time inside PAINT scopes.
@@ -598,6 +636,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void dispose() {
     _issues.clear();
+    _clearHeldIssues();
     _highlights.clear();
     _pendingEnrichedDirtyTotal = 0;
     _stagedEnrichedDirtyTotal = null;

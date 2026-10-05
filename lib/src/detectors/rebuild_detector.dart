@@ -120,6 +120,18 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   final List<PerformanceIssue> _issues = [];
+
+  /// Per-type issues from the latest debug-callback snapshot, kept until
+  /// the next snapshot. Snapshots arrive with each scan (every 2-5 s) and
+  /// VM windows every ~1 s, so each source's issues are kept between its
+  /// own updates and [_issues] is rebuilt from both on every evaluation;
+  /// replacing everything from whichever source just ticked made cards
+  /// appear and vanish between ticks.
+  final List<PerformanceIssue> _debugIssues = [];
+
+  /// Issues from the latest closed VM window, kept until the next one.
+  final List<PerformanceIssue> _vmIssues = [];
+
   final List<WidgetHighlight> _highlights = [];
   static const int _maxHighlightsPerType = 3;
   bool _isEnabled = true;
@@ -226,6 +238,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     _pendingVmWindowPercent = null;
     _pendingEnrichedNames.clear();
     _stagedEnrichedNames = null;
+    _vmIssues.clear();
     _windowStart = _clock();
   }
 
@@ -240,6 +253,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       _buildEventCount = 0;
       _buildTimeUs = 0;
       _pendingVmWindowPercent = null;
+      _vmIssues.clear();
       _pendingEnrichedNames.clear();
       _stagedEnrichedNames = null;
       // A leg straddling a VM disconnect must not export a peak from
@@ -444,7 +458,11 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// Priority: debug callback > VM timeline > structural scan.
   /// Nullable staging fields distinguish "no new data" (null → keep
   /// existing issues) from "fresh window with zero events" (non-null
-  /// with 0 → clear stale issues).
+  /// with 0 → clear stale issues). A fresh debug snapshot replaces
+  /// [_debugIssues], a fresh VM window replaces [_vmIssues], and
+  /// [_issues] is rebuilt from both, so a tick of one source keeps the
+  /// other source's issues. Staging is consumed so a window or snapshot
+  /// is evaluated once.
   void _evaluate() {
     final debugSnapshot = _pendingDebugSnapshot;
     final vmWindowPercent = _pendingVmWindowPercent;
@@ -457,12 +475,11 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     // No fresh data from any source — keep existing issues.
     if (!hasFreshDebug && !hasFreshVm && !hasStructuralData) return;
 
-    // Fresh data exists — clear and re-evaluate.
-    _issues.clear();
     // Unconditional clear — prevents enrichment leaking across branches.
     _stagedEnrichedNames = null;
 
     if (hasFreshDebug) {
+      _issues.clear();
       // `_evaluateDebugData` must NOT run on profile-mode
       // (`flutterTimeline`) snapshots. Those counts include initial widget
       // inflations per KDD-5 — feeding them to the per-type "Excessive
@@ -479,36 +496,34 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       if (debugSnapshot.source != RebuildCountSource.flutterTimeline &&
           debugSnapshot.totalRebuilds > 0) {
         _evaluateDebugData(debugSnapshot);
-        // Same-tick VM fallback. `_evaluateDebugData` only fires when an
-        // individual type crosses its per-type threshold; a window where
-        // total rebuilds are spread across many sub-threshold types
-        // would otherwise drop the VM aggregate signal entirely. Surface
-        // it as `rebuild_activity` instead of silently discarding the
-        // storm.
-        if (_issues.isEmpty && hasFreshVm && vmWindowPercent > 0) {
-          _evaluateVmData(vmWindowPercent, enrichedNames);
-        }
-      } else if (debugSnapshot.totalRebuilds == 0 && hasFreshVm) {
-        // Debug callbacks active but returned zero counts — fall back to VM.
-        if (vmWindowPercent > 0) {
-          _evaluateVmData(vmWindowPercent, enrichedNames);
-        }
       }
-      // Debug snapshot is the priority signal whenever fresh; consume the
-      // VM window in the same scan. Otherwise the `flutterTimeline +
-      // totalRebuilds > 0 + hasFreshVm` branch falls through both inner
-      // cases and leaves `_pendingVmWindowPercent` staged. The next scan
-      // would replay it as `rebuild_activity` after the snapshot's
-      // enrichment + tree context has already been discarded — a stale
-      // ghost issue, often surfacing after navigation.
+      _debugIssues
+        ..clear()
+        ..addAll(_issues);
       _pendingDebugSnapshot = null;
-      _pendingVmWindowPercent = null;
-    } else if (hasFreshVm) {
-      if (vmWindowPercent > 0) {
+    }
+
+    if (hasFreshVm) {
+      _issues.clear();
+      // Per-type debug attribution wins; the VM share is evaluated (and
+      // emitted) only when no type crossed its threshold, which also
+      // surfaces a storm spread across many sub-threshold types as
+      // `rebuild_activity`.
+      if (_debugIssues.isEmpty && vmWindowPercent > 0) {
         _evaluateVmData(vmWindowPercent, enrichedNames);
       }
+      _vmIssues
+        ..clear()
+        ..addAll(_issues);
       _pendingVmWindowPercent = null;
-    } else if (hasStructuralData) {
+    }
+
+    _issues.clear();
+    if (_debugIssues.isNotEmpty) {
+      _issues.addAll(_debugIssues);
+    } else if (_vmConnected) {
+      _issues.addAll(_vmIssues);
+    } else if (!hasFreshDebug && hasStructuralData) {
       _evaluateStructuralOnly();
     }
   }
@@ -745,6 +760,8 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void dispose() {
     _issues.clear();
+    _debugIssues.clear();
+    _vmIssues.clear();
     _highlights.clear();
     _widgetRebuildCounts.clear();
     _pendingEnrichedNames.clear();

@@ -264,14 +264,14 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
-      test('fresh debug snapshot with 0 rebuilds clears stale issues', () {
-        // Generate issues
+      test('a debug snapshot with 0 rebuilds keeps the VM window issue '
+          'until the next window', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
-        expect(detector.issues, isNotEmpty);
+        final vmIssue = detector.issues.single;
 
-        // Fresh debug snapshot with 0 rebuilds
+        // A scan between windows brings a snapshot with nothing to report.
         detector.updateDebugSnapshot(
           const DebugSnapshot(
             rebuildCounts: {},
@@ -279,6 +279,12 @@ void main() {
             elapsed: Duration(seconds: 1),
           ),
         );
+        detector.evaluateNow();
+        expect(detector.issues.single, same(vmIssue));
+
+        // The next window under the threshold clears it.
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(_windowShare(2));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });

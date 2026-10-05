@@ -213,6 +213,18 @@
   `DebugInstrumentationConfig.userWidgetsOnly` (default true); set false
   to count framework widgets too. The repaint encyclopedia entry names
   `debugOnProfilePaint` as its source.
+- Rebuild and repaint cards no longer appear and vanish between ticks.
+  Both detectors were re-evaluated on two clocks, the scan (debug counts,
+  every 2-5 s) and the VM window (~1 s), and each evaluation replaced all
+  issues from whichever source had just ticked: a VM window dropped the
+  per-widget debug cards until the next scan, a scan dropped the VM
+  share's card (in profile too, where each scan brings a timeline
+  snapshot), and without per-widget issues the card swapped between
+  `excessive_repaint` and `excessive_repaint_debug`. Each source's issues
+  now stay until that source updates; per-widget debug issues still win
+  over the VM share, and the debug aggregate reports only without a VM
+  connection. A VM window that closes on the same tick as a profile
+  timeline snapshot is now evaluated instead of dropped.
 - Example: demo subtitles fit 40 characters, demo file headers follow the
   home-screen numbering, tile titles use `titleMedium`, and category
   header icons use the theme's primary color.

@@ -631,8 +631,8 @@ void main() {
 
     group('stale VM stage (flutterTimeline fall-through)', () {
       testWidgets(
-        'flutterTimeline + VM staged: next empty scan does NOT replay '
-        'rebuild_activity',
+        'flutterTimeline + VM staged: the window is evaluated once and the '
+        'next empty scan does NOT replay it',
         (tester) async {
           primeVmWindow(15);
           detector.updateDebugSnapshot(
@@ -646,17 +646,18 @@ void main() {
             detector,
             const SizedBox(),
           );
-          expect(firstIssues, isEmpty);
+          // Profile per-type counts never report; the window does.
+          expect(firstIssues, hasLength(1));
+          expect(firstIssues, hasStableId('rebuild_activity'));
 
           final secondIssues = await scanAndIssues(
             tester,
             detector,
             const SizedBox(),
           );
-          // Without the fix, `_pendingVmWindowPercent=15` lingers from tick 1.
-          // Tick 2 takes the `else if (hasFreshVm)` branch and emits
-          // `rebuild_activity` for the stale window.
-          expect(secondIssues, isEmpty);
+          // The consumed window is not evaluated again: the same issue,
+          // no second emission.
+          expect(secondIssues.single, same(firstIssues.single));
         },
       );
     });
