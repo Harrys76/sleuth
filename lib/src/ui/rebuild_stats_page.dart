@@ -77,6 +77,73 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
     super.dispose();
   }
 
+  /// The summary chips and the inflation disclaimer, first item of the
+  /// list.
+  ///
+  /// The disclaimer (KDD-5 + KDD-10) sits immediately below the summary
+  /// chips so a user sees the caveat BEFORE forming a mental model from
+  /// the row labels. It is set in `fontSm` + `textSecondary` with an info
+  /// icon so it doesn't read like a footnote, and notes that Sleuth's own
+  /// overlay widgets are excluded, so the drilldown reflects the app only.
+  Widget _buildListLead(SleuthThemeData theme, int total, int types) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: theme.spacingLg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FadeTransition(
+            opacity: _entranceController,
+            // The chips wrap onto a second line at large text.
+            child: Wrap(
+              spacing: theme.spacingSm,
+              runSpacing: theme.spacingSm,
+              children: [
+                _SummaryChip(
+                  theme: theme,
+                  label: 'Total',
+                  value: total.toString(),
+                ),
+                _SummaryChip(
+                  theme: theme,
+                  label: 'Types',
+                  value: types.toString(),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: theme.spacingSm + theme.spacingXs),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.only(top: theme.spacingXxs),
+                child: Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: theme.textSecondary,
+                ),
+              ),
+              SizedBox(width: theme.spacingXs),
+              Expanded(
+                child: Text(
+                  'Profile-mode counts include initial widget '
+                  'inflations as well as rebuilds — route entry '
+                  'shows transient elevated counts that decay as '
+                  'the tree stabilises. Sleuth\u2019s own overlay '
+                  'widgets are excluded from the drain.',
+                  style: TextStyle(
+                    color: theme.textSecondary,
+                    fontSize: theme.fontSm,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
@@ -133,15 +200,15 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            // Title and route wrap at large text.
                             Text(
                               'Rebuild Stats',
+                              softWrap: true,
                               style: TextStyle(
                                 color: theme.textPrimary,
                                 fontSize: theme.fontXl,
                                 fontWeight: FontWeight.bold,
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                             ),
                             if (widget.routeDisplayName != null)
                               Text(
@@ -150,7 +217,7 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
                                   color: theme.textTertiary,
                                   fontSize: theme.fontSm,
                                 ),
-                                maxLines: 1,
+                                maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
                           ],
@@ -162,93 +229,25 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
               ),
               Divider(color: theme.border, height: 1),
 
-              // Summary strip
-              if (entries.isNotEmpty)
-                FadeTransition(
-                  opacity: _entranceController,
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      theme.spacingXl,
-                      theme.spacingLg,
-                      theme.spacingXl,
-                      theme.spacingSm,
-                    ),
-                    child: Row(
-                      children: [
-                        _SummaryChip(
-                          theme: theme,
-                          label: 'Total',
-                          value: total.toString(),
-                        ),
-                        SizedBox(width: theme.spacingSm),
-                        _SummaryChip(
-                          theme: theme,
-                          label: 'Types',
-                          value: entries.length.toString(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-              // Inflation disclaimer (KDD-5 + KDD-10) — positioned immediately
-              // below the summary chips so a user who scrolls a long hotspot
-              // list sees the caveat BEFORE forming a mental model from the
-              // row labels. (M14/H2: moved up from footer, upweighted from
-              // `fontXs + textQuaternary` to `fontSm + textSecondary`, and
-              // given an info icon so it doesn't read like a footnote.
-              // v0.15.1: added Sleuth-overlay exclusion note so users know
-              // the drilldown reflects their app only, not Sleuth's own UI.)
-              if (entries.isNotEmpty)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    theme.spacingXl,
-                    theme.spacingXs,
-                    theme.spacingXl,
-                    theme.spacingSm,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: EdgeInsets.only(top: theme.spacingXxs),
-                        child: Icon(
-                          Icons.info_outline,
-                          size: 14,
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                      SizedBox(width: theme.spacingXs),
-                      Expanded(
-                        child: Text(
-                          'Profile-mode counts include initial widget '
-                          'inflations as well as rebuilds — route entry '
-                          'shows transient elevated counts that decay as '
-                          'the tree stabilises. Sleuth\u2019s own overlay '
-                          'widgets are excluded from the drain.',
-                          style: TextStyle(
-                            color: theme.textSecondary,
-                            fontSize: theme.fontSm,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Content
+              // Content. The summary chips and the disclaimer lead the
+              // list and scroll with it, so large text on a short screen
+              // never pushes the rows off the page.
               Expanded(
                 child: entries.isEmpty
                     ? _EmptyState(theme: theme)
                     : ListView.builder(
                         padding: EdgeInsets.fromLTRB(
                           theme.spacingXl,
-                          theme.spacingSm,
+                          theme.spacingLg,
                           theme.spacingXl,
                           24,
                         ),
-                        itemCount: entries.length,
-                        itemBuilder: (context, i) {
+                        itemCount: entries.length + 1,
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            return _buildListLead(theme, total, entries.length);
+                          }
+                          final i = index - 1;
                           final entry = entries[i];
                           final fraction = topCount == 0
                               ? 0.0
@@ -358,6 +357,8 @@ class _RebuildRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The rank column grows with the text, so `10.` keeps one line.
+    final rankWidth = MediaQuery.textScalerOf(context).scale(28);
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingSm),
       child: Column(
@@ -366,7 +367,7 @@ class _RebuildRow extends StatelessWidget {
           Row(
             children: [
               SizedBox(
-                width: 28,
+                width: rankWidth,
                 child: Text(
                   '$rank.',
                   style: TextStyle(
@@ -401,7 +402,7 @@ class _RebuildRow extends StatelessWidget {
           ),
           SizedBox(height: theme.spacingXxs),
           Padding(
-            padding: EdgeInsets.only(left: 28),
+            padding: EdgeInsets.only(left: rankWidth),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(2),
               child: SizedBox(

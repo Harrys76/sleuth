@@ -103,12 +103,16 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                         size: 18,
                       ),
                       SizedBox(width: theme.spacingXs),
-                      Text(
-                        'Startup Metrics',
-                        style: TextStyle(
-                          color: theme.textPrimary,
-                          fontSize: theme.fontXl,
-                          fontWeight: FontWeight.bold,
+                      // Wraps at large text on a narrow screen.
+                      Expanded(
+                        child: Text(
+                          'Startup Metrics',
+                          softWrap: true,
+                          style: TextStyle(
+                            color: theme.textPrimary,
+                            fontSize: theme.fontXl,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -266,12 +270,16 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                       child: Icon(icon, color: accent, size: 16),
                     ),
                     SizedBox(width: theme.spacingSm),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: theme.fontLg,
-                        fontWeight: FontWeight.w600,
+                    // A long title wraps beside the icon at large text.
+                    Expanded(
+                      child: Text(
+                        title,
+                        softWrap: true,
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: theme.fontLg,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -631,26 +639,33 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
+          // Label left, value right; the value moves below the label when
+          // both do not fit one line (large text on a narrow screen). Full
+          // width, so the value sits at the right edge.
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: theme.spacingSm,
+              children: [
+                Text(
                   label,
                   style: TextStyle(
                     color: theme.textSecondary,
                     fontSize: theme.fontMd,
                   ),
                 ),
-              ),
-              Text(
-                '${value.toStringAsFixed(1)} ms ($percent%)',
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontSize: theme.fontMd,
-                  fontWeight: FontWeight.w600,
+                Text(
+                  '${value.toStringAsFixed(1)} ms ($percent%)',
+                  style: TextStyle(
+                    color: theme.textPrimary,
+                    fontSize: theme.fontMd,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           SizedBox(height: theme.spacingXxs),
           ClipRRect(

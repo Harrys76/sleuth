@@ -240,4 +240,82 @@ void main() {
       handle.dispose();
     });
   }
+
+  for (final scale in [1.0, 1.3]) {
+    testWidgets('footer: the Hidden action keeps a 48 x 48 target and its '
+        'whole label on a 220 px card at ${scale}x', (tester) async {
+      final handle = tester.ensureSemantics();
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final controller = await pumpOverlay(
+        tester,
+        textScale: scale,
+        config: const SleuthConfig(
+          treeScanInterval: Duration(hours: 1),
+          showDebugModeBanner: false,
+        ),
+      );
+      controller.overlayUiState.setCardGeometry(
+        offset: const Offset(40, 0),
+        width: 220,
+        height: 548,
+        windowState: CardWindowState.normal,
+      );
+      controller.issuesNotifier.value = mixedOverlayIssues();
+      controller.overlayUiState.hide('slow_request');
+      await openDashboard(tester, controller);
+      final card = tester.getRect(
+        find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
+      );
+
+      for (final (suppressed, label) in [
+        (0, '1 hidden'),
+        (3, '1 hidden · 3 suppressed'),
+      ]) {
+        controller.suppressedCountNotifier.value = suppressed;
+        await tester.pump();
+        expect(tester.takeException(), isNull, reason: label);
+
+        final action = tester.getRect(
+          find.bySemanticsLabel('$label. Show hidden issues'),
+        );
+        expect(action.width, greaterThanOrEqualTo(48), reason: label);
+        expect(action.height, greaterThanOrEqualTo(48), reason: label);
+        expect(card.contains(action.topLeft), isTrue, reason: label);
+        expect(card.contains(action.bottomRight - const Offset(1, 1)), isTrue);
+
+        // The whole label is laid out, inside the action.
+        final text = find.text(label);
+        expect(
+          tester.renderObject<RenderParagraph>(text).didExceedMaxLines,
+          isFalse,
+          reason: label,
+        );
+        final textRect = tester.getRect(text);
+        expect(action.left, lessThanOrEqualTo(textRect.left), reason: label);
+        expect(action.right, greaterThanOrEqualTo(textRect.right));
+        expect(action.top, lessThanOrEqualTo(textRect.top), reason: label);
+        expect(action.bottom, greaterThanOrEqualTo(textRect.bottom));
+
+        await expectLater(
+          tester,
+          meetsGuideline(_sleuthTapTargetGuideline),
+          reason: label,
+        );
+        await expectLater(
+          tester,
+          meetsGuideline(labeledTapTargetGuideline),
+          reason: label,
+        );
+      }
+
+      // It still opens the Hidden list.
+      await tester.tap(find.text('1 hidden · 3 suppressed'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(_routeNodes(tester), 1);
+      handle.dispose();
+    });
+  }
 }

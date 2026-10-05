@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -141,6 +142,13 @@ class _AiChatPageState extends State<AiChatPage>
   /// Longest message the input accepts.
   static const int _maxInputLength = 4000;
 
+  /// Height the message list keeps when the issue context gives way.
+  static const double _minMessageAreaHeight = 48;
+
+  /// Smallest height the issue context is shown at; below it the context
+  /// is left out until there is room again.
+  static const double _minContextHeight = 48;
+
   late final AnimationController _entranceController;
   late final CurvedAnimation _entranceCurve;
   final _inputController = TextEditingController();
@@ -183,6 +191,10 @@ class _AiChatPageState extends State<AiChatPage>
 
   /// Session context of the last request, for Copy conversation.
   AiSessionContext? _sentContext;
+
+  /// The issue context card is expanded; kept here so the card comes
+  /// back as it was after it gave way to the keyboard.
+  bool _contextExpanded = false;
 
   bool get _inFlight =>
       _state == _ReplyState.waiting || _state == _ReplyState.streaming;
@@ -525,10 +537,21 @@ class _AiChatPageState extends State<AiChatPage>
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+    // 40 % of the screen is enough for the full detail and fix hint.
+    final contextCap = MediaQuery.sizeOf(context).height * 0.4;
+    final header = _buildHeader(theme);
+    final messages = _buildMessageArea(theme);
+    final inputBar = _buildInputBar(theme);
 
     // A Material surface: the TextField needs a Material ancestor, and ink
     // and text selection paint on it. The page is a sibling of the card's
     // Material, not a descendant.
+    //
+    // The input bar keeps its full height above the keyboard. The space
+    // above it goes to the header, then to a minimum message area, and
+    // the issue context takes what is left (up to its cap), so the
+    // context gives way first when the keyboard or large text leaves
+    // little room.
     return Semantics(
       scopesRoute: true,
       namesRoute: true,
@@ -540,17 +563,91 @@ class _AiChatPageState extends State<AiChatPage>
           color: theme.pageBackground,
           child: Padding(
             padding: EdgeInsets.only(bottom: keyboardHeight),
-            child: Column(
-              children: [
-                _buildHeader(theme),
-                _buildIssueContext(theme),
-                Expanded(child: _buildMessageArea(theme)),
-                _buildInputBar(theme),
-              ],
+            child: LayoutBuilder(
+              builder: (context, page) => Column(
+                children: [
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, above) => _buildAboveInput(
+                        theme,
+                        height: above.maxHeight,
+                        header: header,
+                        contextCap: contextCap,
+                        messages: messages,
+                      ),
+                    ),
+                  ),
+                  // On a page shorter than the bar (large text, a landscape
+                  // phone with the keyboard up) the bar scrolls, held at its
+                  // bottom: the field and Send stay in view and the session
+                  // caption gives way.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: page.maxHeight),
+                    child: SingleChildScrollView(
+                      reverse: true,
+                      primary: false,
+                      child: inputBar,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// The header over the issue context and [messages], in the [height]
+  /// above the input bar. The header is squeezed only when nothing else
+  /// fits.
+  Widget _buildAboveInput(
+    SleuthThemeData theme, {
+    required double height,
+    required Widget header,
+    required double contextCap,
+    required Widget messages,
+  }) {
+    return Column(
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: height),
+          child: header,
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) => _buildContextAndMessages(
+              theme,
+              height: constraints.maxHeight,
+              contextCap: contextCap,
+              messages: messages,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The issue context over [messages] in [height]: the context is capped
+  /// at [contextCap] and leaves the message list at least
+  /// [_minMessageAreaHeight]; with less than [_minContextHeight] for it,
+  /// the context is left out.
+  Widget _buildContextAndMessages(
+    SleuthThemeData theme, {
+    required double height,
+    required double contextCap,
+    required Widget messages,
+  }) {
+    final contextHeight = math.min(
+      contextCap,
+      height - theme.spacingLg - _minMessageAreaHeight,
+    );
+    return Column(
+      children: [
+        if (contextHeight >= _minContextHeight)
+          _buildIssueContext(theme, contextHeight),
+        Expanded(child: messages),
+      ],
     );
   }
 
@@ -693,10 +790,8 @@ class _AiChatPageState extends State<AiChatPage>
     if (mounted) widget.onNotify?.call(confirmation);
   }
 
-  Widget _buildIssueContext(SleuthThemeData theme) {
-    // Cap expanded card height so it can't compress the chat area to zero
-    // on small screens. 40% of screen is enough for full detail + fix hint.
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.4;
+  /// The issue card, scrolling inside [maxHeight].
+  Widget _buildIssueContext(SleuthThemeData theme, double maxHeight) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         theme.spacingMd,
@@ -711,6 +806,8 @@ class _AiChatPageState extends State<AiChatPage>
             issue: widget.issue,
             // Start collapsed — tap to expand full detail, fix hint, etc.
             // "Ask AI" and "Learn more" hidden since we're already in AI chat.
+            initiallyExpanded: _contextExpanded,
+            onExpandedChanged: (expanded) => _contextExpanded = expanded,
           ),
         ),
       ),

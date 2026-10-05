@@ -301,6 +301,147 @@ void main() {
       expect(card.width, 240);
     });
 
+    /// Opens the dashboard with a normal card of [height] at [offset].
+    Future<SleuthController> pumpCard(
+      WidgetTester tester, {
+      double keyboard = 0,
+      Offset offset = const Offset(40, 0),
+      double height = 400,
+      CardWindowState windowState = CardWindowState.normal,
+    }) async {
+      final controller = await pumpView(
+        tester,
+        const Size(320, 568),
+        keyboard: keyboard,
+      );
+      controller.overlayUiState.setCardGeometry(
+        offset: offset,
+        width: 260,
+        height: height,
+        windowState: windowState,
+      );
+      await openDashboard(tester, controller);
+      return controller;
+    }
+
+    Finder header() => find.bySemanticsLabel('Sleuth');
+    Finder grip() => find.bySemanticsLabel('Resize card');
+
+    /// The card, its footer and its resize grip lie inside the view above
+    /// [usableBottom].
+    void expectCardOnScreen(WidgetTester tester, double usableBottom) {
+      final card = cardRect(tester);
+      expect(card.top, greaterThanOrEqualTo(0));
+      expect(card.bottom, lessThanOrEqualTo(usableBottom));
+      for (final finder in [find.bySemanticsLabel('Guide'), grip()]) {
+        final rect = tester.getRect(finder);
+        expect(rect.top, greaterThanOrEqualTo(0));
+        expect(rect.bottom, lessThanOrEqualTo(usableBottom));
+        expect(rect.right, lessThanOrEqualTo(320));
+      }
+    }
+
+    testWidgets('Move down keeps the footer and grip on screen', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(tester);
+      for (var i = 0; i < 5; i++) {
+        await performCustomAction(tester, header(), 'Move down');
+      }
+      expect(tester.takeException(), isNull);
+      expectCardOnScreen(tester, 568);
+      // The stored geometry fits too: the 400 px card ends at the bottom.
+      final ui = controller.overlayUiState;
+      expect(ui.cardHeight, 400);
+      expect(ui.cardOffset!.dy, 568 - 400);
+      handle.dispose();
+    });
+
+    testWidgets('Move down stops above the keyboard', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(tester, keyboard: 253, height: 300);
+      await performCustomAction(tester, header(), 'Move down');
+      expectCardOnScreen(tester, 568 - 253);
+      expect(controller.overlayUiState.cardOffset!.dy, 568 - 253 - 300);
+      handle.dispose();
+    });
+
+    testWidgets('Taller stops at the usable bottom', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(
+        tester,
+        offset: const Offset(40, 100),
+        height: 300,
+      );
+      for (var i = 0; i < 6; i++) {
+        await performCustomAction(tester, grip(), 'Taller');
+      }
+      expectCardOnScreen(tester, 568);
+      // The top edge stays; the height stops at the bottom of the view.
+      expect(cardRect(tester).top, 100);
+      expect(controller.overlayUiState.cardHeight, 568 - 100);
+      handle.dispose();
+    });
+
+    testWidgets('Taller with the keyboard up moves the card up to fit', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(
+        tester,
+        keyboard: 253,
+        offset: const Offset(40, 100),
+        height: 300,
+      );
+      await performCustomAction(tester, grip(), 'Taller');
+      // 315 px above the keyboard: the card moves up to fit.
+      expectCardOnScreen(tester, 568 - 253);
+      expect(controller.overlayUiState.cardHeight, 568 - 253);
+      expect(controller.overlayUiState.cardOffset!.dy, 0);
+      handle.dispose();
+    });
+
+    testWidgets('a drag past the bottom edge ends with the card on screen', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(tester);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('Sleuth')),
+      );
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(const Offset(0, 50));
+        await tester.pump();
+      }
+      // While the finger is down the title bar stays on screen.
+      expect(cardRect(tester).top, lessThanOrEqualTo(568 - 100));
+      await gesture.up();
+      await tester.pump();
+      expectCardOnScreen(tester, 568);
+      expect(controller.overlayUiState.cardOffset!.dy, 568 - 400);
+      handle.dispose();
+    });
+
+    testWidgets('a maximized card neither moves nor drags', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(
+        tester,
+        windowState: CardWindowState.maximized,
+      );
+      final before = cardRect(tester);
+      final stored = controller.overlayUiState.cardOffset;
+      final data = tester.getSemantics(header()).getSemanticsData();
+      expect(data.customSemanticsActionIds ?? const <int>[], isEmpty);
+
+      await tester.drag(find.text('Sleuth'), const Offset(0, 120));
+      await tester.pumpAndSettle();
+      expect(cardRect(tester), before);
+      expect(controller.overlayUiState.cardOffset, stored);
+      expectCardOnScreen(tester, 568);
+      handle.dispose();
+    });
+
     for (final keyboard in [150.0, 300.0]) {
       testWidgets('a maximized card above a $keyboard px keyboard keeps a '
           'list under the summary bar', (tester) async {

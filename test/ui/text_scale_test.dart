@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/sleuth.dart' show Sleuth;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/ai_chat_adapter.dart';
+import 'package:sleuth/src/models/startup_metrics.dart';
+import 'package:sleuth/src/ui/ai_chat_page.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
+import 'package:sleuth/src/ui/rebuild_stats_page.dart';
+import 'package:sleuth/src/ui/startup_metrics_page.dart';
 
 import '../helpers/overlay_harness.dart';
 
@@ -71,6 +76,40 @@ Future<void> _tapFinder(WidgetTester tester, Finder finder) async {
 Future<void> _tapLabel(WidgetTester tester, String label) =>
     _tapFinder(tester, find.bySemanticsLabel(label));
 
+/// The [Semantics] widget labelled [label], for a node that merges its
+/// children's text into its label.
+Finder _semanticsWidget(String label) => find.byWidgetPredicate(
+  (w) => w is Semantics && w.properties.label == label,
+);
+
+/// Startup metrics with every section of the startup page filled.
+final _startupMetrics = StartupMetrics(
+  dartEntryTimestamp: DateTime(2026),
+  ttffMs: 1234.5,
+  ttiMs: 2345.6,
+  firstFrameVsyncOverheadMs: 12.3,
+  firstFrameBuildMs: 456.7,
+  firstFrameRasterMs: 123.4,
+  firstFrameTotalMs: 592.4,
+  vmFirstBuildScopeMs: 123.45,
+  vmFirstFlushLayoutMs: 23.45,
+  vmFirstFlushPaintMs: 3.45,
+  vmFirstRasterMs: 45.67,
+  dartEntryMonotonicUs: 2000000,
+  frameworkInitDurationUs: 45600,
+  engineEnterUs: 1000000,
+  firstFrameRasterizedUs: 3000000,
+);
+
+/// Rebuild counts with more widget types than the banner lists, so it
+/// links to the full page.
+const _rebuildCounts = {
+  'ProductCatalogueTile': 12345,
+  'PriceTag': 678,
+  'AnimatedRatingStars': 90,
+  'Footer': 1,
+};
+
 void main() {
   for (final scale in [1.3, 2.0]) {
     group('at ${scale}x on a 220 px card', () {
@@ -137,6 +176,73 @@ void main() {
         await _settle(tester, 'back from hidden page');
       });
 
+      testWidgets('startup metrics and rebuild stats pages lay out', (
+        tester,
+      ) async {
+        Sleuth.setStartupMetricsForTest(_startupMetrics);
+        addTearDown(Sleuth.resetStartupForTest);
+        final controller = await _pumpSmall(tester, scale);
+        // A scan opens the app route's session; its rebuild counts feed
+        // the rebuild-stats banner.
+        controller.scanTreeFullPathForTest(
+          tester.element(
+            find.ancestor(
+              of: find.text('app'),
+              matching: find.byType(MaterialApp),
+            ),
+          ),
+        );
+        controller.activeRouteSession!.rebuildCountsByType.addAll(
+          _rebuildCounts,
+        );
+        controller.scanTickNotifier.value++;
+        controller.issuesNotifier.value = mixedOverlayIssues();
+        await _settle(tester, 'open');
+
+        await _tapFinder(
+          tester,
+          _semanticsWidget('Startup metrics, tap for details'),
+        );
+        await _settle(tester, 'startup metrics');
+        expect(find.byType(StartupMetricsPage), findsOneWidget);
+        // Every section, down to the methodology at the bottom.
+        await tester.scrollUntilVisible(
+          find.text('How Sleuth Measures Startup'),
+          100,
+          scrollable: find.descendant(
+            of: find.byType(StartupMetricsPage),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await _settle(tester, 'startup metrics scrolled');
+        await systemBack(tester);
+        await _settle(tester, 'back from startup metrics');
+
+        final total = _rebuildCounts.values.reduce((a, b) => a + b);
+        await _tapFinder(
+          tester,
+          find.text('Rebuilds: $total across ${_rebuildCounts.length} widgets'),
+        );
+        await _settle(tester, 'rebuild banner expanded');
+        await _tapFinder(
+          tester,
+          _semanticsWidget('See all ${_rebuildCounts.length} rebuilds'),
+        );
+        await _settle(tester, 'rebuild stats');
+        expect(find.byType(RebuildStatsPage), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.text('Footer'),
+          100,
+          scrollable: find.descendant(
+            of: find.byType(RebuildStatsPage),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await _settle(tester, 'rebuild stats scrolled');
+        await systemBack(tester);
+        await _settle(tester, 'back from rebuild stats');
+      });
+
       testWidgets('minimized and maximized cards lay out', (tester) async {
         await _pumpSmall(tester, scale, windowState: CardWindowState.minimized);
         expect(tester.takeException(), isNull, reason: 'minimized');
@@ -147,6 +253,82 @@ void main() {
       });
     });
   }
+
+  group('AI chat above the keyboard', () {
+    /// Opens the AI chat about the root issue on the [_pumpSmall] card.
+    Future<void> openChat(WidgetTester tester, double scale) async {
+      final controller = await _pumpSmall(tester, scale);
+      final root = mixedOverlayIssues().first;
+      controller.issuesNotifier.value = [root];
+      await _settle(tester, 'root only');
+      await tester.tap(find.text(root.title));
+      await _settle(tester, 'expand root');
+      await _tapFinder(tester, find.text('Ask AI about this issue'));
+      await _settle(tester, 'AI chat');
+      expect(find.byType(AiChatPage), findsOneWidget);
+    }
+
+    final contextTitle = find.descendant(
+      of: find.byType(AiChatPage),
+      matching: find.text(mixedOverlayIssues().first.title),
+    );
+    final contextDetail = find.descendant(
+      of: find.byType(AiChatPage),
+      matching: find.text(mixedOverlayIssues().first.detail),
+    );
+
+    /// The input bar is whole above [usableBottom].
+    void expectInputVisible(WidgetTester tester, double usableBottom) {
+      final send = tester.getRect(find.bySemanticsLabel('Send'));
+      expect(send.size, const Size(48, 48));
+      expect(send.bottom, lessThanOrEqualTo(usableBottom));
+      final field = tester.getRect(find.byType(TextField));
+      expect(field.top, greaterThanOrEqualTo(0));
+      expect(field.height, greaterThanOrEqualTo(48));
+      expect(field.bottom, lessThanOrEqualTo(usableBottom));
+    }
+
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('at ${scale}x the expanded issue context leaves the input '
+          'bar above a 253 px keyboard', (tester) async {
+        await openChat(tester, scale);
+        tester.view.viewInsets = const FakeViewPadding(bottom: 253);
+        await _settle(tester, 'keyboard up');
+        await tester.tap(contextTitle);
+        await _settle(tester, 'context expanded');
+        expect(contextDetail, findsOneWidget);
+        expectInputVisible(tester, 568 - 253);
+        // The context keeps the message list a line of room.
+        final list = tester.getRect(
+          find.descendant(
+            of: find.byType(AiChatPage),
+            matching: find.byType(ListView),
+          ),
+        );
+        expect(list.height, greaterThanOrEqualTo(48));
+      });
+
+      testWidgets('at ${scale}x the context gives way on a landscape phone '
+          'with the keyboard up and comes back expanded', (tester) async {
+        await openChat(tester, scale);
+        tester.view.physicalSize = const Size(568, 320);
+        await _settle(tester, 'landscape');
+        await tester.tap(contextTitle);
+        await _settle(tester, 'context expanded');
+        expect(contextDetail, findsOneWidget);
+
+        tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+        await _settle(tester, 'keyboard up');
+        expect(contextTitle, findsNothing);
+        expectInputVisible(tester, 320 - 200);
+
+        tester.view.viewInsets = FakeViewPadding.zero;
+        await _settle(tester, 'keyboard down');
+        expect(contextDetail, findsOneWidget);
+        expectInputVisible(tester, 320);
+      });
+    }
+  });
 
   testWidgets('the app keeps a 3.0x text scale', (tester) async {
     final controller = await _pumpSmall(tester, 3);

@@ -451,6 +451,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   double _cachedEffectiveWidth = 0;
   double _cachedKeyboardHeight = 0;
 
+  /// Shown height of the card, and the floor and ceiling of a normal
+  /// card's shown height, as of the last build.
+  double _cachedCardHeight = 0;
+  double _cachedMinHeight = 0;
+  double _cachedMaxHeight = 0;
+
   @override
   void initState() {
     super.initState();
@@ -1149,17 +1155,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _cardHeight = _maximizedHeight(screenSize, safe, keyboardHeight);
       cardHeight = math.max(_cardHeight!, chromeHeight);
     } else {
-      cardHeight = (_cardHeight ?? screenSize.height * 0.55).clamp(
+      cardHeight = _shownHeight(
+        screenSize,
         isMinimized ? _minimizedHeight * chromeScale : minHeight,
         maxAllowedHeight,
       );
     }
-    final effectiveWidth = _cardWidth
-        .clamp(_minCardWidth, math.max(_minCardWidth, screenSize.width))
-        .toDouble();
+    final effectiveWidth = _effectiveWidth(screenSize);
     _cachedSafePadding = safe;
     _cachedEffectiveWidth = effectiveWidth;
     _cachedKeyboardHeight = keyboardHeight;
+    _cachedCardHeight = cardHeight;
+    _cachedMinHeight = minHeight;
+    _cachedMaxHeight = maxAllowedHeight;
     final theme = SleuthTheme.of(context);
     // Toasts stay three times longer while a screen reader is on.
     _toast.durationScale =
@@ -1391,9 +1399,68 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   // ─── Build helpers ──────────────────────────────────────────────────
 
+  /// Shown height of a normal or minimized card: the stored height (55 %
+  /// of the screen by default) within [floor]..[ceiling].
+  double _shownHeight(Size screenSize, double floor, double ceiling) =>
+      (_cardHeight ?? screenSize.height * 0.55).clamp(floor, ceiling);
+
+  /// Shown width of the card: the stored width, at least the minimum.
+  double _effectiveWidth(Size screenSize) => _cardWidth
+      .clamp(_minCardWidth, math.max(_minCardWidth, screenSize.width))
+      .toDouble();
+
+  /// Fits the whole card inside the usable area (the safe area above the
+  /// keyboard) before a move or resize is committed, so the footer and
+  /// the resize grip stay on screen. A resize ([keepTop]) keeps the top
+  /// edge and caps the height at the usable bottom, unless the minimum
+  /// height does not fit below the top edge: then the card moves up and
+  /// may take the whole usable height. A move keeps the height and moves
+  /// the card up. The height gives way, down to its minimum, only when the
+  /// card cannot fit otherwise. A maximized card is placed by
+  /// [_fitMaximized] instead.
+  void _fitToUsableArea({bool keepTop = false}) {
+    if (_cardOffset == null || _windowState == CardWindowState.maximized) {
+      return;
+    }
+    final screenSize = MediaQuery.sizeOf(context);
+    final safe = _cachedSafePadding;
+    final top = safe.top;
+    final bottom =
+        screenSize.height - math.max(safe.bottom, _cachedKeyboardHeight);
+    final offset = _clampOffset(
+      screenSize,
+      safe,
+      _effectiveWidth(screenSize),
+      _cachedKeyboardHeight,
+    );
+    var shown = _cachedCardHeight;
+    if (_windowState == CardWindowState.normal) {
+      shown = _shownHeight(screenSize, _cachedMinHeight, _cachedMaxHeight);
+      final belowTop = bottom - offset.dy;
+      final room = keepTop && belowTop >= _cachedMinHeight
+          ? belowTop
+          : bottom - top;
+      if (shown > room) {
+        // The stored height keeps the unscaled minimum; the scaled floor
+        // holds the shown height up.
+        _cardHeight = math.max(
+          math.min(_cardHeight ?? shown, room),
+          math.min(_minCardHeight, _cachedMaxHeight),
+        );
+        shown = _shownHeight(screenSize, _cachedMinHeight, _cachedMaxHeight);
+      }
+    }
+    _cardOffset = Offset(
+      offset.dx,
+      offset.dy.clamp(top, math.max(top, bottom - shown)),
+    );
+  }
+
   /// Keeps the card's top-left inside the safe area: within the
   /// horizontal view padding, below the top inset, and with at least
-  /// 100 px of title bar above the keyboard or bottom inset.
+  /// 100 px of title bar above the keyboard or bottom inset. A drag keeps
+  /// to this while the finger is down; [_fitToUsableArea] brings the
+  /// whole card on screen when it ends.
   Offset _clampOffset(
     Size screenSize,
     EdgeInsets safe,
@@ -1544,15 +1611,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       );
     }
 
+    // The committed size keeps the whole card on screen.
     void resizeAndCommit(double dw, double dh) {
-      setState(() => resizeBy(dw, dh));
+      setState(() {
+        resizeBy(dw, dh);
+        _fitToUsableArea(keepTop: true);
+      });
       _commitGeometry();
     }
 
     // 48 x 48 hit box; the grip dots keep their corner position. Screen
-    // readers resize through the custom actions in 48 px steps, offered
-    // only in the normal window state (a maximized card's size follows
-    // the screen).
+    // readers resize through the custom actions in 48 px steps. Resizing,
+    // by touch or by action, is offered only in the normal window state (a
+    // maximized card's size follows the screen).
     final isNormal = _windowState == CardWindowState.normal;
     return Positioned(
       right: 0,
@@ -1576,15 +1647,26 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               }
             : null,
         child: MouseRegion(
-          cursor: SystemMouseCursors.resizeDownRight,
+          cursor: isNormal
+              ? SystemMouseCursors.resizeDownRight
+              : MouseCursor.defer,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             // The custom actions resize; pan scroll actions would not.
             excludeFromSemantics: true,
-            onPanUpdate: (details) {
-              setState(() => resizeBy(details.delta.dx, details.delta.dy));
-            },
-            onPanEnd: (_) => _commitGeometry(),
+            // The grip follows the finger; the card is fitted on screen
+            // when the drag ends.
+            onPanUpdate: isNormal
+                ? (details) => setState(
+                    () => resizeBy(details.delta.dx, details.delta.dy),
+                  )
+                : null,
+            onPanEnd: isNormal
+                ? (_) {
+                    setState(() => _fitToUsableArea(keepTop: true));
+                    _commitGeometry();
+                  }
+                : null,
             child: CustomPaint(
               painter: _CornerGripPainter(gripColor: theme.gripDots),
             ),
@@ -1597,16 +1679,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Step of the move and resize custom semantics actions.
   static const double _a11yStep = 48;
 
-  /// Moves the card by [delta], kept inside the safe area.
+  /// Moves the card by [delta], the whole card kept inside the usable
+  /// area.
   void _moveCardBy(Offset delta) {
     setState(() {
       _cardOffset = (_cardOffset ?? Offset.zero) + delta;
-      _cardOffset = _clampOffset(
-        MediaQuery.sizeOf(context),
-        _cachedSafePadding,
-        _cachedEffectiveWidth,
-        _cachedKeyboardHeight,
-      );
+      _fitToUsableArea();
     });
     _commitGeometry();
   }
@@ -1619,6 +1697,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   void _moveCardToCorner() {
     setState(() {
       _cardOffset = Offset(_cachedSafePadding.left, _cachedSafePadding.top);
+      _fitToUsableArea();
     });
     _commitGeometry();
   }
@@ -1634,6 +1713,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   ) {
     final isMinimized = _windowState == CardWindowState.minimized;
     final isNormal = _windowState == CardWindowState.normal;
+    // A maximized card fills the safe area: it neither drags nor moves.
+    final movable = _windowState != CardWindowState.maximized;
     // Only show window controls when the card is wide enough to avoid overflow.
     final showWindowControls = effectiveWidth >= 280 || !isNormal;
     // The header is the drag handle; screen readers move the card through
@@ -1647,32 +1728,43 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       value:
           '${_sizeValue(effectiveWidth, cardHeight)}, at '
           '${position.dx.round()}, ${position.dy.round()}',
-      customSemanticsActions: {
-        const CustomSemanticsAction(label: 'Move up'): () =>
-            _moveCardBy(const Offset(0, -_a11yStep)),
-        const CustomSemanticsAction(label: 'Move down'): () =>
-            _moveCardBy(const Offset(0, _a11yStep)),
-        const CustomSemanticsAction(label: 'Move left'): () =>
-            _moveCardBy(const Offset(-_a11yStep, 0)),
-        const CustomSemanticsAction(label: 'Move right'): () =>
-            _moveCardBy(const Offset(_a11yStep, 0)),
-        const CustomSemanticsAction(label: 'Move to top left'):
-            _moveCardToCorner,
-      },
+      customSemanticsActions: movable
+          ? {
+              const CustomSemanticsAction(label: 'Move up'): () =>
+                  _moveCardBy(const Offset(0, -_a11yStep)),
+              const CustomSemanticsAction(label: 'Move down'): () =>
+                  _moveCardBy(const Offset(0, _a11yStep)),
+              const CustomSemanticsAction(label: 'Move left'): () =>
+                  _moveCardBy(const Offset(-_a11yStep, 0)),
+              const CustomSemanticsAction(label: 'Move right'): () =>
+                  _moveCardBy(const Offset(_a11yStep, 0)),
+              const CustomSemanticsAction(label: 'Move to top left'):
+                  _moveCardToCorner,
+            }
+          : null,
       child: GestureDetector(
         excludeFromSemantics: true,
-        onPanUpdate: (details) {
-          setState(() {
-            _cardOffset = (_cardOffset ?? Offset.zero) + details.delta;
-            _cardOffset = _clampOffset(
-              screenSize,
-              _cachedSafePadding,
-              _cachedEffectiveWidth,
-              _cachedKeyboardHeight,
-            );
-          });
-        },
-        onPanEnd: (_) => _commitGeometry(),
+        // While the finger is down the card keeps at least its title bar
+        // on screen; on release the whole card is fitted on screen.
+        onPanUpdate: movable
+            ? (details) {
+                setState(() {
+                  _cardOffset = (_cardOffset ?? Offset.zero) + details.delta;
+                  _cardOffset = _clampOffset(
+                    screenSize,
+                    _cachedSafePadding,
+                    _cachedEffectiveWidth,
+                    _cachedKeyboardHeight,
+                  );
+                });
+              }
+            : null,
+        onPanEnd: movable
+            ? (_) {
+                setState(_fitToUsableArea);
+                _commitGeometry();
+              }
+            : null,
         behavior: HitTestBehavior.opaque,
         child: SleuthTextScaleClamp(
           maxScaleFactor: kChromeMaxTextScale,
@@ -2870,6 +2962,7 @@ class _CardFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     return Container(
+      width: double.infinity,
       // The right inset leaves the corner to the 48 px resize handle.
       padding: EdgeInsets.only(left: theme.spacingMd, right: 48),
       decoration: BoxDecoration(
@@ -2877,8 +2970,12 @@ class _CardFooter extends StatelessWidget {
       ),
       child: SleuthTextScaleClamp(
         maxScaleFactor: kChromeMaxTextScale,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        // The hidden-issues action moves to a row of its own when it does
+        // not fit beside the three buttons (a narrow card, large text), so
+        // it keeps a 48 x 48 target and its whole label.
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Semantics(
               label: 'Encyclopedia',
@@ -2942,36 +3039,34 @@ class _CardFooter extends StatelessWidget {
               builder: (_, suppressed, _) {
                 final label = hiddenFooterLabel(hiddenCount, suppressed);
                 if (label == null) return const SizedBox.shrink();
-                return Flexible(
-                  child: Semantics(
-                    button: true,
-                    label: '$label. Show hidden issues',
+                return Semantics(
+                  button: true,
+                  label: '$label. Show hidden issues',
+                  onTap: onShowHidden,
+                  container: true,
+                  excludeSemantics: true,
+                  child: GestureDetector(
                     onTap: onShowHidden,
-                    container: true,
-                    excludeSemantics: true,
-                    child: GestureDetector(
-                      onTap: onShowHidden,
-                      behavior: HitTestBehavior.opaque,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          minWidth: 48,
-                          minHeight: 48,
-                        ),
-                        child: Padding(
-                          padding: EdgeInsets.only(left: theme.spacingMd),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: 1,
-                            child: Text(
-                              label,
-                              style: TextStyle(
-                                color: theme.textQuaternary,
-                                fontSize: theme.fontSm,
-                                decoration: TextDecoration.underline,
-                                decorationColor: theme.textQuaternary,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                    behavior: HitTestBehavior.opaque,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minWidth: 48,
+                        minHeight: 48,
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.only(left: theme.spacingMd),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: 1,
+                          // On a row of its own the label wraps rather
+                          // than ellipsizes.
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              color: theme.textQuaternary,
+                              fontSize: theme.fontSm,
+                              decoration: TextDecoration.underline,
+                              decorationColor: theme.textQuaternary,
                             ),
                           ),
                         ),
