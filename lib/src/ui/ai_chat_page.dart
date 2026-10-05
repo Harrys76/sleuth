@@ -61,8 +61,11 @@ class AiChatPage extends StatefulWidget {
   final ValueChanged<String>? onNotify;
 
   /// Shows a notice with an action (the send-while-replying notice offers
-  /// Stop). Null falls back to [onNotify] without the action.
-  final void Function(
+  /// Stop) and returns a callback that hides it, or null. The page hides
+  /// the Stop notice when the reply ends, so a notice kept on screen for
+  /// a screen reader never outlives its reply. Null falls back to
+  /// [onNotify] without the action.
+  final VoidCallback? Function(
     String message,
     String actionLabel,
     VoidCallback onAction,
@@ -260,7 +263,8 @@ class _AiChatPageState extends State<AiChatPage>
       const notice = 'Wait for the reply, or stop it';
       final withAction = widget.onNotifyAction;
       if (withAction != null) {
-        withAction(notice, 'Stop', () {
+        _hideStopNotice?.call();
+        _hideStopNotice = withAction(notice, 'Stop', () {
           if (mounted) _stop();
         });
       } else {
@@ -460,8 +464,13 @@ class _AiChatPageState extends State<AiChatPage>
   /// failure. [_ReplyState.failed] records [failure] and keeps the text
   /// received so far on screen only. [notify] is false from [dispose]:
   /// the history callback still runs, nothing else does.
+  /// Hides the Stop notice raised while this reply was in flight.
+  VoidCallback? _hideStopNotice;
+
   void _finish(_ReplyState end, {_ReplyFailure? failure, bool notify = true}) {
     if (!_inFlight) return;
+    _hideStopNotice?.call();
+    _hideStopNotice = null;
     _cancelStream();
     _cancelTimers();
     final partial = _streamBuffer;

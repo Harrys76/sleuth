@@ -1245,6 +1245,7 @@ void main() {
       final controller = StreamController<String>();
       final actions = <String>[];
       VoidCallback? stop;
+      var hides = 0;
       await tester.pumpWidget(
         wrap(
           AiChatPage(
@@ -1257,6 +1258,7 @@ void main() {
             onNotifyAction: (message, label, onAction) {
               actions.add('$message|$label');
               stop = onAction;
+              return () => hides++;
             },
           ),
         ),
@@ -1265,12 +1267,45 @@ void main() {
       await send(tester, 'First');
       await send(tester, 'Second');
       expect(actions, ['Wait for the reply, or stop it|Stop']);
+      expect(hides, 0);
 
       stop!();
       await tester.pump();
       expect(controller.hasListener, isFalse);
       expect(find.text('Stopped'), findsOneWidget);
       expect(find.byIcon(Icons.send), findsOneWidget);
+      // The notice goes with the reply it could stop.
+      expect(hides, 1);
+    });
+
+    testWidgets('the Stop notice is hidden when the reply finishes', (
+      tester,
+    ) async {
+      final controller = StreamController<String>();
+      var hides = 0;
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+            onNotifyAction: (message, label, onAction) =>
+                () => hides++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await send(tester, 'First');
+      await send(tester, 'Second');
+      expect(hides, 0);
+
+      controller.add('Done.');
+      await controller.close();
+      await tester.pumpAndSettle();
+      expect(hides, 1);
     });
 
     testWidgets('a cancel error from the adapter does not escape', (

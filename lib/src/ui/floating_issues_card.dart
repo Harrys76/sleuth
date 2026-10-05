@@ -1442,8 +1442,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       },
       onClose: _closeAiChat,
       onNotify: (message) => _toast.show(message),
-      onNotifyAction: (message, actionLabel, onAction) =>
-          _toast.show(message, actionLabel: actionLabel, onAction: onAction),
+      onNotifyAction: (message, actionLabel, onAction) {
+        _toast.show(message, actionLabel: actionLabel, onAction: onAction);
+        final shown = _toast.value;
+        return shown == null ? null : () => _toast.dismissIfCurrent(shown);
+      },
       sessionContext: _sessionContext,
     );
   }
@@ -2134,6 +2137,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       builder: (context, issues, _) {
         final theme = SleuthTheme.of(context);
         if (issues.isEmpty) {
+          // The next list starts at the top.
+          _listScroll.dropKeptOffset();
           return Center(
             child: Text(
               '✅ No issues detected',
