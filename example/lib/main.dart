@@ -8,7 +8,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart' show Clipboard;
+import 'package:flutter/services.dart'
+    show Clipboard, DeviceOrientation, SystemChrome;
 import 'package:sleuth/sleuth.dart';
 
 import 'custom_detectors/01_simple_structural_detector.dart';
@@ -940,6 +941,36 @@ void _registerDemoExtensions() {
       }),
     );
   });
+  // Orientation for a hands-free rotation check: `value` = portrait |
+  // landscape | all. iOS 16+ and Android rotate the app to a forced
+  // orientation even when the device is held the other way.
+  developer.registerExtension('ext.sleuthDemo.orientation', (
+    method,
+    params,
+  ) async {
+    final value = params['value'] ?? '';
+    final orientations = switch (value) {
+      'portrait' => const [DeviceOrientation.portraitUp],
+      'landscape' => const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+      'all' => const <DeviceOrientation>[],
+      _ => null,
+    };
+    if (orientations == null) {
+      return _demoError({'error': 'bad_value', 'value': value});
+    }
+    await SystemChrome.setPreferredOrientations(orientations);
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({
+        'value': value,
+        'width': view.physicalSize.width / view.devicePixelRatio,
+        'height': view.physicalSize.height / view.devicePixelRatio,
+      }),
+    );
+  });
   developer.registerExtension('ext.sleuthDemo.overlayState', (
     method,
     params,
@@ -1232,8 +1263,13 @@ Element? _findText(String text) {
       _findElement((e) => label(e.widget)?.contains(text) ?? false);
 }
 
+/// The largest scrollable on the [horizontal] or vertical axis that can
+/// scroll and whose tickers run. A route below the current one keeps its
+/// scrollables mounted with tickers off, where an animated scroll never
+/// finishes; a small header scroll view loses to the demo's own list.
 ScrollableState? _findScrollable(bool horizontal) {
   ScrollableState? best;
+  var bestArea = 0.0;
   _findElement((element) {
     if (element is StatefulElement && element.state is ScrollableState) {
       final state = element.state as ScrollableState;
@@ -1241,11 +1277,16 @@ ScrollableState? _findScrollable(bool horizontal) {
       final matches = horizontal
           ? axis == Axis.horizontal
           : axis == Axis.vertical;
+      final box = element.renderObject;
       if (matches &&
           state.position.hasContentDimensions &&
-          state.position.maxScrollExtent > 0) {
+          state.position.maxScrollExtent > 0 &&
+          TickerMode.getValuesNotifier(element).value.enabled &&
+          box is RenderBox &&
+          box.hasSize &&
+          box.size.width * box.size.height > bestArea) {
         best = state;
-        return true;
+        bestArea = box.size.width * box.size.height;
       }
     }
     return false;
