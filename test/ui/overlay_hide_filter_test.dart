@@ -239,12 +239,16 @@ void main() {
       await pumpCard(tester);
       await expand(tester, 'a');
 
-      // The ranker reorders everything below the expanded card.
+      // The ranker reorders everything below the expanded card. The
+      // collapsed order holds, then takes the new order in a quiet
+      // period.
       controller.issuesNotifier.value = [
         for (final id in ['a', 'e', 'd', 'c', 'b']) _issue(id),
       ];
       await tester.pump();
       const ids = ['a', 'b', 'c', 'd', 'e'];
+      expect(rowOrder(tester, ids), ['a', 'b', 'c', 'd', 'e']);
+      await tester.pump(const Duration(seconds: 10));
       expect(rowOrder(tester, ids), ['a', 'e', 'd', 'c', 'b']);
 
       await expand(tester, 'c');
@@ -278,6 +282,152 @@ void main() {
       expect(find.byIcon(Icons.push_pin), findsOneWidget);
       expect(tester.takeException(), isNull);
       await drainToasts(tester);
+    });
+  });
+
+  group('Held order', () {
+    const ids = ['a', 'b', 'c', 'd'];
+
+    Future<void> pumpABCD(WidgetTester tester) async {
+      controller.issuesNotifier.value = [for (final id in ids) _issue(id)];
+      await pumpCard(tester);
+      expect(rowOrder(tester, ids), ids);
+    }
+
+    testWidgets('a rank change waits for 10 s without a touch', (tester) async {
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['d', 'c', 'b', 'a']) _issue(id),
+      ];
+      await tester.pump();
+      expect(rowOrder(tester, ids), ids);
+
+      await tester.pump(const Duration(seconds: 9));
+      expect(rowOrder(tester, ids), ids);
+      await tester.pump(const Duration(seconds: 1));
+      expect(rowOrder(tester, ids), ['d', 'c', 'b', 'a']);
+    });
+
+    testWidgets('a touch on the list restarts the quiet period', (
+      tester,
+    ) async {
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['d', 'c', 'b', 'a']) _issue(id),
+      ];
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 8));
+
+      // A finger rests on the list past the quiet period.
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('Title b')),
+      );
+      await tester.pump(const Duration(seconds: 12));
+      expect(rowOrder(tester, ids), ids);
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(rowOrder(tester, ids), ids);
+
+      await tester.pump(const Duration(seconds: 10));
+      expect(rowOrder(tester, ids), ['d', 'c', 'b', 'a']);
+    });
+
+    testWidgets('a severity promotion moves at once', (tester) async {
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        _issue('c', severity: IssueSeverity.critical),
+        _issue('a'),
+        _issue('b'),
+        _issue('d'),
+      ];
+      await tester.pump();
+      expect(rowOrder(tester, ids), ['c', 'a', 'b', 'd']);
+    });
+
+    testWidgets('a new issue enters at the top with a wider accent', (
+      tester,
+    ) async {
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['a', 'b', 'c', 'n', 'd']) _issue(id),
+      ];
+      await tester.pump();
+      const all = ['a', 'b', 'c', 'd', 'n'];
+      expect(rowOrder(tester, all), ['n', 'a', 'b', 'c', 'd']);
+      IssueCard card(String id) => tester.widget<IssueCard>(
+        find.ancestor(
+          of: find.text('Title $id'),
+          matching: find.byType(IssueCard),
+        ),
+      );
+      expect(card('n').isNew, isTrue);
+      expect(card('a').isNew, isFalse);
+
+      await tester.pump(const Duration(seconds: 2));
+      expect(card('n').isNew, isFalse);
+      await tester.pump(const Duration(seconds: 8));
+      expect(rowOrder(tester, all), ['a', 'b', 'c', 'n', 'd']);
+    });
+
+    testWidgets('a new issue enters below the frozen zone', (tester) async {
+      await pumpABCD(tester);
+      await expand(tester, 'b');
+      controller.issuesNotifier.value = [
+        for (final id in ['n', 'a', 'b', 'c', 'd']) _issue(id),
+      ];
+      await tester.pump();
+      expect(rowOrder(tester, ['a', 'b', 'c', 'd', 'n']), [
+        'a',
+        'b',
+        'n',
+        'c',
+        'd',
+      ]);
+      await tester.pump(const Duration(seconds: 10));
+    });
+
+    testWidgets('a removed issue leaves its slot to the next card', (
+      tester,
+    ) async {
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['d', 'c', 'a']) _issue(id),
+      ];
+      await tester.pump();
+      expect(rowOrder(tester, ids), ['a', 'c', 'd']);
+      await tester.pump(const Duration(seconds: 10));
+      expect(rowOrder(tester, ids), ['d', 'c', 'a']);
+    });
+
+    testWidgets('a severity filter change adopts the ranker order', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        for (final id in ids) _issue(id),
+        _issue('ok', severity: IssueSeverity.ok),
+      ];
+      await pumpCard(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['d', 'c', 'b', 'a']) _issue(id),
+        _issue('ok', severity: IssueSeverity.ok),
+      ];
+      await tester.pump();
+      expect(rowOrder(tester, ids), ids);
+
+      controller.overlayUiState.toggleSeverity(IssueSeverity.ok);
+      await tester.pump();
+      expect(rowOrder(tester, ids), ['d', 'c', 'b', 'a']);
+    });
+
+    testWidgets('a hide adopts the ranker order', (tester) async {
+      await pumpABCD(tester);
+      controller.issuesNotifier.value = [
+        for (final id in ['d', 'c', 'b', 'a']) _issue(id),
+      ];
+      await tester.pump();
+      controller.overlayUiState.hide('b');
+      await tester.pump();
+      expect(rowOrder(tester, ids), ['d', 'c', 'a']);
     });
   });
 

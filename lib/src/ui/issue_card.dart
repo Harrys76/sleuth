@@ -44,6 +44,7 @@ class IssueCard extends StatefulWidget {
     this.onCopy,
     this.onHide,
     this.collapseEpoch = 0,
+    this.isNew = false,
   }) : assert(
          suppressedParentCount >= 0,
          'suppressedParentCount must be >= 0; negative values produce '
@@ -128,6 +129,10 @@ class IssueCard extends StatefulWidget {
   /// the card collapses without calling [onExpandedChanged] (the host has
   /// already dropped its expansion entry).
   final int collapseEpoch;
+
+  /// The card just entered the list: its source accent is drawn twice as
+  /// wide.
+  final bool isNew;
 
   @override
   State<IssueCard> createState() => _IssueCardState();
@@ -284,7 +289,9 @@ class _IssueCardState extends State<IssueCard> {
               border: Border(
                 left: BorderSide(
                   color: theme.sourceAccentColor(issue.observationSource),
-                  width: theme.sourceAccentWidth,
+                  width: widget.isNew
+                      ? theme.sourceAccentWidth * 2
+                      : theme.sourceAccentWidth,
                 ),
               ),
             ),

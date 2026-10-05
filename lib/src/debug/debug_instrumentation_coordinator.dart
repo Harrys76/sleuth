@@ -555,7 +555,7 @@ class DebugInstrumentationCoordinator {
   /// uses Sleuth-named equivalents listed below, so app-owned rebuilds of
   /// those widgets are counted.
   static const Set<String> _frameworkWidgetDenyList = {
-    // --- Flutter framework widgets used in lib/src/ui/ (48) ---
+    // --- Flutter framework widgets used in lib/src/ui/ (49) ---
     'Align',
     'AnimatedBuilder',
     'AnimatedRotation',
@@ -582,6 +582,7 @@ class DebugInstrumentationCoordinator {
     'LayoutBuilder',
     'LinearProgressIndicator',
     'ListView',
+    'Listener',
     'Localizations',
     'Material',
     'MouseRegion',

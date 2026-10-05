@@ -1688,4 +1688,118 @@ void main() {
       handle.dispose();
     });
   });
+
+  group('holdIssueOrder', () {
+    List<PerformanceIssue> issues(List<String> ids) => [
+      for (final id in ids) _pinIssue(id: id),
+    ];
+
+    test('null held keys adopt the ranker order', () {
+      final r = holdIssueOrder(
+        visibleIssues: issues(['B', 'A']),
+        heldKeys: null,
+      );
+      expect(r.keys, ['B', 'A']);
+      expect(r.pending, isFalse);
+      expect(r.added, isEmpty);
+    });
+
+    test('held keys keep their order; the difference is pending', () {
+      final r = holdIssueOrder(
+        visibleIssues: issues(['C', 'B', 'A']),
+        heldKeys: ['A', 'B', 'C'],
+      );
+      expect(r.keys, ['A', 'B', 'C']);
+      expect(r.issues.map((i) => i.stableId), ['A', 'B', 'C']);
+      expect(r.pending, isTrue);
+    });
+
+    test('new keys go to the top in ranker order; missing keys drop', () {
+      final r = holdIssueOrder(
+        visibleIssues: issues(['A', 'N1', 'C', 'N2']),
+        heldKeys: ['A', 'B', 'C'],
+      );
+      expect(r.keys, ['N1', 'N2', 'A', 'C']);
+      expect(r.added, {'N1', 'N2'});
+      expect(r.pending, isTrue);
+    });
+
+    test('a severity promotion moves above the first card ranked below it', () {
+      final r = holdIssueOrder(
+        visibleIssues: [
+          _pinIssue(id: 'A'),
+          _pinIssue(id: 'D', severity: IssueSeverity.critical),
+          _pinIssue(id: 'B'),
+          _pinIssue(id: 'C'),
+        ],
+        heldKeys: ['C', 'B', 'A', 'D'],
+        heldSeverities: const {
+          'A': IssueSeverity.warning,
+          'B': IssueSeverity.warning,
+          'C': IssueSeverity.warning,
+          'D': IssueSeverity.warning,
+        },
+      );
+      // Same-tier moves stay held (C, B, A); D moves above C, the first
+      // held card the ranker places below it.
+      expect(r.keys, ['D', 'C', 'B', 'A']);
+    });
+
+    test('a promoted card stops below held cards ranked above it', () {
+      final r = holdIssueOrder(
+        visibleIssues: [
+          _pinIssue(id: 'A', severity: IssueSeverity.critical),
+          _pinIssue(id: 'D', severity: IssueSeverity.critical),
+          _pinIssue(id: 'B'),
+          _pinIssue(id: 'C'),
+        ],
+        heldKeys: ['A', 'B', 'C', 'D'],
+        heldSeverities: const {
+          'A': IssueSeverity.critical,
+          'B': IssueSeverity.warning,
+          'C': IssueSeverity.warning,
+          'D': IssueSeverity.warning,
+        },
+      );
+      expect(r.keys, ['A', 'D', 'B', 'C']);
+      expect(r.pending, isFalse);
+    });
+
+    test('a demotion is held like any other rank change', () {
+      final r = holdIssueOrder(
+        visibleIssues: [
+          _pinIssue(id: 'B'),
+          _pinIssue(id: 'A', severity: IssueSeverity.ok),
+        ],
+        heldKeys: ['A', 'B'],
+        heldSeverities: const {
+          'A': IssueSeverity.critical,
+          'B': IssueSeverity.warning,
+        },
+      );
+      expect(r.keys, ['A', 'B']);
+      expect(r.pending, isTrue);
+    });
+
+    test('issues sharing a key stay together without duplicates', () {
+      final r = holdIssueOrder(
+        visibleIssues: [
+          _pinIssue(id: 'A'),
+          _pinIssue(id: 'B'),
+          _pinIssue(id: 'A'),
+        ],
+        heldKeys: ['B', 'A'],
+      );
+      expect(r.keys, ['B', 'A']);
+      expect(r.issues.map((i) => i.stableId), ['B', 'A', 'A']);
+    });
+
+    test('the same order is not pending', () {
+      final r = holdIssueOrder(
+        visibleIssues: issues(['A', 'B']),
+        heldKeys: ['A', 'B'],
+      );
+      expect(r.pending, isFalse);
+    });
+  });
 }
