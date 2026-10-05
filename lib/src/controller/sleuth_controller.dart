@@ -55,6 +55,7 @@ import '../models/base_detector.dart';
 import '../models/gc_event_summary.dart';
 import '../models/heap_sample.dart';
 import '../models/capture_buffer.dart';
+import '../models/cpu_attribution.dart';
 import '../models/frame_budget.dart';
 import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
@@ -209,6 +210,19 @@ class SleuthController {
   // Cached verdict phase for ranking context (v9.2)
   PipelinePhase? _lastVerdictPhase;
   int? _lastVerdictFrameNumber;
+
+  /// Evidence tier of the verdict last written to [verdictNotifier]
+  /// ([_verdictTier]); 0 before the first verdict.
+  int _lastVerdictTier = 0;
+
+  /// Frame whose verdict carries CPU attribution, and that attribution.
+  /// A later verdict for the same frame reuses it instead of asking the
+  /// VM again.
+  int? _cpuEnrichedFrameNumber;
+  List<CpuAttribution>? _cpuEnrichedTopFunctions;
+
+  /// Frame with a CPU attribution request outstanding.
+  int? _cpuEnrichmentInFlightFrame;
 
   // Export enrichment buffers (rolling, fed from _onTimelineData)
   final Queue<PhaseEvent> _phaseEventBuffer = Queue();
@@ -2377,7 +2391,6 @@ class SleuthController {
       'sustained_jank': 'frameTiming',
       'jank_detected': 'frameTiming',
       'raster_cache': 'frameTiming',
-      'shader_jank': 'shaderJank',
       'shader_compilation': 'shaderJank',
       'heavy_compute': 'heavyCompute',
       'platform_channel': 'platformChannel',
@@ -2411,7 +2424,8 @@ class SleuthController {
       'missing_repaint_boundary': 'repaintBoundary',
       'excessive_repaint_boundary': 'repaintBoundary',
       'slow_startup': 'startup',
-      'startup_phase': 'startup',
+      'stream_resource_growth': 'streamResource',
+      'tracked_resource_': 'trackedResource',
     };
 
     for (final entry in prefixMap.entries) {
@@ -3709,30 +3723,38 @@ class SleuthController {
               correlation: worstCorrelation,
               relatedIssues: allIssues,
             );
-            verdict = _enrichVerdictWithNetworkContext(verdict);
-            verdictNotifier.value = verdict;
-            _lastVerdictPhase = verdict.suspectedPhase;
-            _lastVerdictFrameNumber = verdict.frameNumber;
+            verdict = _publishVerdict(
+              _enrichVerdictWithNetworkContext(verdict),
+            );
             captureFrame = worstFrame;
             captureVerdict = verdict;
           }
         }
       }
 
-      // Fallback: legacy full mode (batch-attributed)
-      if (captureVerdict == null) {
+      // Fallback: legacy full mode (batch-attributed). A batch without
+      // phase data (the idle heartbeat, a GC-only poll) carries no
+      // evidence about any frame, and a frame that already holds a full
+      // or correlated verdict keeps it.
+      final hasPhaseData =
+          data.phaseEvents.isNotEmpty ||
+          data.buildScopeDurations.isNotEmpty ||
+          data.flushLayoutDurations.isNotEmpty ||
+          data.flushPaintDurations.isNotEmpty ||
+          data.rasterDurations.isNotEmpty;
+      if (captureVerdict == null && hasPhaseData) {
         final latest = _frameTiming.frameBuffer.latest;
-        if (latest != null && latest.isJank) {
+        if (latest != null &&
+            latest.isJank &&
+            !(latest.frameNumber == _lastVerdictFrameNumber &&
+                _lastVerdictTier >= _fullVerdictTier)) {
           final allIssues = _getAllIssues();
           var verdict = _analyzer.analyzeFullMode(
             frameStats: latest,
             timelineData: data,
             relatedIssues: allIssues,
           );
-          verdict = _enrichVerdictWithNetworkContext(verdict);
-          verdictNotifier.value = verdict;
-          _lastVerdictPhase = verdict.suspectedPhase;
-          _lastVerdictFrameNumber = verdict.frameNumber;
+          verdict = _publishVerdict(_enrichVerdictWithNetworkContext(verdict));
           captureFrame = latest;
           captureVerdict = verdict;
         }
@@ -3926,9 +3948,7 @@ class SleuthController {
           relatedIssues: _getAllIssues(),
         ),
       );
-      verdictNotifier.value = basicVerdict;
-      _lastVerdictPhase = basicVerdict.suspectedPhase;
-      _lastVerdictFrameNumber = basicVerdict.frameNumber;
+      _publishVerdict(basicVerdict);
 
       // Capture inside the jank guard with most-recently-stamped issues.
       if (latest.frameNumber != _lastCapturedFrameNumber) {
@@ -4004,39 +4024,92 @@ class SleuthController {
     );
   }
 
+  static const _basicVerdictTier = 1;
+  static const _fullVerdictTier = 2;
+  static const _correlatedVerdictTier = 3;
+
+  /// Evidence tier of [verdict]: correlated > full > basic.
+  static int _verdictTier(FrameVerdict verdict) => verdict.isCorrelated
+      ? _correlatedVerdictTier
+      : (verdict.isFullMode ? _fullVerdictTier : _basicVerdictTier);
+
+  /// Writes [verdict] to [verdictNotifier] and records its frame, phase
+  /// and tier. A verdict for a frame that already received CPU
+  /// attribution keeps that attribution. Returns the verdict written.
+  FrameVerdict _publishVerdict(FrameVerdict verdict) {
+    var published = verdict;
+    final enrichedTop = _cpuEnrichedTopFunctions;
+    if (published.topFunctions == null &&
+        enrichedTop != null &&
+        published.frameNumber == _cpuEnrichedFrameNumber) {
+      published = published.withTopFunctions(enrichedTop);
+    }
+    verdictNotifier.value = published;
+    _lastVerdictPhase = published.suspectedPhase;
+    _lastVerdictFrameNumber = published.frameNumber;
+    _lastVerdictTier = _verdictTier(published);
+    return published;
+  }
+
   /// Non-blocking — the verdict is already emitted without attribution (phase 1).
   /// When CPU samples arrive, the verdict is re-emitted with [topFunctions]
   /// (phase 2). If the query fails or times out, the original verdict stands.
+  ///
+  /// A frame is attributed once: no request is made while one for the
+  /// same frame is outstanding or after its verdict was enriched. The
+  /// answer is applied only while the notifier still holds a verdict for
+  /// that frame.
   void _enrichVerdictWithCpuAttribution(
     FrameStats frame,
     FrameVerdict verdict,
   ) {
     final client = _vmClient;
     if (client == null || !frame.hasPhaseTimestamps) return;
+    final frameNumber = frame.frameNumber;
+    if (frameNumber == _cpuEnrichedFrameNumber ||
+        frameNumber == _cpuEnrichmentInFlightFrame) {
+      return;
+    }
 
     final timeOriginUs = frame.vsyncStartUs!;
     final timeExtentUs = frame.rasterFinishUs! - frame.vsyncStartUs!;
     if (timeExtentUs <= 0) return;
 
+    _cpuEnrichmentInFlightFrame = frameNumber;
     client
         .getCpuSamples(timeOriginUs: timeOriginUs, timeExtentUs: timeExtentUs)
         .then((cpuSamples) {
           if (_disposed || cpuSamples == null) return;
           final topFunctions = _cpuAggregator.aggregate(cpuSamples);
           if (topFunctions.isEmpty) return;
+          _cpuEnrichedFrameNumber = frameNumber;
+          _cpuEnrichedTopFunctions = topFunctions;
 
-          // Re-emit verdict with CPU attribution (phase 2)
-          final enriched = verdict.withTopFunctions(topFunctions);
-          verdictNotifier.value = enriched;
+          // Re-emit verdict with CPU attribution (phase 2), onto whatever
+          // verdict the frame holds now (a later batch may have raised it).
+          final current = verdictNotifier.value;
+          final enriched =
+              (current != null && current.frameNumber == frameNumber
+                      ? current
+                      : verdict)
+                  .withTopFunctions(topFunctions);
+          if (current != null && current.frameNumber == frameNumber) {
+            verdictNotifier.value = enriched;
+          }
 
           // Update capture buffer entry if it was captured
-          _captureBuffer.updateVerdict(frame.frameNumber, enriched);
+          _captureBuffer.updateVerdict(frameNumber, enriched);
         })
         .catchError((Object e) {
           assert(() {
             debugPrint('Sleuth: CPU attribution failed: $e');
             return true;
           }());
+        })
+        .whenComplete(() {
+          if (_cpuEnrichmentInFlightFrame == frameNumber) {
+            _cpuEnrichmentInFlightFrame = null;
+          }
         });
   }
 

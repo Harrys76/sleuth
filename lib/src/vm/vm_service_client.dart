@@ -594,6 +594,17 @@ class VmServiceClient {
   /// timeline clock read failed or ran behind the newest event seen.
   int _windowFallbacks = 0;
 
+  /// Window fallbacks in a row. At [_fallbacksBeforeFullRead] the newest
+  /// event seen is forgotten and the next poll reads the whole buffer
+  /// with no floor, so a bad newest timestamp cannot hold the window
+  /// shut for the rest of the session.
+  int _consecutiveWindowFallbacks = 0;
+  static const int _fallbacksBeforeFullRead = 3;
+
+  /// Set when [_consecutiveWindowFallbacks] forgot the newest event: the
+  /// next full read counts as a window fallback.
+  bool _fullReadAfterFallbacks = false;
+
   /// Bumped in `_cleanup()`. `_pollTimeline` captures this at start and
   /// re-checks after each await; a generation change means a reconnect
   /// or dispose ran during the await, so the poll drops its results
@@ -638,10 +649,15 @@ class VmServiceClient {
       // split across fetches is joined by the pending-begin maps. The
       // per-tid cursors drop what was already processed. Nothing is cleared, so events written between two
       // fetches are never lost and DevTools keeps its timeline.
-      final lastMaxTs = _lastMaxTs;
+      var lastMaxTs = _lastMaxTs;
       int? originUs;
       int? extentUs;
       var floorUs = 0;
+      if (lastMaxTs == null && _fullReadAfterFallbacks) {
+        _fullReadAfterFallbacks = false;
+        windowFallback = true;
+        _windowFallbacks++;
+      }
       if (lastMaxTs != null) {
         originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
         watch.start();
@@ -650,6 +666,10 @@ class VmServiceClient {
         tailUs += watch.elapsedMicroseconds;
         tailWindows.add((clockReadStartUs, _rpcClockUs()));
         if (myGen != _sessionGeneration || _disposed) return;
+        if (nowUs != null && _clampToClock(nowUs)) {
+          lastMaxTs = _lastMaxTs!;
+          originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
+        }
         if (nowUs == null || nowUs < lastMaxTs) {
           // The clock read failed or is not on the event clock: read the
           // whole buffer and drop everything before the window client
@@ -658,7 +678,13 @@ class VmServiceClient {
           _windowFallbacks++;
           floorUs = originUs;
           originUs = null;
+          if (++_consecutiveWindowFallbacks >= _fallbacksBeforeFullRead) {
+            _consecutiveWindowFallbacks = 0;
+            _lastMaxTs = null;
+            _fullReadAfterFallbacks = true;
+          }
         } else {
+          _consecutiveWindowFallbacks = 0;
           extentUs = nowUs - originUs + _windowExtentSlackUs;
         }
       }
@@ -676,9 +702,9 @@ class VmServiceClient {
       // Both readings come from monotonic clocks started at different
       // instants; the decode lies inside the await by construction.
       if (decodeUs > rpcUs) decodeUs = rpcUs;
-      _consecutivePollFailures = 0;
       // Drop stale poll if reconnect/dispose ran during the await.
       if (myGen != _sessionGeneration || _disposed) return;
+      _consecutivePollFailures = 0;
       final events = timeline.traceEvents;
       eventCount = events?.length ?? 0;
       ParsedTimelineData? parsed;
@@ -709,7 +735,10 @@ class VmServiceClient {
         );
         duplicates = parsed.duplicatesDropped;
         final batchMaxTs = parsed.maxTimestampUs;
-        if (batchMaxTs >= 0 && (lastMaxTs == null || batchMaxTs > lastMaxTs)) {
+        final currentMaxTs = _lastMaxTs;
+        if (batchMaxTs >= 0 &&
+            (currentMaxTs == null || batchMaxTs > currentMaxTs) &&
+            !(_fullReadAfterFallbacks && currentMaxTs == null)) {
           _lastMaxTs = batchMaxTs;
         }
         // Evict orphan begins (B with no matching E within the idle
@@ -750,11 +779,14 @@ class VmServiceClient {
       }
     } catch (e) {
       // One failed RPC retries on the next tick; a run of failures means
-      // the connection is gone (see [_consecutivePollFailures]).
-      _consecutivePollFailures++;
-      if (_consecutivePollFailures >= pollFailuresBeforeDisconnect) {
-        _consecutivePollFailures = 0;
-        _handleConnectionLost();
+      // the connection is gone (see [_consecutivePollFailures]). A poll
+      // that outlived its session leaves the new session alone.
+      if (myGen == _sessionGeneration && !_disposed) {
+        _consecutivePollFailures++;
+        if (_consecutivePollFailures >= pollFailuresBeforeDisconnect) {
+          _consecutivePollFailures = 0;
+          _handleConnectionLost();
+        }
       }
     } finally {
       watch.stop();
@@ -821,6 +853,35 @@ class VmServiceClient {
 
   /// Current reading of the VM timeline clock (the clock event `ts`
   /// values use), or null when the RPC fails.
+  /// Bounds the session's timestamps by the timeline clock reading
+  /// [nowUs]. No window reaches past `nowUs + _windowExtentSlackUs`, so a
+  /// position beyond that bound came from an event stamped on another
+  /// clock.
+  ///
+  /// Thread cursors past the bound are rewound to the newest cursor
+  /// within it, so later events on those threads are not dropped as
+  /// already seen; when every cursor lies past the bound, the clock is
+  /// the outlier and the cursors stay. A newest event past the bound
+  /// becomes that newest cursor and the call returns true, so this poll
+  /// fetches a window; with no cursor within the bound it is pulled back
+  /// to the bound for later polls and this poll falls back to a full
+  /// read.
+  bool _clampToClock(int nowUs) {
+    final ceilingUs = nowUs + _windowExtentSlackUs;
+    final newest = TimelineParser.clampOutlierCursors(
+      _lastProcessedTsByTid,
+      ceilingUs: ceilingUs,
+    );
+    final lastMaxTs = _lastMaxTs;
+    if (lastMaxTs == null || lastMaxTs <= ceilingUs) return false;
+    if (newest != null) {
+      _lastMaxTs = newest;
+      return true;
+    }
+    _lastMaxTs = ceilingUs;
+    return false;
+  }
+
   Future<int?> _readTimelineClock() async {
     try {
       final stamp = await _service!.getVMTimelineMicros();
@@ -1169,7 +1230,10 @@ class VmServiceClient {
     _timingsWindow.clear();
     _duplicatesDroppedTotal = 0;
     _windowFallbacks = 0;
+    _consecutiveWindowFallbacks = 0;
+    _fullReadAfterFallbacks = false;
     _lastMaxTs = null;
+    _startupEventsExtracted = false;
     _cpuSpans.clear();
     _allocationSpans.clear();
     _lastCpuSamplesRequestUs = null;
@@ -1236,13 +1300,14 @@ class VmServiceClient {
     }
     _lastCpuSamplesRequestUs = nowUs;
 
+    final gen = _sessionGeneration;
     try {
       return await _cpuSpans
           .track(service.getCpuSamples(isolateId, timeOriginUs, timeExtentUs))
           .timeout(const Duration(milliseconds: 500));
     } on SentinelException {
       // Isolate ID stale (e.g., after hot restart) — re-fetch
-      _mainIsolateId = await _resolveMainIsolateId();
+      await _refreshMainIsolateId(gen);
       return null;
     } catch (_) {
       // CPU sample query failed — non-fatal, don't trigger reconnect
@@ -1263,17 +1328,36 @@ class VmServiceClient {
     final isolateId = _mainIsolateId;
     if (service == null || isolateId == null) return null;
 
+    final gen = _sessionGeneration;
     try {
       return await _allocationSpans
           .track(service.getAllocationProfile(isolateId, reset: reset))
           .timeout(timeout);
     } on SentinelException {
-      _mainIsolateId = await _resolveMainIsolateId();
+      await _refreshMainIsolateId(gen);
       return null;
     } catch (_) {
       return null;
     }
   }
+
+  /// Re-resolves the main isolate id after a stale-isolate error. The
+  /// answer is kept only while the session that saw the error is still
+  /// current.
+  Future<void> _refreshMainIsolateId(int gen) async {
+    if (gen != _sessionGeneration || _service == null) return;
+    final id = await _resolveMainIsolateId();
+    if (gen == _sessionGeneration && !_disposed) _mainIsolateId = id;
+  }
+
+  /// Test-only: ends the session as a reconnect does, so an in-flight
+  /// poll or request finishes against a newer generation.
+  @visibleForTesting
+  void endSessionForTest() => _cleanup();
+
+  /// Test-only view of the consecutive failed-poll counter.
+  @visibleForTesting
+  int get consecutivePollFailuresForTest => _consecutivePollFailures;
 
   /// Dispose all resources.
   void dispose() {

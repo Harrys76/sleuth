@@ -83,10 +83,12 @@ class JankCaptureBuffer {
 
   /// Update the verdict for a captured frame (used for async CPU attribution).
   ///
-  /// Replaces the entire [CaptureEntry] since it is immutable.
+  /// Replaces the entire [CaptureEntry] since it is immutable. A captured
+  /// correlated verdict is never replaced by a non-correlated one.
   void updateVerdict(int frameNumber, FrameVerdict verdict) {
     for (int i = 0; i < _entries.length; i++) {
       if (_entries[i].frameStats.frameNumber == frameNumber) {
+        if (_entries[i].verdict.isCorrelated && !verdict.isCorrelated) return;
         _entries[i] = CaptureEntry(
           frameStats: _entries[i].frameStats,
           verdict: verdict,

@@ -158,10 +158,41 @@ class TimelineCursor {
     }
     return signatures.add(TimelineParser._signatureOf(json));
   }
+
+  /// Moves the cursor back to [ts], forgetting the events seen at the
+  /// old position.
+  void _rewind(int ts) {
+    _lastTs = ts;
+    _firstAtLastTs = null;
+    _signatures = <String>{};
+  }
 }
 
 class TimelineParser {
   TimelineParser._();
+
+  /// Rewinds every cursor in [cursors] whose position lies past
+  /// [ceilingUs] to the newest position at or before it, and returns
+  /// that position. Returns null, moving nothing, when no cursor lies at
+  /// or before [ceilingUs].
+  ///
+  /// A thread whose cursor sits past the timeline clock would otherwise
+  /// drop every later event on that thread as already seen.
+  static int? clampOutlierCursors(
+    Map<int, TimelineCursor> cursors, {
+    required int ceilingUs,
+  }) {
+    int? newest;
+    for (final cursor in cursors.values) {
+      final ts = cursor._lastTs;
+      if (ts <= ceilingUs && (newest == null || ts > newest)) newest = ts;
+    }
+    if (newest == null) return null;
+    for (final cursor in cursors.values) {
+      if (cursor._lastTs > ceilingUs) cursor._rewind(newest);
+    }
+    return newest;
+  }
 
   // Known event name patterns — multi-case matching to avoid toLowerCase()
   // allocation per event (Pillar 2a M3).

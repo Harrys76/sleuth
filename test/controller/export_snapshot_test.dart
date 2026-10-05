@@ -594,6 +594,31 @@ void main() {
       expect(hitRates, {'listview': ids.length});
     });
 
+    test('detectorHitRates names the resource detectors', () {
+      const ids = [
+        'stream_resource_growth',
+        'tracked_resource_concurrent:sockets',
+        'tracked_resource_long_lived:sockets',
+      ];
+      controller.seedIssuesForTest([
+        for (final id in ids)
+          PerformanceIssue(
+            severity: IssueSeverity.warning,
+            category: IssueCategory.memory,
+            confidence: IssueConfidence.confirmed,
+            title: id,
+            detail: 'test',
+            fixHint: 'test',
+            stableId: id,
+          ),
+      ]);
+
+      final hitRates =
+          controller.exportSnapshot().sessionSummary!['detectorHitRates']
+              as Map<String, dynamic>;
+      expect(hitRates, {'streamResource': 1, 'trackedResource': 2});
+    });
+
     test('topIssues returns at most 5, ordered by rankingScore', () {
       // Inject 7 issues with varying severity so ranking produces
       // a deterministic order.

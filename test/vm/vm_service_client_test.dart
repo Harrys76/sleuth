@@ -1929,6 +1929,233 @@ void main() {
       client.dispose();
     });
   });
+
+  group('A timestamp ahead of the timeline clock', () {
+    Timeline buffer(List<TimelineEvent> events) =>
+        Timeline(traceEvents: events, timeOriginMicros: 0, timeExtentMicros: 0);
+
+    // Polls every 500 ms over a buffer that already holds [future]; each
+    // poll appends one UI-thread build (777 µs) and one raster-thread
+    // build. Returns the poll (1-based, after the first) whose batch first
+    // carries a UI build, or -1.
+    Future<(int, VmServiceClient)> pollsUntilDelivered(
+      TimelineEvent future, {
+      required int maxPolls,
+    }) async {
+      final received = <ParsedTimelineData>[];
+      final served = <TimelineEvent>[
+        _build(9000000),
+        _build(9500000, tid: 2),
+        future,
+      ];
+      final mock = _MockVmService()
+        ..nowMicros = 10000000
+        ..timelineResult = buffer(served);
+      final client = VmServiceClient(
+        onTimelineData: received.add,
+        idleHeartbeat: const Duration(hours: 1),
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+      final before = received.length;
+
+      for (var poll = 1; poll <= maxPolls; poll++) {
+        final now = 10000000 + poll * 500000;
+        served
+          ..add(_build(now - 100000, dur: 777))
+          ..add(_build(now - 50000, tid: 2, dur: 888));
+        mock
+          ..nowMicros = now
+          ..timelineResult = buffer(served);
+        await client.pollTimelineSync();
+        final delivered = received
+            .skip(before)
+            .any((p) => p.buildScopeDurations.contains(777));
+        if (delivered) return (poll, client);
+      }
+      return (-1, client);
+    }
+
+    test('one event 60 s ahead on another thread does not hold later '
+        'events back', () async {
+      final (poll, client) = await pollsUntilDelivered(
+        _build(70000000, tid: 9),
+        maxPolls: 3,
+      );
+      expect(poll, isNot(-1));
+      client.dispose();
+    });
+
+    test('one event 60 s ahead on the UI thread: the thread\'s cursor is '
+        'rewound once another thread agrees with the clock', () async {
+      final (poll, client) = await pollsUntilDelivered(
+        _build(70000000),
+        maxPolls: 4,
+      );
+      expect(poll, isNot(-1));
+      expect(client.cursorsForTest[1]!.lastTs, lessThan(70000000));
+      client.dispose();
+    });
+
+    test('three window fallbacks in a row forget the newest event and the '
+        'next poll reads the whole buffer', () async {
+      final mock = _MockVmService()..timelineResult = buffer([_build(5000)]);
+      final client = VmServiceClient(idleHeartbeat: const Duration(hours: 1));
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+
+      // The clock read fails: every poll falls back.
+      mock.nowMicros = null;
+      for (var i = 0; i < 3; i++) {
+        await client.pollTimelineSync();
+      }
+      expect(client.pollWindowFallbacks, 3);
+      final clockReads = mock.getVMTimelineMicrosCallCount;
+
+      // Fourth poll: a full read with no clock read, counted as a
+      // fallback.
+      mock.timelineResult = buffer([_build(5000), _build(8000000)]);
+      await client.pollTimelineSync();
+      expect(mock.getVMTimelineMicrosCallCount, clockReads);
+      expect(mock.timelineWindows.last, (null, null));
+      expect(client.lastPollTimings!.windowFallback, isTrue);
+      expect(client.pollWindowFallbacks, 4);
+
+      // The clock is back: windowed fetches resume.
+      mock.nowMicros = 9000000;
+      await client.pollTimelineSync();
+      expect(mock.timelineWindows.last.$1, isNotNull);
+      expect(client.lastPollTimings!.windowFallback, isFalse);
+      client.dispose();
+    });
+
+    test('a clock behind every thread leaves the cursors in place', () {
+      final cursors = <int, TimelineCursor>{};
+      TimelineParser.parse([
+        _build(5000000),
+        _build(6000000, tid: 2),
+      ], cursorsByTid: cursors);
+
+      expect(
+        TimelineParser.clampOutlierCursors(cursors, ceilingUs: 1000),
+        isNull,
+      );
+      expect(cursors[1]!.lastTs, 5000000);
+      expect(cursors[2]!.lastTs, 6000000);
+    });
+
+    test('an outlier cursor is rewound to the newest agreeing one', () {
+      final cursors = <int, TimelineCursor>{};
+      TimelineParser.parse([
+        _build(5000000),
+        _build(6000000, tid: 2),
+        _build(90000000, tid: 3),
+      ], cursorsByTid: cursors);
+
+      expect(
+        TimelineParser.clampOutlierCursors(cursors, ceilingUs: 7000000),
+        6000000,
+      );
+      expect(cursors[1]!.lastTs, 5000000);
+      expect(cursors[3]!.lastTs, 6000000);
+      // A later event on the rewound thread is accepted.
+      final next = TimelineParser.parse([
+        _build(6500000, tid: 3, dur: 42),
+      ], cursorsByTid: cursors);
+      expect(next.buildScopeDurations, [42]);
+    });
+  });
+
+  group('A poll that outlives its session', () {
+    test('its failure leaves the new session\'s counter and connection '
+        'alone', () async {
+      final old = _MockVmService()
+        ..getVMTimelineDelay = const Duration(milliseconds: 20)
+        ..getVMTimelineThrows = Exception('old socket');
+      final client = VmServiceClient(idleHeartbeat: const Duration(hours: 1));
+      client.setServiceForTest(old, isolateId: 'isolate-1');
+
+      final stale = client.pollTimelineSync();
+      client.endSessionForTest();
+      final fresh = _MockVmService()
+        ..timelineResult = Timeline(
+          traceEvents: [_build(5000)],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+      client.setServiceForTest(fresh, isolateId: 'isolate-2');
+      await stale;
+
+      expect(client.consecutivePollFailuresForTest, 0);
+      expect(client.isConnected, isTrue);
+
+      // Two failures of the new session are still below the limit.
+      fresh.getVMTimelineThrows = Exception('blip');
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      expect(client.consecutivePollFailuresForTest, 2);
+      expect(client.isConnected, isTrue);
+      client.dispose();
+    });
+
+    test('a stale-isolate answer does not overwrite the new session\'s '
+        'isolate id', () async {
+      final old = _MockVmService()
+        ..cpuSamplesDelay = const Duration(milliseconds: 20)
+        ..cpuSamplesThrows = SentinelException.parse(
+          'isolate-1',
+          <String, dynamic>{
+            'type': 'Sentinel',
+            'kind': 'Collected',
+            'valueAsString': 'test',
+          },
+        );
+      final client = VmServiceClient();
+      client.setServiceForTest(old, isolateId: 'isolate-1');
+
+      final pending = client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1000);
+      client.endSessionForTest();
+      client.setServiceForTest(_MockVmService(), isolateId: 'isolate-2');
+      await pending;
+
+      expect(client.mainIsolateIdForTest, 'isolate-2');
+      client.dispose();
+    });
+
+    test('a new session extracts startup events again', () async {
+      final startups = <StartupTimelineEvents>[];
+      Timeline startupBuffer() => Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'FlutterEngineMainEnter',
+            'cat': 'Embedder',
+            'ph': 'i',
+            'ts': 1000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+        ],
+        timeOriginMicros: 0,
+        timeExtentMicros: 0,
+      );
+      final client = VmServiceClient(onStartupTimelineEvents: startups.add);
+      client.setServiceForTest(
+        _MockVmService()..timelineResult = startupBuffer(),
+        isolateId: 'isolate-1',
+      );
+      await client.pollTimelineSync();
+      expect(startups, hasLength(1));
+
+      client.endSessionForTest();
+      client.setServiceForTest(
+        _MockVmService()..timelineResult = startupBuffer(),
+        isolateId: 'isolate-1',
+      );
+      await client.pollTimelineSync();
+      expect(startups, hasLength(2));
+      client.dispose();
+    });
+  });
 }
 
 TimelineEvent _build(int ts, {int tid = 1, int dur = 100}) =>
