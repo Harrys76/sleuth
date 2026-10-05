@@ -5,11 +5,15 @@
 /// restarts. Sleuth calls [read] once at startup and [write] after a
 /// trailing 500 ms debounce once the state changes, with one write in
 /// flight at a time; a change still waiting when Sleuth is disposed is
-/// written then. Neither call blocks the UI: a [read] that throws or
-/// returns unreadable data leaves the defaults in place, a [read] that
-/// takes longer than 2 s leaves the defaults in place and turns writes
-/// off for the session, and a failing [write] is logged once and
-/// otherwise ignored. Release builds never call the store.
+/// written then. Neither call blocks the UI. A [read] that throws, takes
+/// longer than 2 s, or returns state from a newer release leaves the
+/// defaults in place and turns writes off for the session, so the stored
+/// value survives; return null, not an error, when nothing is stored yet.
+/// Contents no release can read (not a JSON object, no valid
+/// `schemaVersion`) leave the defaults in place and are replaced by the
+/// next change. A [write] that fails or takes longer than 5 s is logged
+/// once and retried with the next change. Release builds never call the
+/// store.
 ///
 /// The package ships no persistent store, so it adds no storage
 /// dependency. A store backed by a file, `shared_preferences` or
@@ -31,7 +35,8 @@ abstract class SleuthStateStore {
   const SleuthStateStore();
 
   /// Returns the JSON last passed to [write], or null when nothing has
-  /// been stored.
+  /// been stored. Throw only when a stored value exists but cannot be
+  /// read: a throw turns writes off for the session.
   Future<String?> read();
 
   /// Stores [json], replacing any previous value.

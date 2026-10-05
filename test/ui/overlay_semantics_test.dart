@@ -114,10 +114,25 @@ void main() {
       controller.issuesNotifier.value = mixedOverlayIssues();
       await tester.tap(find.bySemanticsLabel('Minimize'));
       await tester.pump();
-      final visible = controller.overlayUiState
+      final visible = controller.overlayUiState.visibleIssues(
+        controller.issuesNotifier.value,
+      );
+      expect(visible.any((i) => i.severity == IssueSeverity.critical), isTrue);
+      expect(
+        find.bySemanticsLabel('${visible.length} issues, critical'),
+        findsOneWidget,
+      );
+
+      // Without a critical card the label is the count alone.
+      controller.issuesNotifier.value = [
+        for (final i in controller.issuesNotifier.value)
+          if (i.severity != IssueSeverity.critical) i,
+      ];
+      await tester.pump();
+      final rest = controller.overlayUiState
           .visibleIssues(controller.issuesNotifier.value)
           .length;
-      expect(find.bySemanticsLabel('$visible issues'), findsOneWidget);
+      expect(find.bySemanticsLabel('$rest issues'), findsOneWidget);
     });
   });
 

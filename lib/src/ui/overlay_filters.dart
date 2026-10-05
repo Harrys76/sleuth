@@ -69,25 +69,69 @@ List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
   }).toList();
 }
 
-/// Identity of [issue] for runtime hiding in the overlay: `stableId`
-/// (or `title` when the issue has none), plus `|widgetName` when the
-/// issue names a widget, so two widgets reporting the same detector id
-/// hide independently.
-String hideKeyFor(PerformanceIssue issue) {
+/// Identity of [issue]'s card in the overlay list: `stableId` (or `title`
+/// when the issue has none), plus `|widgetName` when the issue names a
+/// widget, so two widgets reporting the same detector id render as two
+/// cards. Used for the held order and the hide key; [occurrenceKeysFor]
+/// tells apart cards that share it.
+String listKeyFor(PerformanceIssue issue) {
   final base = issue.stableId ?? issue.title;
   final widgetName = issue.widgetName;
   return widgetName == null ? base : '$base|$widgetName';
 }
 
-/// Identity of [issue]'s card in the overlay list: the list key, the
-/// expansion and order-snapshot bookkeeping and the highlight selection.
-/// Same as [hideKeyFor], so two widgets reporting the same detector id
-/// render as two cards.
-String listKeyFor(PerformanceIssue issue) => hideKeyFor(issue);
+/// Suffix of the hide key of a critical issue.
+const String _criticalHideSuffix = '!critical';
+
+/// Key that hides [issue]'s card: its [listKeyFor], plus `!critical` when
+/// the issue is critical. A key taken from a warning or ok card does not
+/// hide the same card once it turns critical; a critical key hides it at
+/// any severity. See [isHiddenBy].
+String hideKeyFor(PerformanceIssue issue) {
+  final key = listKeyFor(issue);
+  return issue.severity == IssueSeverity.critical
+      ? '$key$_criticalHideSuffix'
+      : key;
+}
+
+/// Whether [hideKey] was taken from a critical card.
+bool isCriticalHideKey(String hideKey) => hideKey.endsWith(_criticalHideSuffix);
+
+/// The [listKeyFor] of the cards [hideKey] names.
+String listKeyOfHideKey(String hideKey) => isCriticalHideKey(hideKey)
+    ? hideKey.substring(0, hideKey.length - _criticalHideSuffix.length)
+    : hideKey;
+
+/// Whether [hiddenKeys] hides [issue]: its own [hideKeyFor], or the
+/// critical key of the same card.
+bool isHiddenBy(PerformanceIssue issue, Set<String> hiddenKeys) {
+  if (hiddenKeys.isEmpty) return false;
+  final key = listKeyFor(issue);
+  return hiddenKeys.contains('$key$_criticalHideSuffix') ||
+      (issue.severity != IssueSeverity.critical && hiddenKeys.contains(key));
+}
+
+/// Keys that tell apart the cards of [issues] in their order: the
+/// [listKeyFor] of each, with `#2`, `#3` added to the second and later
+/// card sharing one (a detector that emits one issue per occurrence
+/// under one stable id and widget). Expansion, the order snapshot and
+/// the highlight selection use these keys, so two such cards keep their
+/// own state.
+List<String> occurrenceKeysFor(List<PerformanceIssue> issues) {
+  final seen = <String, int>{};
+  final keys = <String>[];
+  for (final issue in issues) {
+    final key = listKeyFor(issue);
+    final n = (seen[key] ?? 0) + 1;
+    seen[key] = n;
+    keys.add(n == 1 ? key : '$key#$n');
+  }
+  return keys;
+}
 
 /// The overlay's card list: [issues] filtered to [severities], collapsed
-/// by [computeVisibleIssues], then stripped of cards whose [hideKeyFor]
-/// is in [hiddenKeys].
+/// by [computeVisibleIssues], then stripped of cards [hiddenKeys] hides
+/// ([isHiddenBy]).
 ///
 /// The severity filter runs before collapsing, so an effect whose only
 /// parent is filtered out surfaces as its own card. Hiding runs after
@@ -108,6 +152,6 @@ List<PerformanceIssue> applyOverlayFilters(
   if (hiddenKeys.isEmpty) return visible;
   return [
     for (final i in visible)
-      if (!hiddenKeys.contains(hideKeyFor(i))) i,
+      if (!isHiddenBy(i, hiddenKeys)) i,
   ];
 }

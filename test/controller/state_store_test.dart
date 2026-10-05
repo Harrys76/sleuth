@@ -28,6 +28,20 @@ class _ControlledStore implements SleuthStateStore {
   }
 }
 
+/// Store whose first write never completes; later writes do.
+class _HangingFirstWriteStore implements SleuthStateStore {
+  final List<String> writes = [];
+
+  @override
+  Future<String?> read() async => null;
+
+  @override
+  Future<void> write(String json) {
+    writes.add(json);
+    return writes.length == 1 ? Completer<void>().future : Future.value();
+  }
+}
+
 /// Store whose writes complete when the test says so.
 class _SlowWriteStore implements SleuthStateStore {
   final List<String> started = [];
@@ -178,13 +192,13 @@ void main() {
       expect(store.writes, isEmpty);
     });
 
-    for (final unreadable in [
-      'not json',
+    for (final newer in [
       '{"schemaVersion": 2, "hiddenKeys": ["x"]}',
+      '{"schemaVersion": 9}',
     ]) {
-      testWidgets('after an unreadable state the session never writes: '
-          '$unreadable', (tester) async {
-        final store = _RecordingStore(unreadable);
+      testWidgets('after a state from a newer release the session never '
+          'writes: $newer', (tester) async {
+        final store = _RecordingStore(newer);
         final controller = _controller(store);
         await tester.pump();
         expect(controller.uiStateReady.value, isTrue);
@@ -198,6 +212,55 @@ void main() {
         expect(store.writes, isEmpty);
       });
     }
+
+    // Contents no release can read would otherwise turn saving off on
+    // every launch, since nothing would ever replace them.
+    for (final unreadable in [
+      'not json',
+      '{',
+      '[]',
+      '{"hiddenKeys": ["x"]}',
+      '{"schemaVersion": 0}',
+    ]) {
+      testWidgets('unreadable contents are replaced by the next change: '
+          '$unreadable', (tester) async {
+        final store = _RecordingStore(unreadable);
+        final controller = _controller(store);
+        addTearDown(controller.dispose);
+        await tester.pump();
+        expect(controller.uiStateReady.value, isTrue);
+        expect(controller.overlayUiState.hiddenKeys, isEmpty);
+
+        controller.overlayUiState.hide('k');
+        await tester.pump(const Duration(seconds: 1));
+        expect(store.writes, hasLength(1));
+        final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
+        expect(saved['schemaVersion'], 1);
+        expect(saved['hiddenKeys'], ['k']);
+      });
+    }
+
+    testWidgets('a write that never completes does not block later saves', (
+      tester,
+    ) async {
+      final store = _HangingFirstWriteStore();
+      final controller = _controller(store);
+      addTearDown(controller.dispose);
+      await tester.pump();
+
+      controller.overlayUiState.hide('a');
+      await tester.pump(const Duration(seconds: 1));
+      expect(store.writes, hasLength(1));
+
+      // The first write hangs; past the write timeout the next change is
+      // saved.
+      await tester.pump(const Duration(seconds: 5));
+      controller.overlayUiState.hide('b');
+      await tester.pump(const Duration(seconds: 1));
+      expect(store.writes, hasLength(2));
+      final saved = jsonDecode(store.writes.last) as Map<String, Object?>;
+      expect(saved['hiddenKeys'], ['a', 'b']);
+    });
 
     testWidgets('a change made during the read is written once after the '
         'merge', (tester) async {

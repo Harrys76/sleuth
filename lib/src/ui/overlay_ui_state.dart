@@ -87,7 +87,9 @@ class OverlayUiState extends ChangeNotifier {
 
   /// The key [hide] and [unhide] take for [issue]: `stableId` (or `title`
   /// when the issue has none), plus `|widgetName` when the issue names a
-  /// widget.
+  /// widget, plus `!critical` when the issue is critical. A key hidden
+  /// from a warning or ok card does not hide that card once it turns
+  /// critical; a critical key hides it at any severity.
   static String hideKeyFor(PerformanceIssue issue) => filters.hideKeyFor(issue);
 
   bool _dashboardOpen = false;
@@ -217,7 +219,7 @@ class OverlayUiState extends ChangeNotifier {
 
   /// Whether [issue]'s card is hidden.
   bool isHidden(PerformanceIssue issue) =>
-      _hiddenKeys.contains(hideKeyFor(issue));
+      filters.isHiddenBy(issue, _hiddenKeys);
 
   /// Hides the cards whose [hideKeyFor] equals [key]. Re-hiding a key
   /// makes it the newest; past [maxHiddenKeys] the oldest key is evicted.
@@ -402,8 +404,12 @@ class OverlayUiState extends ChangeNotifier {
     final localHidden = _hiddenDirty ? _hiddenKeys.toList() : const <String>[];
     _hiddenKeys.clear();
     if (!_restoredAll) {
+      // A key stored twice takes its later (newer) position.
       for (final key in keptHidden) {
-        if (!_unhiddenKeys.contains(key)) _hiddenKeys.add(key);
+        if (_unhiddenKeys.contains(key)) continue;
+        _hiddenKeys
+          ..remove(key)
+          ..add(key);
       }
     }
     for (final key in localHidden) {

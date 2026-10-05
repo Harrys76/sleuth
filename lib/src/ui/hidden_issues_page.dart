@@ -42,8 +42,8 @@ class HiddenIssuesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    final byKey = <String, PerformanceIssue>{
-      for (final i in issues) hideKeyFor(i): i,
+    final byListKey = <String, PerformanceIssue>{
+      for (final i in issues) listKeyFor(i): i,
     };
     // Newest first: the issue just hidden is at the top.
     final keys = hiddenKeys.reversed.toList();
@@ -136,13 +136,24 @@ class HiddenIssuesPage extends StatelessWidget {
                       _emptyLine('Nothing hidden.', theme)
                     else
                       for (final key in keys)
-                        _HiddenRow(
-                          title: byKey[key]?.title ?? key,
-                          subtitle: byKey[key] == null
-                              ? 'Not detected right now'
-                              : key,
-                          onRestore: () => onRestore(key),
-                        ),
+                        if (byListKey[listKeyOfHideKey(key)] case final issue?)
+                          _HiddenRow(
+                            title: issue.title,
+                            // A key hidden below critical stops hiding
+                            // its card once the issue turns critical.
+                            subtitle:
+                                !isCriticalHideKey(key) &&
+                                    issue.severity == IssueSeverity.critical
+                                ? 'Shown again: now critical'
+                                : key,
+                            onRestore: () => onRestore(key),
+                          )
+                        else
+                          _HiddenRow(
+                            title: key,
+                            subtitle: 'Not detected right now',
+                            onRestore: () => onRestore(key),
+                          ),
                     SizedBox(height: theme.spacingXl),
                     _sectionTitle('Suppressed in SleuthConfig', theme),
                     Padding(

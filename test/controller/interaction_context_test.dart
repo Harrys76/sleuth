@@ -49,6 +49,50 @@ void main() {
     });
 
     group('scroll state', () {
+      // A page view re-fitting its pages after a resize or rotation
+      // starts a ballistic scroll inside performLayout.
+      testWidgets('a scroll that starts during layout publishes issues after '
+          'the frame', (tester) async {
+        var builds = 0;
+        BuildContext? scrollContext;
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(
+              children: [
+                ValueListenableBuilder<List<PerformanceIssue>>(
+                  valueListenable: controller.issuesNotifier,
+                  builder: (context, _, _) {
+                    builds++;
+                    scrollContext = context;
+                    return const SizedBox(height: 10);
+                  },
+                ),
+                _LayoutHook(
+                  onLayout: () {
+                    final ctx = scrollContext;
+                    if (ctx != null) {
+                      controller.onScrollActivity(_scrollStart(ctx));
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+        // The first layout already started a scroll; nothing rebuilt
+        // mid-frame.
+        expect(tester.takeException(), isNull);
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.scrolling,
+        );
+        final before = builds;
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(builds, greaterThan(before));
+      });
+
       testWidgets(
         'onScrollActivity sets scrolling on ScrollStartNotification',
         (tester) async {
@@ -747,4 +791,36 @@ void main() {
       c.dispose();
     });
   });
+}
+
+/// Calls [onLayout] from its render object's `performLayout`, the way a
+/// scrollable re-fitting its content starts a scroll mid-layout.
+class _LayoutHook extends SingleChildRenderObjectWidget {
+  const _LayoutHook({required this.onLayout});
+
+  final VoidCallback onLayout;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderLayoutHook(onLayout);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderLayoutHook renderObject,
+  ) {
+    renderObject.onLayout = onLayout;
+  }
+}
+
+class _RenderLayoutHook extends RenderBox {
+  _RenderLayoutHook(this.onLayout);
+
+  VoidCallback onLayout;
+
+  @override
+  void performLayout() {
+    onLayout();
+    size = constraints.constrain(const Size(10, 10));
+  }
 }

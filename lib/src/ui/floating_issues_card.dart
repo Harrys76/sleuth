@@ -32,7 +32,13 @@ import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
 export 'overlay_filters.dart'
-    show applyOverlayFilters, computeVisibleIssues, hideKeyFor, listKeyFor;
+    show
+        applyOverlayFilters,
+        computeVisibleIssues,
+        hideKeyFor,
+        isHiddenBy,
+        listKeyFor,
+        occurrenceKeysFor;
 
 /// Composes the frozen-zone list for an expanded render.
 ///
@@ -54,8 +60,10 @@ export 'overlay_filters.dart'
 ///    appended in their current ranker-flow order — a new CRITICAL
 ///    landing mid-read arrives below the frozen zone, never above.
 ///
-/// Identity is [listKeyFor], matching the host's pruning and key-based
-/// reorder helpers.
+/// Identity is the card's [occurrenceKeysFor] key in its list, matching
+/// the host's expansion and pruning bookkeeping: two cards sharing a
+/// [listKeyFor] stay two cards, the n-th of the snapshot anchored to the
+/// n-th live one.
 ///
 /// Pure function over `(visibleIssues, orderSnapshot, expandedIndices)`
 /// — no widget state involved — marked [visibleForTesting] so the
@@ -98,22 +106,23 @@ List<PerformanceIssue> applyFreezeZone({
   if (freezeEnd < 0) return visibleIssues;
 
   // Build identity set from the frozen slice.
+  final snapshotKeys = occurrenceKeysFor(orderSnapshot);
   final frozenKeys = <String>{
-    for (var i = 0; i <= freezeEnd; i++) listKeyFor(orderSnapshot[i]),
+    for (var i = 0; i <= freezeEnd; i++) snapshotKeys[i],
   };
 
   // Index current visible issues by identity so we can re-anchor the
   // snapshot slice to the latest PerformanceIssue instances (the
   // ranker may have updated severity, recurrence, etc. on the same id).
+  final visibleKeys = occurrenceKeysFor(visibleIssues);
   final visibleById = <String, PerformanceIssue>{
-    for (final i in visibleIssues) listKeyFor(i): i,
+    for (var i = 0; i < visibleIssues.length; i++)
+      visibleKeys[i]: visibleIssues[i],
   };
 
   final frozen = <PerformanceIssue>[];
   for (var i = 0; i <= freezeEnd; i++) {
-    final snap = orderSnapshot[i];
-    final key = listKeyFor(snap);
-    final live = visibleById[key];
+    final live = visibleById[snapshotKeys[i]];
     // Drop silently if the frozen-zone entry has disappeared from the
     // visible set. `_pruneStaleState` will evict the expand-entry on
     // its next sweep.
@@ -121,8 +130,8 @@ List<PerformanceIssue> applyFreezeZone({
   }
 
   final flow = <PerformanceIssue>[
-    for (final i in visibleIssues)
-      if (!frozenKeys.contains(listKeyFor(i))) i,
+    for (var i = 0; i < visibleIssues.length; i++)
+      if (!frozenKeys.contains(visibleKeys[i])) visibleIssues[i],
   ];
 
   return <PerformanceIssue>[...frozen, ...flow];
@@ -152,7 +161,10 @@ typedef HeldIssueOrder = ({
 /// [visibleIssues] is the ranker's order; [heldKeys] the list keys
 /// ([listKeyFor]) in the order the user sees, or null to adopt the
 /// ranker's order. Held keys keep their order and keys that left drop
-/// out. New keys go to the top, in ranker order. When [promote] is true,
+/// out. New keys go to the top, in ranker order; with [newAtTop] false
+/// (a screen reader) each goes just above the first held key the ranker
+/// places below it, so a new critical never lands under older warnings
+/// while the held cards keep their order. When [promote] is true,
 /// a key whose severity rose since [heldSeverities] moves at once, to
 /// just above the first held key the ranker places below it, and only
 /// when that is higher than where it sits. Any other difference from the
@@ -169,6 +181,7 @@ HeldIssueOrder holdIssueOrder({
   required List<String>? heldKeys,
   Map<String, IssueSeverity> heldSeverities = const {},
   bool promote = true,
+  bool newAtTop = true,
 }) {
   final byKey = <String, List<PerformanceIssue>>{};
   for (final issue in visibleIssues) {
@@ -216,11 +229,21 @@ HeldIssueOrder holdIssueOrder({
       kept.insert(at < current ? at : current, p);
     }
   }
-  final keys = <String>[
-    for (final k in rankKeys)
-      if (added.contains(k)) k,
-    ...kept,
-  ];
+  final List<String> keys;
+  if (newAtTop) {
+    keys = [
+      for (final k in rankKeys)
+        if (added.contains(k)) k,
+      ...kept,
+    ];
+  } else {
+    keys = [...kept];
+    for (final k in rankKeys) {
+      if (!added.contains(k)) continue;
+      final at = keys.indexWhere((h) => rankIndex[h]! > rankIndex[k]!);
+      keys.insert(at < 0 ? keys.length : at, k);
+    }
+  }
   return (
     issues: [for (final k in keys) ...byKey[k]!],
     keys: keys,
@@ -354,8 +377,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   bool _listAtTop = true;
 
   /// A screen reader is running (accessible navigation or semantics on):
-  /// the order changes only on open, a filter change, or hide and unhide.
-  /// Set each build.
+  /// held cards change order only on open, a filter change, or hide and
+  /// unhide; a new card enters at its rank position. Set each build.
   bool _screenReader = false;
 
   /// Cards that entered the held list recently, each drawn with a wider
@@ -382,7 +405,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   String? _detailStableId;
   PerformanceIssue? _detailContextIssue;
   bool _showAiChat = false;
-  String? _chatIssueStableId;
+  String? _chatIssueKey;
   final Map<String, List<AiChatMessage>> _chatHistories = {};
 
   /// Cached jank-correlated issue keys from verdict, updated via listener.
@@ -418,6 +441,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// User-set card height. Null = default (55% of screen).
   double? _cardHeight;
 
+  /// Screen size and safe area the maximized card's offset and width were
+  /// fitted to; null when not fitted yet (a maximized state read from the
+  /// store). A rotation or a different window refits them in build.
+  (Size, EdgeInsets)? _maximizedFor;
+
   // Cached for gesture handlers (set each build).
   EdgeInsets _cachedSafePadding = EdgeInsets.zero;
   double _cachedEffectiveWidth = 0;
@@ -436,6 +464,28 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _onVerdictChanged();
   }
 
+  /// [OverlayUiState]'s geometry when the card last read or wrote it. A
+  /// different value seen in [_onUiStateChanged] was set elsewhere (a
+  /// store read that finished after the card opened) and is adopted.
+  Object? _seenGeometry;
+
+  /// True while [_commitGeometry] writes, so its own change is not
+  /// read back.
+  bool _committingGeometry = false;
+
+  Object _uiGeometry() {
+    final ui = _ui;
+    return (
+      ui.cardOffset,
+      ui.cardWidth,
+      ui.cardHeight,
+      ui.windowState,
+      ui.restoreOffset,
+      ui.restoreWidth,
+      ui.restoreHeight,
+    );
+  }
+
   /// Seeds the local geometry from [OverlayUiState].
   void _readGeometry() {
     final ui = _ui;
@@ -446,20 +496,28 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _preTransitionOffset = ui.restoreOffset;
     _preTransitionWidth = ui.restoreWidth;
     _preTransitionHeight = ui.restoreHeight;
+    _maximizedFor = null;
+    _seenGeometry = _uiGeometry();
   }
 
   /// Writes the local geometry to [OverlayUiState]: once per drag end,
   /// resize end, or window-state change.
   void _commitGeometry() {
-    _ui.setCardGeometry(
-      offset: _cardOffset,
-      width: _cardWidth,
-      height: _cardHeight,
-      windowState: _windowState,
-      restoreOffset: _preTransitionOffset,
-      restoreWidth: _preTransitionWidth,
-      restoreHeight: _preTransitionHeight,
-    );
+    _committingGeometry = true;
+    try {
+      _ui.setCardGeometry(
+        offset: _cardOffset,
+        width: _cardWidth,
+        height: _cardHeight,
+        windowState: _windowState,
+        restoreOffset: _preTransitionOffset,
+        restoreWidth: _preTransitionWidth,
+        restoreHeight: _preTransitionHeight,
+      );
+    } finally {
+      _committingGeometry = false;
+    }
+    _seenGeometry = _uiGeometry();
   }
 
   /// Hidden keys or the severity filter changed. A filter change clears
@@ -467,6 +525,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// is pruned against the new visible list.
   void _onUiStateChanged() {
     if (!mounted) return;
+    if (!_committingGeometry && _uiGeometry() != _seenGeometry) {
+      _readGeometry();
+    }
     final filter = _ui.severityFilter;
     if (!setEquals(filter, _lastSeverityFilter)) {
       _lastSeverityFilter = {...filter};
@@ -510,7 +571,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _orderSnapshot = null;
       _selectedIssueId = null;
       _showAiChat = false;
-      _chatIssueStableId = null;
+      _chatIssueKey = null;
       _chatHistories.clear();
       _cachedJankKeys = const {};
       _onVerdictChanged();
@@ -668,11 +729,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _preTransitionWidth ??= _cardWidth;
       _preTransitionHeight ??= _cardHeight;
       _windowState = CardWindowState.maximized;
-      _cardOffset = Offset(safe.left + 16, safe.top + 16);
-      _cardWidth = math.max(0.0, size.width - safe.horizontal - 32);
+      _fitMaximized(size, safe);
       _cardHeight = _maximizedHeight(size, safe, keyboard);
     });
     _commitGeometry();
+  }
+
+  /// Places the maximized card in the safe area of [size] with a 16 px
+  /// margin.
+  void _fitMaximized(Size size, EdgeInsets safe) {
+    _cardOffset = Offset(safe.left + 16, safe.top + 16);
+    _cardWidth = math.max(0.0, size.width - safe.horizontal - 32);
+    _maximizedFor = (size, safe);
   }
 
   /// Height of the maximized card: the safe area minus margins, above the
@@ -743,7 +811,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   void _closeAiChat() => setState(() {
     _showAiChat = false;
-    _chatIssueStableId = null;
+    _chatIssueKey = null;
     _chatIssue = null;
   });
 
@@ -766,18 +834,32 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   // ─── Hide and copy ─────────────────────────────────────────────────
 
   /// Hides [issue]'s card from the overlay and offers Undo. The card has
-  /// already collapsed through `onExpandedChanged(false)`.
+  /// already collapsed through `onExpandedChanged(false)`; the prune that
+  /// the hide triggers drops its highlight.
   void _hideIssue(PerformanceIssue issue) {
     final key = hideKeyFor(issue);
-    if (_selectedIssueId == listKeyFor(issue)) {
-      _selectedIssueId = null;
-      widget.controller.clearSelectedHighlight();
-    }
     _ui.hide(key);
     _toast.show(
       'Issue hidden',
       actionLabel: 'Undo',
       onAction: () => _ui.unhide(key),
+    );
+  }
+
+  /// Shows every hidden card again and offers Undo, which hides the same
+  /// keys again in their original order.
+  void _restoreAllHidden() {
+    final keys = _ui.hiddenKeys.toList();
+    if (keys.isEmpty) return;
+    _ui.restoreAll();
+    _toast.show(
+      keys.length == 1 ? '1 issue restored' : '${keys.length} issues restored',
+      actionLabel: 'Undo',
+      onAction: () {
+        for (final key in keys) {
+          _ui.hide(key);
+        }
+      },
     );
   }
 
@@ -820,26 +902,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
   }
 
-  PerformanceIssue? _findLiveIssueByStableId(String key) {
+  /// The live issue whose [listKeyFor] is [key]. Of several, the one
+  /// titled like [previous] (the instance last shown), else the first.
+  PerformanceIssue? _findLiveIssueByListKey(
+    String key, {
+    PerformanceIssue? previous,
+  }) {
+    PerformanceIssue? first;
     for (final i in widget.controller.issuesNotifier.value) {
-      if ((i.stableId ?? i.title) == key) return i;
+      if (listKeyFor(i) != key) continue;
+      if (previous == null || i.title == previous.title) return i;
+      first ??= i;
     }
-    return null;
-  }
-
-  PerformanceIssue _findIssueByStableId(String key) {
-    return widget.controller.issuesNotifier.value.firstWhere(
-      (i) => (i.stableId ?? i.title) == key,
-      orElse: () => PerformanceIssue(
-        title: key,
-        detail: '',
-        fixHint: '',
-        severity: IssueSeverity.warning,
-        category: IssueCategory.build,
-        confidence: IssueConfidence.possible,
-        stableId: key,
-      ),
-    );
+    return first;
   }
 
   void _onVerdictChanged() {
@@ -878,18 +953,23 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// [_buildIssuesList] renders — so a hidden or filtered-out card drops
   /// its expansion entry here.
   ///
-  /// `_chatIssueStableId` and `_chatHistories` intentionally stay on the
+  /// `_chatIssueKey` and `_chatHistories` intentionally stay on the
   /// raw-key check — those surfaces operate on ALL issues (including
   /// downstream ones reachable via Ask AI), and narrowing them here would
   /// hide entries the user can still reach through the expanded parent's
   /// downstream list. `_selectedIssueId` is dropped, together with the
-  /// controller's highlight selection, when its issue disappears or is
-  /// hidden.
+  /// controller's highlight selection, when its card leaves the visible
+  /// list (the issue is gone, hidden, or filtered out by severity).
+  ///
+  /// Expansion and selection keys are [occurrenceKeysFor] keys. Issues
+  /// sharing a list key keep their ranker order through the held order
+  /// and the freeze zone, so the visible list numbers them as the
+  /// rendered list does.
   void _pruneStaleState() {
     final issues = widget.controller.issuesNotifier.value;
     final visible = _ui.visibleIssues(issues);
-    final visibleKeys = <String>{for (final i in visible) listKeyFor(i)};
-    final rawKeys = <String>{for (final i in issues) i.stableId ?? i.title};
+    final visibleKeys = occurrenceKeysFor(visible).toSet();
+    final rawKeys = <String>{for (final i in issues) listKeyFor(i)};
     var changed = false;
 
     final expandedBefore = _expandedIndices.length;
@@ -901,9 +981,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // below the frozen zone instead of pushing the expanded card down.
     final snapshot = _orderSnapshot;
     if (snapshot != null && _expandedIndices.isNotEmpty) {
+      final snapshotKeys = occurrenceKeysFor(snapshot);
       final kept = [
-        for (final i in snapshot)
-          if (visibleKeys.contains(listKeyFor(i))) i,
+        for (var i = 0; i < snapshot.length; i++)
+          if (visibleKeys.contains(snapshotKeys[i])) snapshot[i],
       ];
       if (kept.length != snapshot.length) {
         _repointExpansions(kept);
@@ -923,16 +1004,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
 
     final selected = _selectedIssueId;
-    if (selected != null &&
-        (_ui.hiddenKeys.contains(selected) ||
-            !issues.any((i) => listKeyFor(i) == selected))) {
+    if (selected != null && !visibleKeys.contains(selected)) {
       _selectedIssueId = null;
       widget.controller.clearSelectedHighlight();
       changed = true;
     }
     // An open chat outlives its issue (the page holds the last reported
     // instance); only closed chats lose their history with the issue.
-    final openChat = _showAiChat ? _chatIssueStableId : null;
+    final openChat = _showAiChat ? _chatIssueKey : null;
     _chatHistories.removeWhere(
       (key, _) => key != openChat && !rawKeys.contains(key),
     );
@@ -960,10 +1039,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// in it are dropped. The caller sets [_orderSnapshot] (or clears it
   /// when no expansion is left).
   void _repointExpansions(List<PerformanceIssue> snapshot) {
-    final positions = <String, int>{};
-    for (var i = 0; i < snapshot.length; i++) {
-      positions.putIfAbsent(listKeyFor(snapshot[i]), () => i);
-    }
+    final keys = occurrenceKeysFor(snapshot);
+    final positions = <String, int>{
+      for (var i = 0; i < keys.length; i++) keys[i]: i,
+    };
     _expandedIndices
       ..removeWhere((key, _) => !positions.containsKey(key))
       ..updateAll((key, _) => positions[key]!);
@@ -1043,28 +1122,32 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
     // Chrome grows with the text inside it (up to 1.3x); the minimum
     // height grows with it but never past the screen's usable height
-    // (a landscape phone). The stored height is left alone, so the card
-    // returns to it at 1.0x.
+    // (a landscape phone, a split-screen pane), down to the card's own
+    // chrome. The stored height is left alone, so the card returns to it
+    // at 1.0x.
     final chromeScale = chromeScaleOf(context);
     final available = screenSize.height - safe.top - math.max(safe.bottom, 20);
+    // The card never gets shorter than its header, summary bar and
+    // footer.
+    final chromeHeight =
+        _headerHeight +
+        _footerHeight +
+        _IssuesSummaryBar.hitHeightFor(chromeScale);
     final minHeight = math.min(
       _minCardHeight * chromeScale,
-      math.max(_minCardHeight, available),
+      math.max(chromeHeight, available),
     );
     final maxAllowedHeight = math.max(minHeight, available);
     final isMinimized = _windowState == CardWindowState.minimized;
 
     final double cardHeight;
     if (_windowState == CardWindowState.maximized) {
-      // Tracks the keyboard so the card shrinks above it, down to the
-      // header, the summary bar and the footer.
+      // Follows a rotation or window resize. Tracks the keyboard so the
+      // card shrinks above it, down to the header, the summary bar and
+      // the footer.
+      if (_maximizedFor != (screenSize, safe)) _fitMaximized(screenSize, safe);
       _cardHeight = _maximizedHeight(screenSize, safe, keyboardHeight);
-      cardHeight = math.max(
-        _cardHeight!,
-        _headerHeight +
-            _footerHeight +
-            _IssuesSummaryBar.hitHeightFor(chromeScale),
-      );
+      cardHeight = math.max(_cardHeight!, chromeHeight);
     } else {
       cardHeight = (_cardHeight ?? screenSize.height * 0.55).clamp(
         isMinimized ? _minimizedHeight * chromeScale : minHeight,
@@ -1096,6 +1179,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
     final layerDepth = openLayerDepth;
     if (layerDepth != _reportedLayerDepth) {
+      // The list was unmounted under the page and comes back at the top.
+      if (layerDepth == 0) _listAtTop = true;
       _reportedLayerDepth = layerDepth;
       widget.onLayersChanged?.call();
     }
@@ -1141,7 +1226,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                 suppressedCount:
                     widget.controller.suppressedCountNotifier.value,
                 onRestore: _ui.unhide,
-                onRestoreAll: _ui.restoreAll,
+                onRestoreAll: _restoreAllHidden,
                 onClose: () => setState(() => _showHidden = false),
               ),
             ),
@@ -1156,7 +1241,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               contextIssue: _detailContextIssue,
             ),
           ),
-        if (_showAiChat) _page(_buildAiChatPage(_chatIssueStableId!)),
+        if (_showAiChat) _page(_buildAiChatPage(_chatIssueKey!)),
         if (_showStartupDetail)
           _page(
             StartupMetricsPage(
@@ -1178,16 +1263,17 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     );
   }
 
-  /// The chat about the issue keyed [chatKey]. The history callback
-  /// holds [chatKey]: the page commits a stopped reply from `dispose`,
-  /// after close or prune has cleared [_chatIssueStableId]. A write for
-  /// an issue that is no longer reported is dropped, as
+  /// The chat about the card keyed [chatKey] ([listKeyFor]). The history
+  /// callback holds [chatKey]: the page commits a stopped reply from
+  /// `dispose`, after close or prune has cleared [_chatIssueKey]. A write
+  /// for an issue that is no longer reported is dropped, as
   /// [_pruneStaleState] would drop it.
   Widget _buildAiChatPage(String chatKey) {
-    final live = _findLiveIssueByStableId(chatKey);
+    final live = _findLiveIssueByListKey(chatKey, previous: _chatIssue);
     if (live != null) _chatIssue = live;
     return AiChatPage(
-      issue: _chatIssue ?? _findIssueByStableId(chatKey),
+      // Set together with [_chatIssueKey] when the chat opens.
+      issue: _chatIssue!,
       // Hidden issues reach the prompt as a count only.
       allIssues: [
         for (final issue in widget.controller.issuesNotifier.value)
@@ -1198,9 +1284,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       onHistoryChanged: (msgs) {
         // A closed chat's history is kept only while its issue is
         // reported; the open chat always keeps its own.
-        final open = _showAiChat && _chatIssueStableId == chatKey;
+        final open = _showAiChat && _chatIssueKey == chatKey;
         final reported = widget.controller.issuesNotifier.value.any(
-          (i) => (i.stableId ?? i.title) == chatKey,
+          (i) => listKeyFor(i) == chatKey,
         );
         if (open || reported) _chatHistories[chatKey] = msgs;
       },
@@ -1342,10 +1428,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // The status row and banners scroll once they would take more than
     // half of the space between header and footer and leave the list less
     // than the summary bar plus about two collapsed cards (large text, a
-    // short card, an open FPS explainer).
+    // short card, an open FPS explainer). They never leave the list less
+    // than the summary bar plus one row; in a card squeezed below that
+    // (a keyboard over a maximized card) they give up all their space.
     final middle = math.max(0.0, cardHeight - _headerHeight - _footerHeight);
-    final minList = _IssuesSummaryBar.hitHeightFor(chromeScale) + 96;
-    final bannersMaxHeight = math.max(middle * 0.5, middle - minList);
+    final barHit = _IssuesSummaryBar.hitHeightFor(chromeScale);
+    final minList = barHit + 96;
+    final bannersMaxHeight = math
+        .max(middle * 0.5, middle - minList)
+        .clamp(0.0, math.max(0.0, middle - barHit - 48))
+        .toDouble();
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: effectiveWidth,
@@ -1434,9 +1526,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // at 1.0x. Growing starts from the shown height; shrinking from the
     // stored one while the floor holds the shown height up.
     void resizeBy(double dw, double dh) {
+      // A right-flush card grows leftwards ([_clampOffset] moves it), up
+      // to the safe-area width minus [_clampOffset]'s 5 px margin, so it
+      // never reaches under a landscape notch.
       _cardWidth = (_cardWidth + dw).clamp(
         _minCardWidth,
-        math.max(_minCardWidth, screenSize.width - clamped.dx),
+        math.max(
+          _minCardWidth,
+          screenSize.width - _cachedSafePadding.horizontal - 5,
+        ),
       );
       final stored = _cardHeight ?? cardHeight;
       final base = dh < 0 ? math.min(stored, cardHeight) : cardHeight;
@@ -1695,24 +1793,30 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   ) {
     if (visible.isEmpty) return const SizedBox.shrink();
     final count = visible.length;
+    // The only signal on screen while minimized: red when a critical
+    // card is among them.
+    final critical = visible.any((i) => i.severity == IssueSeverity.critical);
+    final color = critical ? theme.severityCritical : theme.severityWarning;
+    final tinted = critical
+        ? theme.severityCriticalText
+        : theme.severityWarningText;
     return Semantics(
-      label: '$count issue${count == 1 ? '' : 's'}',
+      label:
+          '$count issue${count == 1 ? '' : 's'}'
+          '${critical ? ', critical' : ''}',
       excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.badgeFill(theme.severityWarning),
+          color: theme.badgeFill(color),
           borderRadius: BorderRadius.circular(theme.radiusLg),
-          border: Border.all(color: theme.severityWarning),
+          border: Border.all(color: color),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
           child: Text(
             '$count',
             style: TextStyle(
-              color: theme.badgeTextOn(
-                theme.severityWarning,
-                tinted: theme.severityWarningText,
-              ),
+              color: theme.badgeTextOn(color, tinted: tinted),
               fontSize: theme.fontXs,
               fontWeight: FontWeight.bold,
             ),
@@ -1819,10 +1923,34 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         final totalCards = unhidden.length;
         final isNarrowed = visibleIssues.length < totalCards;
 
+        // A chip counts the cards its severity shows under the current
+        // filter. Turning a severity off can surface an effect that was
+        // collapsed under one of its cards, so a disabled severity is
+        // counted with itself added to the filter.
+        final severityCounts = <IssueSeverity, int>{};
+        for (final issue in visibleIssues) {
+          severityCounts.update(
+            issue.severity,
+            (n) => n + 1,
+            ifAbsent: () => 1,
+          );
+        }
+        for (final severity in IssueSeverity.values) {
+          if (ui.severityFilter.contains(severity)) continue;
+          final withSeverity = applyOverlayFilters(
+            issues,
+            severities: {...ui.severityFilter, severity},
+            hiddenKeys: ui.hiddenKeys,
+          );
+          severityCounts[severity] = withSeverity
+              .where((i) => i.severity == severity)
+              .length;
+        }
+
         final summary = _IssuesSummaryBar(
           chromeScale: chromeScale,
           issues: visibleIssues,
-          severityCounts: unfiltered,
+          severityCounts: severityCounts,
           enabledSeverities: ui.severityFilter,
           shownOfTotal: isNarrowed
               ? (shown: visibleIssues.length, total: totalCards)
@@ -1866,6 +1994,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           heldKeys: _heldKeys,
           heldSeverities: _heldSeverities,
           promote: !_screenReader,
+          newAtTop: !_screenReader,
         );
         _recordHeldOrder(held);
         final heldIssues = held.issues;
@@ -1894,18 +2023,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         //
         // Two issues can share a list key (a detector that emits one
         // issue per occurrence under the same stable id and widget
-        // name). The sliver needs distinct keys or its child-order
-        // check fails, so repeats get an occurrence suffix. Expansion,
-        // hide and highlight bookkeeping keep the shared key.
-        final listKeys = List<String>.generate(orderedIssues.length, (i) {
-          return listKeyFor(orderedIssues[i]);
-        });
-        final seenKeys = <String, int>{};
-        for (var i = 0; i < listKeys.length; i++) {
-          final n = (seenKeys[listKeys[i]] ?? 0) + 1;
-          seenKeys[listKeys[i]] = n;
-          if (n > 1) listKeys[i] = '${listKeys[i]}#$n';
-        }
+        // name). Repeats get an occurrence suffix, which keys the sliver
+        // child, the expansion and the highlight selection; the held
+        // order, the new-card accent and hiding use the shared key.
+        final listKeys = occurrenceKeysFor(orderedIssues);
         final orderedIndexByKey = <String, int>{
           for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
@@ -1957,7 +2078,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   itemBuilder: (_, index) {
                     final issue = orderedIssues[index];
                     final locatable = _isLocatableIssue(issue);
-                    final issueKey = listKeyFor(issue);
+                    final issueKey = listKeys[index];
                     final isHighlighted =
                         selectedHighlight != null &&
                         locatable &&
@@ -2101,15 +2222,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                           : null,
                       onAskAi: widget.controller.config.aiChat != null
                           ? () => setState(() {
-                              _chatIssueStableId =
-                                  issue.stableId ?? issue.title;
+                              _chatIssueKey = listKeyFor(issue);
                               _chatIssue = issue;
                               _showAiChat = true;
                             })
                           : null,
                       onCopy: () => _copyIssue(issue),
                       onHide: () => _hideIssue(issue),
-                      isNew: _newKeyTimers.containsKey(issueKey),
+                      isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
                     );
                   },
                 ),
@@ -2883,9 +3003,10 @@ class _IssuesSummaryBar extends StatelessWidget {
   /// Cards currently shown; drives the confirmed/heuristic split.
   final List<PerformanceIssue> issues;
 
-  /// Cards per severity with every severity enabled (hidden cards
-  /// excluded); drives the chip counts.
-  final List<PerformanceIssue> severityCounts;
+  /// Cards of each severity the list shows with that severity enabled
+  /// and the others as they are (hidden cards excluded); drives the chip
+  /// counts.
+  final Map<IssueSeverity, int> severityCounts;
 
   final Set<IssueSeverity> enabledSeverities;
 
@@ -2945,10 +3066,7 @@ class _IssuesSummaryBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    final counts = <IssueSeverity, int>{};
-    for (final issue in severityCounts) {
-      counts[issue.severity] = (counts[issue.severity] ?? 0) + 1;
-    }
+    final counts = severityCounts;
     var confirmed = 0;
     var heuristic = 0;
     for (final issue in issues) {

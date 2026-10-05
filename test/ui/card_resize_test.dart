@@ -201,4 +201,133 @@ void main() {
       expect(findCardConstrainedBox(tester).constraints.maxWidth, 300.0);
     });
   });
+  group('Card geometry in the overlay', () {
+    /// The overlay on a [size] view with the mixed issue set; [keyboard]
+    /// is the bottom view inset and [padding] the safe area.
+    Future<SleuthController> pumpView(
+      WidgetTester tester,
+      Size size, {
+      double keyboard = 0,
+      FakeViewPadding padding = FakeViewPadding.zero,
+    }) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+      tester.view.padding = padding;
+      tester.view.viewPadding = padding;
+      addTearDown(tester.view.reset);
+      final controller = await pumpOverlay(
+        tester,
+        config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+      );
+      controller.issuesNotifier.value = mixedOverlayIssues();
+      return controller;
+    }
+
+    Rect cardRect(WidgetTester tester) => tester.getRect(
+      find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
+    );
+
+    testWidgets('a maximized card refits after the screen rotates', (
+      tester,
+    ) async {
+      final controller = await pumpView(tester, const Size(400, 800));
+      await openDashboard(tester, controller);
+      await tester.tap(find.byIcon(Icons.crop_square));
+      await tester.pump();
+      expect(cardRect(tester).width, 400 - 32);
+
+      // Landscape, with the notch on the left and its mirror on the right.
+      const notch = FakeViewPadding(left: 44, right: 44);
+      tester.view.physicalSize = const Size(800, 400);
+      tester.view.padding = notch;
+      tester.view.viewPadding = notch;
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      final card = cardRect(tester);
+      expect(card.left, 44 + 16);
+      expect(card.width, 800 - 88 - 32);
+      expect(card.top, 16);
+    });
+
+    testWidgets('a stored maximized state is fitted on the first build', (
+      tester,
+    ) async {
+      final controller = await pumpView(tester, const Size(400, 800));
+      // As read from the store: maximized, with a width and offset from
+      // another screen.
+      controller.overlayUiState.setCardGeometry(
+        offset: const Offset(120, 300),
+        width: 250,
+        height: 400,
+        windowState: CardWindowState.maximized,
+      );
+      await openDashboard(tester, controller);
+
+      final card = cardRect(tester);
+      expect(card.left, 16);
+      expect(card.top, 16);
+      expect(card.width, 400 - 32);
+    });
+
+    testWidgets('geometry read after the card opened is adopted, and a drag '
+        'moves the card from there', (tester) async {
+      final controller = await pumpView(tester, const Size(400, 800));
+      await openDashboard(tester, controller);
+      final ui = controller.overlayUiState;
+      expect(ui.cardOffset, isNull);
+
+      // A store read that finishes after the dashboard opened.
+      ui.loadJson({
+        'schemaVersion': 1,
+        'cardOffset': {'dx': 20.0, 'dy': 100.0},
+        'cardWidth': 240.0,
+        'cardHeight': 420.0,
+        'windowState': 'normal',
+      });
+      await tester.pump();
+      expect(cardRect(tester), const Rect.fromLTWH(20, 100, 240, 420));
+
+      await tester.drag(find.text('Sleuth'), const Offset(0, 150));
+      await tester.pumpAndSettle();
+      expect(ui.cardWidth, 240);
+      expect(ui.cardHeight, 420);
+      expect(ui.cardOffset!.dx, 20);
+      expect(ui.cardOffset!.dy, inExclusiveRange(100, 250 + 1));
+      final card = cardRect(tester);
+      expect(card.left, 20);
+      expect(card.top, ui.cardOffset!.dy);
+      expect(card.width, 240);
+    });
+
+    for (final keyboard in [150.0, 300.0]) {
+      testWidgets('a maximized card above a $keyboard px keyboard keeps a '
+          'list under the summary bar', (tester) async {
+        final controller = await pumpView(
+          tester,
+          const Size(844, 390),
+          keyboard: keyboard,
+        );
+        controller.overlayUiState.setCardGeometry(
+          offset: null,
+          width: null,
+          height: null,
+          windowState: CardWindowState.maximized,
+        );
+        await openDashboard(tester, controller);
+        expect(tester.takeException(), isNull);
+
+        final list = tester.getRect(find.byType(ListView));
+        expect(list.height, greaterThan(0));
+        // The summary bar's 36 px sit over the top of the list's area,
+        // which keeps at least the chips' 48 px hit height.
+        expect(list.height + 36, greaterThanOrEqualTo(48));
+        if (keyboard == 150) {
+          // Room for the bar and a row: the banners give it to the list.
+          expect(list.height, greaterThanOrEqualTo(48));
+        }
+      });
+    }
+  });
 }

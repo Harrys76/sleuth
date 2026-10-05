@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/hidden_issues_page.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
@@ -636,6 +637,76 @@ void main() {
     });
   });
 
+  group('Hide keys and severity', () {
+    testWidgets('a card hidden at warning shows again once it turns '
+        'critical', (tester) async {
+      controller.issuesNotifier.value = [_issue('jank', widgetName: 'Feed')];
+      await pumpCard(tester);
+      await expand(tester, 'jank');
+      await tester.tap(find.bySemanticsLabel('Hide this issue'));
+      await tester.pump();
+      expect(find.text('Title jank'), findsNothing);
+
+      controller.issuesNotifier.value = [
+        _issue('jank', widgetName: 'Feed', severity: IssueSeverity.critical),
+      ];
+      await tester.pump();
+      expect(find.text('Title jank'), findsOneWidget);
+      await drainToasts(tester);
+    });
+
+    testWidgets('a card hidden while critical stays hidden at warning', (
+      tester,
+    ) async {
+      final critical = _issue(
+        'jank',
+        widgetName: 'Feed',
+        severity: IssueSeverity.critical,
+      );
+      final warning = _issue('jank', widgetName: 'Feed');
+      controller.issuesNotifier.value = [critical];
+      await pumpCard(tester);
+      await expand(tester, 'jank');
+      await tester.tap(find.bySemanticsLabel('Hide this issue'));
+      await tester.pump();
+      expect(find.text('Title jank'), findsNothing);
+
+      controller.issuesNotifier.value = [warning];
+      await tester.pump();
+      expect(find.text('Title jank'), findsNothing);
+      expect(controller.overlayUiState.isHidden(warning), isTrue);
+      expect(controller.overlayUiState.isHidden(critical), isTrue);
+      await drainToasts(tester);
+    });
+
+    testWidgets('the Hidden list marks a card hidden at warning that is now '
+        'critical', (tester) async {
+      final hiddenAtWarning = hideKeyFor(_issue('jank', widgetName: 'Feed'));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HiddenIssuesPage(
+            hiddenKeys: [hiddenAtWarning],
+            issues: [
+              _issue(
+                'jank',
+                widgetName: 'Feed',
+                severity: IssueSeverity.critical,
+              ),
+            ],
+            configSuppressions: const {},
+            suppressedCount: 0,
+            onRestore: (_) {},
+            onRestoreAll: () {},
+            onClose: () {},
+          ),
+        ),
+      );
+      expect(find.text('Title jank'), findsOneWidget);
+      expect(find.text('Shown again: now critical'), findsOneWidget);
+      expect(find.text(hiddenAtWarning), findsNothing);
+    });
+  });
+
   group('Showing X of Y', () {
     testWidgets('counts cards, not ids: one of two widgets hidden', (
       tester,
@@ -773,6 +844,27 @@ void main() {
       expect(find.text('Nothing hidden.'), findsOneWidget);
     });
 
+    testWidgets('Restore all offers Undo, which hides the same keys again '
+        'in their order', (tester) async {
+      controller.issuesNotifier.value = [_issue('a'), _issue('b'), _issue('c')];
+      controller.overlayUiState
+        ..hide('c')
+        ..hide('a');
+      await pumpCard(tester);
+      await tester.tap(find.text('2 hidden'));
+      await tester.pump();
+
+      await tester.tap(find.bySemanticsLabel('Restore all hidden issues'));
+      await tester.pump();
+      expect(controller.overlayUiState.hiddenKeys, isEmpty);
+      expect(find.text('2 issues restored'), findsOneWidget);
+
+      await tester.tap(find.text('Undo'));
+      await tester.pump();
+      expect(controller.overlayUiState.hiddenKeys.toList(), ['c', 'a']);
+      await drainToasts(tester);
+    });
+
     testWidgets('the Hidden list follows issues and the suppressed count '
         'while open', (tester) async {
       controller.issuesNotifier.value = [_issue('b')];
@@ -884,6 +976,60 @@ void main() {
       // One card shown by default (child collapsed under root), one now:
       // nothing is narrowed, so no "Showing X of Y".
       expect(find.textContaining('Showing'), findsNothing);
+    });
+
+    testWidgets('turning critical off counts the surfaced effect on the '
+        'warning chip', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue(
+          'root',
+          severity: IssueSeverity.critical,
+          downstreamIds: ['child'],
+        ),
+        _issue('child', rootCauseIds: ['root']),
+      ];
+      await pumpCard(tester);
+      expect(chip('warning'), findsNothing);
+
+      await tester.tap(chip('critical'));
+      await tester.pump();
+      expect(find.text('Title child'), findsOneWidget);
+      expect(find.bySemanticsLabel('1 warning, on'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('1 critical, off, tap to show'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('turning off the highlighted card\'s severity clears the '
+        'highlight', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('lay', category: IssueCategory.layout),
+        _issue('crit', severity: IssueSeverity.critical),
+      ];
+      await pumpCard(tester);
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+      expect(controller.pendingIssueSelection, isNotNull);
+      controller.selectedHighlightNotifier.value = const WidgetHighlight(
+        rect: Rect.fromLTWH(0, 0, 10, 10),
+        widgetName: 'Lay',
+        severity: IssueSeverity.warning,
+        detectorName: 'LayoutDetector',
+      );
+      await tester.pump();
+
+      await tester.tap(chip('warning'));
+      await tester.pump();
+      expect(find.text('Title lay'), findsNothing);
+      expect(controller.pendingIssueSelection, isNull);
+      expect(controller.selectedHighlightNotifier.value, isNull);
+
+      // Shown again, the card is no longer ticked.
+      await tester.tap(chip('warning'));
+      await tester.pump();
+      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+      await drainToasts(tester);
     });
 
     testWidgets('the last enabled severity stays on', (tester) async {

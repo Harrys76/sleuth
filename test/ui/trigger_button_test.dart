@@ -540,7 +540,7 @@ void main() {
       expect(find.bySemanticsLabel('Open Sleuth, 2 issues'), findsOneWidget);
       expect(find.text('2'), findsOneWidget);
 
-      state.hide('two');
+      state.hide(OverlayUiState.hideKeyFor(issues.value[1]));
       await tester.pump();
       expect(find.bySemanticsLabel('Open Sleuth, 1 issue'), findsOneWidget);
       expect(find.text('1'), findsOneWidget);

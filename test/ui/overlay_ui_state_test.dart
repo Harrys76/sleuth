@@ -180,6 +180,15 @@ void main() {
       expect(state.hiddenKeys.toList(), ['x', 'y', 'a', 'b']);
     });
 
+    test('loadJson places a key stored twice at its later position', () {
+      final state = OverlayUiState()
+        ..loadJson({
+          'schemaVersion': 1,
+          'hiddenKeys': ['a', 'b', 'a'],
+        });
+      expect(state.hiddenKeys.toList(), ['b', 'a']);
+    });
+
     test('loadJson drops positional keep-alive hide keys', () {
       final state = OverlayUiState()
         ..loadJson({
@@ -331,11 +340,12 @@ void main() {
         expect(state.visibleIssues([root, child, other]), [child, other]);
 
         // Hiding the root takes its collapsed child with it.
+        final rootKey = OverlayUiState.hideKeyFor(root);
         state
           ..resetSeverityFilter()
-          ..hide('root');
+          ..hide(rootKey);
         expect(state.visibleIssues([root, child, other]), [other]);
-        state.unhide('root');
+        state.unhide(rootKey);
         expect(state.visibleIssues([root, child, other]), [root, other]);
       },
     );

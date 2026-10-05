@@ -457,7 +457,9 @@ class SleuthController {
   /// Update the overlay theme at runtime. A non-null [theme] also sets the
   /// header toggle to System so the theme shows; picking Light or Dark
   /// in the header afterwards takes precedence until System is picked
-  /// again. Pass `null` to revert to the config theme or auto-detection.
+  /// again. An app that calls this at every startup therefore does not
+  /// keep a saved Light or Dark choice across launches. Pass `null` to
+  /// revert to the config theme or auto-detection.
   void updateTheme(SleuthThemeData? theme) {
     if (theme != null) overlayUiState.themeMode = SleuthThemeMode.system;
     _themeOverride.value = theme;
@@ -520,12 +522,17 @@ class SleuthController {
   /// no store is configured, otherwise after the store's read completes,
   /// fails, or times out (2 s). The trigger button paints only when true.
   ///
-  /// After a timed-out read the session never writes to the store; the
-  /// overlay keeps its state in memory.
+  /// After a read that timed out or threw, or that returned state from a
+  /// newer release, the session never writes to the store; the overlay
+  /// keeps its state in memory.
   final ValueNotifier<bool> uiStateReady;
 
   static const Duration _stateStoreReadTimeout = Duration(seconds: 2);
   static const Duration _stateStoreWriteDebounce = Duration(milliseconds: 500);
+
+  /// A write still running after this is given up, so the next change
+  /// can be saved.
+  static const Duration _stateStoreWriteTimeout = Duration(seconds: 5);
 
   bool _uiStateLoadStarted = false;
   Timer? _uiStateLoadTimer;
@@ -534,9 +541,10 @@ class SleuthController {
   bool _stateStoreReadErrorLogged = false;
   bool _stateStoreWriteErrorLogged = false;
 
-  /// Set when the store's read timed out or failed (an exception,
-  /// malformed JSON, a newer schema): this session does not write, so the
-  /// stored file is left as it is.
+  /// Set when the store's read timed out, threw, or returned state from a
+  /// newer release: this session does not write, so the stored value is
+  /// left as it is. Contents no release can read (not a JSON object, no
+  /// valid `schemaVersion`) are replaced by the next change.
   bool _stateStoreWritesDisabled = false;
 
   /// [overlayUiState] as the store's contents alone would set it,
@@ -580,19 +588,38 @@ class SleuthController {
     completer.future
         .then<void>((raw) {
           if (_disposed || raw == null) return;
-          final decoded = jsonDecode(raw);
-          if (decoded is! Map<String, Object?>) {
-            throw const FormatException('state is not a JSON object');
+          final Map<String, Object?> state;
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is! Map<String, Object?>) {
+              throw const FormatException('state is not a JSON object');
+            }
+            final version = decoded['schemaVersion'];
+            if (version is int && version > OverlayUiState.schemaVersion) {
+              // A newer release's state: left alone (writes stay off).
+              throw _NewerUiStateException(version);
+            }
+            state = decoded;
+            _loadedUiState = jsonEncode(
+              OverlayUiState.fromJson(state).toJson(),
+            );
+          } on FormatException catch (e) {
+            // Truncated or foreign contents no release can read: the
+            // defaults stay and the next change replaces them.
+            debugPrint(
+              'Sleuth: overlay state not restored (${e.message}); the '
+              'next change replaces it',
+            );
+            return;
           }
-          _loadedUiState = jsonEncode(
-            OverlayUiState.fromJson(decoded).toJson(),
-          );
-          overlayUiState.loadJson(decoded);
+          overlayUiState.loadJson(state);
         })
         .catchError((Object e) {
           final timedOut = _stateStoreWritesDisabled;
-          // A file this session cannot read (or a newer release wrote) is
-          // left alone rather than replaced with defaults.
+          // A read that threw may have hit a transient failure on a value
+          // that is still there, and a newer release's state must survive
+          // an older one: either is left alone rather than replaced with
+          // defaults.
           _stateStoreWritesDisabled = true;
           if (_stateStoreReadErrorLogged) return;
           _stateStoreReadErrorLogged = true;
@@ -650,7 +677,10 @@ class SleuthController {
     if (json == _lastPersistedUiState) return;
     _lastPersistedUiState = json;
     _uiStateWriteInFlight = true;
+    // A write that never completes would hold [_uiStateWriteInFlight]
+    // and block every later save.
     Future<void>.sync(() => store.write(json))
+        .timeout(_stateStoreWriteTimeout)
         .catchError((Object e) {
           // Retry with the next change.
           if (_lastPersistedUiState == json) _lastPersistedUiState = null;
@@ -664,6 +694,13 @@ class SleuthController {
           _uiStateWritePending = false;
           _writeOverlayUiState(flushing: _disposed);
         });
+  }
+
+  /// Writes a change still waiting for its debounce at once.
+  void _flushPendingOverlayUiStateWrite() {
+    if (_uiStateWriteTimer == null) return;
+    _uiStateWriteTimer!.cancel();
+    _writeOverlayUiState();
   }
 
   /// On dispose: a change still waiting for its debounce gets one last
@@ -3344,11 +3381,31 @@ class SleuthController {
       _scrollIdleTimer?.cancel();
       if (_interactionState != InteractionContext.scrolling) {
         _interactionState = InteractionContext.scrolling;
-        _aggregateIssues();
+        _aggregateIssuesOutsideFrame();
       }
     } else if (notification is ScrollEndNotification) {
       _scheduleScrollIdle();
     }
+  }
+
+  bool _aggregateAfterFrameScheduled = false;
+
+  /// Runs [_aggregateIssues] now, or after the current frame when called
+  /// while it builds, lays out or paints. A page view that re-fits its
+  /// pages after a resize or rotation starts a scroll inside layout;
+  /// publishing issues then would rebuild their listeners mid-frame.
+  void _aggregateIssuesOutsideFrame() {
+    final scheduler = SchedulerBinding.instance;
+    if (scheduler.schedulerPhase != SchedulerPhase.persistentCallbacks) {
+      _aggregateIssues();
+      return;
+    }
+    if (_aggregateAfterFrameScheduled) return;
+    _aggregateAfterFrameScheduled = true;
+    scheduler.addPostFrameCallback((_) {
+      _aggregateAfterFrameScheduled = false;
+      if (!_disposed) _aggregateIssues();
+    });
   }
 
   /// Update interaction state when keyboard visibility changes.
@@ -3379,6 +3436,12 @@ class SleuthController {
   ///
   /// Called by the overlay's [WidgetsBindingObserver.didChangeAppLifecycleState].
   void onAppLifecycleChanged(AppLifecycleState state) {
+    // The OS may end a backgrounded app without another callback: a
+    // change still waiting for its debounce is written now.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _flushPendingOverlayUiStateWrite();
+    }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _interactionState = InteractionContext.appLifecycle;
@@ -5928,4 +5991,14 @@ class _AllocStat {
   final String lib;
   final int instances;
   final int bytes;
+}
+
+/// The stored overlay state was written by a newer release.
+class _NewerUiStateException implements Exception {
+  const _NewerUiStateException(this.version);
+
+  final int version;
+
+  @override
+  String toString() => 'state from a newer release (schemaVersion $version)';
 }
