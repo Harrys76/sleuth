@@ -146,13 +146,19 @@ void main() {
         await _settle(tester, 'FPS explainer');
 
         // Learn more -> encyclopedia, Ask AI -> chat.
-        await _tapFinder(tester, find.text('Learn more about this issue'));
+        await _tapFinder(
+          tester,
+          find.bySemanticsLabel('Learn more about this issue'),
+        );
         await _settle(tester, 'encyclopedia from learn more');
         expect(find.text('Issue Encyclopedia'), findsOneWidget);
         await systemBack(tester);
         await _settle(tester, 'back from encyclopedia');
 
-        await _tapFinder(tester, find.text('Ask AI about this issue'));
+        await _tapFinder(
+          tester,
+          find.bySemanticsLabel('Ask AI about this issue'),
+        );
         await _settle(tester, 'AI chat');
         await tester.tap(find.text('Ask AI').first);
         await _settle(tester, 'AI chat tapped');
@@ -263,7 +269,10 @@ void main() {
       await _settle(tester, 'root only');
       await tester.tap(find.text(root.title));
       await _settle(tester, 'expand root');
-      await _tapFinder(tester, find.text('Ask AI about this issue'));
+      await _tapFinder(
+        tester,
+        find.bySemanticsLabel('Ask AI about this issue'),
+      );
       await _settle(tester, 'AI chat');
       expect(find.byType(AiChatPage), findsOneWidget);
     }

@@ -536,7 +536,7 @@ void main() {
       // Settles: no repeating ticker.
       await tester.pumpAndSettle();
       expect(tester.binding.hasScheduledFrame, isFalse);
-      expect(find.text('Ask AI about this issue'), findsOneWidget);
+      expect(find.bySemanticsLabel('Ask AI about this issue'), findsOneWidget);
     });
 
     testWidgets('rests under iOS Reduce Motion', (tester) async {
@@ -572,7 +572,7 @@ void main() {
 
     testWidgets('link text is a solid token readable on every card fill; '
         'only the icon shimmers', (tester) async {
-      const label = 'Ask AI about this issue';
+      const label = 'Ask AI'; // visible text; the button's label is longer
       for (final theme in _presets) {
         for (final (highlighted, jankFlash) in [
           (false, false),
@@ -720,6 +720,77 @@ void main() {
       );
       final paragraph = tester.renderObject<RenderParagraph>(confirmed);
       expect(paragraph.didExceedMaxLines, isFalse);
+    });
+  });
+
+  group('expanded card actions', () {
+    Future<Map<String, Rect>> pumpActions(
+      WidgetTester tester,
+      double width,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: width,
+                child: IssueCard(
+                  issue: _testIssue(),
+                  initiallyExpanded: true,
+                  onCopy: () {},
+                  onHide: () {},
+                  onLearnMore: () {},
+                  onAskAi: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      return {
+        for (final label in [
+          'Learn more about this issue',
+          'Ask AI about this issue',
+          'Copy issue details',
+          'Hide this issue',
+        ])
+          label: tester.getRect(find.bySemanticsLabel(label)),
+      };
+    }
+
+    // The test font draws every glyph as a square, about twice as wide as
+    // a real font, so the one-row width is wider than a default card.
+    testWidgets('share one row on a wide card: links first, icons last', (
+      tester,
+    ) async {
+      final r = await pumpActions(tester, 400);
+      final learn = r['Learn more about this issue']!;
+      final ask = r['Ask AI about this issue']!;
+      final copy = r['Copy issue details']!;
+      final hide = r['Hide this issue']!;
+      for (final rect in [ask, copy, hide]) {
+        expect(rect.center.dy, closeTo(learn.center.dy, 0.5));
+      }
+      expect(learn.left, lessThan(ask.left));
+      expect(ask.right, lessThanOrEqualTo(copy.left));
+      expect(copy.right, lessThanOrEqualTo(hide.left));
+    });
+
+    testWidgets('wrap on a narrow card without overlapping, each row '
+        'starting at the same edge', (tester) async {
+      final r = await pumpActions(tester, 180);
+      final rects = r.values.toList();
+      for (var i = 0; i < rects.length; i++) {
+        for (var j = i + 1; j < rects.length; j++) {
+          expect(rects[i].overlaps(rects[j]), isFalse);
+        }
+      }
+      final learn = r['Learn more about this issue']!;
+      final copy = r['Copy issue details']!;
+      expect(copy.top, greaterThan(learn.top));
+      expect(copy.left, closeTo(learn.left, 0.5));
+      expect(tester.takeException(), isNull);
     });
   });
 }

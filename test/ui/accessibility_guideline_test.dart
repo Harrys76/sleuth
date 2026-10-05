@@ -213,8 +213,11 @@ void main() {
         expect(_routeNodes(tester), 0, reason: 'after $name');
       }
 
-      await page(find.text('Learn more about this issue'), 'encyclopedia');
-      await page(find.text('Ask AI about this issue'), 'AI chat');
+      await page(
+        find.bySemanticsLabel('Learn more about this issue'),
+        'encyclopedia',
+      );
+      await page(find.bySemanticsLabel('Ask AI about this issue'), 'AI chat');
       await page(find.bySemanticsLabel('Guide'), 'guide');
       controller.overlayUiState.hide('slow_request');
       await tester.pump();

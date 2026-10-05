@@ -61,7 +61,11 @@
   accent border. The trigger icon is dark on the warning and OK fills
   (`triggerIconOnLightFill`). The trigger's FPS number sits on an opaque
   pill in `fpsTextColor` with the severity as its border. The Ask AI link
-  text uses `textSecondary`; the shimmer stays on its sparkle. Severity
+  text uses `textSecondary`; the shimmer stays on its sparkle. An expanded
+  card's actions sit in one row: Learn more and Ask AI at the start (short
+  visible labels; screen readers keep the full names), Copy and Hide at
+  the end; on a narrow card they wrap, every row starting at the same
+  edge. Severity
   chips show a check when on and a dot when off, with a 3:1 border; the
   highlight checkbox's check, the paused rebuild icon and the source
   accent strips reach 3:1.

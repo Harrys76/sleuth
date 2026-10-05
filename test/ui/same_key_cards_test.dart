@@ -211,7 +211,7 @@ void main() {
       await tapTitle(tester, 'grid');
       final askAi = find.descendant(
         of: cardOf('grid'),
-        matching: find.text('Ask AI about this issue'),
+        matching: find.bySemanticsLabel('Ask AI about this issue'),
       );
       await tester.ensureVisible(askAi);
       await tester.pump();

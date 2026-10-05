@@ -446,7 +446,10 @@ void main() {
         ),
       );
 
-      expect(find.text('Learn more about this issue'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Learn more about this issue'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Learn more link hidden when onLearnMore is null', (
@@ -463,7 +466,10 @@ void main() {
         ),
       );
 
-      expect(find.text('Learn more about this issue'), findsNothing);
+      expect(
+        find.bySemanticsLabel('Learn more about this issue'),
+        findsNothing,
+      );
     });
 
     testWidgets('tapping Learn more calls callback', (tester) async {
@@ -480,7 +486,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Learn more about this issue'));
+      await tester.tap(find.bySemanticsLabel('Learn more about this issue'));
       expect(tapped, isTrue);
     });
   });

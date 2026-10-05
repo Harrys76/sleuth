@@ -779,25 +779,48 @@ class _IssueCardState extends State<IssueCard> {
           widget.onAskAi != null)
         Padding(
           padding: EdgeInsets.only(top: theme.spacingXs),
-          child: Row(
-            children: [
-              if (widget.onCopy != null)
-                _actionIcon(
-                  icon: Icons.copy,
-                  label: 'Copy issue details',
-                  onTap: widget.onCopy!,
-                  theme: theme,
+          // One row: the links at the start, Copy and Hide at the end. On
+          // a narrow card or at large text the icons take a second row,
+          // and the links wrap onto their own rows, all starting at the
+          // same edge.
+          child: SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (widget.onLearnMore != null || widget.onAskAi != null)
+                  Wrap(
+                    spacing: theme.spacingLg,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (widget.onLearnMore != null)
+                        _buildLearnMoreLink(theme),
+                      if (widget.onAskAi != null)
+                        _AskAiShimmerLink(onTap: widget.onAskAi!),
+                    ],
+                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.onCopy != null)
+                      _actionIcon(
+                        icon: Icons.copy,
+                        label: 'Copy issue details',
+                        onTap: widget.onCopy!,
+                        theme: theme,
+                      ),
+                    if (widget.onHide != null)
+                      _actionIcon(
+                        icon: Icons.visibility_off_outlined,
+                        label: 'Hide this issue',
+                        onTap: _hide,
+                        theme: theme,
+                      ),
+                  ],
                 ),
-              if (widget.onHide != null)
-                _actionIcon(
-                  icon: Icons.visibility_off_outlined,
-                  label: 'Hide this issue',
-                  onTap: _hide,
-                  theme: theme,
-                ),
-              if (widget.onLearnMore != null || widget.onAskAi != null)
-                Expanded(child: _buildLinks(theme)),
-            ],
+              ],
+            ),
           ),
         ),
     ];
@@ -828,42 +851,6 @@ class _IssueCardState extends State<IssueCard> {
     );
   }
 
-  /// "Learn more" and "Ask AI" links; stacked when both do not fit.
-  Widget _buildLinks(SleuthThemeData theme) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final bothPresent =
-            widget.onLearnMore != null && widget.onAskAi != null;
-        // Both links at font-size 9 + icons need ~240px side by side.
-        final stackVertically = bothPresent && constraints.maxWidth < 240;
-
-        if (stackVertically) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (widget.onLearnMore != null) _buildLearnMoreLink(theme),
-              if (widget.onAskAi != null)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: _AskAiShimmerLink(onTap: widget.onAskAi!),
-                ),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            if (widget.onLearnMore != null)
-              Flexible(child: _buildLearnMoreLink(theme)),
-            if (bothPresent) const Spacer(),
-            if (widget.onAskAi != null)
-              _AskAiShimmerLink(onTap: widget.onAskAi!),
-          ],
-        );
-      },
-    );
-  }
-
   Widget _buildLearnMoreLink(SleuthThemeData theme) {
     return _linkHitBox(
       label: 'Learn more about this issue',
@@ -871,18 +858,18 @@ class _IssueCardState extends State<IssueCard> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.menu_book_outlined, color: theme.textTertiary, size: 13),
+          Icon(Icons.menu_book_outlined, color: theme.textSecondary, size: 13),
           SizedBox(width: theme.spacingXs),
           Flexible(
             child: Text(
-              'Learn more about this issue',
+              // The button's semantics label carries the full name.
+              'Learn more',
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
               style: TextStyle(
-                color: theme.textTertiary,
+                color: theme.textSecondary,
                 fontSize: theme.fontXs,
-                decoration: TextDecoration.underline,
-                decorationColor: theme.textTertiary,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -1441,7 +1428,8 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
           SizedBox(width: theme.spacingXs),
           Flexible(
             child: Text(
-              'Ask AI about this issue',
+              // The button's semantics label carries the full name.
+              'Ask AI',
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
               style: TextStyle(
