@@ -117,7 +117,7 @@ These add overhead and are off by default. Enable them when you need deeper attr
 
 ```dart
 SleuthConfig(
-  enableDebugCallbacks: true,        // per-widget rebuild & paint counts
+  enableDebugCallbacks: true,        // per-widget rebuild & paint counts (widgets your code creates)
   enableDeepDebugInstrumentation: true, // timeline dirty lists & per-widget build/layout/paint events
 )
 ```
@@ -282,7 +282,7 @@ Sleuth reads the store once at startup (the trigger appears when the read finish
 
 **Platform channel profiling:** the Platform Channel detector only sees calls when the framework's `debugProfilePlatformChannels` flag is on. `profilePlatformChannels: true` sets it once the VM service connects and restores it on dispose. While on, the framework prints a "Platform Channel Stats" table to the console every second that channels are active, and profiles framework channels (TextInput, SystemChrome, clipboard) too. Off by default.
 
-**Debug callbacks note:** `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds" — only one can be active at a time. Default `false` to avoid surprising DevTools users.
+**Debug callbacks note:** `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds" — only one can be active at a time. Default `false` to avoid surprising DevTools users. Per-widget counts keep only widgets your code creates (framework widgets built inside them repaint with them and would each report); `advanced: DebugInstrumentationConfig(userWidgetsOnly: false)` counts those too. Sleuth's own overlay is never counted.
 
 **Overlay theming:** the overlay follows the platform brightness and switches to a high-contrast preset when the platform asks for high contrast (iOS Increase Contrast). The header toggle cycles System → Light → Dark and remembers the choice (`OverlayUiState.themeMode`, persisted with the rest of the overlay state). Precedence: the toggle's Light or Dark > `Sleuth.updateTheme` > `SleuthConfig.theme` > auto. Choosing Light or Dark shows the Sleuth preset (high-contrast when the platform asks for it) in place of an `updateTheme` or configured theme; System shows that theme again. `Sleuth.updateTheme` with a theme sets the toggle to System.
 

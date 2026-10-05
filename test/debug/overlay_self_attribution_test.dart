@@ -27,7 +27,12 @@ void main() {
     SleuthController controller,
   ) async {
     var now = DateTime(2026);
-    final coord = DebugInstrumentationCoordinator(clock: () => now);
+    // Framework widgets count too, so the overlay's Card, InkWell and
+    // Material would show up without the ownership check.
+    final coord = DebugInstrumentationCoordinator(
+      userWidgetsOnly: false,
+      clock: () => now,
+    );
     coord.install();
     expect(coord.isRebuildInstalled && coord.isPaintInstalled, isTrue);
     for (var i = 0; i < 30; i++) {

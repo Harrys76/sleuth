@@ -877,7 +877,9 @@ class IssueExplanationBuilder {
           '(default, configurable); builder widgets such as StreamBuilder '
           'or ValueListenableBuilder alert at 3× that rate. Critical above '
           '3× the alert rate.\n\n'
-          '• Widget type — The exact class name being tracked.\n\n'
+          '• Widget type — The exact class name being tracked. Only '
+          'widgets your code creates are counted; framework widgets they '
+          'build inside rebuild with them and are left out.\n\n'
           '• Debug mode only — values may differ in profile mode.\n\n'
           '• Source: debugOnRebuildDirtyWidget callback.',
       whyItMatters:
@@ -1015,9 +1017,12 @@ class IssueExplanationBuilder {
           'per second, leaving out paints driven by its own animation. '
           'Normal: 0–1/sec at idle. Alert: ≥30/sec; critical above 2× '
           'that (>60/sec).\n\n'
-          '• Widget type — The class name of the repainting widget.\n\n'
+          '• Widget type — The class name of the repainting widget. Only '
+          'widgets your code creates are counted; framework widgets they '
+          'build inside (RichText under Text, ink under InkWell) are left '
+          'out.\n\n'
           '• Debug mode only — values may differ in profile mode.\n\n'
-          '• Source: debugOnRepaintRenderObject callback.',
+          '• Source: debugOnProfilePaint callback.',
       whyItMatters:
           'When one widget type dominates paint activity, it often '
           'indicates a missing RepaintBoundary or a CustomPainter that '

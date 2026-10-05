@@ -230,7 +230,11 @@ Future<DebugSnapshot> _capture(
       child: Theme(data: ThemeData.light(), child: root),
     ),
   );
-  final coord = DebugInstrumentationCoordinator(installRebuild: false);
+  // The owners' painters are framework widgets; count them per widget.
+  final coord = DebugInstrumentationCoordinator(
+    installRebuild: false,
+    userWidgetsOnly: false,
+  );
   coord.install();
   final installed = debugOnProfilePaint!;
   if (uncached) {

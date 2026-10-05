@@ -65,6 +65,8 @@ void main() {
           // first build/paint doesn't pollute the counts.
           final coordinator = DebugInstrumentationCoordinator(
             installRebuild: false, // not under test here
+            // The indicator's painter is a framework widget.
+            userWidgetsOnly: false,
           );
           coordinator.install();
 

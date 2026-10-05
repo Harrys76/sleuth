@@ -201,6 +201,18 @@
   `repaint_debug_Padding`, ...) as the app's. The overlay registers its
   subtree, and an element under it (but not under the app it wraps) is
   skipped; the decision is cached per element.
+- Debug rebuild and paint counts per widget keep only widgets your code
+  creates. Framework widgets built inside them (`RichText` under `Text`,
+  `_InkFeatures` under `InkWell`, a scaffold's layout widgets) repaint
+  with them and each raised its own `repaint_debug_*` or `rebuild_debug_*`
+  issue: one animated painter sharing a layer with an app bar raised about
+  40. The framework's creation tracking (on in debug builds) decides,
+  as it does for `debugProfileBuildsEnabledUserWidgets`; widgets other
+  packages create still count. Framework paints stay in the aggregate
+  count and its animation-owned share. New
+  `DebugInstrumentationConfig.userWidgetsOnly` (default true); set false
+  to count framework widgets too. The repaint encyclopedia entry names
+  `debugOnProfilePaint` as its source.
 - Example: demo subtitles fit 40 characters, demo file headers follow the
   home-screen numbering, tile titles use `titleMedium`, and category
   header icons use the theme's primary color.

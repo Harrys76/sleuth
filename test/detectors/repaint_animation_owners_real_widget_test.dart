@@ -366,7 +366,11 @@ Future<DebugSnapshot> _captureRealPaints({
     ),
   );
 
-  final coordinator = DebugInstrumentationCoordinator(installRebuild: false);
+  // The owners' painters are framework widgets; count them per widget.
+  final coordinator = DebugInstrumentationCoordinator(
+    installRebuild: false,
+    userWidgetsOnly: false,
+  );
   coordinator.install();
 
   try {

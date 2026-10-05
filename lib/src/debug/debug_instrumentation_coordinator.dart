@@ -47,10 +47,14 @@ class DebugInstrumentationCoordinator {
     DateTime Function()? clock,
     bool installRebuild = true,
     bool installPaint = true,
+    bool userWidgetsOnly = true,
   }) : _maxTrackedTypes = maxTrackedTypes,
        _clock = clock ?? DateTime.now,
        _installRebuild = installRebuild,
-       _installPaint = installPaint {
+       _installPaint = installPaint,
+       _userWidgetsOnly =
+           userWidgetsOnly &&
+           WidgetInspectorService.instance.isWidgetCreationTracked() {
     // Create bound method references once so == checks work on uninstall.
     _onRebuildDirtyWidget = _handleRebuildDirtyWidget;
     _onProfilePaint = _handleProfilePaint;
@@ -60,6 +64,19 @@ class DebugInstrumentationCoordinator {
   final DateTime Function() _clock;
   final bool _installRebuild;
   final bool _installPaint;
+
+  /// Whether per-widget counts keep only user widgets: widgets created
+  /// outside the Flutter SDK, as the framework's own
+  /// `debugIsWidgetLocalCreation` decides (only the project's files once
+  /// DevTools has set its root directories). Framework widgets built
+  /// inside them (`RichText` under `Text`, `_InkFeatures` under
+  /// `InkWell`, a scaffold's layout) rebuild and repaint with the widget
+  /// that builds them and would each report on their own. Needs creation
+  /// tracking, which debug builds have; without it every widget counts.
+  final bool _userWidgetsOnly;
+
+  bool _isUserWidget(Widget widget) =>
+      !_userWidgetsOnly || debugIsWidgetLocalCreation(widget);
 
   late final void Function(Element, bool) _onRebuildDirtyWidget;
   late final void Function(RenderObject) _onProfilePaint;
@@ -659,6 +676,7 @@ class DebugInstrumentationCoordinator {
   void _handleRebuildDirtyWidget(Element element, bool builtOnce) {
     // Sleuth's own overlay widgets are not the app's rebuilds.
     if (OverlayOwnership.isOverlayOwned(element)) return;
+    if (!_isUserWidget(element.widget)) return;
     // First observation of this element = initial build (don't count).
     // Every subsequent observation = real rebuild. The framework's
     // `builtOnce` parameter is unreliable (see `_elementSeen` docs), so we
@@ -720,11 +738,17 @@ class DebugInstrumentationCoordinator {
       return;
     }
     _paintCount++;
-    if (_paintCounts.length >= _maxTrackedTypes &&
-        !_paintCounts.containsKey(typeName)) {
-      return; // Cap reached, ignore new types
+    // A framework widget's paint still counts in the totals (and its
+    // animation ownership below), so the aggregate gates see every paint;
+    // only the per-widget maps leave it out.
+    final perWidget = _isUserWidget(element.widget);
+    if (perWidget) {
+      if (_paintCounts.length >= _maxTrackedTypes &&
+          !_paintCounts.containsKey(typeName)) {
+        return; // Cap reached, ignore new types
+      }
+      _paintCounts[typeName] = (_paintCounts[typeName] ?? 0) + 1;
     }
-    _paintCounts[typeName] = (_paintCounts[typeName] ?? 0) + 1;
 
     // The chain and the ancestor legs of the ownership check are judged
     // per element, never per typeName: two distinct widgets sharing the
@@ -739,7 +763,7 @@ class DebugInstrumentationCoordinator {
     // case, where the polymorphic collision is already accepted.
     final attribution = _attributionFor(element);
     final chain = attribution.chain;
-    if (chain != null && !_ancestorChains.containsKey(typeName)) {
+    if (perWidget && chain != null && !_ancestorChains.containsKey(typeName)) {
       _ancestorChains[typeName] = chain;
     }
 
@@ -761,8 +785,10 @@ class DebugInstrumentationCoordinator {
     }
 
     if (owned) {
-      _animationOwnedPaintCounts[typeName] =
-          (_animationOwnedPaintCounts[typeName] ?? 0) + 1;
+      if (perWidget) {
+        _animationOwnedPaintCounts[typeName] =
+            (_animationOwnedPaintCounts[typeName] ?? 0) + 1;
+      }
       _totalAnimationOwnedPaintCount++;
     }
   }

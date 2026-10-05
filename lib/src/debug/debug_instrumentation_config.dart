@@ -16,6 +16,7 @@ class DebugInstrumentationConfig {
     this.layoutProfiling = false,
     this.paintProfiling = false,
     this.timelineEnrichment = false,
+    this.userWidgetsOnly = true,
   });
 
   /// Track per-widget rebuild counts via `debugOnRebuildDirtyWidget`.
@@ -58,4 +59,18 @@ class DebugInstrumentationConfig {
   /// Enable `debugEnhance*TimelineArguments` flags for richer timeline data.
   /// Highest overhead — disabled by default.
   final bool timelineEnrichment;
+
+  /// Count only widgets your code creates in the per-widget debug rebuild
+  /// and paint counts ([rebuildAttribution], [paintAttribution]).
+  ///
+  /// A widget counts when the framework's creation tracking (on in debug
+  /// builds) places it outside the Flutter SDK, which includes widgets
+  /// other packages create; once DevTools has set the project's root
+  /// directories, only widgets created in the project count. Framework
+  /// widgets built inside yours (`RichText` under `Text`, `_InkFeatures`
+  /// under `InkWell`, a scaffold's layout widgets) repaint with them and
+  /// are left out, though their paints stay in the aggregate count. Set
+  /// false to count them too. Without creation tracking every widget
+  /// counts.
+  final bool userWidgetsOnly;
 }

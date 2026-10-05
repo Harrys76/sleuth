@@ -4902,6 +4902,7 @@ class SleuthController {
             maxTrackedTypes: config.maxTrackedTypes,
             installRebuild: adv.rebuildAttribution,
             installPaint: adv.paintAttribution,
+            userWidgetsOnly: adv.userWidgetsOnly,
           );
           _debugCoordinator!.install();
         }

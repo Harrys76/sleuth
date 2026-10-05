@@ -26,8 +26,10 @@ void main() {
   Future<DebugSnapshot> paintFrames(WidgetTester tester, int frames) async {
     var now = DateTime(2026);
     await tester.pumpWidget(churningTree());
+    // `_GestureSemantics` is a framework widget; count it per widget.
     final coord = DebugInstrumentationCoordinator(
       installRebuild: false,
+      userWidgetsOnly: false,
       clock: () => now,
     );
     coord.install();
@@ -99,7 +101,10 @@ void main() {
           (w) => w is Semantics && w.properties.label == 'box',
         ),
       );
-      final coord = DebugInstrumentationCoordinator(installRebuild: false);
+      final coord = DebugInstrumentationCoordinator(
+        installRebuild: false,
+        userWidgetsOnly: false,
+      );
       coord.install();
       final onPaint = debugOnProfilePaint!;
 
