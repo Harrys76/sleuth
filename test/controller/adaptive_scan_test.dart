@@ -329,6 +329,10 @@ void main() {
       );
       c.initializeDetectorsForTest();
       c.markInitializedForTest();
+      // The interval stretches on measured scan cost (wall clock); pin
+      // it so a slow machine cannot push the rescheduled tick past the
+      // fake-clock expectations below.
+      c.scanDurationOverrideForTest = 0;
       var scans = 0;
       c.scanTickNotifier.addListener(() => scans++);
 
