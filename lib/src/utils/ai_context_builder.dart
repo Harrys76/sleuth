@@ -11,6 +11,9 @@ import 'issue_explanation_builder.dart';
 class AiContextBuilder {
   AiContextBuilder._();
 
+  /// Most root cause ids named in the prompt.
+  static const int _maxCauses = 5;
+
   /// Builds a system prompt from the focus [issue] and optional [allIssues].
   ///
   /// Budget target: ~2000 tokens. Sections are prioritized:
@@ -20,11 +23,23 @@ class AiContextBuilder {
   /// 4. Encyclopedia knowledge for focus issue
   /// 5. Other active issues (max 5, one-line each)
   /// 6. Response instructions
+  ///
+  /// [allIssues] holds the issues the prompt may name: a root cause or
+  /// downstream id of [issue] is named only when it is one of theirs (or
+  /// [issue]'s own); the rest are counted. A parametric id carries the
+  /// app's names (`tracked_resource_concurrent:PaymentToken`), and an
+  /// issue the user hid is left out of [allIssues]. Routes lose their
+  /// query and fragment ([AiSessionContext.promptRoute]).
   static String buildSystemPrompt({
     required PerformanceIssue issue,
     List<PerformanceIssue> allIssues = const [],
     AiSessionContext? session,
   }) {
+    final routeName = issue.routeName;
+    if (routeName != null) {
+      final route = AiSessionContext.promptRoute(routeName);
+      if (route != routeName) issue = issue.copyWith(routeName: route);
+    }
     final buf = StringBuffer();
 
     // 1. Role preamble
@@ -61,23 +76,46 @@ class AiContextBuilder {
     if (issue.fixEffort != null) {
       buf.writeln('Estimated fix effort: ${issue.fixEffort!.name}');
     }
-    final causeIds = issue.rootCauseIds;
-    if (causeIds != null && causeIds.isNotEmpty) {
-      // Multi-parent (v0.24.2+): every co-firing upstream cause is listed.
-      // Cap at 5 + "(+N more)" so a long fan-in does not flood the prompt
-      // window. The full set is preserved on the issue object for any
-      // consumer that needs it; this is a UI-shaped truncation.
-      const cap = 5;
-      final display = causeIds.length <= cap
+    // Related ids are named only for issues the prompt may name; the
+    // others (hidden by the user, or no longer active) are counted. The
+    // causal graph names an issue by its stable id, else its title.
+    final nameable = <String>{
+      for (final other in allIssues) other.stableId ?? other.title,
+      issue.stableId ?? issue.title,
+    };
+    final unlisted = <String>{};
+    List<String> listed(List<String>? ids) {
+      final out = <String>[];
+      for (final id in ids ?? const <String>[]) {
+        if (nameable.contains(id)) {
+          out.add(id);
+        } else {
+          unlisted.add(id);
+        }
+      }
+      return out;
+    }
+
+    final causeIds = listed(issue.rootCauseIds);
+    if (causeIds.isNotEmpty) {
+      // Every co-firing upstream cause is listed, capped with "(+N more)"
+      // so a long fan-in does not flood the prompt.
+      final display = causeIds.length <= _maxCauses
           ? causeIds.join(', ')
-          : '${causeIds.take(cap).join(', ')} (+${causeIds.length - cap} more)';
+          : '${causeIds.take(_maxCauses).join(', ')} '
+                '(+${causeIds.length - _maxCauses} more)';
       final label = causeIds.length == 1
           ? 'Root cause issue'
           : 'Root cause issues';
       buf.writeln('$label: $display');
     }
-    if (issue.downstreamIds != null && issue.downstreamIds!.isNotEmpty) {
-      buf.writeln('Downstream effects: ${issue.downstreamIds!.join(', ')}');
+    final downstreamIds = listed(issue.downstreamIds);
+    if (downstreamIds.isNotEmpty) {
+      buf.writeln('Downstream effects: ${downstreamIds.join(', ')}');
+    }
+    if (unlisted.isNotEmpty) {
+      final n = unlisted.length;
+      buf.writeln('$n related ${n == 1 ? 'issue' : 'issues'} not listed');
     }
     buf.writeln();
 

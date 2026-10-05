@@ -81,5 +81,17 @@ void main() {
       final lines = parser.addChunk('\n\n\n');
       expect(lines, ['', '', '']);
     });
+
+    test('flush returns the last line without a newline once', () {
+      expect(parser.addChunk('data: a\ndata: b\r'), ['data: a']);
+      expect(parser.flush(), 'data: b');
+      expect(parser.flush(), isNull);
+      expect(parser.addChunk('\n'), ['']);
+    });
+
+    test('flush with nothing buffered returns null', () {
+      parser.addChunk('data: a\n');
+      expect(parser.flush(), isNull);
+    });
   });
 }
