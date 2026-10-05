@@ -215,6 +215,36 @@ void main() {
       await drainToasts(tester);
     });
 
+    testWidgets('a hidden keep-alive card stays hidden when another '
+        'pager appears', (tester) async {
+      PerformanceIssue keepAlive(String id) => PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.memory,
+        confidence: IssueConfidence.possible,
+        title: 'Title $id',
+        detail: 'Detail',
+        fixHint: 'Fix',
+        stableId: 'excessive_keep_alive:$id',
+        widgetName: 'PageView',
+      );
+      controller.issuesNotifier.value = [keepAlive('PageView~2')];
+      await pumpCard(tester);
+      controller.overlayUiState.hide(
+        OverlayUiState.hideKeyFor(keepAlive('PageView~2')),
+      );
+      await tester.pump();
+
+      // A pager earlier in the tree starts keeping pages alive: the
+      // hidden card keeps its id.
+      controller.issuesNotifier.value = [
+        keepAlive('PageView~1'),
+        keepAlive('PageView~2'),
+      ];
+      await tester.pump();
+      expect(find.text('Title PageView~1'), findsOneWidget);
+      expect(find.text('Title PageView~2'), findsNothing);
+    });
+
     testWidgets('same detector id on two widgets hides independently', (
       tester,
     ) async {

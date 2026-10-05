@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart' show KeepAliveParentDataMixin;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/keep_alive_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/utils/issue_explanation_builder.dart';
 
 /// Number of KeepAlive elements whose child render object is actively
 /// kept alive (the authoritative parent-data flag).
@@ -168,7 +169,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       final issue = detector.issues.first;
-      expect(issue.stableId, 'excessive_keep_alive:0');
+      expect(issue.stableId, 'excessive_keep_alive:PageView~1');
       expect(issue.confidence, IssueConfidence.possible);
       expect(issue.category, IssueCategory.memory);
     });
@@ -619,8 +620,8 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.issues, hasLength(2));
-      expect(detector.issues[0].stableId, 'excessive_keep_alive:0');
-      expect(detector.issues[1].stableId, 'excessive_keep_alive:1');
+      expect(detector.issues[0].stableId, 'excessive_keep_alive:PageView~1');
+      expect(detector.issues[1].stableId, 'excessive_keep_alive:PageView~2');
     });
 
     testWidgets('TabBarView with 6 kept-alive tabs emits exactly one issue', (
@@ -666,7 +667,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(MaterialApp)));
 
       final issue = detector.issues.single;
-      expect(issue.stableId, 'excessive_keep_alive:0');
+      expect(issue.stableId, 'excessive_keep_alive:TabBarView~1');
       expect(issue.title, contains('6 in TabBarView'));
     });
 
@@ -703,6 +704,137 @@ void main() {
         isEmpty,
         reason: 'only the page counts toward the PageView (1, not > 1)',
       );
+    });
+  });
+
+  group('KeepAliveDetector identity ids', () {
+    /// Two pagers side by side, each with [pages] kept-alive pages; only
+    /// pages that were visited are kept alive.
+    Widget pagers({
+      required PageController first,
+      required PageController second,
+      Key? firstKey,
+      Key? secondKey,
+    }) {
+      Widget pager(PageController c, Key? key, String tag) => SizedBox(
+        height: 200,
+        width: 400,
+        child: PageView(
+          key: key,
+          controller: c,
+          children: List.generate(
+            4,
+            (i) => _KeepAlivePage(key: ValueKey('$tag$i'), label: '$tag$i'),
+          ),
+        ),
+      );
+      return Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: [
+            pager(first, firstKey, 'a'),
+            pager(second, secondKey, 'b'),
+          ],
+        ),
+      );
+    }
+
+    Future<void> visitAll(WidgetTester tester, PageController c) async {
+      for (var i = 1; i < 4; i++) {
+        c.jumpToPage(i);
+        await tester.pumpAndSettle();
+      }
+      c.jumpToPage(0);
+      await tester.pumpAndSettle();
+    }
+
+    List<String?> ids(KeepAliveDetector detector, WidgetTester tester) {
+      detector.scanTree(tester.element(find.byType(Directionality).first));
+      return [for (final i in detector.issues) i.stableId];
+    }
+
+    testWidgets('an id holds when another scrollable starts keeping pages '
+        'alive', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(pagers(first: first, second: second));
+
+      await visitAll(tester, second);
+      expect(ids(detector, tester), ['excessive_keep_alive:PageView~2']);
+
+      await visitAll(tester, first);
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~1',
+        'excessive_keep_alive:PageView~2',
+      ]);
+    });
+
+    testWidgets('a string or number ValueKey names the scrollable, '
+        'sanitised', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(
+          first: first,
+          second: second,
+          firstKey: const ValueKey('feed.main/tab 1|x#y:z'),
+          secondKey: const ValueKey(2.5),
+        ),
+      );
+      await visitAll(tester, first);
+      await visitAll(tester, second);
+
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~feed_main_tab_1_x_y_z',
+        'excessive_keep_alive:PageView~2_5',
+      ]);
+    });
+
+    testWidgets('a long key is cut to 24 characters', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(first: first, second: second, firstKey: ValueKey('k' * 40)),
+      );
+      await visitAll(tester, first);
+
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~${'k' * 24}',
+      ]);
+    });
+
+    testWidgets('a keyed scrollable takes no ordinal', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(first: first, second: second, firstKey: const ValueKey('feed')),
+      );
+      await visitAll(tester, second);
+
+      expect(ids(detector, tester), ['excessive_keep_alive:PageView~1']);
+    });
+
+    test('ids map to the encyclopedia entry', () {
+      for (final id in [
+        'excessive_keep_alive:PageView~1',
+        'excessive_keep_alive:TabBarView~feed_main',
+      ]) {
+        expect(IssueExplanationBuilder.canonicalId(id), 'excessive_keep_alive');
+        expect(IssueExplanationBuilder.explain(id), isNotNull);
+        expect(id, isNot(matches(RegExp(r'[.|#]'))));
+      }
     });
   });
 }

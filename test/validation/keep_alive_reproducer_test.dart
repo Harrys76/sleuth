@@ -1,6 +1,6 @@
 // Hermetic reproducer for [KeepAliveDetector].
 //
-// Pins the parameterised `excessive_keep_alive:<i>` family via the real
+// Pins the parameterised `excessive_keep_alive:<TypeName>~<key>` family via the real
 // `scanTree(root)` entry point on a materialised `PageView` with
 // `AutomaticKeepAliveClientMixin` pages. Threshold: 1 so small counts
 // cross. `_isActiveKeepAlive` reads render-object parent-data — pages
@@ -79,38 +79,41 @@ void main() {
   group('KeepAliveDetector reproducer', () {
     // --- excessive_keep_alive (parameterised) --------------------------
 
-    testWidgets('excessive_keep_alive:<i>: 4-page PageView above threshold=1 '
-        'fires (all pages opt in)', (tester) async {
-      final detector = KeepAliveDetector(threshold: 1);
-      final controller = PageController();
-      addTearDown(controller.dispose);
-      await _buildAndVisitPageView(
-        tester,
-        controller,
-        pageCount: 4,
-        keepAliveFlags: const [true, true, true, true],
-      );
-      detector.scanTree(tester.element(find.byType(Directionality)));
-      final keepAliveIssues = detector.issues
-          .where((i) => (i.stableId ?? '').startsWith('excessive_keep_alive'))
-          .toList();
-      expect(
-        keepAliveIssues,
-        isNotEmpty,
-        reason:
-            'PageView with 4 visited opt-in pages > threshold=1 '
-            'must emit excessive_keep_alive:<i>.',
-      );
-      // Every emitted stableId starts with the family prefix.
-      for (final issue in keepAliveIssues) {
-        expect(issue.stableId, startsWith('excessive_keep_alive:'));
-      }
-      // count=4 > threshold*2 (=2) → critical; structural-only path →
-      // possible confidence.
-      final first = keepAliveIssues.first;
-      expect(first.severity, IssueSeverity.critical);
-      expect(first.confidence, IssueConfidence.possible);
-    });
+    testWidgets(
+      'excessive_keep_alive:<TypeName>~<key>: 4-page PageView above threshold=1 '
+      'fires (all pages opt in)',
+      (tester) async {
+        final detector = KeepAliveDetector(threshold: 1);
+        final controller = PageController();
+        addTearDown(controller.dispose);
+        await _buildAndVisitPageView(
+          tester,
+          controller,
+          pageCount: 4,
+          keepAliveFlags: const [true, true, true, true],
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        final keepAliveIssues = detector.issues
+            .where((i) => (i.stableId ?? '').startsWith('excessive_keep_alive'))
+            .toList();
+        expect(
+          keepAliveIssues,
+          isNotEmpty,
+          reason:
+              'PageView with 4 visited opt-in pages > threshold=1 '
+              'must emit excessive_keep_alive:<TypeName>~<key>.',
+        );
+        // Every emitted stableId starts with the family prefix.
+        for (final issue in keepAliveIssues) {
+          expect(issue.stableId, startsWith('excessive_keep_alive:'));
+        }
+        // count=4 > threshold*2 (=2) → critical; structural-only path →
+        // possible confidence.
+        final first = keepAliveIssues.first;
+        expect(first.severity, IssueSeverity.critical);
+        expect(first.confidence, IssueConfidence.possible);
+      },
+    );
 
     testWidgets('excessive_keep_alive: no PageView → silent '
         '(ListView keep-alives are framework-normal and suppressed)', (

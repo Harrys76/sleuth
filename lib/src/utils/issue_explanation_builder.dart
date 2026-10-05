@@ -19,7 +19,7 @@ typedef IssueExplanation = ({
 /// might be a false positive they can safely ignore.
 ///
 /// Keyed by [PerformanceIssue.stableId]. Dynamic suffixes (e.g.
-/// `excessive_keep_alive:3`, `rebuild_debug_MyWidget`) are stripped to match
+/// `excessive_keep_alive:PageView~1`, `rebuild_debug_MyWidget`) are stripped to match
 /// the base explanation.
 class IssueExplanationBuilder {
   IssueExplanationBuilder._();
@@ -182,7 +182,7 @@ class IssueExplanationBuilder {
     final alias = _aliases[id];
     if (alias != null) return alias;
 
-    // Colon-suffixed IDs (excessive_keep_alive:3, excessive_global_keys:0)
+    // Colon-suffixed IDs (excessive_keep_alive:PageView~1, excessive_global_keys:0)
     final colonIdx = id.indexOf(':');
     if (colonIdx > 0) return id.substring(0, colonIdx);
 
@@ -1726,6 +1726,11 @@ class IssueExplanationBuilder {
           '(default, configurable).\n\n'
           '• Memory per subtree — Each kept-alive page retains its full '
           'widget/element tree, controllers, and cached data.\n\n'
+          '• Issue id — `excessive_keep_alive:<Type>~<key>` names the '
+          'PageView or TabBarView: its string or number ValueKey, or its '
+          'position among unkeyed scrollables of that type (`~1` is the '
+          'first in the tree). A ValueKey keeps the id, and a hide, '
+          'stable when the layout changes.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
           'Keep-alive subtrees consume memory even when invisible. With many '
