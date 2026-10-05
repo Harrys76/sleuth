@@ -495,6 +495,10 @@ class SleuthController {
   /// the first reload.
   int _hotReloadGeneration = 0;
 
+  /// The screen the rebuild and repaint evidence was last gathered on
+  /// (route name, visible scaffold hash, hot-reload generation).
+  (String?, int?, int)? _lastEvidenceKey;
+
   /// Notifies listeners when route history changes (new session created or
   /// old session evicted). Value is an unmodifiable snapshot.
   final ValueNotifier<List<RouteSession>> routeHistoryNotifier = ValueNotifier(
@@ -1131,6 +1135,7 @@ class SleuthController {
       rebuildsPerSecThreshold: config.rebuildThreshold,
       buildTimePercentThreshold: config.thresholds.buildTimePercentThreshold,
       startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
+      captureMode: config.captureMode,
     )..isEnabled = enabled.contains(DetectorType.rebuild);
 
     // Factory map for non-typed detectors. Only detectors present in
@@ -1161,6 +1166,7 @@ class SleuthController {
       ),
       DetectorType.repaint: () => RepaintDetector(
         paintTimePercentThreshold: config.thresholds.paintTimePercentThreshold,
+        captureMode: config.captureMode,
       ),
       DetectorType.setStateScope: () => SetStateScopeDetector(
         dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
@@ -2781,6 +2787,11 @@ class SleuthController {
       selectedHighlightNotifier.value = null;
       for (final d in _detectors) {
         if (d is SetStateScopeDetector) d.clearSnapshots();
+        // The drained counts are dropped with this scan; the per-widget
+        // cards held from earlier scans belong to a page that may no
+        // longer be shown.
+        if (d is RebuildDetector) d.discardDebugEvidence();
+        if (d is RepaintDetector) d.discardDebugEvidence();
       }
       _networkMonitor.clearRecords();
       // Real route transition just fired clearRecords; reset the tab-switch
@@ -2846,6 +2857,22 @@ class SleuthController {
         active != null && active.scaffoldHashKey != currentHashKey;
     final routeChanged = nameChanged || hashChanged;
 
+    // Rebuild and repaint evidence is per screen: a new route, tab or hot
+    // reload drops what the two detectors hold and restarts their VM
+    // window, and this scan's debug counts, which span the change (and a
+    // reload's rebuild of every element), are not used. Keyed on the
+    // screen rather than [routeChanged], which stays true on every scan
+    // of an ignored route.
+    final evidenceKey = (currentName, currentHashKey, _hotReloadGeneration);
+    final evidenceChanged = evidenceKey != _lastEvidenceKey;
+    _lastEvidenceKey = evidenceKey;
+    if (evidenceChanged) {
+      for (final d in _detectors) {
+        if (d is RebuildDetector) d.markRouteEpoch();
+        if (d is RepaintDetector) d.markRouteEpoch();
+      }
+    }
+
     if (routeChanged) {
       active?.endedAt = DateTime.now();
       // Jank is judged per route: start a new frame window and drop the
@@ -2890,7 +2917,7 @@ class SleuthController {
     _isIteratingDetectors = true;
     try {
       // Pass debug snapshot to detectors
-      if (debugSnapshot != null) {
+      if (debugSnapshot != null && !evidenceChanged) {
         for (final d in _detectors) {
           if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
         }
@@ -4481,6 +4508,11 @@ class SleuthController {
     // Hot reload can redefine widget types; drop cached names.
     typeNameCache.clear();
     _debugCoordinator?.invalidatePaintAttribution();
+    // The reload frame rebuilds every element and repaints every render
+    // object once; that burst is not the app's activity.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed) _debugCoordinator?.discardWindow();
+    });
     _lastVisibleScaffoldHash = null;
     _currentVisibleScaffoldHash = null;
   }

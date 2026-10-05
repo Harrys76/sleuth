@@ -115,11 +115,30 @@ void main() {
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
-        // Second window: low activity — issues should clear
+        // Low windows: the card is held through one, cleared by two.
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(_windowShare(3));
+        detector.evaluateNow();
+        expect(detector.issues, isNotEmpty);
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(_windowShare(3));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
+      });
+
+      test('capture mode clears on the first quiet window', () {
+        final capture = RebuildDetector(captureMode: true, clock: () => fakeNow)
+          ..vmConnected = true;
+        capture.evaluateNow();
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        capture.processTimelineData(_windowShare(15));
+        capture.evaluateNow();
+        expect(capture.issues, isNotEmpty);
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        capture.processTimelineData(_windowShare(3));
+        capture.evaluateNow();
+        expect(capture.issues, isEmpty);
+        capture.dispose();
       });
     });
 
@@ -257,10 +276,12 @@ void main() {
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
-        // Fresh window with 0 events
-        fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(_windowShare(0));
-        detector.evaluateNow();
+        // Fresh windows with 0 events
+        for (var i = 0; i < 2; i++) {
+          fakeNow = fakeNow.add(const Duration(seconds: 2));
+          detector.processTimelineData(_windowShare(0));
+          detector.evaluateNow();
+        }
         expect(detector.issues, isEmpty);
       });
 
@@ -282,10 +303,12 @@ void main() {
         detector.evaluateNow();
         expect(detector.issues.single, same(vmIssue));
 
-        // The next window under the threshold clears it.
-        fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(_windowShare(2));
-        detector.evaluateNow();
+        // Two windows under 0.8x the threshold clear it.
+        for (var i = 0; i < 2; i++) {
+          fakeNow = fakeNow.add(const Duration(seconds: 2));
+          detector.processTimelineData(_windowShare(2));
+          detector.evaluateNow();
+        }
         expect(detector.issues, isEmpty);
       });
 
@@ -1328,9 +1351,13 @@ void main() {
 
     test('peak equals the largest stamped observedBuildPercent', () {
       final stamped = <double>[];
+      // A held card is the same emission shown again (capture dedups it
+      // by identity), so each issue counts once.
+      final seen = Set<PerformanceIssue>.identity();
       for (final us in [120000, 182000, 140000, 60000]) {
         closeWindow(us);
         for (final issue in activity()) {
+          if (!seen.add(issue)) continue;
           stamped.add(
             double.parse(issue.extraTraceArgs!['observedBuildPercent']!),
           );

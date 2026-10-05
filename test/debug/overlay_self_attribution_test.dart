@@ -75,6 +75,7 @@ void main() {
     expect(snap.paintCounts['CustomPaint'], greaterThanOrEqualTo(25));
     final app = appTypes(tester);
     expect(snap.rebuildCounts.keys.toSet().difference(app), isEmpty);
+    expect(snap.forcedRebuildsByRoot.keys.toSet().difference(app), isEmpty);
     expect(snap.paintCounts.keys.toSet().difference(app), isEmpty);
     final perType = snap.paintCounts.values.fold<int>(0, (a, b) => a + b);
     expect(snap.totalPaintCount, perType);
@@ -93,7 +94,16 @@ void main() {
     OverlayOwnership.unregister(overlay, appKey);
     final snap = await churn(tester, controller);
 
-    expect(snap.rebuildCounts.keys, contains('IssueCard'));
+    // The card list's listenable builder rebuilds itself for each new
+    // issue list and rebuilds every IssueCard under it.
+    expect(
+      snap.rebuildCounts.keys,
+      contains('ValueListenableBuilder<List<PerformanceIssue>>'),
+    );
+    expect(
+      snap.forcedRebuildsByRoot['ValueListenableBuilder<List<PerformanceIssue>>'],
+      greaterThan(100),
+    );
   }, semanticsEnabled: false);
 
   group('OverlayOwnership', () {

@@ -78,18 +78,52 @@ void main() {
         );
       });
 
-      test('window resets after 1-second evaluation', () {
+      test('window resets after 1-second evaluation; the card clears '
+          'after two quiet windows', () {
         // First window: high activity
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
-        expect(detector.issues, isNotEmpty);
+        final issue = detector.issues.single;
 
-        // Second window: low activity
+        // Low windows: the card is held through one, cleared by two.
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(_windowShare(3));
+        detector.evaluateNow();
+        expect(detector.issues.single, same(issue));
+
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(_windowShare(3));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
+      });
+
+      test('a share between 0.8x and the threshold keeps the card', () {
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(_windowShare(15));
+        detector.evaluateNow();
+        final issue = detector.issues.single;
+        for (var i = 0; i < 3; i++) {
+          fakeNow = fakeNow.add(const Duration(seconds: 2));
+          detector.processTimelineData(_windowShare(9));
+          detector.evaluateNow();
+        }
+        expect(detector.issues.single, same(issue));
+      });
+
+      test('capture mode clears on the first quiet window', () {
+        final capture = RepaintDetector(captureMode: true, clock: () => fakeNow)
+          ..vmConnected = true;
+        capture.evaluateNow();
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        capture.processTimelineData(_windowShare(15));
+        capture.evaluateNow();
+        expect(capture.issues, isNotEmpty);
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        capture.processTimelineData(_windowShare(3));
+        capture.evaluateNow();
+        expect(capture.issues, isEmpty);
+        capture.dispose();
       });
     });
 
@@ -157,15 +191,17 @@ void main() {
         expect(detector.issues, isNotEmpty);
       });
 
-      test('fresh VM window with 0 events clears stale issues', () {
+      test('fresh VM windows with 0 events clear stale issues', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
-        fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(_windowShare(0));
-        detector.evaluateNow();
+        for (var i = 0; i < 2; i++) {
+          fakeNow = fakeNow.add(const Duration(seconds: 2));
+          detector.processTimelineData(_windowShare(0));
+          detector.evaluateNow();
+        }
         expect(detector.issues, isEmpty);
       });
 

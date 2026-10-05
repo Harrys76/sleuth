@@ -12,6 +12,7 @@ import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/monotonic_clock.dart';
+import '../utils/rate_hysteresis.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
@@ -56,12 +57,14 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     this.buildTimePercentThreshold = 10,
     this.statefulDensityThreshold = 10,
     this.startupPhaseWindowSeconds = 5,
+    bool captureMode = false,
     DateTime Function()? clock,
     int? Function()? appStartMonotonicUsForTest,
   }) : assert(
          buildTimePercentThreshold > 0 && buildTimePercentThreshold <= 100,
          'buildTimePercentThreshold must be in the range (0, 100].',
        ),
+       _captureMode = captureMode,
        _clock = clock ?? monotonicClock(),
        _appStartForTest = appStartMonotonicUsForTest,
        super(
@@ -101,6 +104,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   final DateTime Function() _clock;
   final int? Function()? _appStartForTest;
 
+  /// Capture mode reports each VM window as measured: no display hold, so
+  /// a leg's issues never outlast it.
+  final bool _captureMode;
+
   /// Returns `'startup'` when emission `Timeline.now` falls within the
   /// startup window after [Sleuth.dartEntryMonotonicUs], `'steady'`
   /// otherwise, or `null` when no app-start anchor is available
@@ -121,16 +128,29 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
   final List<PerformanceIssue> _issues = [];
 
-  /// Per-type issues from the latest debug-callback snapshot, kept until
-  /// the next snapshot. Snapshots arrive with each scan (every 2-5 s) and
-  /// VM windows every ~1 s, so each source's issues are kept between its
-  /// own updates and [_issues] is rebuilt from both on every evaluation;
-  /// replacing everything from whichever source just ticked made cards
-  /// appear and vanish between ticks.
+  /// Per-type issues from the held debug-callback types, rebuilt with each
+  /// snapshot. Snapshots arrive with each scan (every 1-5 s) and VM
+  /// windows every ~1 s, so each source's issues are kept between its own
+  /// updates and [_issues] is rebuilt from both on every evaluation.
   final List<PerformanceIssue> _debugIssues = [];
 
-  /// Issues from the latest closed VM window, kept until the next one.
+  /// The VM share's issue on display, if any ([_vmHeld]).
   final List<PerformanceIssue> _vmIssues = [];
+
+  /// Per-type debug rates, held across scans so a widget rebuilding at
+  /// the threshold does not flip on and off.
+  final RateHysteresis _perType = RateHysteresis();
+
+  /// The last `rebuild_activity` issue, shown until the build share stays
+  /// under [vmExitFactor] times the threshold for two windows (never in
+  /// capture mode). Every window above the threshold emits a new issue.
+  PerformanceIssue? _vmHeld;
+  int _vmQuietWindows = 0;
+  int _vmBelowCriticalWindows = 0;
+
+  /// Fraction of [buildTimePercentThreshold] the build share must stay
+  /// under for two windows before a shown `rebuild_activity` clears.
+  static const double vmExitFactor = 0.8;
 
   final List<WidgetHighlight> _highlights = [];
   static const int _maxHighlightsPerType = 3;
@@ -238,8 +258,44 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     _pendingVmWindowPercent = null;
     _pendingEnrichedNames.clear();
     _stagedEnrichedNames = null;
-    _vmIssues.clear();
+    _pendingDebugSnapshot = null;
+    _clearHeld();
+    _issues.clear();
     _windowStart = _clock();
+  }
+
+  /// Starts over at a route change or hot reload: drops the held debug
+  /// types and VM issue and restarts the open VM window, so evidence from
+  /// the previous screen is neither shown nor mixed into the next window.
+  void markRouteEpoch() {
+    _buildEventCount = 0;
+    _buildTimeUs = 0;
+    _pendingVmWindowPercent = null;
+    _pendingEnrichedNames.clear();
+    _stagedEnrichedNames = null;
+    _pendingDebugSnapshot = null;
+    _windowStart = _clock();
+    _clearHeld();
+    _compose();
+  }
+
+  /// Drops the held debug types, for a scan that could not run: the
+  /// counts it drained are gone, and the types held from earlier scans
+  /// belong to a page that may no longer be shown.
+  void discardDebugEvidence() {
+    _pendingDebugSnapshot = null;
+    _perType.reset();
+    _debugIssues.clear();
+    _compose();
+  }
+
+  void _clearHeld() {
+    _perType.reset();
+    _debugIssues.clear();
+    _vmHeld = null;
+    _vmQuietWindows = 0;
+    _vmBelowCriticalWindows = 0;
+    _vmIssues.clear();
   }
 
   /// Current VM connectivity — set by the controller.
@@ -253,7 +309,15 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       _buildEventCount = 0;
       _buildTimeUs = 0;
       _pendingVmWindowPercent = null;
+      _vmHeld = null;
+      _vmQuietWindows = 0;
+      _vmBelowCriticalWindows = 0;
       _vmIssues.clear();
+      // The VM share's card goes with the connection; structural and
+      // debug issues stay until their next evaluation.
+      _issues.removeWhere(
+        (i) => i.observationSource == ObservationSource.vmTimeline,
+      );
       _pendingEnrichedNames.clear();
       _stagedEnrichedNames = null;
       // A leg straddling a VM disconnect must not export a peak from
@@ -322,7 +386,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  Map<String, double> _hotTypes = const {};
+  Map<String, ({double rate, bool critical})> _hotTypes = const {};
   Map<String, int> _hotCounts = {};
 
   @override
@@ -359,28 +423,24 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     // escalate to critical at `> effectiveThreshold * 3` (= 90/sec for
     // builders), not at `rebuildsPerSecThreshold * 3` (= 30/sec). A plain
     // `* 3` would over-escalate builders by 60 units relative to issues.
-    final rate = _hotTypes[name];
-    if (rate != null) {
+    final hot = _hotTypes[name];
+    if (hot != null) {
       final count = _hotCounts[name] ?? 0;
       if (count < _maxHighlightsPerType) {
         final ro = element.renderObject;
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
-            final effectiveThreshold =
-                _builderWidgetTypes.contains(baseTypeName(name))
-                ? rebuildsPerSecThreshold * builderThresholdMultiplier
-                : rebuildsPerSecThreshold;
             _highlights.add(
               WidgetHighlight(
                 rect: rect,
                 renderObject: ro,
                 widgetName: name,
-                severity: rate > effectiveThreshold * debugCriticalMultiplier
+                severity: hot.critical
                     ? IssueSeverity.critical
                     : IssueSeverity.warning,
                 detectorName: 'Rebuild',
-                detail: '${rate.round()} rebuilds/sec',
+                detail: '${hot.rate.round()} rebuilds/sec',
               ),
             );
             _hotCounts[name] = count + 1;
@@ -397,35 +457,24 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Compute types with excessive rebuild rates from available staging data.
   ///
-  /// Returns a map of typeName → rate. Priority: debug snapshot > enriched
-  /// VM names. Returns empty when only structural data is available (density
-  /// is not proven rebuild rate).
-  Map<String, double> _hotRebuildTypes() {
-    final hotTypes = <String, double>{};
-
-    // Priority 1: Debug snapshot (per-widget type attribution).
+  /// Returns typeName → rate and severity. Priority: debug snapshot >
+  /// enriched VM names. Returns empty when only structural data is
+  /// available (density is not proven rebuild rate).
+  Map<String, ({double rate, bool critical})> _hotRebuildTypes() {
+    // Priority 1: Debug snapshot (per-widget type attribution), through
+    // the same held types as the issues so highlights and cards agree.
     // Source-mode `flutterTimeline` includes initial widget inflations
-    // (KDD-5) — `_evaluate` suppresses per-type issues for that source.
-    // Highlights MUST share the same gate or the overlay paints hot-widget
-    // boxes without a corresponding issue card.
-    final snapshot = _pendingDebugSnapshot;
-    if (snapshot != null) {
-      if (snapshot.source == RebuildCountSource.flutterTimeline) {
-        return hotTypes;
-      }
-      for (final entry in snapshot.rebuildCounts.entries) {
-        final rate = snapshot.rebuildsPerSecond(entry.key);
-        final threshold = _builderWidgetTypes.contains(baseTypeName(entry.key))
-            ? rebuildsPerSecThreshold * builderThresholdMultiplier
-            : rebuildsPerSecThreshold;
-        if (rate >= threshold) {
-          hotTypes[entry.key] = rate;
-        }
-      }
-      return hotTypes;
+    // (KDD-5) — `_evaluate` suppresses per-type issues for that source,
+    // and the held set is empty for it.
+    if (_pendingDebugSnapshot != null) {
+      return {
+        for (final entry in _perType.held.entries)
+          entry.key: (rate: entry.value.rate, critical: entry.value.critical),
+      };
     }
 
     // Priority 2: Enriched VM names (dirty widget names from timeline)
+    final hotTypes = <String, ({double rate, bool critical})>{};
     final enriched = _stagedEnrichedNames;
     if (enriched != null && enriched.isNotEmpty) {
       final counts = <String, int>{};
@@ -433,36 +482,59 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         counts[name] = (counts[name] ?? 0) + 1;
       }
       for (final entry in counts.entries) {
-        final threshold = _builderWidgetTypes.contains(baseTypeName(entry.key))
-            ? rebuildsPerSecThreshold * builderThresholdMultiplier
-            : rebuildsPerSecThreshold;
+        final threshold = _thresholdFor(entry.key);
         if (entry.value >= threshold) {
-          hotTypes[entry.key] = entry.value.toDouble();
+          hotTypes[entry.key] = (
+            rate: entry.value.toDouble(),
+            critical: entry.value > threshold * debugCriticalMultiplier,
+          );
         }
       }
     }
-
     return hotTypes;
   }
+
+  /// Per-type alert rate: builder widgets are designed to rebuild on
+  /// data/tick changes and alert at [builderThresholdMultiplier] times
+  /// [rebuildsPerSecThreshold]. The generic suffix is canonicalized
+  /// because production runtime types arrive as `StreamBuilder<int>`.
+  double _thresholdFor(String typeName) =>
+      (_builderWidgetTypes.contains(baseTypeName(typeName))
+              ? rebuildsPerSecThreshold * builderThresholdMultiplier
+              : rebuildsPerSecThreshold)
+          .toDouble();
 
   @override
   void updateDebugSnapshot(DebugSnapshot snapshot) {
     _pendingDebugSnapshot = snapshot;
+    if (snapshot.source == RebuildCountSource.flutterTimeline) {
+      // Profile counts include initial inflations (KDD-5): no per-type
+      // issues from them.
+      _perType.reset();
+      return;
+    }
+    _perType.update(
+      counts: snapshot.rebuildCounts,
+      elapsedUs: snapshot.elapsed.inMicroseconds,
+      capped: snapshot.rebuildTypesCapped,
+      thresholdFor: _thresholdFor,
+      criticalMultiplier: debugCriticalMultiplier.toDouble(),
+    );
   }
 
   @override
   void evaluateNow() => _evaluate();
 
-  /// The ONLY method that writes [_issues].
+  /// The ONLY method that writes [_issues] from fresh data.
   ///
   /// Priority: debug callback > VM timeline > structural scan.
   /// Nullable staging fields distinguish "no new data" (null → keep
   /// existing issues) from "fresh window with zero events" (non-null
-  /// with 0 → clear stale issues). A fresh debug snapshot replaces
-  /// [_debugIssues], a fresh VM window replaces [_vmIssues], and
-  /// [_issues] is rebuilt from both, so a tick of one source keeps the
-  /// other source's issues. Staging is consumed so a window or snapshot
-  /// is evaluated once.
+  /// with 0 → clear stale issues). A fresh debug snapshot rebuilds
+  /// [_debugIssues] from the held types, every fresh VM window is
+  /// evaluated into [_vmIssues], and [_compose] picks what is shown, so a
+  /// tick of one source keeps the other source's issues. Staging is
+  /// consumed so a window or snapshot is evaluated once.
   void _evaluate() {
     final debugSnapshot = _pendingDebugSnapshot;
     final vmWindowPercent = _pendingVmWindowPercent;
@@ -479,112 +551,127 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     _stagedEnrichedNames = null;
 
     if (hasFreshDebug) {
-      _issues.clear();
-      // `_evaluateDebugData` must NOT run on profile-mode
-      // (`flutterTimeline`) snapshots. Those counts include initial widget
-      // inflations per KDD-5 — feeding them to the per-type "Excessive
-      // Rebuilds" path produced critical false positives on route entry
-      // (e.g. `ProductCard × 50` list-entry inflations interpreted as
-      // rebuilds). Profile mode surfaces a single session-level rollup
-      // instead; debug mode keeps the per-type attribution unchanged
-      // because `debugOnRebuildDirtyWidget` only fires on actual
-      // `setState`-driven rebuilds. The gate is "not flutterTimeline"
-      // rather than "equals debugCallback" so existing tests that
-      // construct `DebugSnapshot` with the default `source:
-      // RebuildCountSource.none` (no explicit source tag) keep exercising
-      // the per-type path — backwards compatibility for pre-v15 fixtures.
-      if (debugSnapshot.source != RebuildCountSource.flutterTimeline &&
-          debugSnapshot.totalRebuilds > 0) {
-        _evaluateDebugData(debugSnapshot);
-      }
       _debugIssues
         ..clear()
-        ..addAll(_issues);
+        ..addAll(_perTypeIssues(debugSnapshot));
       _pendingDebugSnapshot = null;
     }
 
     if (hasFreshVm) {
-      _issues.clear();
-      // Per-type debug attribution wins; the VM share is evaluated (and
-      // emitted) only when no type crossed its threshold, which also
-      // surfaces a storm spread across many sub-threshold types as
-      // `rebuild_activity`.
-      if (_debugIssues.isEmpty && vmWindowPercent > 0) {
-        _evaluateVmData(vmWindowPercent, enrichedNames);
+      // Every window is evaluated, so the peak and the emissions follow
+      // the measurement whatever is on display.
+      final emitted = vmWindowPercent > 0
+          ? _evaluateVmData(vmWindowPercent, enrichedNames)
+          : null;
+      if (vmWindowPercent >= buildTimePercentThreshold * 3 * vmExitFactor) {
+        _vmBelowCriticalWindows = 0;
+      } else {
+        _vmBelowCriticalWindows++;
+      }
+      if (emitted != null) {
+        // A critical card stays critical until the share is under
+        // [vmExitFactor] of the critical boundary for two windows; the
+        // emission itself keeps its measured severity.
+        final holdCritical =
+            !_captureMode &&
+            _vmHeld?.severity == IssueSeverity.critical &&
+            emitted.severity == IssueSeverity.warning &&
+            _vmBelowCriticalWindows < 2;
+        _vmHeld = holdCritical
+            ? emitted.copyWith(severity: IssueSeverity.critical)
+            : emitted;
+        _vmQuietWindows = 0;
+      } else if (_vmHeld != null) {
+        if (_captureMode) {
+          _vmHeld = null;
+        } else if (vmWindowPercent < buildTimePercentThreshold * vmExitFactor) {
+          if (++_vmQuietWindows >= 2) _vmHeld = null;
+        } else {
+          _vmQuietWindows = 0;
+        }
       }
       _vmIssues
         ..clear()
-        ..addAll(_issues);
+        ..addAll([?_vmHeld]);
       _pendingVmWindowPercent = null;
     }
 
+    _compose(structural: !hasFreshDebug && hasStructuralData);
+  }
+
+  /// Rebuilds [_issues]: per-type debug issues win, then the VM share
+  /// while connected, then (on a scan without debug data and without a
+  /// VM connection) the structural density report.
+  void _compose({bool structural = false}) {
     _issues.clear();
     if (_debugIssues.isNotEmpty) {
       _issues.addAll(_debugIssues);
     } else if (_vmConnected) {
       _issues.addAll(_vmIssues);
-    } else if (!hasFreshDebug && hasStructuralData) {
+    } else if (structural) {
       _evaluateStructuralOnly();
     }
   }
 
-  /// Debug callback path — per-widget-type rebuild attribution.
-  void _evaluateDebugData(DebugSnapshot snapshot) {
+  /// Debug callback path — one issue per held widget type.
+  List<PerformanceIssue> _perTypeIssues(DebugSnapshot snapshot) {
     // Read once per evaluation pass — multiple per-widget emissions in
     // the same scan tick share the same lifecycle phase.
     final lifecyclePhase = _classifyLifecyclePhase();
-    for (final entry in snapshot.rebuildCounts.entries) {
-      final typeName = entry.key;
-      final count = entry.value;
-      final rate = snapshot.rebuildsPerSecond(typeName);
-
-      // Builder widgets are designed to rebuild on data/tick changes —
-      // apply a higher threshold to avoid false positives. Canonicalize
-      // the generic suffix because production runtime types arrive as
-      // `StreamBuilder<int>` etc.
-      final isBuilder = _builderWidgetTypes.contains(baseTypeName(typeName));
-      final effectiveThreshold = isBuilder
-          ? rebuildsPerSecThreshold * builderThresholdMultiplier
-          : rebuildsPerSecThreshold;
-
-      if (rate < effectiveThreshold) continue;
-
-      final elapsedSec =
-          snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
-
-      final (hint, effort) = FixHintBuilder.rebuildDebug(
-        typeName: typeName,
-        rate: rate.round(),
-        ancestorChain: snapshot.ancestorChains[typeName],
-      );
-
-      final builderNote = isBuilder ? ' (builder widget)' : '';
-
-      _issues.add(
-        PerformanceIssue(
-          stableId: 'rebuild_debug_$typeName',
-          severity: rate > effectiveThreshold * debugCriticalMultiplier
-              ? IssueSeverity.critical
-              : IssueSeverity.warning,
-          category: IssueCategory.build,
-          confidence: IssueConfidence.confirmed,
-          title: 'Excessive Rebuilds: $typeName (${rate.round()}/sec)',
-          detail:
-              '$typeName: $count rebuilds in '
-              '${elapsedSec.toStringAsFixed(1)}s '
-              '(${rate.round()}/sec).$builderNote',
-          fixHint: hint,
-          fixEffort: effort,
-          widgetName: typeName,
-          ancestorChain: snapshot.ancestorChains[typeName],
-          observationSource: ObservationSource.debugCallback,
-          detectedAt: DateTime.now(),
-          extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
-          confidenceReason:
-              'Measured directly from debug callback rebuild counter',
+    final snapshotSeconds =
+        snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    return [
+      for (final MapEntry(key: typeName, value: held) in _perType.held.entries)
+        _perTypeIssue(
+          typeName,
+          held,
+          snapshot,
+          snapshotSeconds,
+          lifecyclePhase,
         ),
-      );
-    }
+    ];
+  }
+
+  PerformanceIssue _perTypeIssue(
+    String typeName,
+    HeldRate held,
+    DebugSnapshot snapshot,
+    double snapshotSeconds,
+    String? lifecyclePhase,
+  ) {
+    final rate = held.rate;
+    final isBuilder = _builderWidgetTypes.contains(baseTypeName(typeName));
+    final (hint, effort) = FixHintBuilder.rebuildDebug(
+      typeName: typeName,
+      rate: rate.round(),
+      ancestorChain: snapshot.ancestorChains[typeName],
+    );
+    final builderNote = isBuilder ? ' (builder widget)' : '';
+    final forced = snapshot.forcedRebuildsByRoot[typeName] ?? 0;
+    final forcedNote = forced > 0
+        ? ' Its builds also rebuilt $forced widget'
+              '${forced == 1 ? '' : 's'} below it in the last '
+              '${snapshotSeconds.toStringAsFixed(1)}s.'
+        : '';
+    return PerformanceIssue(
+      stableId: 'rebuild_debug_$typeName',
+      severity: held.critical ? IssueSeverity.critical : IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.confirmed,
+      title: 'Excessive Rebuilds: $typeName (${rate.round()}/sec)',
+      detail:
+          '$typeName: ${held.count} rebuilds in '
+          '${held.seconds.toStringAsFixed(1)}s '
+          '(${rate.round()}/sec).$builderNote$forcedNote',
+      fixHint: hint,
+      fixEffort: effort,
+      widgetName: typeName,
+      ancestorChain: snapshot.ancestorChains[typeName],
+      observationSource: ObservationSource.debugCallback,
+      detectedAt: DateTime.now(),
+      extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+      confidenceReason: 'Measured directly from debug callback rebuild counter',
+    );
   }
 
   /// VM timeline path — share of UI-thread time inside BUILD scopes, with
@@ -593,14 +680,17 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// When [enrichedNames] are available (from timeline enrichment args),
   /// uses them for dirty-widget attribution. Otherwise falls back to
   /// structural tree scan context.
-  void _evaluateVmData(double percent, [List<String>? enrichedNames]) {
+  PerformanceIssue? _evaluateVmData(
+    double percent, [
+    List<String>? enrichedNames,
+  ]) {
     // The peak moves on the evaluation path that stamps
     // `observedBuildPercent`, so every peak above the threshold is also
     // the arg of an emission (the audit's `max` reduction matches it).
     if (percent > _peakObservedBuildPercent) {
       _peakObservedBuildPercent = percent;
     }
-    if (percent <= buildTimePercentThreshold) return;
+    if (percent <= buildTimePercentThreshold) return null;
 
     String detailSuffix;
 
@@ -633,31 +723,29 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
     final detectedAt = DateTime.now();
     final lifecyclePhase = _classifyLifecyclePhase();
-    _issues.add(
-      PerformanceIssue(
-        stableId: 'rebuild_activity',
-        severity: percent > buildTimePercentThreshold * 3
-            ? IssueSeverity.critical
-            : IssueSeverity.warning,
-        category: IssueCategory.build,
-        confidence: IssueConfidence.confirmed,
-        title: 'Rebuild Activity: build phase $formatted% of UI time',
-        detail:
-            'Widget rebuilding (BUILD scopes on the UI thread) took '
-            '$formatted% of wall time in the last ~1 s window '
-            '(threshold ${_formatPercent(buildTimePercentThreshold)}%).'
-            '$detailSuffix',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.vmTimeline,
-        detectedAt: detectedAt,
-        dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
-        extraTraceArgs: {
-          'observedBuildPercent': formatted,
-          'lifecyclePhase': ?lifecyclePhase,
-        },
-        confidenceReason: 'Measured directly from VM timeline BUILD durations',
-      ),
+    return PerformanceIssue(
+      stableId: 'rebuild_activity',
+      severity: percent > buildTimePercentThreshold * 3
+          ? IssueSeverity.critical
+          : IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.confirmed,
+      title: 'Rebuild Activity: build phase $formatted% of UI time',
+      detail:
+          'Widget rebuilding (BUILD scopes on the UI thread) took '
+          '$formatted% of wall time in the last ~1 s window '
+          '(threshold ${_formatPercent(buildTimePercentThreshold)}%).'
+          '$detailSuffix',
+      fixHint: hint,
+      fixEffort: effort,
+      observationSource: ObservationSource.vmTimeline,
+      detectedAt: detectedAt,
+      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+      extraTraceArgs: {
+        'observedBuildPercent': formatted,
+        'lifecyclePhase': ?lifecyclePhase,
+      },
+      confidenceReason: 'Measured directly from VM timeline BUILD durations',
     );
   }
 
@@ -760,8 +848,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void dispose() {
     _issues.clear();
-    _debugIssues.clear();
-    _vmIssues.clear();
+    _clearHeld();
     _highlights.clear();
     _widgetRebuildCounts.clear();
     _pendingEnrichedNames.clear();

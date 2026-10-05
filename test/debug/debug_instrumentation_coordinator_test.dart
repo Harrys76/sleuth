@@ -5,6 +5,9 @@ import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 
 void main() {
+  // The rebuild callback reads the scheduler's frame stamp.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('DebugInstrumentationCoordinator', () {
     late DebugInstrumentationCoordinator coordinator;
 
@@ -612,6 +615,14 @@ class _FakeElement extends Element {
 
   @override
   bool get debugDoingBuild => false;
+
+  // Never mounted, so the framework getters would assert; a callback for
+  // it stands for a self-dirtied (setState) rebuild at the top level.
+  @override
+  int get depth => 1;
+
+  @override
+  bool get dirty => true;
 
   @override
   void performRebuild() {

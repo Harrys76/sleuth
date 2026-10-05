@@ -66,11 +66,15 @@ class DebugInstrumentationConfig {
   /// A widget counts when the framework's creation tracking (on in debug
   /// builds) places it outside the Flutter SDK, which includes widgets
   /// other packages create; once DevTools has set the project's root
-  /// directories, only widgets created in the project count. Framework
-  /// widgets built inside yours (`RichText` under `Text`, `_InkFeatures`
-  /// under `InkWell`, a scaffold's layout widgets) repaint with them and
-  /// are left out, though their paints stay in the aggregate count. Set
-  /// false to count them too. Without creation tracking every widget
-  /// counts.
+  /// directories, only widgets created in the project count. Without
+  /// creation tracking every widget counts.
+  ///
+  /// A paint is counted for the widget that created the painting render
+  /// object. Your `CustomPaint`, `Padding`, `DecoratedBox` or `Row` count
+  /// as themselves; `Text`, `Icon` and `Image` paint through render
+  /// objects the framework creates (`RichText`, `RawImage`), so they get
+  /// no per-widget paint count, and framework widgets such as
+  /// `_InkFeatures` are left out. Their paints stay in the aggregate
+  /// count. Set false to count framework widgets too.
   final bool userWidgetsOnly;
 }

@@ -82,6 +82,41 @@ const Set<String> animationOwnerNames = <String>{
   'Hero',
 };
 
+/// Owners in [animationOwnerNames] that animate by rebuilding: a
+/// listenable or a ticker calls `setState` on them every frame, so they
+/// drive their subtree's paints only in frames where they rebuilt. An
+/// idle one (a finished `AnimatedContainer`, a `ValueListenableBuilder`
+/// whose value did not change) owns nothing. The other owners animate in
+/// a render object or a transition widget without rebuilding, so their
+/// presence is the evidence.
+const Set<String> rebuildDrivenOwnerNames = <String>{
+  'AnimatedBuilder',
+  'ValueListenableBuilder',
+  'TweenAnimationBuilder',
+  'AnimatedContainer',
+  'AnimatedPadding',
+  'AnimatedAlign',
+  'AnimatedPositioned',
+  'AnimatedPositionedDirectional',
+  'AnimatedFractionallySizedBox',
+};
+
+/// [Element.widget]'s type name without generic arguments, as matched
+/// against [animationOwnerNames].
+String _ownerName(Element element) {
+  final rawName = typeNameCache.lookup(element.widget);
+  final ltIdx = rawName.indexOf('<');
+  return ltIdx == -1 ? rawName : rawName.substring(0, ltIdx);
+}
+
+/// Whether [element]'s widget is one of [animationOwnerNames].
+bool isAnimationOwnerElement(Element element) =>
+    animationOwnerNames.contains(_ownerName(element));
+
+/// Whether [element]'s widget is one of [rebuildDrivenOwnerNames].
+bool isRebuildDrivenOwnerElement(Element element) =>
+    rebuildDrivenOwnerNames.contains(_ownerName(element));
+
 /// Word-boundary regex over [animationOwnerNames], computed once at
 /// module load. The `\b…\b` anchors prevent substring lookalikes from
 /// matching: `'CustomAnimatedBuilderUtility'` must NOT match
@@ -139,27 +174,33 @@ bool hasAnimationOwnerDescendant(
   Element root, {
   int maxVisits = 32,
   int maxDepth = 4,
+}) =>
+    findAnimationOwnerDescendant(
+      root,
+      maxVisits: maxVisits,
+      maxDepth: maxDepth,
+    ) !=
+    null;
+
+/// The first animation owner [hasAnimationOwnerDescendant] reaches from
+/// [root] (itself included), or null.
+Element? findAnimationOwnerDescendant(
+  Element root, {
+  int maxVisits = 32,
+  int maxDepth = 4,
 }) {
-  // Local mutable state instead of recursion-with-closure, to keep the
-  // hot path allocation-free.
   var visits = 0;
-  var found = false;
+  Element? found;
 
   void walk(Element element, int depth) {
-    if (found || visits >= maxVisits || depth > maxDepth) return;
+    if (found != null || visits >= maxVisits || depth > maxDepth) return;
     visits++;
-    final rawName = typeNameCache.lookup(element.widget);
-    // Strip generics: `Foo<X>` → `Foo`. Only allocates when the type is
-    // actually generic; non-generic names hit the indexOf == -1 branch
-    // and pass through unchanged.
-    final ltIdx = rawName.indexOf('<');
-    final name = ltIdx == -1 ? rawName : rawName.substring(0, ltIdx);
-    if (animationOwnerNames.contains(name)) {
-      found = true;
+    if (isAnimationOwnerElement(element)) {
+      found = element;
       return;
     }
     element.visitChildren((child) {
-      if (!found) walk(child, depth + 1);
+      if (found == null) walk(child, depth + 1);
     });
   }
 
@@ -198,18 +239,19 @@ bool hasAnimationOwnerDescendant(
 /// Cost analysis at 60 Hz with `maxDepth=16`: 60 × 16 = 960 ancestor
 /// visits per second per repainting widget. Same shape as the descendant
 /// walk's budget. Negligible.
-bool hasAnimationOwnerAncestor(Element element, {int maxDepth = 16}) {
+bool hasAnimationOwnerAncestor(Element element, {int maxDepth = 16}) =>
+    findAnimationOwnerAncestor(element, maxDepth: maxDepth) != null;
+
+/// The nearest animation owner among [element]'s [maxDepth] nearest
+/// ancestors, or null.
+Element? findAnimationOwnerAncestor(Element element, {int maxDepth = 16}) {
   var depth = 0;
-  var found = false;
+  Element? found;
   element.visitAncestorElements((ancestor) {
     if (depth >= maxDepth) return false;
     depth++;
-    final rawName = typeNameCache.lookup(ancestor.widget);
-    // Strip generics: `Foo<X>` → `Foo`. Same trick as the descendant walk.
-    final ltIdx = rawName.indexOf('<');
-    final name = ltIdx == -1 ? rawName : rawName.substring(0, ltIdx);
-    if (animationOwnerNames.contains(name)) {
-      found = true;
+    if (isAnimationOwnerElement(ancestor)) {
+      found = ancestor;
       return false;
     }
     return true;

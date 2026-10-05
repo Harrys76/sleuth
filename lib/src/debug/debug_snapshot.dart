@@ -26,13 +26,31 @@ class DebugSnapshot {
     this.animationOwnedPaintCounts = const {},
     this.totalAnimationOwnedPaintCount = 0,
     this.source = RebuildCountSource.none,
+    this.forcedRebuildsByRoot = const {},
+    this.rebuildTypesCapped = false,
+    this.paintTypesCapped = false,
   });
 
   /// Per-widget-type rebuild counts (key = widget runtimeType name).
   ///
   /// From `debugOnRebuildDirtyWidget` which provides the [Element],
-  /// giving us `.widget.runtimeType`.
+  /// giving us `.widget.runtimeType`. In debug mode only rebuilds of an
+  /// element that marked itself dirty count here (`setState`, a changed
+  /// dependency, a listenable builder); the widgets its build then
+  /// updates are counted in [forcedRebuildsByRoot].
   final Map<String, int> rebuildCounts;
+
+  /// Rebuilds a parent's build forced on the widgets below it, keyed by
+  /// the type of the self-dirtied widget whose build caused them
+  /// (debug mode).
+  final Map<String, int> forcedRebuildsByRoot;
+
+  /// Some widget types were left out of [rebuildCounts] by the type cap,
+  /// so a type missing from it is not known to be idle.
+  final bool rebuildTypesCapped;
+
+  /// Some widget types were left out of [paintCounts] by the type cap.
+  final bool paintTypesCapped;
 
   /// Per-widget-type paint counts (key = widget runtimeType name).
   ///

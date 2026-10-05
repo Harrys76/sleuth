@@ -71,6 +71,16 @@ abstract final class OverlayOwnership {
     return result;
   }
 
+  /// Whether [element] is the widget a registered overlay wraps around
+  /// the app (keyed with the registered app key). It belongs to the app
+  /// side for ownership, so its descendants stay the app's, but Sleuth
+  /// creates it.
+  static bool isAppBoundary(Element element) {
+    if (_registered == 0) return false;
+    final key = element.widget.key;
+    return key != null && _appKeys[key] == true;
+  }
+
   static bool? _decide(Element element) {
     final cached = _decisions[element];
     if (cached != null && cached >> 1 == _generation) return cached & 1 == 1;

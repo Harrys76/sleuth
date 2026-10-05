@@ -58,9 +58,15 @@ void main() {
   testWidgets('counts only the widgets the app creates', (tester) async {
     final snap = await churn(tester, userWidgetsOnly: true);
 
-    expect(snap.rebuildCounts['_Ticker'], greaterThanOrEqualTo(25));
-    expect(snap.rebuildCounts['ElevatedButton'], greaterThanOrEqualTo(25));
-    expect(snap.rebuildCounts['Text'], greaterThanOrEqualTo(25));
+    // _Ticker's setState starts each rebuild; the button and its label
+    // are rebuilt by _Ticker's build, two per frame, and only counted
+    // under it.
+    expect(snap.rebuildCounts, {'_Ticker': greaterThanOrEqualTo(25)});
+    expect(snap.forcedRebuildsByRoot.keys, ['_Ticker']);
+    expect(
+      snap.forcedRebuildsByRoot['_Ticker'],
+      2 * snap.rebuildCounts['_Ticker']!,
+    );
     expect(snap.paintCounts['CustomPaint'], greaterThanOrEqualTo(25));
     for (final name in frameworkInternals) {
       expect(snap.rebuildCounts.containsKey(name), isFalse, reason: name);
@@ -78,7 +84,11 @@ void main() {
 
     expect(snap.paintCounts['RichText'], greaterThanOrEqualTo(25));
     expect(snap.paintCounts['_AppBarTitleBox'], greaterThanOrEqualTo(25));
-    expect(snap.rebuildCounts['InkWell'], greaterThanOrEqualTo(25));
+    // The button's framework internals are rebuilt under _Ticker too.
+    expect(
+      snap.forcedRebuildsByRoot['_Ticker'],
+      greaterThan(10 * snap.rebuildCounts['_Ticker']!),
+    );
     final perType = snap.paintCounts.values.fold<int>(0, (a, b) => a + b);
     expect(snap.totalPaintCount, perType);
   }, semanticsEnabled: false);

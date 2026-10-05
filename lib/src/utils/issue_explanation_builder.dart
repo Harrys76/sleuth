@@ -878,8 +878,10 @@ class IssueExplanationBuilder {
           'or ValueListenableBuilder alert at 3× that rate. Critical above '
           '3× the alert rate.\n\n'
           '• Widget type — The exact class name being tracked. Only '
-          'widgets your code creates are counted; framework widgets they '
-          'build inside rebuild with them and are left out.\n\n'
+          'widgets your code creates count, and only rebuilds they start '
+          'themselves (setState, a changed dependency, a listenable). The '
+          'widgets their build then updates are named in the detail, not '
+          'reported on their own.\n\n'
           '• Debug mode only — values may differ in profile mode.\n\n'
           '• Source: debugOnRebuildDirtyWidget callback.',
       whyItMatters:
@@ -1017,10 +1019,12 @@ class IssueExplanationBuilder {
           'per second, leaving out paints driven by its own animation. '
           'Normal: 0–1/sec at idle. Alert: ≥30/sec; critical above 2× '
           'that (>60/sec).\n\n'
-          '• Widget type — The class name of the repainting widget. Only '
-          'widgets your code creates are counted; framework widgets they '
-          'build inside (RichText under Text, ink under InkWell) are left '
-          'out.\n\n'
+          '• Widget type — The class name of the widget that created the '
+          'repainting render object. Only widgets your code creates are '
+          'counted: your CustomPaint, Padding or DecoratedBox count as '
+          'themselves, while Text, Icon and Image paint through render '
+          'objects the framework creates and have no count of their '
+          'own.\n\n'
           '• Debug mode only — values may differ in profile mode.\n\n'
           '• Source: debugOnProfilePaint callback.',
       whyItMatters:

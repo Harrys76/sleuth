@@ -199,32 +199,64 @@
   dashboard open, a debug build reported the card's widgets
   (`rebuild_debug_IssueCard`, `rebuild_debug_SleuthListenableBuilder`,
   `repaint_debug_Padding`, ...) as the app's. The overlay registers its
-  subtree, and an element under it (but not under the app it wraps) is
-  skipped; the decision is cached per element.
+  subtree and the widget it wraps around the app; elements on the overlay
+  side, and that wrapper, are skipped (decision cached per element).
 - Debug rebuild and paint counts per widget keep only widgets your code
-  creates. Framework widgets built inside them (`RichText` under `Text`,
-  `_InkFeatures` under `InkWell`, a scaffold's layout widgets) repaint
-  with them and each raised its own `repaint_debug_*` or `rebuild_debug_*`
-  issue: one animated painter sharing a layer with an app bar raised about
-  40. The framework's creation tracking (on in debug builds) decides,
-  as it does for `debugProfileBuildsEnabledUserWidgets`; widgets other
-  packages create still count. Framework paints stay in the aggregate
-  count and its animation-owned share. New
-  `DebugInstrumentationConfig.userWidgetsOnly` (default true); set false
-  to count framework widgets too. The repaint encyclopedia entry names
-  `debugOnProfilePaint` as its source.
-- Rebuild and repaint cards no longer appear and vanish between ticks.
-  Both detectors were re-evaluated on two clocks, the scan (debug counts,
-  every 2-5 s) and the VM window (~1 s), and each evaluation replaced all
-  issues from whichever source had just ticked: a VM window dropped the
-  per-widget debug cards until the next scan, a scan dropped the VM
-  share's card (in profile too, where each scan brings a timeline
-  snapshot), and without per-widget issues the card swapped between
-  `excessive_repaint` and `excessive_repaint_debug`. Each source's issues
-  now stay until that source updates; per-widget debug issues still win
-  over the VM share, and the debug aggregate reports only without a VM
-  connection. A VM window that closes on the same tick as a profile
-  timeline snapshot is now evaluated instead of dropped.
+  creates, as the framework's creation tracking (on in debug builds)
+  decides; widgets other packages create still count. A paint counts for
+  the widget that created the painting render object, so your
+  `CustomPaint`, `Padding` or `DecoratedBox` count as themselves, while
+  `Text`, `Icon` and `Image` paint through framework render objects and
+  have no paint count of their own; framework widgets such as
+  `_InkFeatures` no longer each raise a `repaint_debug_*` card (one
+  animated painter sharing a layer with an app bar raised about 40).
+  Framework paints stay in the aggregate count and its animation-owned
+  share. New `DebugInstrumentationConfig.userWidgetsOnly` (default true).
+- A rebuild counts for the widget that started it (`setState`, a changed
+  dependency, a listenable builder); the widgets its build updates are
+  counted under it (`DebugSnapshot.forcedRebuildsByRoot`) and named in its
+  card's detail instead of raising a card each. One `setState` on a
+  dashboard raised cards for `Text`, `Icon`, `Expanded` and every tile
+  type below it.
+- Rebuild and repaint cards stay put while the measured rate is steady.
+  A widget at the threshold read 9 to 11/s over 1 s scan windows (where
+  a window's edges fall in the frame phase) and its card appeared and
+  vanished on alternate scans, collapsing it if expanded and dropping its
+  highlight. A widget's card now appears when one scan reaches the
+  threshold and stays until the rate over the last two scans falls below
+  three quarters of it, or at once on a scan where the widget did not
+  rebuild or repaint at all; critical works the same way around its
+  boundary. Highlights follow the same set. The `rebuild_activity` and
+  `excessive_repaint` cards stay until the share is under 0.8 times the
+  threshold for two windows, and stay critical until it is under 0.8
+  times the critical boundary for two windows; emissions are unchanged
+  and capture mode shows each window as measured.
+- Both detectors keep each source's issues until that source updates.
+  They were evaluated on the scan (debug counts) and on the VM window,
+  and each evaluation replaced everything from whichever source had just
+  ticked, so a VM window dropped the per-widget cards, a scan dropped the
+  VM share's card (in profile too), and the card swapped between
+  `excessive_repaint` and `excessive_repaint_debug`. Every VM window is
+  now evaluated, also while per-widget cards are shown, so the VM card
+  shows as soon as they clear and the rebuild peak keeps moving; the
+  debug aggregate reports only without a VM connection. A route or tab
+  change and a hot reload drop held evidence, restart the VM window and
+  skip that scan's counts (a reload rebuilds every element once); a scan
+  that cannot find one page (two Scaffolds side by side) drops the held
+  per-widget cards.
+- The VM repaint gate that hides `excessive_repaint` while every paint is
+  animation-owned now needs every paint in the window owned, framework
+  paints included. An animation owner that animates by rebuilding
+  (`AnimatedBuilder`, `ValueListenableBuilder`, `TweenAnimationBuilder`,
+  `AnimatedContainer`, `AnimatedPadding`, `AnimatedAlign`,
+  `AnimatedPositioned`, `AnimatedFractionallySizedBox`) owns paints only
+  in frames where it rebuilt, so an idle one next to a repainting widget
+  no longer hides it. A paint over the type cap still counts toward the
+  animation-owned aggregate.
+- With debug callbacks off, a VM disconnect now removes the
+  `excessive_repaint` card; it stayed until reconnect. When the same
+  widget has a rebuild and a repaint card, the more severe one is kept
+  (a warning rebuild used to hide a critical repaint).
 - Example: demo subtitles fit 40 characters, demo file headers follow the
   home-screen numbering, tile titles use `titleMedium`, and category
   header icons use the theme's primary color.

@@ -479,8 +479,9 @@ class EnrichRebuildRepaintBoundaryRule extends CorrelationRule {
 /// Deduplicates when the same widget has both `rebuild_debug_$TYPE` and
 /// `repaint_debug_$TYPE` issues.
 ///
-/// Keeps the higher-confidence issue. If equal confidence, keeps the
-/// rebuild issue (build issues are more actionable for developers).
+/// Keeps the more severe issue, then the higher-confidence one. If both
+/// tie, keeps the rebuild issue (build issues are more actionable for
+/// developers).
 class DeduplicateRebuildRepaintRule extends CorrelationRule {
   const DeduplicateRebuildRepaintRule();
 
@@ -518,8 +519,12 @@ class DeduplicateRebuildRepaintRule extends CorrelationRule {
 
       final rebuildRank = _confidenceRank(rebuild.confidence);
       final repaintRank = _confidenceRank(repaint.confidence);
+      final severityOrder = repaint.severity.index.compareTo(
+        rebuild.severity.index,
+      );
 
-      if (repaintRank > rebuildRank) {
+      if (severityOrder > 0 ||
+          (severityOrder == 0 && repaintRank > rebuildRank)) {
         indicesToRemove.add(rebuildIdx); // repaint wins
       } else {
         indicesToRemove.add(repaintIdx); // rebuild wins (higher or equal)
