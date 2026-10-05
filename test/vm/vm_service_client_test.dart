@@ -952,9 +952,9 @@ void main() {
 
       await client.pollTimelineSync();
 
-      expect(client.lastPollTimings!.responseChars, -1);
-      expect(client.lastPollTimings!.decodeMicros, -1);
-      expect(client.maxPollDecodeMicros, -1);
+      expect(client.lastPollTimings!.responseChars, isNull);
+      expect(client.lastPollTimings!.decodeMicros, isNull);
+      expect(client.maxPollDecodeMicros, isNull);
       client.dispose();
     });
 
@@ -969,14 +969,12 @@ void main() {
       await client.pollTimelineSync();
 
       final t = client.lastPollTimings!;
-      expect(t.decodeMicros, greaterThanOrEqualTo(3000));
-      expect(t.decodeMicros, lessThanOrEqualTo(t.rpcMicros));
+      final decode = t.decodeMicros!;
+      expect(decode, greaterThanOrEqualTo(3000));
+      expect(decode, lessThanOrEqualTo(t.rpcMicros));
       // The VM-side wait before the response arrived is not decode.
-      expect(t.rpcMicros - t.decodeMicros, greaterThanOrEqualTo(15000));
-      expect(
-        t.uiBlockingMicros,
-        t.decodeMicros + t.parseMicros + t.dispatchMicros,
-      );
+      expect(t.rpcMicros - decode, greaterThanOrEqualTo(15000));
+      expect(t.uiBlockingMicros, decode + t.parseMicros + t.dispatchMicros);
       client.dispose();
     });
 
@@ -1001,14 +999,14 @@ void main() {
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       await client.pollTimelineSync();
-      final slow = client.lastPollTimings!.decodeMicros;
+      final slow = client.lastPollTimings!.decodeMicros!;
       expect(slow, greaterThanOrEqualTo(6000));
 
       mock
         ..decodeDelay = null
         ..responseIdOverride = 'other';
       await client.pollTimelineSync();
-      expect(client.lastPollTimings!.decodeMicros, -1);
+      expect(client.lastPollTimings!.decodeMicros, isNull);
       mock.responseIdOverride = null;
       await client.pollTimelineSync();
       expect(client.lastPollTimings!.decodeMicros, lessThan(slow));
@@ -1029,8 +1027,8 @@ void main() {
       expect(t.eventCount, 0);
       expect(t.parseMicros, 0);
       expect(t.dispatchMicros, 0);
-      expect(t.responseChars, -1);
-      expect(t.decodeMicros, -1);
+      expect(t.responseChars, isNull);
+      expect(t.decodeMicros, isNull);
       client.dispose();
     });
 

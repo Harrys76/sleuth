@@ -16,8 +16,10 @@ class IssueRankingContext {
   /// Null when no jank or when the latest frame is not janky.
   final PipelinePhase? suspectedPhase;
 
-  /// Consecutive scan-cycle count per stableId. Updated only from the scan path
-  /// to prevent VM-backed issues from inflating faster than structural ones.
+  /// Scan cycles, within the recurrence window (the last 60), in which each
+  /// stableId was present, for ids present in the latest cycle; the
+  /// controller caps it at 5. Updated only from the scan path to prevent
+  /// VM-backed issues from inflating faster than structural ones.
   final Map<String, int> recurrenceCounts;
 }
 

@@ -80,7 +80,7 @@ Matcher lacksStableId(String stableId) => predicate<List<PerformanceIssue>>(
 );
 
 /// Convenience: issue with stableId starting with [prefix]. Used for
-/// parameterised families like `excessive_keep_alive:<i>`.
+/// parameterised families like `excessive_keep_alive:<Type>~<part>`.
 Matcher hasStableIdPrefix(String prefix) => predicate<List<PerformanceIssue>>(
   (issues) => issues.any((i) => (i.stableId ?? '').startsWith(prefix)),
   'contains stableId starting with "$prefix"',

@@ -12,16 +12,18 @@
 //
 // Two checks run:
 //
-// 1. **Overlay classes**: every `class X extends (Stateless|Stateful|
-//    Inherited)Widget` defined under `lib/src/ui/` MUST appear in the
-//    denylist. Adding a new overlay widget without adding it to the denylist
-//    re-exposes Sleuth to self-measurement.
+// 1. **Overlay classes**: every `class X extends …Widget` defined under
+//    `lib/src/ui/` (stateless, stateful, inherited, render-object or any
+//    other `*Widget` base) MUST appear in the denylist. Adding a new
+//    overlay widget without adding it to the denylist re-exposes Sleuth to
+//    self-measurement.
 //
-// 2. **Framework widgets**: a curated set of high-traffic Flutter framework
-//    widgets is checked against the UI source — any that appear as a
-//    constructor call MUST also be in the denylist. This catches the case
-//    where someone wraps an overlay in, say, an `AnimatedContainer` that
-//    wasn't previously used.
+// 2. **Framework widgets**: every capitalised constructor call under
+//    `lib/src/ui/` (comments and string literals stripped) that does not
+//    name a class defined in `lib/` MUST be either in the denylist (a
+//    widget) or in [_nonWidgetTypes] (a value, controller or other
+//    non-widget type). A new framework widget in the overlay fails the
+//    audit until it is classified.
 //
 // When this test fails, do NOT silence it by editing the test — fix the
 // denylist in `debug_instrumentation_coordinator.dart` and re-run.
@@ -31,120 +33,56 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 
-/// High-traffic Flutter framework widgets that, if used anywhere under
-/// `lib/src/ui/`, must be in `_frameworkWidgetDenyList`. This list is the
-/// tripwire: if you introduce a new kind of framework widget into the
-/// overlay (say, `StreamBuilder` or `AnimatedSwitcher`), add it here AND
-/// to the denylist so future audits keep parity.
-const _frameworkCandidates = <String>{
-  'Align',
-  'AnimatedBuilder',
-  'AnimatedContainer',
-  'AnimatedCrossFade',
-  'AnimatedDefaultTextStyle',
-  'AnimatedOpacity',
-  'AnimatedPadding',
-  'AnimatedPositioned',
-  'AnimatedRotation',
-  'AnimatedScale',
-  'AnimatedSize',
-  'AnimatedSlide',
-  'AnimatedSwitcher',
-  'AppBar',
-  'AspectRatio',
-  'BackdropFilter',
-  'Baseline',
-  'Builder',
-  'Card',
-  'Center',
-  'Checkbox',
-  'Chip',
-  'CircularProgressIndicator',
-  'ClipOval',
-  'ClipPath',
-  'ClipRRect',
-  'ClipRect',
-  'ColoredBox',
-  'Column',
-  'ConstrainedBox',
-  'Container',
-  'CustomPaint',
-  'CustomScrollView',
-  'DecoratedBox',
-  'DefaultTextEditingShortcuts',
-  'DefaultTextStyle',
-  'Directionality',
-  'Divider',
-  'ElevatedButton',
-  'Expanded',
-  'FadeTransition',
-  'FilledButton',
-  'FittedBox',
-  'Flex',
-  'Flexible',
-  'FloatingActionButton',
-  'Focus',
-  'FocusScope',
-  'FutureBuilder',
-  'GestureDetector',
-  'GridView',
-  'Hero',
-  'Icon',
-  'IconButton',
-  'IgnorePointer',
-  'InkResponse',
-  'InkWell',
-  'IntrinsicHeight',
-  'IntrinsicWidth',
-  'LayoutBuilder',
-  'LimitedBox',
-  'LinearProgressIndicator',
-  'ListTile',
-  'ListView',
-  'Listener',
-  'Localizations',
-  'Material',
-  'MouseRegion',
-  'NotificationListener',
-  'Offstage',
-  'Opacity',
-  'OutlinedButton',
-  'Overlay',
-  'Padding',
-  'PageView',
-  'Placeholder',
-  'PopScope',
-  'Positioned',
-  'RefreshIndicator',
-  'RepaintBoundary',
-  'RichText',
-  'RotatedBox',
-  'Row',
-  'SafeArea',
-  'Scaffold',
-  'Scrollbar',
-  'SelectableText',
-  'Semantics',
-  'ShaderMask',
-  'SingleChildScrollView',
-  'SizedBox',
-  'SlideTransition',
-  'SnackBar',
-  'Spacer',
-  'Stack',
-  'StatefulBuilder',
-  'StreamBuilder',
-  'TabBar',
-  'TabBarView',
-  'Text',
-  'TextButton',
-  'TextField',
-  'Theme',
-  'Tooltip',
-  'Transform',
-  'TweenAnimationBuilder',
-  'ValueListenableBuilder',
-  'Wrap',
+/// Types constructed under `lib/src/ui/` that are not widgets, so the
+/// framework-widget check skips them. A name missing from both this set
+/// and the denylist fails the audit: classify it here only when it is not
+/// a widget.
+const _nonWidgetTypes = <String>{
+  'Alignment',
+  'AlwaysStoppedAnimation',
+  'AnimationController',
+  'Border',
+  'BorderSide',
+  'BoxConstraints',
+  'BoxDecoration',
+  'BoxShadow',
+  'ClipboardData',
+  'Color',
+  'CurvedAnimation',
+  'CustomSemanticsAction',
+  'Duration',
+  'FocusNode',
+  'FormatException',
+  'Function',
+  'GlobalKey',
+  'HttpException',
+  'InputDecoration',
+  'IntTween',
+  'Interval',
+  'LinearGradient',
+  'LinkedHashSet',
+  'Locale',
+  'ObjectKey',
+  'Offset',
+  'OutlineInputBorder',
+  'OverlayEntry',
+  'Paint',
+  'Path',
+  'RegExp',
+  'RoundedRectangleBorder',
+  'ScrollController',
+  'Shadow',
+  'Size',
+  'StringBuffer',
+  'TextEditingController',
+  'TextPainter',
+  'TextSpan',
+  'TextStyle',
+  'Timer',
+  'Tween',
+  'UnmodifiableSetView',
+  'ValueKey',
+  'ValueNotifier',
 };
 
 /// Framework widgets apps use widely. Denylisting one would drop the app's
@@ -169,9 +107,32 @@ const _appOwnedFrameworkWidgets = <String>{
 /// character class is intentionally permissive (`[\w,\s<>?]`) so nested
 /// generic bounds still match.
 final _overlayClassRegex = RegExp(
-  r'^class\s+(\w+)(?:<[\w,\s<>?]*>)?\s+extends\s+(?:Stateless|Stateful|Inherited)Widget',
+  r'^class\s+(\w+)(?:<[\w,\s<>?]*>)?\s+extends\s+\w*Widget\b',
   multiLine: true,
 );
+
+/// A class, enum, typedef or extension type declared at the top level.
+final _declarationRegex = RegExp(
+  r'^(?:(?:abstract|base|final|interface|sealed|mixin)\s+)*'
+  r'(?:class|enum|typedef|extension\s+type)\s+(\w+)',
+  multiLine: true,
+);
+
+/// A capitalised name called as a constructor: `Name(` or `Name<…>(`,
+/// not after an identifier character, `.` or `$`.
+final _constructorCallRegex = RegExp(
+  r'(?<![A-Za-z0-9_.$])([A-Z]\w*)(?:<[^()]*>)?\s*\(',
+);
+
+/// [source] without comments and string literal contents, so prose and
+/// UI text such as `'Hide (3)'` do not read as constructor calls.
+String _stripCommentsAndStrings(String source) => source
+    .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
+    .replaceAll(RegExp(r"'''.*?'''", dotAll: true), '""')
+    .replaceAll(RegExp(r'""".*?"""', dotAll: true), '""')
+    .replaceAll(RegExp(r'//[^\n]*'), '')
+    .replaceAll(RegExp(r"r?'(?:\\.|[^'\\\n])*'"), '""')
+    .replaceAll(RegExp(r'r?"(?:\\.|[^"\\\n])*"'), '""');
 
 /// Returns `true` when [name] is used as a widget constructor in [source].
 /// A constructor call looks like `Name(` or `Name<…>(`. We exclude method
@@ -203,18 +164,20 @@ Directory _packageRoot() {
   }
 }
 
-List<File> _uiSourceFiles() {
+List<File> _dartFilesUnder(String relative) {
   final root = _packageRoot();
-  final uiDir = Directory('${root.path}/lib/src/ui');
-  if (!uiDir.existsSync()) {
-    fail('lib/src/ui not found at ${uiDir.path}');
+  final dir = Directory('${root.path}/$relative');
+  if (!dir.existsSync()) {
+    fail('$relative not found at ${dir.path}');
   }
-  return uiDir
+  return dir
       .listSync(recursive: true)
       .whereType<File>()
       .where((f) => f.path.endsWith('.dart'))
       .toList();
 }
+
+List<File> _uiSourceFiles() => _dartFilesUnder('lib/src/ui');
 
 void main() {
   group('overlay denylist audit (KDD-10 / v0.15.1)', () {
@@ -242,6 +205,10 @@ class _WithGeneric<T> extends StatefulWidget {}
 class _WithBound<T extends Bar> extends StatelessWidget {}
 class _WithNested<T extends Bar<Baz>> extends StatelessWidget {}
 class _WithMulti<A, B extends Foo> extends InheritedWidget {}
+class _Blocker extends SingleChildRenderObjectWidget {}
+class _Slotted extends SlottedMultiChildRenderObjectWidget<_Slot, RenderBox> {}
+class _NotAWidget extends ChangeNotifier {}
+class _WidgetLike extends WidgetsBindingObserver {}
 ''';
       final names = _overlayClassRegex
           .allMatches(fixture)
@@ -255,6 +222,8 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
           '_WithBound',
           '_WithNested',
           '_WithMulti',
+          '_Blocker',
+          '_Slotted',
         }),
         reason:
             '_overlayClassRegex must match both plain and generic '
@@ -293,30 +262,62 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
       );
     });
 
+    test('constructor calls in comments and strings are ignored', () {
+      const fixture = '''
+// A Hide(3) note.
+final a = Text('Hide (3)');
+final b = Row(children: [Icon(x)]);
+''';
+      final names = _constructorCallRegex
+          .allMatches(_stripCommentsAndStrings(fixture))
+          .map((m) => m.group(1)!)
+          .toSet();
+      expect(names, {'Text', 'Row', 'Icon'});
+    });
+
     test('every framework widget used under lib/src/ui/ is in the '
         'denylist', () {
       final denyList =
           DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList;
-      final usedButNotDenied = <String>{};
+      final declaredInLib = <String>{
+        for (final f in _dartFilesUnder('lib'))
+          for (final m in _declarationRegex.allMatches(f.readAsStringSync()))
+            m.group(1)!,
+      };
+      final called = <String>{
+        for (final src in uiSources.values)
+          for (final m in _constructorCallRegex.allMatches(
+            _stripCommentsAndStrings(src),
+          ))
+            m.group(1)!,
+      };
+      expect(called, contains('Text'));
 
-      for (final candidate in _frameworkCandidates) {
-        final usedSomewhere = uiSources.values.any(
-          (src) => _isWidgetConstructorUsed(candidate, src),
-        );
-        if (usedSomewhere && !denyList.contains(candidate)) {
-          usedButNotDenied.add(candidate);
-        }
-      }
-
+      final unclassified =
+          called
+              .difference(declaredInLib)
+              .difference(denyList)
+              .difference(_nonWidgetTypes)
+              .toList()
+            ..sort();
       expect(
-        usedButNotDenied,
+        unclassified,
         isEmpty,
         reason:
-            'These Flutter framework widgets are used inside '
-            'lib/src/ui/ but are NOT in `_frameworkWidgetDenyList`. Add '
-            'them to the denylist in '
-            'lib/src/debug/debug_instrumentation_coordinator.dart:\n'
-            '  ${usedButNotDenied.toList()..sort()}',
+            'These types are constructed inside lib/src/ui/ but are '
+            'neither in `_frameworkWidgetDenyList` nor known non-widget '
+            'types. Add a widget to the denylist in '
+            'lib/src/debug/debug_instrumentation_coordinator.dart; add a '
+            'non-widget type to `_nonWidgetTypes` in this test:\n'
+            '  $unclassified',
+      );
+
+      final staleNonWidgets = _nonWidgetTypes.difference(called).toList()
+        ..sort();
+      expect(
+        staleNonWidgets,
+        isEmpty,
+        reason: 'No longer constructed under lib/src/ui/: $staleNonWidgets',
       );
     });
 

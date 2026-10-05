@@ -627,7 +627,7 @@ class VmServiceClient {
     // Per-segment timings. Each stopwatch covers one segment only; a
     // segment that did not run stays 0.
     var rpcUs = 0;
-    var decodeUs = -1;
+    int? decodeUs;
     var parseUs = 0;
     var dispatchUs = 0;
     DispatchSegments? segments;
@@ -701,7 +701,7 @@ class VmServiceClient {
       }
       // Both readings come from monotonic clocks started at different
       // instants; the decode lies inside the await by construction.
-      if (decodeUs > rpcUs) decodeUs = rpcUs;
+      if (decodeUs != null && decodeUs > rpcUs) decodeUs = rpcUs;
       // Drop stale poll if reconnect/dispose ran during the await.
       if (myGen != _sessionGeneration || _disposed) return;
       _consecutivePollFailures = 0;
@@ -1070,12 +1070,14 @@ class VmServiceClient {
         message.substring(length - _idSearchChars).contains(needle);
   }
 
-  int _takeTimelineResponseChars() {
+  /// The matched response length of this poll, or null when the
+  /// response was not matched; resets the capture.
+  int? _takeTimelineResponseChars() {
     final chars = _timelineResponseChars;
     _timelineResponseChars = -1;
     _timelineResponseReceivedUs = -1;
     _timelineRequestId = null;
-    return chars;
+    return chars >= 0 ? chars : null;
   }
 
   /// Evict orphan begins from the pending-begin maps and idle cursors

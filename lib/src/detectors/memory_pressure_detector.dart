@@ -120,16 +120,19 @@ class MemoryPressureDetector extends BaseDetector
 
   // -- heap_near_capacity (RSS against memoryBudgetBytes) --
   //
-  // [_evaluateHeapCapacity] reads the last [_budgetWindowSize] heap
-  // samples and needs [_budgetRequiredHits] of them with
+  // [_evaluateHeapCapacity] reads the last [budgetWindowSize] heap
+  // samples and needs [budgetRequiredHits] of them with
   // `rssBytes >= capacityThresholdPercent × memoryBudgetBytes`. A "K of
   // last N" window tolerates one sample dipping under the line as the
   // GC reclaims. Samples without RSS (web, unusual embeddings) never
   // count. The window is derived from `_heapSamples`, so an evaluation
   // triggered by [recordGcCycle] reads the same samples and cannot
   // double-count.
-  static const int _budgetWindowSize = 5;
-  static const int _budgetRequiredHits = 4;
+  /// Heap samples `heap_near_capacity` reads: the last this many.
+  static const int budgetWindowSize = 5;
+
+  /// Samples of the last [budgetWindowSize] that must be over budget.
+  static const int budgetRequiredHits = 4;
 
   // Timestamp of the sample that completed the first over-budget window
   // of the current episode. Stable dedup identity for every emission
@@ -451,7 +454,7 @@ class MemoryPressureDetector extends BaseDetector
 
   void _evaluateHeapCapacity() {
     final budget = memoryBudgetBytes;
-    if (budget == null || _heapSamples.length < _budgetWindowSize) {
+    if (budget == null || _heapSamples.length < budgetWindowSize) {
       _budgetCrossingStart = null;
       return;
     }
@@ -461,12 +464,12 @@ class MemoryPressureDetector extends BaseDetector
     final line = capacityThresholdPercent * budget;
     var hits = 0;
     for (final sample in _heapSamples.skip(
-      _heapSamples.length - _budgetWindowSize,
+      _heapSamples.length - budgetWindowSize,
     )) {
       final rss = sample.rssBytes;
       if (rss != null && rss >= line) hits++;
     }
-    if (hits < _budgetRequiredHits) {
+    if (hits < budgetRequiredHits) {
       _budgetCrossingStart = null;
       return;
     }

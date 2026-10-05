@@ -3,22 +3,18 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/vm/poll_timings.dart';
 
-PollTimings _t({
-  int rpc = 0,
-  int decode = -1,
-  int parse = 0,
-  int dispatch = 0,
-}) => PollTimings(
-  rpcMicros: rpc,
-  decodeMicros: decode,
-  parseMicros: parse,
-  dispatchMicros: dispatch,
-  tailMicros: 0,
-  eventCount: 0,
-  responseChars: -1,
-  duplicatesDropped: 0,
-  completedAt: DateTime(2026),
-);
+PollTimings _t({int rpc = 0, int? decode, int parse = 0, int dispatch = 0}) =>
+    PollTimings(
+      rpcMicros: rpc,
+      decodeMicros: decode,
+      parseMicros: parse,
+      dispatchMicros: dispatch,
+      tailMicros: 0,
+      eventCount: 0,
+      responseChars: null,
+      duplicatesDropped: 0,
+      completedAt: DateTime(2026),
+    );
 
 void main() {
   group('PollTimingsWindow', () {
@@ -39,12 +35,12 @@ void main() {
       expect(w.maxDispatchMicros, 7);
     });
 
-    test('decode maximum skips unmatched polls and is -1 when none '
+    test('decode maximum skips unmatched polls and is null when none '
         'matched', () {
       final w = PollTimingsWindow()
         ..add(_t())
         ..add(_t());
-      expect(w.maxDecodeMicros, -1);
+      expect(w.maxDecodeMicros, isNull);
       w
         ..add(_t(decode: 40))
         ..add(_t(decode: 12))
@@ -117,7 +113,7 @@ void main() {
 
   test('uiBlockingMicros leaves out an unmeasured decode', () {
     final t = _t(rpc: 900, parse: 20, dispatch: 30);
-    expect(t.decodeMicros, -1);
+    expect(t.decodeMicros, isNull);
     expect(t.uiBlockingMicros, 50);
     expect(_t(rpc: 900, decode: 0, parse: 20).uiBlockingMicros, 20);
   });

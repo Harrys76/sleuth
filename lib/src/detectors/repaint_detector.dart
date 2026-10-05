@@ -51,6 +51,10 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// time-share axis.
   final int paintFrequencyThreshold;
 
+  /// A per-widget paint rate above this many times
+  /// [paintFrequencyThreshold] is critical.
+  static const int debugCriticalMultiplier = 2;
+
   /// Share of UI-thread wall time, in percent, spent inside PAINT scopes
   /// over a ~1 s window above which `excessive_repaint` fires. Critical
   /// above 3× this value. Default mirrors
@@ -324,7 +328,8 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
                 rect: rect,
                 renderObject: ro,
                 widgetName: name,
-                severity: rate > paintFrequencyThreshold * 2
+                severity:
+                    rate > paintFrequencyThreshold * debugCriticalMultiplier
                     ? IssueSeverity.critical
                     : IssueSeverity.warning,
                 detectorName: 'Repaint',
@@ -505,7 +510,8 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       _issues.add(
         PerformanceIssue(
           stableId: 'repaint_debug_$typeName',
-          severity: residualRate > paintFrequencyThreshold * 2
+          severity:
+              residualRate > paintFrequencyThreshold * debugCriticalMultiplier
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           category: IssueCategory.paint,
@@ -566,7 +572,8 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     _issues.add(
       PerformanceIssue(
         stableId: 'excessive_repaint_debug',
-        severity: residualRate > paintFrequencyThreshold * 2
+        severity:
+            residualRate > paintFrequencyThreshold * debugCriticalMultiplier
             ? IssueSeverity.critical
             : IssueSeverity.warning,
         category: IssueCategory.paint,

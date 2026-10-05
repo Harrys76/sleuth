@@ -148,6 +148,44 @@
   `empty` ends without one). `ext.sleuthDemo.a11y` releases its semantics handle after each
   dump.
 
+### Verdicts, polling and detector fixes
+
+- A jank verdict is no longer replaced by an idle poll. The
+  batch-attributed (FULL) verdict now runs only for a batch with phase
+  data and never over a frame that already holds a FULL or CORRELATED
+  verdict, so a CORRELATED badge stays put and the verdict notifier no
+  longer fires every second on an idle screen. CPU
+  attribution is requested once per frame and lands on the frame's
+  current verdict, and a captured correlated verdict is never replaced by
+  a non-correlated one.
+- One event stamped ahead of the timeline clock no longer stops timeline
+  data for the rest of the session. The newest timestamp is bounded by
+  the clock reading, thread cursors past it are rewound to the newest
+  cursor within it, and after three window fallbacks in a row the next
+  poll reads the whole buffer (counted in `pollWindowFallbacks`).
+- A state store read that throws, holds malformed JSON or comes from a
+  newer schema now disables writes for the session, as a timed-out read
+  does, so the stored file is no longer replaced with defaults on the
+  next change.
+- `uncached_images` counts a decode shared by several widgets once,
+  against the largest size those widgets need, and says "shown by N
+  widgets"; fifty tiles of one asset report one decode's waste, not
+  fifty. `extraTraceArgs` gains `widgetCount`. A pair with no reachable
+  device pixel ratio is skipped instead of measured at 1x.
+- The `raster_dominance` frame leg starts a new window at a route change
+  and carries the route it was emitted on, so frames from the previous
+  screen are not credited to the next one.
+- An async platform-channel call id reused before its first call ends
+  pairs each end with the earliest open begin (same thread first), so
+  both calls get their own duration.
+- `ext.sleuth.diagnose` reports `lastPollDecodeMicros`,
+  `lastPollResponseChars` and `maxPollDecodeMicros` as null instead of
+  −1 when the response could not be matched; `PollTimings.decodeMicros`
+  and `responseChars` are nullable.
+- The encyclopedia's debug repaint entries read the rate the detector
+  alerts at (30/sec, critical above 60/sec), and the debug rebuild entry
+  states its 10/sec alert.
+
 ## 0.37.0
 
 - Scan-root detection works on Flutter 3.47: `IndexedStack` no longer wraps

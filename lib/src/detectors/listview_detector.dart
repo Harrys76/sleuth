@@ -31,6 +31,10 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
   /// only above this many children (or when the count is unbounded).
   static const shrinkWrapMinChildCount = 20;
 
+  /// A list with more than this many times [childThreshold] children is
+  /// critical.
+  static const int criticalChildMultiplier = 3;
+
   /// `non_lazy_shrinkwrap` is critical above this many children.
   static const shrinkWrapCriticalChildCount = 100;
   final List<PerformanceIssue> _issues = [];
@@ -253,7 +257,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
             rect: rect,
             renderObject: ro,
             widgetName: widgetName,
-            severity: childCount > childThreshold * 3
+            severity: childCount > childThreshold * criticalChildMultiplier
                 ? IssueSeverity.critical
                 : IssueSeverity.warning,
             detectorName: 'Non-lazy',
@@ -270,7 +274,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
     _issues.add(
       PerformanceIssue(
         stableId: stableId,
-        severity: childCount > childThreshold * 3
+        severity: childCount > childThreshold * criticalChildMultiplier
             ? IssueSeverity.critical
             : IssueSeverity.warning,
         category: IssueCategory.build,
@@ -309,7 +313,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
             rect: rect,
             renderObject: ro,
             widgetName: widgetName,
-            severity: childCount > childThreshold * 3
+            severity: childCount > childThreshold * criticalChildMultiplier
                 ? IssueSeverity.critical
                 : IssueSeverity.warning,
             detectorName: 'Non-lazy',
@@ -327,7 +331,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
       PerformanceIssue(
         stableId:
             'non_lazy_${widgetName == 'SliverGrid' ? 'sliver_grid' : 'sliver_list'}',
-        severity: childCount > childThreshold * 3
+        severity: childCount > childThreshold * criticalChildMultiplier
             ? IssueSeverity.critical
             : IssueSeverity.warning,
         category: IssueCategory.build,
@@ -468,7 +472,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
             rect: rect,
             renderObject: ro,
             widgetName: 'SliverToBoxAdapter',
-            severity: childCount > childThreshold * 3
+            severity: childCount > childThreshold * criticalChildMultiplier
                 ? IssueSeverity.critical
                 : IssueSeverity.warning,
             detectorName: 'Eager Sliver',
@@ -485,7 +489,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
     _issues.add(
       PerformanceIssue(
         stableId: 'sliver_to_box_adapter_large',
-        severity: childCount > childThreshold * 3
+        severity: childCount > childThreshold * criticalChildMultiplier
             ? IssueSeverity.critical
             : IssueSeverity.warning,
         category: IssueCategory.build,
@@ -643,7 +647,9 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
                   rect: rect,
                   renderObject: ro,
                   widgetName: 'SingleChildScrollView',
-                  severity: directChildCount > childThreshold * 3
+                  severity:
+                      directChildCount >
+                          childThreshold * criticalChildMultiplier
                       ? IssueSeverity.critical
                       : IssueSeverity.warning,
                   detectorName: 'Non-lazy',
@@ -660,7 +666,8 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           _issues.add(
             PerformanceIssue(
               stableId: 'non_lazy_list',
-              severity: directChildCount > childThreshold * 3
+              severity:
+                  directChildCount > childThreshold * criticalChildMultiplier
                   ? IssueSeverity.critical
                   : IssueSeverity.warning,
               category: IssueCategory.build,

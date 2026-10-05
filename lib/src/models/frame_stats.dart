@@ -152,9 +152,13 @@ class FrameStats {
   /// falls back to [totalDuration] (max of UI/raster) for test-created frames.
   Duration get effectiveTotalDuration => totalSpan ?? totalDuration;
 
+  /// A frame over this many times its budget is a severe jank frame.
+  static const int severeJankBudgetMultiplier = 2;
+
   bool get isJank => effectiveTotalDuration.inMicroseconds > frameBudgetUs;
   bool get isSevereJank =>
-      effectiveTotalDuration.inMicroseconds > frameBudgetUs * 2;
+      effectiveTotalDuration.inMicroseconds >
+      frameBudgetUs * severeJankBudgetMultiplier;
 
   /// Sentinel distinguishing "caller omitted the field" from "caller
   /// passed null". Nullable fields in [copyWith] accept this sentinel as

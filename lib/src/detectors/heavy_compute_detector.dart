@@ -93,6 +93,9 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
 
   final String? Function() _sourceRouteProvider;
 
+  /// A build longer than this many times the threshold is critical.
+  static const int criticalMultiplier = 2;
+
   /// Reads the controller's interaction state at emission so a retained
   /// issue keeps the context it fired in (e.g. `navigating`) rather than
   /// the context of a later aggregate.
@@ -215,7 +218,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     );
     return PerformanceIssue(
       stableId: 'heavy_compute',
-      severity: durationUs > _lagThresholdUs * 2
+      severity: durationUs > _lagThresholdUs * criticalMultiplier
           ? IssueSeverity.critical
           : IssueSeverity.warning,
       category: IssueCategory.build,
@@ -265,7 +268,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     final (hint, effort) = FixHintBuilder.heavyCompute(durationMs: ms);
     return PerformanceIssue(
       stableId: 'heavy_compute',
-      severity: durationUs > _lagThresholdUs * 2
+      severity: durationUs > _lagThresholdUs * criticalMultiplier
           ? IssueSeverity.critical
           : IssueSeverity.warning,
       category: IssueCategory.build,

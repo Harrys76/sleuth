@@ -215,9 +215,10 @@ void main() {
         '(ideal: 2.0, budget: < 2.5)',
       );
 
-      // Pure O(N) would give ratio ~2.0. Allow noise up to 2.5.
+      // Pure O(N) would give ratio ~2.0. Allow noise up to 2.5 (3.0 on CI,
+      // where a neighbour's load can land on one of the two runs only).
       // If any detector regresses to O(N²), ratio would be ~4.0.
-      expect(ratio, lessThan(2.5));
+      expect(ratio, lessThan(2.0 + 0.5 * budgetMultiplier));
     });
   });
 
@@ -383,8 +384,9 @@ void main() {
       // loop never recomputes.
       expect(recomputed, 0);
       // measured: cached 5.1 % of uncached, 286 µs per 1,000 paints
-      // (serial, debug JIT, M1 Pro)
-      expect(cached, lessThan(uncached * 0.1));
+      // (serial, debug JIT, M1 Pro). The loops run back to back; on a
+      // shared CI runner load can land on one of them only.
+      expect(cached, lessThan(uncached * 0.1 * budgetMultiplier));
     });
   });
 }

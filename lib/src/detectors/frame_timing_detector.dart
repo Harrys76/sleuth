@@ -239,6 +239,17 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   // [fpsTarget]. A target-derived capacity would cap the count below the
   // device refresh (e.g. 60 at fpsTarget=30 on a 120 Hz panel).
   static const int _bufferCapacity = 240;
+
+  /// `jank_detected` fires when more than this percentage of the frames
+  /// since the route epoch ran over budget.
+  static const int jankPercentThreshold = 15;
+
+  /// Frames since the route epoch needed before jank is evaluated.
+  static const int minJankSampleFrames = 5;
+
+  /// `sustained_jank` fires at this many severe frames (see
+  /// [FrameStats.severeJankBudgetMultiplier]).
+  static const int sustainedSevereFrameCount = 3;
   late final FrameStatsBuffer _buffer = FrameStatsBuffer(
     capacity: _bufferCapacity,
   );
@@ -564,7 +575,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     if (!_isPastWarmup()) return;
 
     final frames = _framesSinceRouteEpoch;
-    if (frames.length < 5) return; // Need enough data
+    if (frames.length < minJankSampleFrames) return; // Need enough data
 
     // Single-pass: count jank categories and find worst frame (v9.10).
     int severeCount = 0, jankCount = 0;
@@ -581,7 +592,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
     final lifecyclePhase = _classifyLifecyclePhase();
     final sourceRoute = _sourceRouteProvider();
-    if (severeCount >= 3) {
+    if (severeCount >= sustainedSevereFrameCount) {
       final (hint1, effort1) = FixHintBuilder.sustainedJank();
       // Wall-clock micros plus instance-monotonic counter — same shape as
       // jank_detected emission below. Audit gate's
@@ -616,7 +627,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         ),
       );
     }
-    if (jankPercent > 15) {
+    if (jankPercent > jankPercentThreshold) {
       final (hint2, effort2) = FixHintBuilder.jankDetected();
       final worstMs = worst.effectiveTotalDuration.inMicroseconds / 1000.0;
       // Wall-clock micros plus an instance-monotonic counter so back-to-back

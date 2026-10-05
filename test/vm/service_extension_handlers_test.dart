@@ -340,7 +340,7 @@ void main() {
     });
 
     test('diagnose poll keys are null before the first poll and ints '
-        'after', () async {
+        'after, except the unmatched response readings', () async {
       const pollKeys = [
         'lastPollRpcMicros',
         'lastPollDecodeMicros',
@@ -381,14 +381,22 @@ void main() {
       data =
           (await extDiagnoseHandler(c, const {}))['data']
               as Map<String, Object?>;
+      // This double has no wire streams, so the response is unmatched:
+      // its size and decode time are unmeasured (null).
+      const unmeasured = {
+        'lastPollDecodeMicros',
+        'lastPollResponseChars',
+        'maxPollDecodeMicros',
+      };
       for (final key in pollKeys) {
-        expect(data[key], isA<int>(), reason: key);
+        expect(
+          data[key],
+          unmeasured.contains(key) ? isNull : isA<int>(),
+          reason: key,
+        );
       }
       expect(data['lastPollEventCount'], 1);
       expect(data['pollDuplicatesDropped'], 0);
-      // This double has no wire streams, so the response is unmatched.
-      expect(data['lastPollDecodeMicros'], -1);
-      expect(data['maxPollDecodeMicros'], -1);
     });
   });
 

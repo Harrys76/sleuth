@@ -18,12 +18,12 @@ import 'package:flutter/foundation.dart';
 /// `ext.sleuth.diagnose`.
 @immutable
 class PollTimings {
-  /// Creates a timings record. Durations and counts are non-negative,
-  /// except [responseChars] and [decodeMicros], which are −1 when the raw
-  /// response could not be matched to the timeline request.
+  /// Creates a timings record. Durations and counts are non-negative;
+  /// [responseChars] and [decodeMicros] are null when the raw response
+  /// could not be matched to the timeline request.
   const PollTimings({
     required this.rpcMicros,
-    this.decodeMicros = -1,
+    this.decodeMicros,
     required this.parseMicros,
     required this.dispatchMicros,
     required this.tailMicros,
@@ -48,9 +48,9 @@ class PollTimings {
   /// Part of [rpcMicros] spent on the UI isolate after the raw response
   /// arrived: the JSON decode and `Timeline` construction that
   /// package:vm_service runs before the future completes, plus the
-  /// resumption of the await. −1 when the raw response could not be
+  /// resumption of the await. Null when the raw response could not be
   /// matched to the request (no wire streams, or a failed RPC).
-  final int decodeMicros;
+  final int? decodeMicros;
 
   /// Timeline parse plus the stale-begin sweep (and, on the first poll of
   /// a session, startup-event extraction).
@@ -67,9 +67,9 @@ class PollTimings {
   /// Raw events returned by the VM in this poll.
   final int eventCount;
 
-  /// Length in characters of the raw `getVMTimeline` response, or −1 when
-  /// it could not be matched to the request.
-  final int responseChars;
+  /// Length in characters of the raw `getVMTimeline` response, or null
+  /// when it could not be matched to the request.
+  final int? responseChars;
 
   /// Events this poll skipped because an earlier poll already processed
   /// them.
@@ -121,7 +121,7 @@ class PollTimings {
   /// that needs the isolate during this time is delayed by up to this
   /// much.
   int get uiBlockingMicros =>
-      (decodeMicros >= 0 ? decodeMicros : 0) + parseMicros + dispatchMicros;
+      (decodeMicros ?? 0) + parseMicros + dispatchMicros;
 
   /// JSON-encodable form.
   Map<String, Object?> toJson() => <String, Object?>{
@@ -202,9 +202,16 @@ class PollTimingsWindow {
   /// Largest [PollTimings.rpcMicros] in the window; null when empty.
   int? get maxRpcMicros => _max((t) => t.rpcMicros);
 
-  /// Largest [PollTimings.decodeMicros] in the window (−1 when no poll
-  /// in it was matched); null when empty.
-  int? get maxDecodeMicros => _max((t) => t.decodeMicros);
+  /// Largest [PollTimings.decodeMicros] in the window; null when no poll
+  /// in it was matched.
+  int? get maxDecodeMicros {
+    int? best;
+    for (final t in _ring) {
+      final v = t.decodeMicros;
+      if (v != null && (best == null || v > best)) best = v;
+    }
+    return best;
+  }
 
   /// Largest [PollTimings.parseMicros] in the window; null when empty.
   int? get maxParseMicros => _max((t) => t.parseMicros);

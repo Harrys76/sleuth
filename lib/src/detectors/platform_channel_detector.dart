@@ -66,6 +66,10 @@ class PlatformChannelDetector extends BaseDetector
   final DateTime Function() _clock;
   final String? Function() _sourceRouteProvider;
 
+  /// A window with more than this many times [callsPerSecThreshold]
+  /// calls is critical.
+  static const int criticalMultiplier = 2;
+
   /// Reads the controller's interaction state at emission so a
   /// cooldown-retained issue keeps the context it fired in.
   final InteractionContext Function()? _interactionContextProvider;
@@ -161,7 +165,8 @@ class PlatformChannelDetector extends BaseDetector
     );
     // Emission is count-only; call durations annotate the issue.
     if (_recentCallCount > callsPerSecThreshold) {
-      final wouldBeCritical = _recentCallCount > callsPerSecThreshold * 2;
+      final wouldBeCritical =
+          _recentCallCount > callsPerSecThreshold * criticalMultiplier;
       // Cooldown semantics: suppress fresh emissions during the
       // 3-cycle drain after a fire so sustained overload collapses
       // to a single trace record per cooldown window (composite-key

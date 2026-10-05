@@ -137,8 +137,13 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     'StreamBuilderBase',
   };
 
-  /// Threshold multiplier for builder widget types.
-  static const int _builderThresholdMultiplier = 3;
+  /// Builder widget types alert at this many times
+  /// [rebuildsPerSecThreshold].
+  static const int builderThresholdMultiplier = 3;
+
+  /// A per-widget rebuild rate above this many times its alert rate is
+  /// critical.
+  static const int debugCriticalMultiplier = 3;
 
   int _buildEventCount = 0;
 
@@ -350,14 +355,14 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
           if (rect != null) {
             final effectiveThreshold =
                 _builderWidgetTypes.contains(baseTypeName(name))
-                ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+                ? rebuildsPerSecThreshold * builderThresholdMultiplier
                 : rebuildsPerSecThreshold;
             _highlights.add(
               WidgetHighlight(
                 rect: rect,
                 renderObject: ro,
                 widgetName: name,
-                severity: rate > effectiveThreshold * 3
+                severity: rate > effectiveThreshold * debugCriticalMultiplier
                     ? IssueSeverity.critical
                     : IssueSeverity.warning,
                 detectorName: 'Rebuild',
@@ -397,7 +402,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       for (final entry in snapshot.rebuildCounts.entries) {
         final rate = snapshot.rebuildsPerSecond(entry.key);
         final threshold = _builderWidgetTypes.contains(baseTypeName(entry.key))
-            ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+            ? rebuildsPerSecThreshold * builderThresholdMultiplier
             : rebuildsPerSecThreshold;
         if (rate >= threshold) {
           hotTypes[entry.key] = rate;
@@ -415,7 +420,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       }
       for (final entry in counts.entries) {
         final threshold = _builderWidgetTypes.contains(baseTypeName(entry.key))
-            ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+            ? rebuildsPerSecThreshold * builderThresholdMultiplier
             : rebuildsPerSecThreshold;
         if (entry.value >= threshold) {
           hotTypes[entry.key] = entry.value.toDouble();
@@ -524,7 +529,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       // `StreamBuilder<int>` etc.
       final isBuilder = _builderWidgetTypes.contains(baseTypeName(typeName));
       final effectiveThreshold = isBuilder
-          ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+          ? rebuildsPerSecThreshold * builderThresholdMultiplier
           : rebuildsPerSecThreshold;
 
       if (rate < effectiveThreshold) continue;
@@ -543,7 +548,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       _issues.add(
         PerformanceIssue(
           stableId: 'rebuild_debug_$typeName',
-          severity: rate > effectiveThreshold * 3
+          severity: rate > effectiveThreshold * debugCriticalMultiplier
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           category: IssueCategory.build,

@@ -255,6 +255,54 @@ void main() {
       );
     });
 
+    test('the sidecar tool schema lists the same diagnose keys, types '
+        'and nullability', () {
+      final toolSchemaFile = File(
+        '${_resolveSchemaFile().parent.parent.path}'
+        '/packages/sleuth_mcp/doc/mcp_tool_schema.json',
+      );
+      final toolSchema =
+          jsonDecode(toolSchemaFile.readAsStringSync()) as Map<String, Object?>;
+      final sidecarData =
+          ((toolSchema['tools'] as Map<String, Object?>)['diagnose']
+                  as Map<String, Object?>)['data']
+              as Map<String, Object?>;
+      final appData =
+          (handlers['ext.sleuth.diagnose'] as Map<String, Object?>)['data']
+              as Map<String, Object?>;
+      // Keys the sidecar stamps on top of the passthrough.
+      const sidecarStamped = {
+        'sidecarVersion',
+        'sidecarBuiltAgainstSleuth',
+        'launchModeAdvisory',
+      };
+      final sidecarKeys = sidecarData.keys
+          .where((k) => !_schemaMetaKeys.contains(k))
+          .toSet()
+          .difference(sidecarStamped);
+      final appKeys = appData.keys
+          .where((k) => !_schemaMetaKeys.contains(k))
+          .toSet();
+      expect(
+        sidecarKeys,
+        equals(appKeys),
+        reason:
+            'packages/sleuth_mcp/doc/mcp_tool_schema.json diagnose keys '
+            'drift from doc/mcp_schema.json. '
+            'missing in sidecar: ${appKeys.difference(sidecarKeys)}, '
+            'extra in sidecar: ${sidecarKeys.difference(appKeys)}',
+      );
+      for (final key in appKeys) {
+        final app = appData[key] as Map<String, Object?>;
+        final sidecar = sidecarData[key] as Map<String, Object?>;
+        expect(
+          (sidecar['type'], sidecar['nullable']),
+          (app['type'], app['nullable']),
+          reason: key,
+        );
+      }
+    });
+
     test('packageVersion matches handler-stamped const', () async {
       final c = _newController();
       final env = await extDiagnoseHandler(c, const {});
