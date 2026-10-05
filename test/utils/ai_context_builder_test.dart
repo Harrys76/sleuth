@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
 import 'package:sleuth/src/utils/ai_context_builder.dart';
+import 'package:sleuth/src/utils/ai_session_context.dart';
+import 'package:sleuth/src/vm/connection_mode.dart';
 
 void main() {
   PerformanceIssue makeIssue({
@@ -281,6 +284,91 @@ void main() {
       );
       expect(encyclopedia, contains('/home'));
       expect(prompt, isNot(contains('{routeName}')));
+    });
+  });
+
+  group('AiContextBuilder session section', () {
+    const session = AiSessionContext(
+      route: '/catalog',
+      actualFps: 24.6,
+      throughputFps: 48.2,
+      fpsTarget: 60,
+      verdictPhase: PipelinePhase.build,
+      verdictReason: 'Build scope took 22 ms',
+      verdictMode: 'correlated',
+      criticalCount: 2,
+      warningCount: 9,
+      okCount: 1,
+      hiddenCount: 3,
+      isDebugMode: true,
+      connectionMode: ConnectionMode.correlated,
+      platform: 'iOS',
+    );
+
+    test('is absent without a session', () {
+      final prompt = AiContextBuilder.buildSystemPrompt(issue: makeIssue());
+      expect(prompt, isNot(contains('## Session')));
+      expect(prompt, isNot(contains('Current route:')));
+    });
+
+    test('sits between the current issue and the encyclopedia', () {
+      final prompt = AiContextBuilder.buildSystemPrompt(
+        issue: makeIssue(stableId: 'heap_growing'),
+        session: session,
+      );
+      final current = prompt.indexOf('## Current Issue');
+      final block = prompt.indexOf('## Session');
+      final encyclopedia = prompt.indexOf('## Encyclopedia Knowledge');
+      expect(current, lessThan(block));
+      expect(block, lessThan(encyclopedia));
+    });
+
+    test('carries the labelled facts', () {
+      final prompt = AiContextBuilder.buildSystemPrompt(
+        issue: makeIssue(),
+        session: session,
+      );
+      expect(prompt, contains('Current route: /catalog'));
+      expect(
+        prompt,
+        contains('Frame rate: 25 FPS presented, 48 FPS throughput (target 60)'),
+      );
+      expect(
+        prompt,
+        contains(
+          'Latest frame verdict: build: Build scope took 22 ms [correlated]',
+        ),
+      );
+      expect(
+        prompt,
+        contains('Active issues: 12 (2 critical, 9 warning, 1 ok)'),
+      );
+      expect(prompt, contains('Hidden by user: 3'));
+      expect(prompt, contains('Build: debug'));
+      expect(prompt, contains('Connection: correlated'));
+      expect(prompt, contains('Platform: iOS'));
+      // The issue has no route, so the issue section's label stays out.
+      expect(prompt, isNot(contains('\nRoute:')));
+      expect(prompt, isNot(contains('more)')));
+    });
+
+    test('a long verdict reason is cut', () {
+      final long = AiSessionContext(
+        verdictPhase: PipelinePhase.raster,
+        verdictReason: 'x' * 400,
+      ).render();
+      final line = long
+          .split('\n')
+          .firstWhere((l) => l.startsWith('Latest frame verdict'));
+      expect(line.length, lessThan(AiSessionContext.maxReasonLength + 40));
+    });
+
+    test('the caption names route, FPS capped at the target, and count', () {
+      expect(session.caption(), 'Context: /catalog · 48 FPS · 12 issues');
+      expect(
+        const AiSessionContext(throughputFps: 118, fpsTarget: 60).caption(),
+        'Context: no route yet · 60 FPS · 0 issues',
+      );
     });
   });
 }

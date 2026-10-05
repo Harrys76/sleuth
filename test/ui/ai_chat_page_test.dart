@@ -8,6 +8,7 @@ import 'package:sleuth/src/ai/ai_providers.dart';
 import 'package:sleuth/src/models/ai_chat_adapter.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/ai_chat_page.dart';
+import 'package:sleuth/src/utils/ai_session_context.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 
@@ -1239,6 +1240,158 @@ void main() {
       expect(retry.height, greaterThanOrEqualTo(48));
       await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
       handle.dispose();
+    });
+  });
+
+  group('AiChatPage session context', () {
+    const session = AiSessionContext(
+      route: '/home',
+      throughputFps: 57.6,
+      fpsTarget: 60,
+      warningCount: 3,
+      hiddenCount: 1,
+    );
+
+    testWidgets('the caption shows what the next message carries', (
+      tester,
+    ) async {
+      final requests = <AiChatRequest>[];
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(
+              sendMessage: (request) {
+                requests.add(request);
+                return Stream.value('ok');
+              },
+            ),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+            sessionContext: () => session,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Context: /home · 58 FPS · 3 issues'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'Q');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(requests.single.systemPrompt, contains('## Session'));
+      expect(requests.single.systemPrompt, contains('Hidden by user: 1'));
+    });
+
+    testWidgets('no caption without a session provider', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Context:'), findsNothing);
+    });
+
+    testWidgets('Copy conversation ends with the context sent', (tester) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardText =
+                (call.arguments as Map<String, dynamic>)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+            sessionContext: () => session,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Q');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.copy_all_outlined));
+      await tester.pump();
+
+      final text = clipboardText!;
+      final section = text.indexOf('## Context sent');
+      expect(section, greaterThan(text.indexOf('Hello world')));
+      expect(text, contains('- Current route: /home'));
+      expect(text, contains('- Hidden by user: 1'));
+    });
+  });
+
+  group('AiChatPage session context in the overlay', () {
+    testWidgets('the prompt counts hidden issues without naming them', (
+      tester,
+    ) async {
+      final requests = <AiChatRequest>[];
+      final controller = await pumpOverlay(
+        tester,
+        config: SleuthConfig(
+          aiChat: AiChatAdapter(
+            sendMessage: (request) {
+              requests.add(request);
+              return Stream.value('ok');
+            },
+          ),
+          treeScanInterval: const Duration(hours: 1),
+        ),
+      );
+      controller.issuesNotifier.value = [
+        makeIssue(stableId: 'rebuild_activity', title: 'Rebuilds'),
+        makeIssue(stableId: 'secret_issue', title: 'Hidden secret title'),
+      ];
+      controller.overlayUiState.hide('secret_issue');
+      await openDashboard(tester, controller);
+      await tester.tap(find.text('Rebuilds'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.ensureVisible(find.text('Ask AI about this issue'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('Ask AI about this issue'));
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(find.textContaining('Context: '), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'Why?');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+
+      final prompt = requests.single.systemPrompt;
+      final session = prompt.substring(
+        prompt.indexOf('## Session'),
+        prompt.indexOf('## Other Active Issues'),
+      );
+      expect(session, contains('Hidden by user: 1'));
+      expect(session, contains('Active issues: 2 (0 critical, 2 warning'));
+      expect(session, isNot(contains('Hidden secret title')));
     });
   });
 

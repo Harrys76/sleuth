@@ -1,4 +1,5 @@
 import '../models/performance_issue.dart';
+import 'ai_session_context.dart';
 import 'issue_explanation_builder.dart';
 
 /// Builds AI system prompts from issue context and generates starter questions.
@@ -15,12 +16,14 @@ class AiContextBuilder {
   /// Budget target: ~2000 tokens. Sections are prioritized:
   /// 1. Role preamble
   /// 2. Focus issue full context
-  /// 3. Encyclopedia knowledge for focus issue
-  /// 4. Other active issues (max 5, one-line each)
-  /// 5. Response instructions
+  /// 3. Session state ([session], when given)
+  /// 4. Encyclopedia knowledge for focus issue
+  /// 5. Other active issues (max 5, one-line each)
+  /// 6. Response instructions
   static String buildSystemPrompt({
     required PerformanceIssue issue,
     List<PerformanceIssue> allIssues = const [],
+    AiSessionContext? session,
   }) {
     final buf = StringBuffer();
 
@@ -78,7 +81,14 @@ class AiContextBuilder {
     }
     buf.writeln();
 
-    // 3. Encyclopedia knowledge
+    // 3. Session state
+    if (session != null) {
+      buf.writeln('## Session');
+      buf.write(session.render());
+      buf.writeln();
+    }
+
+    // 4. Encyclopedia knowledge
     final rawExplanation = IssueExplanationBuilder.explain(issue.stableId);
     final explanation = rawExplanation == null
         ? null
@@ -107,7 +117,7 @@ class AiContextBuilder {
       buf.writeln();
     }
 
-    // 4. Other active issues (max 5)
+    // 5. Other active issues (max 5)
     final otherIssues =
         allIssues.where((i) => i.stableId != issue.stableId).toList()
           ..sort((a, b) => b.severity.index.compareTo(a.severity.index));
@@ -125,7 +135,7 @@ class AiContextBuilder {
       buf.writeln();
     }
 
-    // 5. Instructions
+    // 6. Instructions
     buf.writeln('## Instructions');
     buf.writeln(
       'Answer concisely. Reference the specific metrics and '

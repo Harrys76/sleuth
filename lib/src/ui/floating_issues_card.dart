@@ -19,7 +19,9 @@ import 'guide_page.dart';
 import 'rebuild_stats_page.dart';
 import 'startup_metrics_page.dart';
 import '../models/ai_chat_adapter.dart';
+import '../utils/ai_session_context.dart';
 import '../utils/issue_explanation_builder.dart';
+import '../vm/connection_mode.dart';
 import 'hidden_issues_page.dart';
 import 'motion.dart';
 import 'overlay_filters.dart';
@@ -953,6 +955,48 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       },
       onClose: _closeAiChat,
       onNotify: (message) => _toast.show(message),
+      sessionContext: _sessionContext,
+    );
+  }
+
+  /// The app's state for the AI prompt: counts and rates only, the
+  /// hidden issues as a count.
+  AiSessionContext _sessionContext() {
+    final c = widget.controller;
+    var critical = 0, warning = 0, ok = 0;
+    for (final issue in c.issuesNotifier.value) {
+      switch (issue.severity) {
+        case IssueSeverity.critical:
+          critical++;
+        case IssueSeverity.warning:
+          warning++;
+        case IssueSeverity.ok:
+          ok++;
+      }
+    }
+    final frames = c.frameStatsNotifier.value;
+    final verdict = c.verdictNotifier.value;
+    return AiSessionContext(
+      route: c.activeRouteSession?.routeName,
+      actualFps: frames.isEmpty ? null : frames.actualFps,
+      throughputFps: frames.isEmpty ? null : frames.throughputFps,
+      fpsTarget: c.config.fpsTarget,
+      verdictPhase: verdict?.suspectedPhase,
+      verdictReason: verdict?.reason,
+      verdictMode: verdict == null
+          ? null
+          : verdict.isCorrelated
+          ? 'correlated'
+          : verdict.isFullMode
+          ? 'full'
+          : 'basic',
+      criticalCount: critical,
+      warningCount: warning,
+      okCount: ok,
+      hiddenCount: _ui.hiddenKeys.length,
+      isDebugMode: c.isDebugMode,
+      connectionMode: computeConnectionMode(c),
+      platform: defaultTargetPlatform.name,
     );
   }
 

@@ -9,6 +9,7 @@ import '../ai/ai_providers.dart';
 import '../models/ai_chat_adapter.dart';
 import '../models/performance_issue.dart';
 import '../utils/ai_context_builder.dart';
+import '../utils/ai_session_context.dart';
 import 'issue_card.dart';
 import 'motion.dart';
 import 'sleuth_theme.dart';
@@ -32,6 +33,7 @@ class AiChatPage extends StatefulWidget {
     required this.onHistoryChanged,
     required this.onClose,
     this.onNotify,
+    this.sessionContext,
   });
 
   /// The performance issue being discussed.
@@ -55,6 +57,11 @@ class AiChatPage extends StatefulWidget {
   /// Shows a short confirmation (copied, copy failed) in the host's
   /// toast. The page sits outside any [ScaffoldMessenger].
   final ValueChanged<String>? onNotify;
+
+  /// The app's state for the prompt's "## Session" section, read when a
+  /// message is sent and for the caption above the input. Null leaves
+  /// the section out.
+  final AiSessionContext Function()? sessionContext;
 
   @override
   State<AiChatPage> createState() => _AiChatPageState();
@@ -158,6 +165,9 @@ class _AiChatPageState extends State<AiChatPage>
   String _streamBuffer = '';
   late List<AiChatMessage> _messages;
   bool _showStarters = true;
+
+  /// Session context of the last request, for Copy conversation.
+  AiSessionContext? _sentContext;
 
   bool get _inFlight =>
       _state == _ReplyState.waiting || _state == _ReplyState.streaming;
@@ -263,9 +273,12 @@ class _AiChatPageState extends State<AiChatPage>
 
   /// Requests a reply to the history as it stands.
   void _startReply() {
+    final session = widget.sessionContext?.call();
+    _sentContext = session ?? _sentContext;
     final systemPrompt = AiContextBuilder.buildSystemPrompt(
       issue: widget.issue,
       allIssues: widget.allIssues,
+      session: session,
     );
     final request = AiChatRequest(
       systemPrompt: systemPrompt,
@@ -596,6 +609,17 @@ class _AiChatPageState extends State<AiChatPage>
         ..writeln(marker)
         ..writeln(_escapeMd(msg.text.trim()))
         ..writeln();
+    }
+    final session = _sentContext ?? widget.sessionContext?.call();
+    if (session != null) {
+      buf
+        ..writeln('---')
+        ..writeln()
+        ..writeln('## Context sent')
+        ..writeln();
+      for (final line in session.render().trim().split('\n')) {
+        buf.writeln('- ${_escapeMd(line)}');
+      }
     }
     await _copy(buf.toString(), 'Conversation copied to clipboard');
   }
@@ -1034,64 +1058,93 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
+  /// What the next message carries besides the conversation, one line.
+  Widget _buildContextCaption(AiSessionContext session, SleuthThemeData theme) {
+    return Semantics(
+      container: true,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: theme.spacingLg,
+          right: theme.spacingLg,
+          bottom: theme.spacingXs,
+        ),
+        child: Text(
+          session.caption(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: theme.textTertiary, fontSize: theme.fontXs),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInputBar(SleuthThemeData theme) {
+    final session = widget.sessionContext?.call();
     return Container(
       padding: EdgeInsets.all(theme.spacingMd),
       decoration: BoxDecoration(
         color: theme.cardBackground,
         border: Border(top: BorderSide(color: theme.border, width: 0.5)),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _inputController,
-              focusNode: _focusNode,
-              // Editable while a reply streams, so the next question can
-              // be drafted; sending it waits for the reply.
-              maxLength: _maxInputLength,
-              buildCounter: _buildCounter,
-              style: TextStyle(
-                color: theme.textPrimary,
-                fontSize: theme.fontMd,
-              ),
-              decoration: InputDecoration(
-                // 48 px tall tap target.
-                constraints: const BoxConstraints(minHeight: 48),
-                hintText: 'Ask about this issue...',
-                hintStyle: TextStyle(
-                  color: theme.textTertiary,
-                  fontSize: theme.fontMd,
-                ),
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: theme.spacingLg,
-                  vertical: theme.spacingSm,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(theme.radiusFull),
-                  borderSide: BorderSide(color: theme.border, width: 0.5),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(theme.radiusFull),
-                  borderSide: BorderSide(color: theme.border, width: 0.5),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(theme.radiusFull),
-                  borderSide: BorderSide(color: theme.textTertiary, width: 1),
-                ),
-                filled: true,
-                fillColor: theme.sectionBackground,
-              ),
-              // Submitting keeps focus for the next question.
-              onEditingComplete: () {},
-              onSubmitted: _sendMessage,
-            ),
-          ),
-          SizedBox(width: theme.spacingMd),
-          _inFlight ? _buildStopButton(theme) : _buildSendButton(theme),
+          if (session != null) _buildContextCaption(session, theme),
+          _buildInputRow(theme),
         ],
       ),
+    );
+  }
+
+  Widget _buildInputRow(SleuthThemeData theme) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _inputController,
+            focusNode: _focusNode,
+            // Editable while a reply streams, so the next question can
+            // be drafted; sending it waits for the reply.
+            maxLength: _maxInputLength,
+            buildCounter: _buildCounter,
+            style: TextStyle(color: theme.textPrimary, fontSize: theme.fontMd),
+            decoration: InputDecoration(
+              // 48 px tall tap target.
+              constraints: const BoxConstraints(minHeight: 48),
+              hintText: 'Ask about this issue...',
+              hintStyle: TextStyle(
+                color: theme.textTertiary,
+                fontSize: theme.fontMd,
+              ),
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: theme.spacingLg,
+                vertical: theme.spacingSm,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                borderSide: BorderSide(color: theme.border, width: 0.5),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                borderSide: BorderSide(color: theme.border, width: 0.5),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                borderSide: BorderSide(color: theme.textTertiary, width: 1),
+              ),
+              filled: true,
+              fillColor: theme.sectionBackground,
+            ),
+            // Submitting keeps focus for the next question.
+            onEditingComplete: () {},
+            onSubmitted: _sendMessage,
+          ),
+        ),
+        SizedBox(width: theme.spacingMd),
+        _inFlight ? _buildStopButton(theme) : _buildSendButton(theme),
+      ],
     );
   }
 
