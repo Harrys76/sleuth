@@ -662,6 +662,15 @@ void _registerDemoExtensions() {
   // go through the real gesture arena, scrolls through the real
   // ScrollPosition, so detectors see what a finger would produce.
   developer.registerExtension('ext.sleuthDemo.tap', (method, params) async {
+    // `x` and `y` (logical px) tap a point, for controls that share a label.
+    final x = double.tryParse(params['x'] ?? '');
+    final y = double.tryParse(params['y'] ?? '');
+    if (x != null && y != null) {
+      await _tapAt(Offset(x, y));
+      return developer.ServiceExtensionResponse.result(
+        jsonEncode({'tapped': 'point', 'x': x, 'y': y}),
+      );
+    }
     final text = params['text'] ?? '';
     final label = params['label'];
     final element = label != null
