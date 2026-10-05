@@ -50,7 +50,8 @@ class RepaintBoundaryDetector extends BaseDetector
   final List<({Element owner, int count})> _boundaryFrames = [];
 
   /// Accumulated excessive-boundary findings for finalizeScan.
-  final List<({int count, String location})> _excessiveFindings = [];
+  final List<({int count, String location, int occurrenceId})>
+  _excessiveFindings = [];
 
   @override
   void updateDebugSnapshot(DebugSnapshot snapshot) {
@@ -147,6 +148,7 @@ class RepaintBoundaryDetector extends BaseDetector
     _excessiveFindings.add((
       count: count,
       location: buildAncestorChain(element),
+      occurrenceId: identityHashCode(element),
     ));
     final ro = element.renderObject;
     if (ro == null) return;
@@ -257,6 +259,7 @@ class RepaintBoundaryDetector extends BaseDetector
           confidenceReason:
               'Structural scan only — excessive boundaries in scrollable',
           detectedAt: DateTime.now(),
+          occurrenceId: finding.occurrenceId,
         ),
       );
     }

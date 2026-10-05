@@ -1439,5 +1439,81 @@ void main() {
         expect(detector.issues, isEmpty);
       });
     });
+
+    group('occurrence identity', () {
+      Widget sections(List<(String, int)> lists) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              for (final (key, n) in lists)
+                ListView(
+                  key: ValueKey(key),
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: List.generate(n, (i) => SizedBox(height: 2)),
+                ),
+            ],
+          ),
+        ),
+      );
+
+      List<int?> scanIds(WidgetTester tester) {
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        return [
+          for (final i in detector.issues)
+            if (i.stableId == 'non_lazy_shrinkwrap') i.occurrenceId,
+        ];
+      }
+
+      int elementId(WidgetTester tester, String key) =>
+          identityHashCode(tester.element(find.byKey(ValueKey(key))));
+
+      testWidgets('each shrink-wrapped list carries its own element id, kept '
+          'across scans while the element stays mounted', (tester) async {
+        await tester.pumpWidget(sections([('a', 30), ('b', 30)]));
+        final first = scanIds(tester);
+        expect(first, [elementId(tester, 'a'), elementId(tester, 'b')]);
+        expect(first[0], isNot(first[1]));
+        expect(detector.issues[0].title, detector.issues[1].title);
+
+        // A new title and a new order keep each element's id.
+        await tester.pumpWidget(sections([('b', 31), ('a', 30)]));
+        expect(scanIds(tester), [first[1], first[0]]);
+        expect(detector.issues.first.title, contains('31 children'));
+      });
+
+      testWidgets('a remounted list gets a new id', (tester) async {
+        await tester.pumpWidget(sections([('a', 30)]));
+        final before = scanIds(tester).single;
+        await tester.pumpWidget(sections([('a2', 30)]));
+        expect(scanIds(tester).single, isNot(before));
+      });
+
+      testWidgets('every non-lazy id carries the flagged element', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomScrollView(
+              slivers: [
+                SliverList(
+                  key: const ValueKey('sliver'),
+                  delegate: SliverChildListDelegate(
+                    List.generate(55, (i) => SizedBox(height: 2)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(
+          detector.issues.single.occurrenceId,
+          elementId(tester, 'sliver'),
+        );
+      });
+    });
   });
 }

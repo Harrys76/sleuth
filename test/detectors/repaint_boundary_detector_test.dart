@@ -858,6 +858,48 @@ void main() {
         expect(issue.detail, contains('ClipPath'));
       });
     });
+
+    testWidgets('sibling scroll views with excessive boundaries carry their '
+        'own element ids, kept across scans', (tester) async {
+      Widget lists(int a, int b) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: Row(
+          children: [
+            for (final (key, n) in [('a', a), ('b', b)])
+              Expanded(
+                child: ListView(
+                  key: ValueKey(key),
+                  addRepaintBoundaries: false,
+                  children: List.generate(
+                    n,
+                    (i) => const RepaintBoundary(
+                      child: SizedBox(height: 10, width: 10),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+      List<int?> scanIds() {
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        return [
+          for (final i in detector.issues)
+            if (i.stableId == 'excessive_repaint_boundary') i.occurrenceId,
+        ];
+      }
+
+      await tester.pumpWidget(lists(25, 25));
+      final first = scanIds();
+      expect(first, [
+        identityHashCode(tester.element(find.byKey(const ValueKey('a')))),
+        identityHashCode(tester.element(find.byKey(const ValueKey('b')))),
+      ]);
+      expect(first[0], isNot(first[1]));
+
+      await tester.pumpWidget(lists(25, 30));
+      expect(scanIds(), first);
+    });
   });
 }
 

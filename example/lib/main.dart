@@ -41,6 +41,7 @@ import 'demos/rebuild_activity_capture_screen.dart';
 import 'demos/rebuild_hotspot_demo.dart';
 import 'demos/repaint_boundary_demo.dart';
 import 'demos/repaint_stress_demo.dart';
+import 'demos/shrink_wrapped_sections_demo.dart';
 import 'demos/stream_resource_capture_screen.dart';
 import 'demos/tabbed_shell_demo.dart';
 import 'demos/stream_resource_demo.dart';
@@ -319,6 +320,13 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
         subtitle: 'ListView detector',
         color: Colors.orange,
         builder: (_) => const NonLazyListDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.view_agenda,
+        title: 'Shrink-wrapped Sections',
+        subtitle: 'Two equal shrinkWrap lists, two cards',
+        color: Colors.deepOrange,
+        builder: (_) => const ShrinkWrappedSectionsDemo(),
       ),
       _DemoRoute(
         icon: Icons.upload_file,

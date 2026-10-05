@@ -136,7 +136,10 @@ abstract class SimpleStructuralDetector extends BaseDetector {
   /// Emit a performance issue from within [inspect].
   ///
   /// Pass the [element] whose widget triggered the finding so that the
-  /// helper can attach a [WidgetHighlight] for the overlay.
+  /// helper can attach a [WidgetHighlight] for the overlay. The issue
+  /// carries the element's identity as [PerformanceIssue.occurrenceId], so
+  /// reports from different elements under one [stableId] keep their own
+  /// overlay chats.
   ///
   /// [stableId] should be unique enough that the correlator can dedupe
   /// it across scans — prefix with the detector name and include the
@@ -170,6 +173,7 @@ abstract class SimpleStructuralDetector extends BaseDetector {
         fixHint: fixHint,
         observationSource: observationSource,
         detectedAt: DateTime.now(),
+        occurrenceId: identityHashCode(element),
       ),
     );
 

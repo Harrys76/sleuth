@@ -99,6 +99,7 @@ class PerformanceIssue {
     this.scaffoldHashKey,
     this.tabVisitIndex,
     this.sourceRoute,
+    this.occurrenceId,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -253,6 +254,18 @@ class PerformanceIssue {
   /// stamping. Null for one-shot per-batch detectors that never persist
   /// across navigation.
   final String? sourceRoute;
+
+  /// Identity of the flagged element, for detectors that report one issue
+  /// per occurrence under one [stableId] and [widgetName] (sibling
+  /// shrink-wrapped lists, Wraps, scroll views). It is the element's
+  /// `identityHashCode`, so it stays the same across scans while the
+  /// element stays mounted, whatever the title says. The overlay keys an
+  /// issue's AI chat by it. Null for issues that are not tied to one
+  /// element.
+  ///
+  /// Runtime only: not serialized by [toJson], not read by [fromJson],
+  /// and not part of equality.
+  final int? occurrenceId;
 
   /// Display label for the route: `routeName` for the first visit, or
   /// `"$routeName (tab-$tabVisitIndex)"` for the 2nd+ visit to the same
@@ -457,6 +470,7 @@ class PerformanceIssue {
     int? scaffoldHashKey,
     int? tabVisitIndex,
     String? sourceRoute,
+    int? occurrenceId,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -492,6 +506,7 @@ class PerformanceIssue {
       scaffoldHashKey: scaffoldHashKey ?? this.scaffoldHashKey,
       tabVisitIndex: tabVisitIndex ?? this.tabVisitIndex,
       sourceRoute: sourceRoute ?? this.sourceRoute,
+      occurrenceId: occurrenceId ?? this.occurrenceId,
     );
   }
 

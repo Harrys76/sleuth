@@ -299,6 +299,15 @@ abstract interface class OverlayLayerHost {
 /// A full-screen layer over the card.
 enum _OverlayLayer { hidden, guide, detail, chat, startup, rebuildStats }
 
+/// Identity of an AI chat: the card's [listKeyFor] plus the issue's
+/// [PerformanceIssue.occurrenceId]. Cards sharing a list key (one issue per
+/// flagged element) keep separate chats; an issue without an occurrence
+/// identity is keyed by its list key alone.
+typedef _ChatKey = ({String listKey, int? occurrence});
+
+_ChatKey _chatKeyFor(PerformanceIssue issue) =>
+    (listKey: listKeyFor(issue), occurrence: issue.occurrenceId);
+
 /// Scroll controller of the issue list. [keepOffset] records the attached
 /// list's offset before the list unmounts; the next list attached starts
 /// there, once.
@@ -455,8 +464,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   String? _detailStableId;
   PerformanceIssue? _detailContextIssue;
   bool _showAiChat = false;
-  String? _chatIssueKey;
-  final Map<String, List<AiChatMessage>> _chatHistories = {};
+  _ChatKey? _chatIssueKey;
+  final Map<_ChatKey, List<AiChatMessage>> _chatHistories = {};
+
+  /// Bumped when the host swaps the controller. A chat page built before
+  /// the swap commits its last reply from `dispose`, after the swap; its
+  /// history callback holds the old value and drops that write.
+  int _chatGeneration = 0;
 
   /// Cached jank-correlated issue keys from verdict, updated via listener.
   Set<String> _cachedJankKeys = const {};
@@ -634,7 +648,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _selectedIssueId = null;
       _showAiChat = false;
       _chatIssueKey = null;
+      _chatIssue = null;
       _chatHistories.clear();
+      _chatGeneration++;
       _cachedJankKeys = const {};
       _onVerdictChanged();
     }
@@ -1038,19 +1054,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
   }
 
-  /// The live issue whose [listKeyFor] is [key]. Of several, the one
-  /// titled like [previous] (the instance last shown), else the first.
-  PerformanceIssue? _findLiveIssueByListKey(
-    String key, {
-    PerformanceIssue? previous,
-  }) {
-    PerformanceIssue? first;
+  /// The reported issue whose chat key is [key], or null when none is or
+  /// several are (issues sharing a list key without an occurrence
+  /// identity). Matched by identity only: a title change or a new rank
+  /// order does not move the chat to another card.
+  PerformanceIssue? _findLiveChatIssue(_ChatKey key) {
+    PerformanceIssue? match;
     for (final i in widget.controller.issuesNotifier.value) {
-      if (listKeyFor(i) != key) continue;
-      if (previous == null || i.title == previous.title) return i;
-      first ??= i;
+      if (_chatKeyFor(i) != key) continue;
+      if (match != null) return null;
+      match = i;
     }
-    return first;
+    return match;
   }
 
   void _onVerdictChanged() {
@@ -1090,7 +1105,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// its expansion entry here.
   ///
   /// `_chatIssueKey` and `_chatHistories` intentionally stay on the
-  /// raw-key check — those surfaces operate on ALL issues (including
+  /// raw-list check — those surfaces operate on ALL issues (including
   /// downstream ones reachable via Ask AI), and narrowing them here would
   /// hide entries the user can still reach through the expanded parent's
   /// downstream list. `_selectedIssueId` is dropped, together with the
@@ -1105,7 +1120,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final issues = widget.controller.issuesNotifier.value;
     final visible = _ui.visibleIssues(issues);
     final visibleKeys = occurrenceKeysFor(visible).toSet();
-    final rawKeys = <String>{for (final i in issues) listKeyFor(i)};
+    final chatKeys = <_ChatKey>{for (final i in issues) _chatKeyFor(i)};
     var changed = false;
 
     final expandedBefore = _expandedIndices.length;
@@ -1149,8 +1164,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // instance); only closed chats lose their history with the issue.
     final openChat = _showAiChat ? _chatIssueKey : null;
     _chatHistories.removeWhere(
-      (key, _) => key != openChat && !rawKeys.contains(key),
+      (key, _) => key != openChat && !chatKeys.contains(key),
     );
+    // The open chat rebuilds with each update, so the page shows the
+    // latest report of its own issue and the prompt sees the current list.
+    if (openChat != null) changed = true;
     if (changed) setState(() {});
   }
 
@@ -1413,14 +1431,17 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     );
   }
 
-  /// The chat about the card keyed [chatKey] ([listKeyFor]). The history
-  /// callback holds [chatKey]: the page commits a stopped reply from
-  /// `dispose`, after close or prune has cleared [_chatIssueKey]. A write
-  /// for an issue that is no longer reported is dropped, as
-  /// [_pruneStaleState] would drop it.
-  Widget _buildAiChatPage(String chatKey) {
-    final live = _findLiveIssueByListKey(chatKey, previous: _chatIssue);
+  /// The chat keyed [chatKey], captured when the chat opened. The page
+  /// shows the reported issue with that identity, else the one it last
+  /// showed. The history callback holds [chatKey] and the controller
+  /// generation: the page commits a stopped reply from `dispose`, after
+  /// close or prune has cleared [_chatIssueKey]. A write for an issue that
+  /// is no longer reported is dropped, as [_pruneStaleState] would drop
+  /// it, and so is a write from a page built for a swapped-out controller.
+  Widget _buildAiChatPage(_ChatKey chatKey) {
+    final live = _findLiveChatIssue(chatKey);
     if (live != null) _chatIssue = live;
+    final generation = _chatGeneration;
     return AiChatPage(
       // Set together with [_chatIssueKey] when the chat opens.
       issue: _chatIssue!,
@@ -1432,11 +1453,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       adapter: widget.controller.config.aiChat!,
       history: _chatHistories[chatKey] ?? const [],
       onHistoryChanged: (msgs) {
+        if (generation != _chatGeneration) return;
         // A closed chat's history is kept only while its issue is
         // reported; the open chat always keeps its own.
         final open = _showAiChat && _chatIssueKey == chatKey;
         final reported = widget.controller.issuesNotifier.value.any(
-          (i) => listKeyFor(i) == chatKey,
+          (i) => _chatKeyFor(i) == chatKey,
         );
         if (open || reported) _chatHistories[chatKey] = msgs;
       },
@@ -2475,7 +2497,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                           : null,
                       onAskAi: widget.controller.config.aiChat != null
                           ? () => setState(() {
-                              _chatIssueKey = listKeyFor(issue);
+                              _chatIssueKey = _chatKeyFor(issue);
                               _chatIssue = issue;
                               _showAiChat = true;
                               _layerOpener = issueKey;

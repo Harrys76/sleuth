@@ -118,6 +118,41 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
+    testWidgets('each report carries its element as the occurrence id', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              SizedBox(
+                width: 100,
+                height: 100,
+                child: Placeholder(key: ValueKey('a')),
+              ),
+              SizedBox(
+                width: 100,
+                height: 100,
+                child: Placeholder(key: ValueKey('b')),
+              ),
+            ],
+          ),
+        ),
+      );
+      final context = tester.element(find.byType(Directionality));
+      final detector = _PlaceholderDetector();
+      detector.scanTree(context);
+      final first = [for (final i in detector.issues) i.occurrenceId];
+      expect(first, [
+        identityHashCode(tester.element(find.byKey(const ValueKey('a')))),
+        identityHashCode(tester.element(find.byKey(const ValueKey('b')))),
+      ]);
+
+      detector.scanTree(context);
+      expect([for (final i in detector.issues) i.occurrenceId], first);
+    });
+
     test('dispose clears state and calls onDispose hook', () {
       final detector = _PlaceholderDetector();
       expect(detector.disposed, isFalse);

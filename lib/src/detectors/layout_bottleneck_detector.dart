@@ -27,7 +27,8 @@ class LayoutBottleneckDetector extends BaseDetector
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   final List<({String name, bool nested})> _found = [];
-  final List<({int childCount, String location})> _wrapFindings = [];
+  final List<({int childCount, String location, int occurrenceId})>
+  _wrapFindings = [];
   int _intrinsicDepth = 0;
   bool _isEnabled = true;
 
@@ -139,6 +140,7 @@ class LayoutBottleneckDetector extends BaseDetector
         _wrapFindings.add((
           childCount: childCount,
           location: buildAncestorChain(element),
+          occurrenceId: identityHashCode(element),
         ));
         final ro = element.renderObject;
         if (ro != null) {
@@ -282,6 +284,7 @@ class LayoutBottleneckDetector extends BaseDetector
           confidenceReason:
               'Structural scan only — Wrap child count exceeds threshold',
           detectedAt: DateTime.now(),
+          occurrenceId: wrap.occurrenceId,
         ),
       );
     }

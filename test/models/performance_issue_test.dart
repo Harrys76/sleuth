@@ -569,4 +569,36 @@ void main() {
       expect(text, 'T\nSeverity: warning\nConfidence: possible\n\nD\n\nFix: F');
     });
   });
+
+  group('occurrenceId', () {
+    const base = PerformanceIssue(
+      severity: IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.possible,
+      title: 'Non-lazy ListView',
+      detail: 'detail',
+      fixHint: 'fix',
+      stableId: 'non_lazy_shrinkwrap',
+      widgetName: 'ListView',
+      occurrenceId: 42,
+    );
+
+    test('preserved in copyWith when not overridden', () {
+      expect(base.copyWith(title: 'Changed').occurrenceId, 42);
+      expect(base.copyWith(occurrenceId: 7).occurrenceId, 7);
+    });
+
+    test('kept out of toJson, so a round trip drops it', () {
+      final json = base.toJson();
+      expect(json.keys, isNot(contains('occurrenceId')));
+      expect(json.values, isNot(contains(42)));
+      expect(PerformanceIssue.fromJson(json).occurrenceId, isNull);
+    });
+
+    test('not part of equality or hashCode', () {
+      final other = base.copyWith(occurrenceId: 7);
+      expect(other, equals(base));
+      expect(other.hashCode, base.hashCode);
+    });
+  });
 }

@@ -292,6 +292,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         ancestorChain: location,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
+        occurrenceId: identityHashCode(scrollElement),
       ),
     );
   }
@@ -349,6 +350,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         ancestorChain: location,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
+        occurrenceId: identityHashCode(sliverElement),
       ),
     );
   }
@@ -422,6 +424,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         ancestorChain: location,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
+        occurrenceId: identityHashCode(scrollElement),
       ),
     );
   }
@@ -509,6 +512,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         ancestorChain: location,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
+        occurrenceId: identityHashCode(sliverElement),
       ),
     );
   }
@@ -564,6 +568,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         ancestorChain: location,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
+        occurrenceId: identityHashCode(scrollableElement),
       ),
     );
   }
@@ -619,6 +624,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         observationSource: ObservationSource.structural,
         confidenceReason: 'Structural scan only — eager sliver pattern found',
         detectedAt: DateTime.now(),
+        occurrenceId: identityHashCode(scrollableElement),
       ),
     );
   }
@@ -687,6 +693,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
               confidenceReason:
                   'Structural scan only — non-lazy list pattern found',
               detectedAt: DateTime.now(),
+              occurrenceId: identityHashCode(scrollElement),
             ),
           );
         }

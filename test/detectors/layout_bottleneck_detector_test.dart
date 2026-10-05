@@ -618,5 +618,44 @@ void main() {
         expect(wrapIssues.first.severity, IssueSeverity.critical);
       });
     });
+
+    testWidgets('sibling Wraps carry their own element ids, kept across '
+        'scans', (tester) async {
+      Widget wraps(int a, int b) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              for (final (key, n) in [('a', a), ('b', b)])
+                Wrap(
+                  key: ValueKey(key),
+                  children: List.generate(
+                    n,
+                    (i) => const SizedBox(width: 50, height: 50),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+      List<int?> scanIds() {
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        return [
+          for (final i in detector.issues)
+            if (i.stableId == 'wrap_layout_bottleneck') i.occurrenceId,
+        ];
+      }
+
+      await tester.pumpWidget(wraps(35, 35));
+      final first = scanIds();
+      expect(first, [
+        identityHashCode(tester.element(find.byKey(const ValueKey('a')))),
+        identityHashCode(tester.element(find.byKey(const ValueKey('b')))),
+      ]);
+      expect(first[0], isNot(first[1]));
+
+      await tester.pumpWidget(wraps(35, 40));
+      expect(scanIds(), first);
+    });
   });
 }
