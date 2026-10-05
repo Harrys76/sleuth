@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-3%2C091_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-3%2C967_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 In-app performance diagnostics overlay for Flutter. Surfaces jank, memory leaks, slow networks, GPU pressure, and widget anti-patterns — directly inside your app, with a fix hint on every issue.
@@ -135,7 +135,7 @@ SleuthConfig(
 
 **VM full mode** adds sub-phase breakdown (build vs layout vs paint vs raster) but depends on VM service connectivity, which varies by platform. The package falls back gracefully to frame timing mode when VM is unavailable. On cold start, a background reconnect ladder (500 ms → 30 s, 7 attempts) automatically upgrades to full mode once the VM web server binds — no manual action needed.
 
-> **Prefer VM+ (full) mode for accurate, complete diagnostics.** In `basic` mode (no VM self-connect) the VM-only detectors stay silent — `heap_growing`, `heavy_compute`, `excessive_repaint`, `gc_pressure`, `stream_resource_growth` never fire, and structural confidence is capped at `possible`. The issue list is real but **incomplete**, so don't trust "no memory/repaint issues" until the `connectionMode` field on any `ext.sleuth.*` response (surfaced by the `sleuth_mcp` `diagnose` tool) reads `full` / `correlated`, or in-app `Sleuth.diagnoseCaptureState().vmConnected` is `true`. Reach it via `--no-dds` (below).
+> **Prefer VM+ (full) mode for accurate, complete diagnostics.** In `basic` mode (no VM self-connect) the VM-only detectors stay silent — `heap_growing`, `heavy_compute`, `excessive_repaint`, `gc_pressure`, `stream_resource_growth` never fire, and structural heuristics stay at `possible` (measured structural signals still reach `likely` without a VM — `uncached_images`, for example, compares decoded and rendered image sizes). The issue list is real but **incomplete**, so don't trust "no memory/repaint issues" until the `connectionMode` field on any `ext.sleuth.*` response (surfaced by the `sleuth_mcp` `diagnose` tool) reads `full` / `correlated`, or in-app `Sleuth.diagnoseCaptureState().vmConnected` is `true`. Reach it via `--no-dds` (below).
 
 ### Reaching full mode
 
@@ -149,7 +149,7 @@ flutter run --profile --no-dds
 
 The VM service stays multi-client, so sleuth connects alongside the tooling and the `connectionMode` field on `ext.sleuth.*` responses reads `full` (or `correlated`). Hot reload/restart are unaffected; you lose DDS-only niceties (smoother multi-client DevTools, log history).
 
-Full mode runs periodic VM polling on the app isolate. On real devices the cost is negligible — but on **emulators/simulators** (software rendering, weak CPU) it can noticeably depress FPS. Measure frame rates on a real device, not an emulator.
+Full mode runs periodic VM polling on the app isolate, and the cost scales with how many timeline events the app writes. On an iPhone 12 (profile, 500 ms polls) an idle screen costs about 1.5 ms of UI-isolate time per poll; an FPS stress screen writing about 10k events per poll costs about 32 ms per poll, mostly decoding the response (see [doc/internals.md](doc/internals.md)). To attribute a stall, read `Sleuth.lastPollTimings` (`uiBlockingMicros` is the synchronous decode + parse + dispatch time) or the `lastPoll*` / `maxPoll*` keys of `ext.sleuth.diagnose`. On **emulators/simulators** (software rendering, weak CPU) polling can noticeably depress FPS. Measure frame rates on a real device, not an emulator.
 
 Fallback (when you need DDS + DevTools + sleuth at once): launch the installed binary directly so no DDS attaches —
 

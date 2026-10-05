@@ -16,3 +16,6 @@ test/
 CLAUDE.md
 AGENTS.md
 CHANGELOG.archive.md
+
+# Local VM-service helper script, not part of the package
+/tool/device_pass.dart

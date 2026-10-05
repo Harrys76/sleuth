@@ -6,16 +6,22 @@ Runtime performance diagnostics package for Flutter mobile apps. 20 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test --exclude-tags benchmark          # Default run (~3,825 tests; wall-clock benchmarks excluded)
+fvm flutter test --exclude-tags benchmark          # Default run (~3,967 tests; wall-clock benchmarks excluded)
 fvm flutter test --tags benchmark --concurrency=1  # Wall-clock benchmarks, serial (40 tests)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
+fvm dart doc --dry-run              # Dartdoc gate (must report 0 warnings, 0 errors)
+fvm dart format --output=none --set-exit-if-changed lib test tool example/lib example/test packages/sleuth_mcp/lib packages/sleuth_mcp/test packages/sleuth_mcp/bin  # Format check (CI)
+
+# Floor lane (Flutter 3.32.8, as CI runs it); restore the dev pin afterwards
+rm -rf build/unit_test_assets && fvm spawn 3.32.8 pub get --no-example && fvm spawn 3.32.8 analyze --no-pub lib test && fvm spawn 3.32.8 test --no-pub --exclude-tags benchmark
+rm -rf build/unit_test_assets && fvm flutter pub get   # Restore 3.47.6 resolution
 
 # Example app
 cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
-cd example && fvm flutter test            # Cookbook smoke + demo widget tests (39 tests)
+cd example && fvm flutter test            # Cookbook smoke + demo widget tests (41 tests)
 
 # MCP sidecar (packages/sleuth_mcp/)
 cd packages/sleuth_mcp && dart test       # Sidecar tests (342 tests)
