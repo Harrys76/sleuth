@@ -84,6 +84,8 @@ swaps in a scripted adapter (`lib/fake_ai_adapter.dart`):
 | `fail` | HTTP 503 after 300 ms (Provider error, Retry, Copy error) |
 | `stall` | One token, then nothing (Reply stalled after 15 s) |
 | `partial` | Two tokens, then an error (partial text kept on screen, Reply failed) |
+| `slow` | First token after 8 s ("Still waiting for a reply" from 5 s), then as `ok` |
+| `empty` | Ends without a token (Reply failed) |
 
 ## Overlay state and remote drive
 

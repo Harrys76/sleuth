@@ -17,16 +17,27 @@ enum FakeAiMode {
   /// Sends two tokens, then fails (shown as "Reply failed" with the
   /// partial text kept on screen).
   partial,
+
+  /// Sends the first token after 8 s ("Still waiting for a reply" from
+  /// 5 s), then streams like [ok].
+  slow,
+
+  /// Ends without any token (shown as "Reply failed").
+  empty,
 }
 
 /// An [AiChatAdapter] that answers from a script instead of a model, for
 /// checking the chat's states on a device without a provider. Selected
-/// with `--dart-define=SLEUTH_AI_FAKE=ok|fail|stall|partial`.
+/// with `--dart-define=SLEUTH_AI_FAKE=ok|fail|stall|partial|slow|empty`.
 class FakeAiChatAdapter extends AiChatAdapter {
   FakeAiChatAdapter(
     this.mode, {
     this.tokenInterval = const Duration(milliseconds: 120),
-  }) : super(sendMessage: (request) => _reply(mode, tokenInterval, request));
+    this.slowFirstToken = const Duration(seconds: 8),
+  }) : super(
+         sendMessage: (request) =>
+             _reply(mode, tokenInterval, slowFirstToken, request),
+       );
 
   /// The adapter for a `SLEUTH_AI_FAKE` value, or null when [value]
   /// names no mode.
@@ -42,24 +53,30 @@ class FakeAiChatAdapter extends AiChatAdapter {
   /// Delay before each token.
   final Duration tokenInterval;
 
+  /// Delay before the first token in [FakeAiMode.slow].
+  final Duration slowFirstToken;
+
   static Stream<String> _reply(
     FakeAiMode mode,
     Duration interval,
+    Duration slowFirstToken,
     AiChatRequest request,
   ) {
     final question = request.history.isEmpty
         ? ''
         : request.history.last.text.split('\n').first;
     final tokens = switch (mode) {
-      FakeAiMode.ok => <String>[
+      FakeAiMode.ok || FakeAiMode.slow => <String>[
         'This is a scripted reply. ',
         'You asked: "$question". ',
         'No model was called.',
       ],
-      FakeAiMode.fail => const <String>[],
+      FakeAiMode.fail || FakeAiMode.empty => const <String>[],
       FakeAiMode.stall => const <String>['Starting a reply that stalls'],
       FakeAiMode.partial => const <String>['Part of a reply ', 'that breaks'],
     };
+    // Time of the first token; later tokens follow every [interval].
+    final first = mode == FakeAiMode.slow ? slowFirstToken : interval;
 
     final timers = <Timer>[];
     late final StreamController<String> controller;
@@ -67,14 +84,16 @@ class FakeAiChatAdapter extends AiChatAdapter {
       onListen: () {
         for (var i = 0; i < tokens.length; i++) {
           timers.add(
-            Timer(interval * (i + 1), () {
+            Timer(first + interval * i, () {
               if (!controller.isClosed) controller.add(tokens[i]);
             }),
           );
         }
-        final end = interval * (tokens.length + 1);
+        final end = first + interval * tokens.length;
         switch (mode) {
           case FakeAiMode.ok:
+          case FakeAiMode.slow:
+          case FakeAiMode.empty:
             timers.add(Timer(end, controller.close));
           case FakeAiMode.fail:
             timers.add(

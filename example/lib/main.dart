@@ -127,9 +127,10 @@ void main() {
 ///
 ///     --dart-define=SLEUTH_AI_BASE_URL=http://192.168.1.20:11434
 ///
-/// `--dart-define=SLEUTH_AI_FAKE=ok|fail|stall|partial` swaps in
-/// [FakeAiChatAdapter], a scripted reply for checking the chat's reply,
-/// failure, stall and partial-reply states without a model.
+/// `--dart-define=SLEUTH_AI_FAKE=ok|fail|stall|partial|slow|empty` swaps
+/// in [FakeAiChatAdapter], a scripted reply for checking the chat's
+/// reply, failure, stall, partial-reply, slow-first-token (8 s) and
+/// empty-reply states without a model.
 AiChatAdapter _aiChatAdapter() {
   const fakeMode = String.fromEnvironment('SLEUTH_AI_FAKE');
   final fake = FakeAiChatAdapter.forMode(fakeMode);
@@ -240,7 +241,6 @@ class _DemoHomeState extends State<DemoHome> {
               return _CategoryHeader(
                 title: category.title,
                 icon: category.icon,
-                color: category.demos.first.color,
               );
             }
             remaining--;
@@ -260,18 +260,13 @@ class _DemoHomeState extends State<DemoHome> {
 // ── Category header ──
 
 class _CategoryHeader extends StatelessWidget {
-  const _CategoryHeader({
-    required this.title,
-    required this.icon,
-    required this.color,
-  });
+  const _CategoryHeader({required this.title, required this.icon});
 
   final String title;
-  final IconData icon;
 
-  /// The category's hue (its first demo's color), used for the icon; the
-  /// title keeps the theme's text color for contrast.
-  final Color color;
+  /// Drawn in the theme's primary color, which keeps 3:1 contrast on the
+  /// page surface; the demo tiles keep their own colors.
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -280,7 +275,7 @@ class _CategoryHeader extends StatelessWidget {
       padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: color),
+          Icon(icon, size: 18, color: theme.colorScheme.primary),
           const SizedBox(width: 8),
           Text(
             title,
@@ -1151,7 +1146,7 @@ class _DemoTile extends StatelessWidget {
             backgroundColor: demo.color.withValues(alpha: 0.15),
             child: Icon(demo.icon, color: demo.color),
           ),
-          title: Text(demo.title, style: theme.textTheme.titleSmall),
+          title: Text(demo.title, style: theme.textTheme.titleMedium),
           subtitle: Text(
             demo.subtitle,
             style: theme.textTheme.bodySmall?.copyWith(
