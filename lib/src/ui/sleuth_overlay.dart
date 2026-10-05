@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -27,7 +29,8 @@ import 'text_scale_clamp.dart';
 /// asked first. An observer the app registers before `runApp` is asked
 /// before the overlay. On Android the overlay also claims predictive back
 /// gestures while a layer is open and requests
-/// [SystemNavigator.setFrameworkHandlesBack] after each layer change; on
+/// [SystemNavigator.setFrameworkHandlesBack] after each layer change and
+/// after each app navigation while a layer is open; on
 /// Flutter versions that offer a predictive swipe to every observer, an
 /// app route that can pop may pop together with the overlay layer.
 ///
@@ -122,26 +125,120 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   /// After an overlay layer opens or closes, asks Android to route back
   /// to the framework while a layer is open. `WidgetsApp` resets the flag
   /// on its own navigation notifications, so the request is repeated on
-  /// every layer change, once per frame. Never cleared from here.
+  /// every layer change, once per frame, and after app navigation while
+  /// a layer is open ([_watchAppNavigation]). Never cleared from here.
   void _onLayersChanged() {
     final Object? host = _cardKey.currentState;
     _fullScreenLayerOpen.value =
         _layerOpen && host is OverlayLayerHost && host.openLayerDepth > 0;
-    if (kReleaseMode ||
-        _backRequestScheduled ||
-        defaultTargetPlatform != TargetPlatform.android) {
-      return;
-    }
+    _requestFrameworkBack();
+    _watchAppNavigation();
+  }
+
+  void _requestFrameworkBack() {
+    if (!_handlesAndroidBack || _backRequestScheduled) return;
     _backRequestScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _backRequestScheduled = false;
-      if (!mounted || !_layerOpen) return;
-      try {
-        SystemNavigator.setFrameworkHandlesBack(true).catchError((Object _) {});
-      } catch (_) {
-        // Best effort: the platform may not support the call.
-      }
+      if (mounted && _layerOpen) _sendFrameworkHandlesBack();
     });
+  }
+
+  bool get _handlesAndroidBack =>
+      !kReleaseMode && defaultTargetPlatform == TargetPlatform.android;
+
+  void _sendFrameworkHandlesBack() {
+    try {
+      SystemNavigator.setFrameworkHandlesBack(true).catchError((Object _) {});
+    } catch (_) {
+      // Best effort: the platform may not support the call.
+    }
+  }
+
+  // ── App navigation while a layer is open ────────────────────────────
+
+  /// The app's navigators, null until found after the layer opens, and
+  /// their [_navigationState] as of the last frame.
+  List<NavigatorState>? _appNavigators;
+  List<int> _appNavigation = const [];
+  bool _watchingNavigation = false;
+
+  /// While a layer is open, checks after every frame whether an app
+  /// navigator's history changed. A change means the app navigated and
+  /// its navigation notification has set the flag from the app's own
+  /// navigators, false at its root route, which would send the next back
+  /// gesture to the system with the dashboard still open. A pop notifies
+  /// twice, when it starts and when the route is removed after its exit
+  /// animation. The check runs in a microtask, after every post-frame
+  /// callback of the frame, so the request lands after the app's. Only a
+  /// change sends a request.
+  void _watchAppNavigation() {
+    if (!_handlesAndroidBack || _watchingNavigation || !_layerOpen) return;
+    _watchingNavigation = true;
+    _appNavigators = null;
+    // Layer changes are reported from the card's build; the tree is
+    // walked after the frame.
+    WidgetsBinding.instance.addPostFrameCallback(_onFrameWhileOpen);
+  }
+
+  void _onFrameWhileOpen(Duration _) {
+    if (!mounted || !_layerOpen) {
+      _watchingNavigation = false;
+      _appNavigators = null;
+      _appNavigation = const [];
+      return;
+    }
+    // Registered for the next frame; does not schedule one.
+    WidgetsBinding.instance.addPostFrameCallback(_onFrameWhileOpen);
+    scheduleMicrotask(() {
+      if (!mounted || !_layerOpen) return;
+      if (_appNavigators == null) {
+        _findAppNavigators();
+        return;
+      }
+      if (listEquals(_navigationState(), _appNavigation)) return;
+      _findAppNavigators();
+      _sendFrameworkHandlesBack();
+    });
+  }
+
+  /// Per app navigator: whether it can pop, and how many entries its
+  /// overlay holds (a route adds its entries when pushed and removes them
+  /// once it is gone). Navigators that left the tree read -1.
+  List<int> _navigationState() => [
+    for (final navigator in _appNavigators ?? const <NavigatorState>[])
+      if (!navigator.mounted) ...[
+        -1,
+        -1,
+      ] else ...[
+        navigator.canPop() ? 1 : 0,
+        _overlayEntryCount(navigator),
+      ],
+  ];
+
+  static int _overlayEntryCount(NavigatorState navigator) {
+    var count = 0;
+    // Overlay > theater > one element per entry.
+    navigator.overlay?.context.visitChildElements(
+      (theater) => theater.visitChildElements((_) => count++),
+    );
+    return count;
+  }
+
+  /// Collects the navigators below the app child (the overlay's own
+  /// subtree has none) and records whether each can pop.
+  void _findAppNavigators() {
+    final found = <NavigatorState>[];
+    void visit(Element element) {
+      if (element is StatefulElement && element.state is NavigatorState) {
+        found.add(element.state as NavigatorState);
+      }
+      element.visitChildElements(visit);
+    }
+
+    context.visitChildElements(visit);
+    _appNavigators = found;
+    _appNavigation = _navigationState();
   }
 
   @override

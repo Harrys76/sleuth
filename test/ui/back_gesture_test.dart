@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/hidden_issues_page.dart';
 import 'package:sleuth/src/ui/issue_encyclopedia_page.dart';
@@ -38,6 +40,22 @@ Future<void> _platformBackGesture(WidgetTester tester, String method) async {
     (_) {},
   );
   await tester.pumpAndSettle();
+}
+
+/// Records the arguments of `SystemNavigator.setFrameworkHandlesBack`
+/// calls; every other platform call is answered with null.
+List<Object?> _recordFrameworkBackRequests(WidgetTester tester) {
+  final requests = <Object?>[];
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    SystemChannels.platform,
+    (call) async {
+      if (call.method == 'SystemNavigator.setFrameworkHandlesBack') {
+        requests.add(call.arguments);
+      }
+      return null;
+    },
+  );
+  return requests;
 }
 
 Future<void> _openEncyclopedia(WidgetTester tester) async {
@@ -276,6 +294,68 @@ void main() {
       await systemBack(tester);
       expect(requests.where((r) => r == false), isEmpty);
     });
+
+    // The app's navigation notification sets the flag from its own
+    // navigators (false at the root route); the overlay asks again in the
+    // same frame, after it, so back keeps closing the dashboard. Scans are
+    // off, so only the frame check can see the pop.
+    testWidgets('Android: an app pop to its root with the dashboard open '
+        'keeps back on the framework', (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final controller = await pumpOverlay(
+        tester,
+        config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+        app: _twoRouteApp(),
+      );
+      final requests = _recordFrameworkBackRequests(tester);
+      await tester.tap(find.text('app home'));
+      await tester.pumpAndSettle();
+      await openDashboard(tester, controller);
+      requests.clear();
+
+      Navigator.of(tester.element(find.text('app detail'))).pop();
+      await tester.pumpAndSettle();
+      expect(requests, contains(false));
+      expect(requests.last, isTrue);
+      expect(requests.lastIndexOf(true), greaterThan(requests.indexOf(false)));
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+    testWidgets('Android: an app pop with the dashboard closed leaves the '
+        "app's request alone", (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await pumpOverlay(
+        tester,
+        config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+        app: _twoRouteApp(),
+      );
+      final requests = _recordFrameworkBackRequests(tester);
+      await tester.tap(find.text('app home'));
+      await tester.pumpAndSettle();
+      requests.clear();
+
+      Navigator.of(tester.element(find.text('app detail'))).pop();
+      await tester.pumpAndSettle();
+      expect(requests, isNotEmpty);
+      expect(requests.last, isFalse);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+    testWidgets('Android: frames without navigation send nothing more', (
+      tester,
+    ) async {
+      final controller = await pumpOverlay(
+        tester,
+        config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+        app: _twoRouteApp(),
+      );
+      final requests = _recordFrameworkBackRequests(tester);
+      await openDashboard(tester, controller);
+      requests.clear();
+      for (var i = 0; i < 5; i++) {
+        controller.overlayUiState.toggleSeverity(IssueSeverity.ok);
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(requests, isEmpty);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
     testWidgets('state survives close and reopen', (tester) async {
       final controller = await pumpOverlay(tester);
