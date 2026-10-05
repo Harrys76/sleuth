@@ -167,11 +167,22 @@ void main() {
       expect(detector.issues.first.title, contains('20.0ms'));
     });
 
-    test('multiple buildScope events produce multiple issues', () {
+    test('multiple buildScope events produce one issue for the longest', () {
       detector.processTimelineData(
-        heavyComputeData(buildScopeDurationsUs: [20000, 30000]),
+        heavyComputeData(buildScopeDurationsUs: [20000, 30000, 5000]),
       );
-      expect(detector.issues, hasLength(2));
+      expect(detector.issues, hasLength(1));
+      final issue = detector.issues.single;
+      expect(issue.title, contains('30.0ms'));
+      expect(issue.detail, contains('2 builds exceeded the threshold'));
+      expect(issue.extraTraceArgs?['observedDurationMs'], '30.0');
+    });
+
+    test('a single slow build carries no batch note', () {
+      detector.processTimelineData(
+        heavyComputeData(buildScopeDurationsUs: [20000]),
+      );
+      expect(detector.issues.single.detail, isNot(contains('in this batch')));
     });
 
     test('no issue for normal buildScope times', () {

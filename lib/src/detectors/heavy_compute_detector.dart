@@ -135,23 +135,39 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
 
+    // One issue per batch: the longest BUILD over threshold, with the
+    // count of others in the detail. Every emission shares the
+    // `heavy_compute` stable id, so one card per slow build would stack
+    // identical cards in the overlay.
     final fresh = <PerformanceIssue>[];
     final buildPhaseEvents = data.phaseEvents
         .where((e) => e.phase == TimelinePhase.build)
         .toList();
 
     if (buildPhaseEvents.isNotEmpty) {
+      PhaseEvent? worst;
+      var over = 0;
       for (final event in buildPhaseEvents) {
-        if (event.durationUs > _lagThresholdUs) {
-          fresh.add(_createIssue(event.durationUs, event));
+        if (event.durationUs <= _lagThresholdUs) continue;
+        over++;
+        if (worst == null || event.durationUs > worst.durationUs) {
+          worst = event;
         }
+      }
+      if (worst != null) {
+        fresh.add(_createIssue(worst.durationUs, worst, batchCount: over));
       }
     } else {
       // Fallback: raw durations only (no phaseEvents available)
+      var worstUs = 0;
+      var over = 0;
       for (final durationUs in data.buildScopeDurations) {
-        if (durationUs > _lagThresholdUs) {
-          fresh.add(_createGenericIssue(durationUs));
-        }
+        if (durationUs <= _lagThresholdUs) continue;
+        over++;
+        if (durationUs > worstUs) worstUs = durationUs;
+      }
+      if (over > 0) {
+        fresh.add(_createGenericIssue(worstUs, batchCount: over));
       }
     }
 
@@ -177,7 +193,11 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  PerformanceIssue _createIssue(int durationUs, PhaseEvent event) {
+  PerformanceIssue _createIssue(
+    int durationUs,
+    PhaseEvent event, {
+    int batchCount = 1,
+  }) {
     final ms = durationUs / 1000;
     final dirtyWidgets = event.dirtyList;
     final enriched =
@@ -198,7 +218,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
           ? 'Heavy Build: ${ms.toStringAsFixed(1)}ms '
                 '(${_summarizeWidgets(dirtyWidgets)})'
           : 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
-      detail: _buildDetail(ms, event),
+      detail: _buildDetail(ms, event) + _batchNote(batchCount),
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
@@ -227,7 +247,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     );
   }
 
-  PerformanceIssue _createGenericIssue(int durationUs) {
+  PerformanceIssue _createGenericIssue(int durationUs, {int batchCount = 1}) {
     final ms = durationUs / 1000;
     final (hint, effort) = FixHintBuilder.heavyCompute(durationMs: ms);
     return PerformanceIssue(
@@ -240,7 +260,8 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       title: 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
       detail:
           'Long-running operation detected on UI thread '
-          '(${ms.toStringAsFixed(1)}ms). This blocks frame rendering.',
+          '(${ms.toStringAsFixed(1)}ms). This blocks frame rendering.'
+          '${_batchNote(batchCount)}',
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
@@ -254,6 +275,12 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       interactionContext: _interactionContextProvider?.call(),
     );
   }
+
+  /// Suffix naming the other over-threshold builds of the same batch.
+  static String _batchNote(int batchCount) => batchCount > 1
+      ? ' $batchCount builds exceeded the threshold in this batch; the '
+            'longest is shown.'
+      : '';
 
   String _buildDetail(double ms, PhaseEvent event) {
     final buf = StringBuffer(

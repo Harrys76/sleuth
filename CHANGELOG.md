@@ -2,6 +2,11 @@
 
 ### Overlay accessibility, text scaling and theme
 
+- `heavy_compute` emits one issue per VM batch, the longest build over
+  threshold, and names how many others the batch had. Each slow build
+  used to emit its own issue under the same stable id, which stacked
+  identical cards in the overlay.
+
 - Overlay text follows the system text scale between 0.8x and 2.0x; the app
   keeps its own scale. Chrome (card header, status row, summary bar,
   footer, badges, trigger) stops at 1.3x and its fixed heights become
