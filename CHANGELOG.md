@@ -52,7 +52,8 @@
   card so Hidden keeps a 48 x 48 target and its full label. Startup
   metrics and Rebuild stats titles wrap at large text. In AI chat the
   issue context is sized from the height left above the keyboard, so the
-  input and Send stay visible. AI chat keeps focus while a reply streams and announces
+  input and Send stay visible. The chat input's outline is the full 48 px field,
+  centred on the Send button at any text scale. AI chat keeps focus while a reply streams and announces
   Thinking and the reply.
 - Contrast: tertiary and quaternary text, `checkboxActive` and the AI chat
   bubble are retuned for WCAG AA on every surface. New severity text tokens

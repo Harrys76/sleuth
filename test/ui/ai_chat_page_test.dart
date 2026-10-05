@@ -1827,4 +1827,52 @@ void main() {
       expect(find.text('Because it rebuilds.'), findsOneWidget);
     });
   });
+
+  group('input row', () {
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets('the Send button is centred on the field outline at '
+          '${scale}x', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: MediaQuery(
+              data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+              child: Scaffold(
+                body: AiChatPage(
+                  issue: makeIssue(),
+                  allIssues: const [],
+                  adapter: AiChatAdapter(
+                    sendMessage: (_) => const Stream.empty(),
+                  ),
+                  history: const [],
+                  onHistoryChanged: (_) {},
+                  onClose: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        // The outline is the decorator's painted border.
+        final outline = tester
+            .renderObjectList<RenderBox>(
+              find.descendant(
+                of: find.byType(InputDecorator),
+                matching: find.byType(CustomPaint),
+              ),
+            )
+            .map((box) => box.localToGlobal(Offset.zero) & box.size)
+            .last;
+        final circle = tester.getRect(
+          find
+              .descendant(
+                of: find.bySemanticsLabel('Send'),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        expect(outline.height, greaterThanOrEqualTo(48));
+        expect(circle.center.dy, closeTo(outline.center.dy, 0.5));
+      });
+    }
+  });
 }

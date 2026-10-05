@@ -1274,6 +1274,10 @@ class _AiChatPageState extends State<AiChatPage>
   }
 
   Widget _buildInputRow(SleuthThemeData theme) {
+    final inputStyle = TextStyle(
+      color: theme.textPrimary,
+      fontSize: theme.fontMd,
+    );
     return Row(
       children: [
         Expanded(
@@ -1284,10 +1288,8 @@ class _AiChatPageState extends State<AiChatPage>
             // be drafted; sending it waits for the reply.
             maxLength: _maxInputLength,
             buildCounter: _buildCounter,
-            style: TextStyle(color: theme.textPrimary, fontSize: theme.fontMd),
+            style: inputStyle,
             decoration: InputDecoration(
-              // 48 px tall tap target.
-              constraints: const BoxConstraints(minHeight: 48),
               hintText: 'Ask about this issue...',
               hintStyle: TextStyle(
                 color: theme.textTertiary,
@@ -1296,7 +1298,7 @@ class _AiChatPageState extends State<AiChatPage>
               isDense: true,
               contentPadding: EdgeInsets.symmetric(
                 horizontal: theme.spacingLg,
-                vertical: theme.spacingSm,
+                vertical: _inputVerticalPadding(inputStyle, theme),
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(theme.radiusFull),
@@ -1322,6 +1324,23 @@ class _AiChatPageState extends State<AiChatPage>
         _inFlight ? _buildStopButton(theme) : _buildSendButton(theme),
       ],
     );
+  }
+
+  /// Vertical padding that makes the input's outline 48 px tall for one
+  /// line of [style] at the current text scale (a 48 px tap target), and
+  /// never less than [SleuthThemeData.spacingSm]. The outline is then the
+  /// field's whole height, so the row centres it on the Send button; a
+  /// min-height constraint would grow the field below its outline.
+  double _inputVerticalPadding(TextStyle style, SleuthThemeData theme) {
+    final painter = TextPainter(
+      text: TextSpan(text: 'Ag', style: style),
+      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    final lineHeight = painter.height;
+    painter.dispose();
+    return math.max(theme.spacingSm, (48 - lineHeight) / 2);
   }
 
   /// Length counter, shown once the input passes 80 % of its limit.
