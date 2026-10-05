@@ -120,10 +120,16 @@
   the list is at the top: any touch, scroll or trackpad gesture on the
   list restarts the 10 s wait, and a list scrolled down keeps holding.
   Collapsing the last expanded card keeps the order on screen. Under a
-  screen reader the order changes only when the dashboard opens, on a
-  severity filter change, and on hide or unhide, the points where the
-  hold always resets. Exports, `ext.sleuth.*` and MCP keep the ranker's
-  order.
+  screen reader held cards change order only when the dashboard opens,
+  on a severity filter change, and on hide or unhide, the points where
+  the hold always resets; a new issue enters at its rank position
+  instead of the top, so a new critical never sits under older warnings.
+  Exports, `ext.sleuth.*` and MCP keep the ranker's order.
+- Cards that share a stable id and widget (a detector reporting several
+  occurrences) keep their own expansion and highlight: expanding one no
+  longer shows the other twice or drops it. Ask AI opens the chat for the
+  card it was tapped on, and chat history is kept per card (stable id and
+  widget), not per stable id.
 - `excessive_keep_alive` ids name the scrollable instead of its position:
   `excessive_keep_alive:<TypeName>~<part>`, where the part is `k-` and
   the scrollable's string or number `ValueKey` (sanitised to
@@ -146,7 +152,14 @@
   machine, and `--dart-define=SLEUTH_AI_FAKE=ok|fail|stall|partial|slow|empty`
   swaps in a scripted adapter (`slow` sends its first token after 8 s,
   `empty` ends without one). `ext.sleuthDemo.a11y` releases its semantics handle after each
-  dump.
+  dump. The demo header (toggle, instructions, metrics) takes at most half
+  the screen and scrolls, so demos fit a phone in landscape;
+  `ext.sleuthDemo.orientation value=portrait|landscape|all` forces the
+  orientation for a hands-free rotation check. The example opts into
+  Android predictive back (`android:enableOnBackInvokedCallback`). `ext.sleuthDemo.scroll` and
+  `fling` drive the largest scrollable whose tickers run, so they no
+  longer pick a list on the route below (whose animated scroll never
+  finished) or the demo header.
 
 ### Verdicts, polling and detector fixes
 
@@ -158,15 +171,23 @@
   attribution is requested once per frame and lands on the frame's
   current verdict, and a captured correlated verdict is never replaced by
   a non-correlated one.
+- A scroll that starts during layout (a page view re-fitting its pages
+  after a rotation or resize) no longer publishes issues mid-frame: the
+  interaction-context refresh runs after the frame, so debug builds no
+  longer report "Build scheduled during frame".
 - One event stamped ahead of the timeline clock no longer stops timeline
   data for the rest of the session. The newest timestamp is bounded by
   the clock reading, thread cursors past it are rewound to the newest
   cursor within it, and after three window fallbacks in a row the next
   poll reads the whole buffer (counted in `pollWindowFallbacks`).
-- A state store read that throws, holds malformed JSON or comes from a
-  newer schema now disables writes for the session, as a timed-out read
-  does, so the stored file is no longer replaced with defaults on the
-  next change.
+- A state store read that throws or returns state from a newer schema
+  now disables writes for the session, as a timed-out read does, so the
+  stored value is no longer replaced with defaults on the next change.
+  Contents no release can read (not a JSON object, no valid
+  `schemaVersion`) keep the defaults and are replaced by the next change
+  instead of turning saving off on every launch. A write still running
+  after 5 s is given up so later changes are saved, and a change waiting
+  for its debounce is written when the app goes to the background.
 - `uncached_images` counts a decode shared by several widgets once,
   against the largest size those widgets need, and says "shown by N
   widgets"; fifty tiles of one asset report one decode's waste, not
@@ -220,17 +241,23 @@
   the dashboard. With the dashboard closed, back reaches the app unchanged.
   On Android, predictive back swipes are claimed while a layer is open and
   `SystemNavigator.setFrameworkHandlesBack(true)` is requested after each
-  layer change. The inert `PopScope` wrappers on the overlay pages are gone.
+  layer change and again whenever the app navigates while a layer is
+  open (the app's own navigation notification turns it off at its root
+  route; Sleuth checks its navigators after each frame and asks again in
+  the same frame). The inert `PopScope` wrappers on the overlay pages are gone.
 - Overlay UI state lives in the controller (`OverlayUiState`,
   `Sleuth.overlayUiState`): the trigger position, card position, size and
   window state no longer reset when the dashboard closes or on hot reload.
 - `SleuthConfig.stateStore` (`SleuthStateStore`: `read` / `write` of a JSON
   string) persists that state across restarts. Read once at startup (2 s
   timeout; the trigger appears when it finishes); changes made before the
-  read finishes are kept. Writes use a trailing 500 ms debounce; one write
-  in flight at a time; a pending change is written on dispose. A read that
-  times out leaves defaults and turns writes off for the session; other
-  errors fall back to defaults. `InMemorySleuthStateStore` for tests; the
+  read finishes are kept, and a dashboard opened before it finishes takes
+  the stored position and size. Writes use a trailing 500 ms debounce; one
+  write in flight at a time; a pending change is written on dispose. A
+  read that times out or throws, or returns a newer schema, leaves
+  defaults and turns writes off for the session; contents no release can
+  read are replaced by the next change. Return null from `read` when
+  nothing is stored. `InMemorySleuthStateStore` for tests; the
   example app ships a file-backed store.
 - Hide: an expanded card's Hide action removes it from the overlay, with a
   4 s Undo; collapsed effects go with their root. The footer reads
@@ -238,19 +265,31 @@
   all; `suppressedIssues` patterns listed read-only). Hiding is overlay-only:
   `ext.sleuth.*`, snapshots, MCP budgets, route sessions and recurrence still
   see the issue. The trigger badge and summary counts follow the visible
-  cards. Hiding or losing the highlighted issue clears its highlight.
+  cards. A hide covers the card at the severity it was hidden at: a
+  hidden warning shows again if the same card turns critical, and a
+  hidden critical stays hidden at any severity (hide keys of critical
+  cards end in `!critical`). Restore all offers Undo. Hiding, filtering out or
+  losing the highlighted issue clears its highlight.
 - Copy: an expanded card's Copy action (or a long-press on the title) puts
   the title, severity, confidence, route, widget, detail, fix hint and
   stable id on the clipboard as plain text
   (`PerformanceIssue.toClipboardText()`), with a "Copied" or
   "Couldn't copy" confirmation.
 - The summary bar's severity counts toggle that severity (one always stays
-  on); when fewer cards show than with no filter and nothing hidden, the
+  on). A chip counts the cards of its severity the list shows; a disabled
+  severity counts the cards it would show if turned back on, so an effect
+  surfaced by filtering out its root has a chip. When fewer cards show
+  than with no filter and nothing hidden, the
   bar reads "Showing X of Y", and empty lists explain why (no issues / none
   match the filter, with Reset / all hidden, with Show hidden). The bar
   takes 36 px; its chips keep 48 dp hit boxes.
 - The card's minimum height is 300 px (was 250) so two collapsed issue rows
-  fit under the summary bar.
+  fit under the summary bar; on a screen whose usable height is smaller
+  (split screen, landscape) it stops there, down to the header, summary
+  bar and footer. A maximized card refits after a rotation or window
+  resize, and the status row and banners give the list room for the
+  summary bar and one row before taking any. The minimized count badge
+  turns red when a critical card is among the count.
 - A card's "Caused by" list reads "(+N not shown)" (was "(+N suppressed)")
   for parents the ranker left out, so it is not confused with
   `suppressedIssues`.
