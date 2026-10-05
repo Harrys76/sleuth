@@ -177,7 +177,9 @@
   it, never by title. Closing the chat while the Stop notice is up hides
   the notice after the frame. Route names in the prompt drop any query
   or fragment; related issue ids are named only for issues the prompt
-  already lists. Example: Shrink-wrapped Sections demo.
+  already lists. Conversations are kept by the controller for the
+  session (in memory only), so closing and reopening the dashboard keeps
+  them. Example: Shrink-wrapped Sections demo.
 - `excessive_keep_alive` ids name the scrollable instead of its position:
   `excessive_keep_alive:<TypeName>~<part>`, where the part is `k-` and
   the scrollable's string or number `ValueKey` (sanitised to

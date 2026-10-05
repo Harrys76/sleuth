@@ -2239,6 +2239,49 @@ void main() {
       return controller;
     }
 
+    testWidgets('a conversation survives closing and reopening the '
+        'dashboard', (tester) async {
+      final stream = StreamController<String>();
+      final controller = await openChat(tester, stream);
+
+      await tester.enterText(find.byType(TextField), 'Why?');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      stream.add('Because it rebuilds.');
+      await stream.close();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('Because it rebuilds.'), findsOneWidget);
+
+      // Closing the dashboard unmounts the card; the controller keeps the
+      // conversation.
+      controller.overlayUiState.dashboardOpen = false;
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.byType(AiChatPage), findsNothing);
+
+      await openDashboard(tester, controller);
+      await tester.tap(find.text('Rebuilds'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.ensureVisible(
+        find.bySemanticsLabel('Ask AI about this issue'),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('Why?'), findsOneWidget);
+      expect(find.text('Because it rebuilds.'), findsOneWidget);
+    });
+
+    testWidgets('disposing the controller drops its conversations', (
+      tester,
+    ) async {
+      final controller = SleuthController()..initializeDetectorsForTest();
+      controller.aiChatHistories['k'] = const [
+        AiChatMessage(role: AiChatRole.user, text: 'Why?'),
+      ];
+      controller.dispose();
+      expect(controller.aiChatHistories, isEmpty);
+    });
+
     testWidgets('closing mid-reply keeps the partial text for reopening', (
       tester,
     ) async {

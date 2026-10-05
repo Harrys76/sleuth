@@ -518,6 +518,13 @@ class SleuthController {
   /// `ext.sleuth.*`, route sessions and recurrence never read it.
   final OverlayUiState overlayUiState = OverlayUiState();
 
+  /// AI chat conversations of this session, by card, owned here so that
+  /// closing the dashboard (which unmounts the card) does not lose them.
+  /// In memory only: never persisted, exported or sent anywhere but the
+  /// configured adapter. Cleared on [dispose].
+  @internal
+  final Map<Object, List<AiChatMessage>> aiChatHistories = {};
+
   /// True once [overlayUiState] holds its startup value: immediately when
   /// no store is configured, otherwise after the store's read completes,
   /// fails, or times out (2 s). The trigger button paints only when true.
@@ -5145,6 +5152,7 @@ class SleuthController {
     suppressedCountNotifier.dispose();
     routeHistoryNotifier.dispose();
     overlayUiState.dispose();
+    aiChatHistories.clear();
     uiStateReady.dispose();
   }
 }

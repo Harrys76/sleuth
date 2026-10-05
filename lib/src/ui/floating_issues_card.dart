@@ -465,12 +465,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   PerformanceIssue? _detailContextIssue;
   bool _showAiChat = false;
   _ChatKey? _chatIssueKey;
-  final Map<_ChatKey, List<AiChatMessage>> _chatHistories = {};
 
-  /// Bumped when the host swaps the controller. A chat page built before
-  /// the swap commits its last reply from `dispose`, after the swap; its
-  /// history callback holds the old value and drops that write.
-  int _chatGeneration = 0;
+  /// Chat conversations, held by the controller so they outlive the card
+  /// (closing the dashboard unmounts it).
+  Map<Object, List<AiChatMessage>> get _chatHistories =>
+      widget.controller.aiChatHistories;
 
   /// Cached jank-correlated issue keys from verdict, updated via listener.
   Set<String> _cachedJankKeys = const {};
@@ -649,8 +648,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _showAiChat = false;
       _chatIssueKey = null;
       _chatIssue = null;
-      _chatHistories.clear();
-      _chatGeneration++;
       _cachedJankKeys = const {};
       _onVerdictChanged();
     }
@@ -1433,15 +1430,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   /// The chat keyed [chatKey], captured when the chat opened. The page
   /// shows the reported issue with that identity, else the one it last
-  /// showed. The history callback holds [chatKey] and the controller
-  /// generation: the page commits a stopped reply from `dispose`, after
-  /// close or prune has cleared [_chatIssueKey]. A write for an issue that
-  /// is no longer reported is dropped, as [_pruneStaleState] would drop
-  /// it, and so is a write from a page built for a swapped-out controller.
+  /// showed. The history callback holds [chatKey] and the controller the
+  /// page was built for: the page commits a stopped reply from `dispose`,
+  /// after close or prune has cleared [_chatIssueKey], and after a
+  /// controller swap that write stays with the old controller. A write for
+  /// an issue that is no longer reported is dropped, as [_pruneStaleState]
+  /// would drop it.
   Widget _buildAiChatPage(_ChatKey chatKey) {
     final live = _findLiveChatIssue(chatKey);
     if (live != null) _chatIssue = live;
-    final generation = _chatGeneration;
+    final controller = widget.controller;
     return AiChatPage(
       // Set together with [_chatIssueKey] when the chat opens.
       issue: _chatIssue!,
@@ -1453,14 +1451,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       adapter: widget.controller.config.aiChat!,
       history: _chatHistories[chatKey] ?? const [],
       onHistoryChanged: (msgs) {
-        if (generation != _chatGeneration) return;
         // A closed chat's history is kept only while its issue is
         // reported; the open chat always keeps its own.
-        final open = _showAiChat && _chatIssueKey == chatKey;
-        final reported = widget.controller.issuesNotifier.value.any(
+        final current = identical(controller, widget.controller);
+        final open = current && _showAiChat && _chatIssueKey == chatKey;
+        final reported = controller.issuesNotifier.value.any(
           (i) => _chatKeyFor(i) == chatKey,
         );
-        if (open || reported) _chatHistories[chatKey] = msgs;
+        if (open || reported) controller.aiChatHistories[chatKey] = msgs;
       },
       onClose: _closeAiChat,
       onNotify: (message) => _toast.show(message),
