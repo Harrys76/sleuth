@@ -853,25 +853,34 @@ void _registerDemoExtensions() {
   // Accessibility state for the device pass: platform settings, the text
   // scale the overlay uses, overflow reports since launch, and every
   // labelled or actionable semantics node with its size and actions.
+  //
+  // The semantics tree is built for the dump only and released after it,
+  // so the dump does not leave semantics on (which changes what Sleuth's
+  // debug paint counts include).
   developer.registerExtension('ext.sleuthDemo.a11y', (method, params) async {
-    _semanticsHandle ??= SemanticsBinding.instance.ensureSemantics();
-    await WidgetsBinding.instance.endOfFrame;
-    final dispatcher = WidgetsBinding.instance.platformDispatcher;
-    final features = dispatcher.accessibilityFeatures;
-    return developer.ServiceExtensionResponse.result(
-      jsonEncode({
-        'textScale': dispatcher.textScaleFactor,
-        'overlayTextScale':
-            _textScaleAt('FloatingIssuesCard') ?? _textScaleAt('TriggerButton'),
-        'highContrast': features.highContrast,
-        'disableAnimations': features.disableAnimations,
-        'reduceMotion': features.reduceMotion,
-        'boldText': features.boldText,
-        'accessibleNavigation': features.accessibleNavigation,
-        'overflowErrors': _overflowErrors,
-        'semantics': _semanticsNodes(),
-      }),
-    );
+    final handle = SemanticsBinding.instance.ensureSemantics();
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      final dispatcher = WidgetsBinding.instance.platformDispatcher;
+      final features = dispatcher.accessibilityFeatures;
+      return developer.ServiceExtensionResponse.result(
+        jsonEncode({
+          'textScale': dispatcher.textScaleFactor,
+          'overlayTextScale':
+              _textScaleAt('FloatingIssuesCard') ??
+              _textScaleAt('TriggerButton'),
+          'highContrast': features.highContrast,
+          'disableAnimations': features.disableAnimations,
+          'reduceMotion': features.reduceMotion,
+          'boldText': features.boldText,
+          'accessibleNavigation': features.accessibleNavigation,
+          'overflowErrors': _overflowErrors,
+          'semantics': _semanticsNodes(),
+        }),
+      );
+    } finally {
+      handle.dispose();
+    }
   });
   developer.registerExtension('ext.sleuthDemo.overlayState', (
     method,
@@ -899,8 +908,6 @@ void _countOverflowErrors() {
     (previous ?? FlutterError.presentError)(details);
   };
 }
-
-SemanticsHandle? _semanticsHandle;
 
 /// Text scale at the first element whose widget type is [typeName]
 /// (an overlay widget), or null when none is mounted.

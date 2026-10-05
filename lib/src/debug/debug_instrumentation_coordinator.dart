@@ -678,13 +678,37 @@ class DebugInstrumentationCoordinator {
     }
   }
 
+  /// Framework widgets that only annotate the semantics tree. Their
+  /// render objects paint as pass-throughs whenever a descendant repaints,
+  /// and a screen reader keeps more of them in the tree, so while
+  /// semantics are on their paints are left out of every debug paint
+  /// count (per widget and aggregate). With semantics off they count
+  /// like any widget, so a repainting `Semantics` the app wraps itself
+  /// still reports.
+  @visibleForTesting
+  static const Set<String> semanticsOnlyWidgets = {
+    'Semantics',
+    'MergeSemantics',
+    'ExcludeSemantics',
+    'BlockSemantics',
+    'IndexedSemantics',
+    '_GestureSemantics',
+  };
+
   void _handleProfilePaint(RenderObject renderObject) {
-    _paintCount++;
     final creator = renderObject.debugCreator;
-    if (creator is! DebugCreator) return;
+    if (creator is! DebugCreator) {
+      _paintCount++;
+      return;
+    }
 
     final element = creator.element;
     final typeName = _typeName(element.widget.runtimeType);
+    if (semanticsOnlyWidgets.contains(typeName) &&
+        SemanticsBinding.instance.semanticsEnabled) {
+      return;
+    }
+    _paintCount++;
     if (_paintCounts.length >= _maxTrackedTypes &&
         !_paintCounts.containsKey(typeName)) {
       return; // Cap reached, ignore new types

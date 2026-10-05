@@ -629,7 +629,11 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
         '`observedPaintPercent`. atTolerance 0.5 and observedAxisTolerance '
         '0.25 absorb thermal drift in paint duration across a leg. '
         '`excessive_repaint_debug` and `repaint_debug_<typeName>` remain '
-        'reproducerOnly — no per-widget debug-path captures.',
+        'reproducerOnly — no per-widget debug-path captures. While a '
+        'screen reader is on, the debug paint counts leave out the '
+        "framework's semantics-only widgets (`Semantics`, "
+        '`MergeSemantics`, `_GestureSemantics`, ...), which repaint as '
+        'pass-throughs; the VM PAINT axis is unchanged.',
     reproducerPath: 'test/validation/repaint_reproducer_test.dart',
     coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
     parametricFamilies: {'repaint_debug'},
