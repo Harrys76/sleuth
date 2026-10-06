@@ -9,6 +9,15 @@ import '../tools/snapshot_disk_handoff.dart';
 /// anyway.
 const Duration defaultStartupConnectWait = Duration(seconds: 15);
 
+/// Parses the `--tool-timeout` value: a whole number of seconds, 1 or more.
+/// Returns null for anything else, which the binary reports as a usage
+/// error, because a timeout of 0 or less would end every tool call at once.
+Duration? parseToolTimeout(String raw) {
+  final seconds = int.tryParse(raw.trim());
+  if (seconds == null || seconds < 1) return null;
+  return Duration(seconds: seconds);
+}
+
 /// Signals that ask the stdio server to shut down: SIGINT everywhere, and
 /// SIGTERM except on Windows, where watching it throws.
 List<Stream<ProcessSignal>> shutdownSignals() => [
@@ -19,7 +28,11 @@ List<Stream<ProcessSignal>> shutdownSignals() => [
 /// Runs [server] over stdio until stdin closes or a signal in [signals]
 /// arrives, then cleans up on every exit path: it detaches the daemon
 /// session (bounded by the server's exit detach timeout), deletes the
-/// disk-handoff files and their directory, and disconnects [bridge].
+/// disk-handoff files and their directory, and disconnects [bridge]
+/// (bounded by 2 seconds). The detach starts as soon as serving stops and
+/// runs while the server waits for the requests still running, which is
+/// bounded by the server's exit drain timeout, so with the defaults the
+/// cleanup ends within about 12 seconds.
 ///
 /// At startup it removes the empty handoff directories that earlier
 /// processes left behind ([SnapshotDiskHandoff.sweepStaleProcessDirs]).

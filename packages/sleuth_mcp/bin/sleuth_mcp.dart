@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 
 import 'package:sleuth_mcp/sleuth_mcp.dart';
+import 'package:sleuth_mcp/src/cli/serve_command.dart' show parseToolTimeout;
 
 const _redactRegex = r'((?:ws|http)s?://[^/]+/)[^=]+(=/)';
 
@@ -35,7 +36,7 @@ Future<void> main(List<String> argv) async {
     )
     ..addOption(
       'tool-timeout',
-      help: 'Per-tool timeout in seconds.',
+      help: 'Per-tool timeout in whole seconds, 1 or more.',
       defaultsTo: '10',
     )
     ..addFlag(
@@ -79,8 +80,17 @@ Future<void> main(List<String> argv) async {
   final verbose = parsed['verbose'] as bool;
   final logger = verbose ? _StderrLogger(redact: _redactUri) : null;
 
-  final timeoutSeconds = int.tryParse(parsed['tool-timeout'] as String) ?? 10;
-  final toolTimeout = Duration(seconds: timeoutSeconds);
+  final rawToolTimeout = parsed['tool-timeout'] as String;
+  final toolTimeout = parseToolTimeout(rawToolTimeout);
+  if (toolTimeout == null) {
+    stderr.writeln(
+      '--tool-timeout must be a whole number of seconds, 1 or more; got '
+      '"$rawToolTimeout".\n',
+    );
+    stderr.writeln(parser.usage);
+    exitCode = 64;
+    return;
+  }
   final bridge = RealVmBridge(
     // Shorter than the tool timeout, so a slow app call fails with the
     // bridge's own error (naming the extension) and keeps the connection.
@@ -129,6 +139,16 @@ Future<void> main(List<String> argv) async {
     logger: logger,
     errorSink: stderr,
   );
+  // The cleanup is done. A request that outlived the exit drain, such as
+  // one waiting on a process that does not exit, would otherwise keep the
+  // process alive, so exit explicitly. Every response that was written has
+  // been flushed already.
+  try {
+    await stderr.flush().timeout(const Duration(seconds: 1));
+  } catch (_) {
+    // Nothing more can be reported if stderr does not drain.
+  }
+  exit(exitCode);
 }
 
 class _StderrLogger implements Sink<String> {

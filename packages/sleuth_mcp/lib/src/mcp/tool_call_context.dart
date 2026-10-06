@@ -13,7 +13,7 @@ typedef ProgressSender = void Function(num progress, String message);
 /// example when a test calls a handler directly, [current] is null and the
 /// handler behaves as before.
 class ToolCallContext {
-  ToolCallContext({ProgressSender? sendProgress})
+  ToolCallContext({ProgressSender? sendProgress, this.dispatch})
     : _sendProgress = sendProgress;
 
   static final Object _zoneKey = Object();
@@ -24,6 +24,13 @@ class ToolCallContext {
     final value = Zone.current[_zoneKey];
     return value is ToolCallContext ? value : null;
   }
+
+  /// Identifies the server dispatch that runs this request: the request's
+  /// own line, or the batch that carried it. When a handler waits for the
+  /// other requests in flight, the server leaves this dispatch out, so a
+  /// handler never waits for itself. Null when no server dispatch runs the
+  /// request, for example in a direct test call.
+  final Object? dispatch;
 
   final ProgressSender? _sendProgress;
   final Completer<void> _cancelled = Completer<void>();

@@ -32,6 +32,25 @@ const Set<String> supportedMcpProtocolVersions = {
 /// no newer feature is used before the client has negotiated one.
 const String _preInitializeProtocolVersion = '2024-11-05';
 
+/// The only protocol version with JSON-RPC batches. 2025-03-26 requires
+/// servers to accept them; 2024-11-05 does not define them, and 2025-06-18
+/// removed them.
+const String _batchProtocolVersion = '2025-03-26';
+
+/// Methods held while dispatch is paused for a hot reload: the ones that
+/// run a tool, read a resource or build a prompt, plus `initialize`. The
+/// spec makes `initialize` the first message of a session, so a client
+/// never sends it during a reload; holding a repeated one keeps it after
+/// the requests that arrived before it, whose responses it would otherwise
+/// reshape. Everything else, such as `ping`, `notifications/cancelled` and
+/// the list methods, is answered at once.
+const Set<String> _methodsHeldWhilePaused = {
+  'tools/call',
+  'resources/read',
+  'prompts/get',
+  'initialize',
+};
+
 /// `instructions` in the `initialize` result: the workflow an MCP client's
 /// model should follow.
 const String mcpServerInstructions =
@@ -48,6 +67,11 @@ const String mcpServerInstructions =
 
 /// How long the exit path waits for the daemon session to detach.
 const Duration defaultExitDetachTimeout = Duration(seconds: 10);
+
+/// How long the exit path waits for requests still running, and for their
+/// responses to be written, before it goes on without them. The detach
+/// starts before this wait and runs alongside it.
+const Duration defaultExitDrainTimeout = Duration(seconds: 10);
 
 const String sleuthMcpVersion = '0.8.0';
 
@@ -109,14 +133,17 @@ class McpServer {
     required this.bridge,
     Duration toolTimeout = const Duration(seconds: 10),
     Duration exitDetachTimeout = defaultExitDetachTimeout,
+    Duration exitDrainTimeout = defaultExitDrainTimeout,
     Sink<String>? logger,
   }) : _toolTimeout = toolTimeout,
        _exitDetachTimeout = exitDetachTimeout,
+       _exitDrainTimeout = exitDrainTimeout,
        _logger = logger;
 
   final VmBridge bridge;
   final Duration _toolTimeout;
   final Duration _exitDetachTimeout;
+  final Duration _exitDrainTimeout;
   final Sink<String>? _logger;
   late final EncyclopediaResource _encyclopedia = EncyclopediaResource(
     bridge: bridge,
@@ -187,9 +214,19 @@ class McpServer {
   /// run. The binary passes its startup `--uri` connect here, so the first
   /// tool call sees the connected app while `initialize` and the list
   /// methods answer at once. [ready] must complete; its error is ignored.
+  /// Once [ready] completes the gate is removed, so later calls run without
+  /// waiting on it.
   void holdToolCallsUntil(Future<void> ready) {
-    _toolCallGate = ready.then<void>((_) {}, onError: (Object _) {});
+    late final Future<void> gate;
+    gate = ready.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
+      if (identical(_toolCallGate, gate)) _toolCallGate = null;
+    });
+    _toolCallGate = gate;
   }
+
+  /// True while a [holdToolCallsUntil] gate has not completed.
+  @visibleForTesting
+  bool get holdsToolCalls => _toolCallGate != null;
 
   void registerDefaults() {
     for (final entry in builtInTools.entries) {
@@ -231,12 +268,14 @@ class McpServer {
   }
 
   // Serializes writes to stdout so concurrent dispatches can't interleave
-  // partial JSON lines. First write failure flips `_shuttingDown`.
+  // partial JSON lines. The first failed write starts [shutdown].
   Future<void> _writeChain = Future<void>.value();
   Object? _firstWriteError;
 
-  // In-flight dispatches drained by serve()'s finally before return.
-  final Set<Future<void>> _pendingDispatches = <Future<void>>{};
+  // Dispatches in flight, keyed by their dispatch token: one per request
+  // line, one per batch. serve() drains them before it returns, and
+  // awaitPendingDrain waits for all of them but the caller's own.
+  final Map<Object, Future<void>> _pendingDispatches = <Object, Future<void>>{};
   Completer<void>? _serveDone;
   bool _shuttingDown = false;
 
@@ -250,18 +289,28 @@ class McpServer {
 
   /// Drive the server over stdio. Returns when stdin closes, when
   /// [shutdown] is called, or when a write failure trips fatal shutdown.
-  /// Drains pending dispatches + the write chain before returning.
   ///
-  /// Closing stdin is how an MCP client ends a stdio server, so when serving
-  /// stops the server starts detaching the daemon session at once (see
-  /// [detachDaemonSession]), before it drains, instead of letting an
-  /// in-flight attach finish for a client that is gone.
+  /// Closing stdin is how an MCP client ends a stdio server, so however
+  /// serving stops, the server shuts down (see [shutdown]): it starts
+  /// detaching the daemon session at once (see [detachDaemonSession])
+  /// instead of letting an in-flight attach finish for a client that is
+  /// gone, and answers the requests a paused dispatch still holds. It then
+  /// waits for the requests still running and for their responses to be
+  /// written, at most the exit drain timeout ([defaultExitDrainTimeout],
+  /// 10 seconds), and returns without the responses of requests that run
+  /// longer.
   Future<void> serve({Stream<List<int>>? input, IOSink? output}) async {
     final codec = McpProtocolCodec();
     final out = output ?? stdout;
     _notificationOut = out;
+    // A sink can report a failed write through `done` alone. Handle it, so
+    // the failure starts the shutdown instead of ending the process before
+    // the session is detached.
+    unawaited(out.done.then<void>((_) {}, onError: _onWriteError));
     final stream = input ?? stdin;
     final done = _serveDone = Completer<void>();
+    // A shutdown that came before serving started ends serving at once.
+    if (_shuttingDown) done.complete();
     final sub = codec
         .decode(stream)
         .listen(
@@ -278,56 +327,201 @@ class McpServer {
     try {
       await done.future;
     } finally {
-      // Fire-and-forget cancel — `await sub.cancel()` blocks while the
+      // Fire-and-forget cancel: `await sub.cancel()` blocks while the
       // upstream `await for` waits on a non-closed source.
       unawaited(sub.cancel());
-      unawaited(detachDaemonSession());
-      await Future.wait(List.of(_pendingDispatches));
-      await _writeChain;
+      shutdown();
+      await _drainForExit();
     }
+  }
+
+  /// Waits for the dispatches in flight and then for the write chain, at
+  /// most the exit drain timeout. A request that outlives the bound, for
+  /// example an attach waiting on a process that does not exit, gets no
+  /// response; the exit path then goes on with the detach it already
+  /// started.
+  Future<void> _drainForExit() async {
+    final bound = _exitDrainTimeout;
+    final drained = Future.wait(
+      List.of(_pendingDispatches.values),
+    ).then((_) => _writeChain);
+    await drained.timeout(
+      bound,
+      onTimeout: () {
+        _log(
+          '${_pendingDispatches.length} request(s) still running after '
+          '${bound.inSeconds} s; exiting without their responses',
+        );
+      },
+    );
   }
 
   void _handleDecodeEvent(Object event, IOSink out, McpProtocolCodec codec) {
     if (_shuttingDown) return;
-    if (_paused) {
+    if (_paused && _isHeldWhilePaused(event)) {
       _deferredFrames.add(_DeferredFrame(event, out, codec));
       return;
     }
     _dispatchOrError(event, out, codec);
   }
 
+  /// Whether a paused dispatch holds [event]: a request whose method is in
+  /// [_methodsHeldWhilePaused], or a batch that carries one.
+  bool _isHeldWhilePaused(Object event) {
+    bool held(Object item) =>
+        item is JsonRpcMessage && _methodsHeldWhilePaused.contains(item.method);
+    if (event is JsonRpcBatch) return _acceptsBatches && event.items.any(held);
+    return held(event);
+  }
+
   void _dispatchOrError(Object event, IOSink out, McpProtocolCodec codec) {
     if (event is DecodeError) {
       // JSON-RPC 2.0 answers a parse error or an invalid request with
       // `id: null` when the id cannot be read.
-      _writeLocked(
-        out,
-        codec,
-        JsonRpcResponse.error(
-          id: event.id,
-          error: JsonRpcError(code: event.code, message: event.message),
-        ),
-      );
+      unawaited(_write(out, codec.encode(_decodeErrorResponse(event))));
+      return;
+    }
+    if (event is JsonRpcBatch) {
+      _dispatchBatch(event, out, codec);
       return;
     }
     if (event is! JsonRpcMessage) return;
-    late Future<void> fut;
-    fut = _dispatchAndWrite(event, out, codec).whenComplete(() {
-      _pendingDispatches.remove(fut);
-    });
-    _pendingDispatches.add(fut);
+    final dispatch = Object();
+    _track(
+      dispatch,
+      _respond(event, dispatch).then((response) async {
+        if (response != null) await _write(out, codec.encode(response));
+      }),
+    );
   }
 
-  /// Suspend dispatch — decoded frames queue in `_deferredFrames` until
-  /// [resumeDispatch] runs. Used by attach/hot-restart paths to drain
-  /// in-flight tools before bridge reconnect or refresh.
+  /// Records [work] as in flight under the token [dispatch] until it ends.
+  /// An error is logged instead of reaching the zone, where it would end
+  /// the process before the exit path detaches the session.
+  void _track(Object dispatch, Future<void> work) {
+    _pendingDispatches[dispatch] = work
+        .catchError((Object e, StackTrace st) {
+          _log('dispatch failed: $e\n$st');
+        })
+        .whenComplete(() {
+          // A block body: `remove` returns this very future, and a
+          // whenComplete callback that returns a future is awaited, so an
+          // arrow body would make the dispatch wait for itself.
+          _pendingDispatches.remove(dispatch);
+        });
+  }
+
+  /// Runs one request or notification under the token [dispatch] and
+  /// returns its response, or null when nothing must be sent. Never
+  /// throws: an unexpected error becomes an Internal error response.
+  Future<JsonRpcResponse?> _respond(JsonRpcMessage msg, Object dispatch) async {
+    try {
+      final response = await _dispatch(msg, dispatch);
+      return msg.isNotification ? null : response;
+    } catch (e, st) {
+      _log('${msg.method} failed: $e\n$st');
+      if (msg.isNotification) return null;
+      return JsonRpcResponse.error(
+        id: msg.id,
+        error: JsonRpcError(
+          code: JsonRpcError.internalError,
+          message: 'Internal error: $e',
+        ),
+      );
+    }
+  }
+
+  JsonRpcResponse _decodeErrorResponse(DecodeError e) => JsonRpcResponse.error(
+    id: e.id,
+    error: JsonRpcError(code: e.code, message: e.message),
+  );
+
+  /// True when the session negotiated the one protocol version that has
+  /// JSON-RPC batches.
+  bool get _acceptsBatches =>
+      _initialized && _negotiatedProtocolVersion == _batchProtocolVersion;
+
+  /// Runs a JSON-RPC batch and writes one array holding a response for each
+  /// request in it, or nothing when the batch held only notifications, as
+  /// JSON-RPC 2.0 requires. The requests run concurrently, as JSON-RPC
+  /// allows, under one dispatch token, so a request in the batch that waits
+  /// for the requests in flight does not wait for its own batch. Without a
+  /// session negotiated at 2025-03-26 the batch gets one Invalid Request
+  /// error.
+  void _dispatchBatch(JsonRpcBatch batch, IOSink out, McpProtocolCodec codec) {
+    if (!_acceptsBatches) {
+      final session = _initialized
+          ? 'this session negotiated MCP protocol $_negotiatedProtocolVersion'
+          : 'this session has not sent initialize';
+      final response = JsonRpcResponse.error(
+        id: null,
+        error: JsonRpcError(
+          code: JsonRpcError.invalidRequest,
+          message:
+              'Batch requests are not supported: $session, and only '
+              'protocol $_batchProtocolVersion has JSON-RPC batches. Send '
+              'each request as its own line',
+        ),
+      );
+      unawaited(_write(out, codec.encode(response)));
+      return;
+    }
+    final dispatch = Object();
+    final responses = <Future<JsonRpcResponse?>>[
+      for (final item in batch.items)
+        if (item is DecodeError)
+          Future<JsonRpcResponse?>.value(_decodeErrorResponse(item))
+        else if (item is JsonRpcMessage)
+          _respondInBatch(item, dispatch),
+    ];
+    _track(
+      dispatch,
+      Future.wait(responses).then((all) async {
+        final answered = [for (final r in all) ?r];
+        if (answered.isEmpty) return;
+        await _write(out, codec.encodeBatch(answered));
+      }),
+    );
+  }
+
+  Future<JsonRpcResponse?> _respondInBatch(
+    JsonRpcMessage msg,
+    Object dispatch,
+  ) {
+    if (msg.method == 'initialize') {
+      // The 2025-03-26 lifecycle says initialize must not be part of a batch.
+      return Future<JsonRpcResponse?>.value(
+        msg.isNotification
+            ? null
+            : JsonRpcResponse.error(
+                id: msg.id,
+                error: const JsonRpcError(
+                  code: JsonRpcError.invalidRequest,
+                  message:
+                      'initialize must not be part of a batch; send it as '
+                      'its own line',
+                ),
+              ),
+      );
+    }
+    return _respond(msg, dispatch);
+  }
+
+  /// Pauses the dispatch of the requests that use the app: `tools/call`,
+  /// `resources/read` and `prompts/get` queue in `_deferredFrames` until
+  /// [resumeDispatch] runs, and so does a repeated `initialize`. `ping`,
+  /// `notifications/cancelled` and the list methods are still answered at
+  /// once, so a client that pings during a hot reload sees a live server,
+  /// and a cancel reaches its request. Used by the hot reload path to drain
+  /// in-flight tools before the bridge refresh.
   ///
   /// [autoResumeAfter] guards against a forgotten resume. Callers must
-  /// pass a window that exceeds their longest legitimate hold time —
+  /// pass a window that exceeds their longest legitimate hold time;
   /// otherwise the timer can unpause mid-operation and route deferred
-  /// tool calls against a half-rebuilt bridge.
+  /// tool calls against a half-rebuilt bridge. Does nothing while the
+  /// server shuts down.
   void pauseDispatch({Duration autoResumeAfter = const Duration(seconds: 90)}) {
-    if (_paused) return;
+    if (_paused || _shuttingDown) return;
     _paused = true;
     _pauseAutoResumeTimer?.cancel();
     _pauseAutoResumeTimer = Timer(autoResumeAfter, () {
@@ -341,24 +535,33 @@ class McpServer {
     });
   }
 
-  /// Drains pending dispatch futures so a subsequent bridge mutation
-  /// (connect/refreshBaseline) doesn't race with in-flight tool calls.
-  /// Returns when all pending drain OR [timeout] elapses (one stuck
-  /// dispatch shouldn't stall a lifecycle operation indefinitely).
+  /// Waits for the requests in flight, so a following bridge mutation
+  /// (connect or refreshBaseline) does not race them. Leaves out the
+  /// dispatch that calls it, which [ToolCallContext.dispatch] names: a
+  /// request that waited for its own dispatch would never finish. Returns
+  /// when the others finish or [timeout] elapses, so one stuck request
+  /// cannot stall a lifecycle operation.
   Future<void> awaitPendingDrain({
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    if (_pendingDispatches.isEmpty) return;
+    final caller = ToolCallContext.current?.dispatch;
+    final others = [
+      for (final MapEntry(:key, :value) in _pendingDispatches.entries)
+        if (!identical(key, caller)) value,
+    ];
+    if (others.isEmpty) return;
     try {
-      await Future.wait(List.of(_pendingDispatches)).timeout(timeout);
+      await Future.wait(others).timeout(timeout);
     } on TimeoutException {
-      _log('awaitPendingDrain exceeded ${timeout.inSeconds}s — proceeding');
+      _log('awaitPendingDrain exceeded ${timeout.inSeconds} s; proceeding');
     }
   }
 
-  /// Resume dispatch + drain any frames captured while paused.
+  /// Resumes dispatch and runs the frames held while paused, in the order
+  /// they arrived. Does nothing while the server shuts down, because
+  /// [shutdown] already answered the held frames.
   void resumeDispatch() {
-    if (!_paused) return;
+    if (!_paused || _shuttingDown) return;
     _paused = false;
     _pauseAutoResumeTimer?.cancel();
     _pauseAutoResumeTimer = null;
@@ -376,45 +579,73 @@ class McpServer {
   /// Also starts detaching any bound daemon session (see
   /// [detachDaemonSession]) so the flutter child or the iproxy tunnel
   /// can't survive sidecar exit. The exit path awaits the same detach.
+  ///
+  /// Requests that a paused dispatch still holds never run: each gets an
+  /// Internal error response that says the server is shutting down, so a
+  /// client still reading learns at once that the request did not run,
+  /// instead of waiting for its own timeout. JSON-RPC answers every
+  /// request, so they are answered rather than dropped. Held notifications
+  /// are dropped.
   void shutdown() {
     _shuttingDown = true;
     _pauseAutoResumeTimer?.cancel();
     _pauseAutoResumeTimer = null;
+    _answerHeldFrames();
     unawaited(detachDaemonSession());
     final done = _serveDone;
     if (done != null && !done.isCompleted) done.complete();
   }
 
-  Future<void> _dispatchAndWrite(
-    JsonRpcMessage event,
-    IOSink out,
-    McpProtocolCodec codec,
-  ) async {
-    final response = await _dispatch(event);
-    if (response != null && !event.isNotification) {
-      await _writeLocked(out, codec, response);
+  void _answerHeldFrames() {
+    final held = List.of(_deferredFrames);
+    _deferredFrames.clear();
+    for (final frame in held) {
+      final event = frame.event;
+      final List<JsonRpcResponse> responses = [
+        if (event is JsonRpcMessage && !event.isNotification)
+          _shuttingDownResponse(event),
+        if (event is JsonRpcBatch)
+          for (final item in event.items)
+            if (item is DecodeError)
+              _decodeErrorResponse(item)
+            else if (item is JsonRpcMessage && !item.isNotification)
+              _shuttingDownResponse(item),
+      ];
+      if (responses.isEmpty) continue;
+      final line = event is JsonRpcBatch
+          ? frame.codec.encodeBatch(responses)
+          : frame.codec.encode(responses.single);
+      unawaited(_write(frame.out, line));
     }
   }
 
-  Future<void> _writeLocked(
-    IOSink out,
-    McpProtocolCodec codec,
-    JsonRpcResponse r,
-  ) {
+  static JsonRpcResponse _shuttingDownResponse(JsonRpcMessage msg) =>
+      JsonRpcResponse.error(
+        id: msg.id,
+        error: const JsonRpcError(
+          code: JsonRpcError.internalError,
+          message: 'The server is shutting down, so the request did not run.',
+        ),
+      );
+
+  /// Queues [line] on the write chain. The returned future never fails:
+  /// the first failed write is logged and starts [shutdown], and once a
+  /// write failed, later lines are dropped.
+  Future<void> _write(IOSink out, String line) {
+    if (_firstWriteError != null) return _writeChain;
     final next = _writeChain.then((_) async {
-      out.write(codec.encode(r));
+      if (_firstWriteError != null) return;
+      out.write(line);
       await out.flush();
     });
-    _writeChain = next.catchError((Object e) {
-      // First write failure trips shutdown; the per-call `next` still
-      // surfaces the error to its caller.
-      if (_firstWriteError == null) {
-        _firstWriteError = e;
-        _log('stdout write failed: $e — initiating shutdown');
-        shutdown();
-      }
-    });
-    return next;
+    return _writeChain = next.catchError(_onWriteError);
+  }
+
+  void _onWriteError(Object e) {
+    if (_firstWriteError != null) return;
+    _firstWriteError = e;
+    _log('stdout write failed: $e; shutting down');
+    shutdown();
   }
 
   void _log(String line) {
@@ -427,7 +658,12 @@ class McpServer {
   @visibleForTesting
   Future<JsonRpcResponse?> handleForTest(JsonRpcMessage msg) => _dispatch(msg);
 
-  Future<JsonRpcResponse?> _dispatch(JsonRpcMessage msg) async {
+  /// Runs [msg]. [dispatch] is the token of the server dispatch that runs
+  /// it; a `tools/call` handler sees it as [ToolCallContext.dispatch].
+  Future<JsonRpcResponse?> _dispatch(
+    JsonRpcMessage msg, [
+    Object? dispatch,
+  ]) async {
     if (msg.method == 'initialize') {
       return _handleInitialize(msg);
     }
@@ -457,7 +693,7 @@ class McpServer {
       case 'tools/list':
         return _handleToolsList(msg);
       case 'tools/call':
-        return _handleToolsCallWithContext(msg);
+        return _handleToolsCallWithContext(msg, dispatch);
       case 'notifications/cancelled':
         _cancelToolCall(msg.params['requestId']);
         return null;
@@ -495,6 +731,7 @@ class McpServer {
   /// sends no response, as the MCP spec asks.
   Future<JsonRpcResponse?> _handleToolsCallWithContext(
     JsonRpcMessage msg,
+    Object? dispatch,
   ) async {
     final meta = msg.params['_meta'];
     final Object? rawToken = meta is Map ? meta['progressToken'] : null;
@@ -503,6 +740,7 @@ class McpServer {
       sendProgress: token == null
           ? null
           : (progress, message) => _sendProgress(token, progress, message),
+      dispatch: dispatch,
     );
     final id = msg.id;
     if (id != null) _toolCallsInFlight[id] = context;
@@ -517,12 +755,24 @@ class McpServer {
     }
   }
 
-  /// Cancels the in-flight `tools/call` named by [requestId]. An unknown or
-  /// finished id is ignored, as the MCP spec allows.
+  /// Cancels the in-flight `tools/call` named by [requestId]. A request
+  /// that a paused dispatch still holds is dropped, so it never runs and
+  /// gets no response. An unknown or finished id is ignored, as the MCP
+  /// spec allows.
   void _cancelToolCall(Object? requestId) {
     if (requestId == null) return;
     final context = _toolCallsInFlight[requestId];
-    if (context == null) return;
+    if (context == null) {
+      final before = _deferredFrames.length;
+      _deferredFrames.removeWhere((frame) {
+        final event = frame.event;
+        return event is JsonRpcMessage && event.id == requestId;
+      });
+      if (_deferredFrames.length < before) {
+        _log('held request $requestId cancelled by the client');
+      }
+      return;
+    }
     _log('tools/call $requestId cancelled by the client');
     context.cancel();
   }
@@ -541,17 +791,7 @@ class McpServer {
     };
     final line =
         '${jsonEncode({'jsonrpc': '2.0', 'method': 'notifications/progress', 'params': params})}\n';
-    final next = _writeChain.then((_) async {
-      out.write(line);
-      await out.flush();
-    });
-    _writeChain = next.catchError((Object e) {
-      if (_firstWriteError == null) {
-        _firstWriteError = e;
-        _log('stdout write failed: $e; initiating shutdown');
-        shutdown();
-      }
-    });
+    unawaited(_write(out, line));
   }
 
   JsonRpcResponse _handleInitialize(JsonRpcMessage msg) {
@@ -688,12 +928,15 @@ class McpServer {
         ).toJson(),
       );
     } on SessionChangedException catch (e) {
+      // The connected text holds whether or not the bridge managed to
+      // follow the new session, so it never claims that it did.
       final result = bridge.isConnected
           ? ToolCallResult.text(
               'session_changed baseline=${e.baseline} current=${e.current}: '
-              'the app restarted or another app now answers, so results '
-              'from before this call came from the old session. The sidecar '
-              'now follows the new session; call the tool again.',
+              'the app restarted, reconnected, or another app now answers, '
+              'so results from before this call came from the old session. '
+              'Call the tool again. If it fails again, call attach_app or '
+              'connect.',
               isError: true,
             )
           : ToolCallResult.text(
@@ -801,7 +1044,7 @@ class McpServer {
       );
     } on SessionChangedException catch (e) {
       final next = bridge.isConnected
-          ? 'The sidecar now follows the new session; read it again.'
+          ? 'Read it again. If it fails again, call attach_app or connect.'
           : 'Call attach_app or connect to attach to the new session.';
       return JsonRpcResponse.error(
         id: msg.id,

@@ -242,6 +242,27 @@ void main() {
     await process.exitCode.timeout(const Duration(seconds: 10));
     await responses.cancel();
   }, timeout: const Timeout(Duration(seconds: 120)));
+
+  test(
+    'a --tool-timeout below 1 second or not a whole number is a usage error',
+    () async {
+      for (final bad in ['0', '-3', 'abc']) {
+        final result = await Process.run(Platform.resolvedExecutable, [
+          'run',
+          'bin/sleuth_mcp.dart',
+          '--tool-timeout',
+          bad,
+        ], workingDirectory: Directory.current.path);
+        expect(result.exitCode, 64, reason: '--tool-timeout $bad');
+        expect(
+          result.stderr as String,
+          contains('--tool-timeout must be a whole number of seconds'),
+        );
+        expect(result.stdout as String, isEmpty);
+      }
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
 }
 
 /// Resolves `lib/src/vm/service_extension_handlers.dart` in the sleuth

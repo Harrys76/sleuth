@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:sleuth_mcp/sleuth_mcp.dart';
+import 'package:sleuth_mcp/src/cli/serve_command.dart' show parseToolTimeout;
 import 'package:test/test.dart';
 
 import '../helpers/counting_session.dart';
@@ -49,6 +50,14 @@ void main() {
 
   tearDown(() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+  });
+
+  test('--tool-timeout takes whole seconds of 1 or more only', () {
+    expect(parseToolTimeout('10'), const Duration(seconds: 10));
+    expect(parseToolTimeout(' 1 '), const Duration(seconds: 1));
+    for (final bad in ['0', '-5', '', 'abc', '2.5', '1s']) {
+      expect(parseToolTimeout(bad), isNull, reason: '"$bad"');
+    }
   });
 
   test('stdin EOF detaches the session, cleans the handoff dir and '
