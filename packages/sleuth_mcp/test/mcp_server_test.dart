@@ -38,12 +38,12 @@ void main() {
       expect(info['version'], sleuthMcpVersion);
     });
 
-    test('tools/list returns 14 tools with inputSchema', () async {
+    test('tools/list returns 13 tools with inputSchema', () async {
       await server.handleForTest(_req('initialize'));
       final resp = await server.handleForTest(_req('tools/list', id: 2));
       final result = resp!.result as Map<String, Object?>;
       final tools = result['tools'] as List;
-      // 8 diagnostic + 6 lifecycle (attach/detach/status/list_devices/hot_*).
+      // 8 diagnostic + 5 lifecycle (attach/detach/status/list_devices/hot_reload).
       expect(tools, hasLength(13));
       for (final t in tools) {
         final tool = t as Map<String, Object?>;

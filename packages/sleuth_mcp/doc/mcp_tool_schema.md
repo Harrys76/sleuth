@@ -8,7 +8,7 @@ Structured source-of-truth: [`mcp_tool_schema.json`](mcp_tool_schema.json) — t
 
 **Sidecar-only.** This file does not ship in the root sleuth pub archive. The root `mcp_schema.{json,md}` documents the `ext.sleuth.*` wire envelopes; tool-layer wrapping lives here.
 
-**Error envelopes.** Each handler returns `ToolCallResult.text(<message>, isError: true)` on the documented error codes. The `code` listed in each `errors[]` entry appears verbatim as the prefix of the text content. A centralized typed error class is acknowledged debt — message-prefix matching is the current contract.
+**Error envelopes.** Each handler returns `ToolCallResult.text(<message>, isError: true)` on the documented error codes. The `code` listed in each `errors[]` entry appears verbatim as the prefix of the text content. A centralized typed error class is acknowledged debt — message-prefix matching is the current contract. Argument validation and dispatch errors that apply to every tool are listed once under [Server-level errors](#server-level-errors).
 
 **Tool categories.**
 
@@ -19,7 +19,7 @@ Structured source-of-truth: [`mcp_tool_schema.json`](mcp_tool_schema.json) — t
 
 **Read-only annotations.** Every descriptor carries `annotations.readOnlyHint` — `true` for read-only tools, `false` for `connect`/`attach_app`/`detach_app`/`hot_reload`. Annotation-aware clients can auto-approve the read-only set. Locked in `mcp_tool_schema.json` (`readOnlyTools`) and enforced by the audit.
 
-**Behavior annotations.** Descriptors also carry the other MCP hints — `destructiveHint`, `idempotentHint`, `openWorldHint` — locked per tool in `mcp_tool_schema.json` (`toolAnnotations`) and enforced by the audit. `openWorldHint:true` for tools whose output reflects external/runtime state (the live-app readers `get_snapshot`/`get_issues`/`get_route_health`/`diagnose`/`check_budgets`, plus `list_devices`); `false` for self-contained tools (`explain_issue` static content, `compare_snapshots` local diff, `app_status` server-internal status). `detach_app` is `destructiveHint:true` (it terminates the session and deletes disk-handoff files); read-only tools omit `destructive`/`idempotent` (the spec ignores those unless `readOnlyHint` is false). The audit enforces descriptor↔doc consistency, not value-vs-behavior correctness — hint values are a spec/behavior judgment. Advisory metadata, so `schemaVersion` stays `2`.
+**Behavior annotations.** Descriptors also carry the other MCP hints — `destructiveHint`, `idempotentHint`, `openWorldHint` — locked per tool in `mcp_tool_schema.json` (`toolAnnotations`) and enforced by the audit. `openWorldHint:true` for tools whose output reflects external/runtime state (the live-app readers `get_snapshot`/`get_issues`/`get_route_health`/`explain_issue`/`diagnose`/`check_budgets`, plus `list_devices`); `false` for self-contained tools (`compare_snapshots` local diff, `app_status` server-internal status). `detach_app` is `destructiveHint:true` (it terminates the session and deletes disk-handoff files); read-only tools omit `destructive`/`idempotent` (the spec ignores those unless `readOnlyHint` is false). The audit enforces descriptor↔doc consistency, not value-vs-behavior correctness — hint values are a spec/behavior judgment. Advisory metadata, so `schemaVersion` stays `2`.
 
 **Structured content (transport, cross-cutting).** For clients that negotiate MCP protocol `2025-06-18` or later, every **success** `tools/call` result also carries a top-level `structuredContent` field — the same JSON the text content block carries, as an object — so clients consume it without re-parsing the text. Clients on older protocol versions (`2024-11-05`, `2025-03-26`) receive the text content only. `structuredContent` is never set on error results. This is additive and doesn't alter any per-tool `data`/`args`/`errors` shape, so `schemaVersion` stays `2`.
 
@@ -43,7 +43,7 @@ Direct. Args: `uri` (String, required).
 - `missing_required_arg: uri`
 - `invalid_uri: <FormatException message>`
 - `version_skew_major: app=<v> sidecar-pin=<v> — refusing to serve; align sleuth dep with sidecar version. Bridge disconnected.`
-- `version_skew_unknown: diagnose envelope missing packageVersion stamp — cannot verify wire contract. Bridge disconnected.`
+- `version_skew_unknown: diagnose envelope missing or malformed packageVersion stamp (got "<v>") — cannot verify wire contract. Bridge disconnected.` — `packageVersion` absent, non-String, or not a semver `major.minor.patch` (an optional `-prerelease` / `+build` keeps the version's lineage, so `0.37.0-dev.1` is the 0.37 lineage); `(got "<v>")` appears only for a String value
 
 ## attach_app
 
@@ -83,6 +83,7 @@ Data shape: `AppStatusPayload.toJson()` — see source at `packages/sleuth_mcp/l
 | `lastError` | String | no | when `state == 'error'` |
 | `transportMode` | String | no | `wired` / `wireless` / `unknown`; conditional: present iff `launchMode == 'ios-direct'` |
 | `wsUri` | String | no | iOS-direct sessions only |
+| `warning` | String | no | same values as `connect.warning`: `version_skew_minor` (same lineage, different patch) or `version_skew_prior_lineage` (accepted prior lineage); attached sessions only |
 | `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` / `disconnected`, or `basic` without a live VM self-connect (VM-only detectors degraded); nudges a `flutter run --profile --no-dds` relaunch |
 
 **Errors:**
@@ -148,14 +149,18 @@ Direct. Args: `mobileOnly` (bool, optional, default `true`).
 
 Pure client-side. Args: `before` (Map, required, snapshot `data` block), `after` (Map, required).
 
+Issues aggregate per stableId: the highest severity across its occurrences and the occurrence count. A new critical occurrence beside an existing warning with the same stableId shows in `elevatedSeverity`, a second occurrence in `countChanged`.
+
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
 | `added` | List\<String\> | yes | stableIds present in `after` but not `before` |
 | `removed` | List\<String\> | yes | stableIds present in `before` but not `after` |
-| `elevatedSeverity` | List\<Map\> | yes | item shape `{stableId, before, after}` |
+| `elevatedSeverity` | List\<Map\> | yes | item shape `{stableId, before, after}` (severity strings); stableIds in both whose highest severity rose |
+| `countChanged` | List\<Map\> | yes | item shape `{stableId, before, after}` (occurrence counts); stableIds in both whose count changed |
 | `fpsDelta` | double | yes (nullable) | `afterFps - beforeFps`; null when either side lacks `frameStatsSummary.averageFps` / `actualFps` |
 | `beforeFps` | double | yes (nullable) | |
 | `afterFps` | double | yes (nullable) | |
+| `coverageWarning` | String | no | present when neither snapshot had a VM service link; starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover |
 
 **Errors:**
 
@@ -163,10 +168,13 @@ Pure client-side. Args: `before` (Map, required, snapshot `data` block), `after`
 - `arg "after" must be object (SessionSnapshot data)`
 - `arg_capped_issues_uncomparable` — one/both inputs projected with `maxIssueCount`; a truncated top-N window can't be diffed (an issue leaving the window is indistinguishable from one resolved)
 - `arg_section_mismatch` — inputs projected to different sections or different pagination limits
+- `arg_lineage_mismatch` — the two `packageVersion` values fall in different sleuth `major.minor` lineages, or either is missing or not semver. Detector ids and defaults change between lineages, so the diff would report instrumentation changes as app changes.
+- `arg_coverage_mismatch` — only one snapshot had a VM service link (the other reports `isVmConnected: false` or carries a `launchModeAdvisory`), or either lacks a boolean `isVmConnected`. VM-only detectors report nothing without a VM link, so their issues would read as resolved or new.
+- `snapshot …` — a snapshot lacks or mistypes `currentIssues`, `currentIssues[].stableId` / `severity`, or `frameStatsSummary` fps (schema drift)
 
 ## check_budgets
 
-Wraps `ext.sleuth.snapshot`. Args: `minFps` (num, required), `maxIssues` (int, required), `maxCriticalIssues` (int, required).
+Wraps `ext.sleuth.snapshot`. Args: `minFps` (num, required), `maxIssues` (int, required), `maxCriticalIssues` (int, required). Refuses with `coverage_degraded` when the snapshot's `isVmConnected` is false or unreadable; basic connection mode with `isVmConnected: true` evaluates normally. `sleuth_check` shares the evaluator and exits `2` on any of these errors.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
@@ -182,12 +190,14 @@ Wraps `ext.sleuth.snapshot`. Args: `minFps` (num, required), `maxIssues` (int, r
 - `snapshot envelope had no data field` — bridge returned a malformed envelope
 - `arg_capped_issues_unbudgetable` — snapshot projected with `maxIssueCount`; truncated issue list would make budget counts wrong
 - `arg_missing_required_section` — snapshot projected without a section budgets need (`currentIssues` / `frameStatsSummary`)
+- `coverage_degraded` — the snapshot reports `isVmConnected: false` (or no boolean), so the VM-only detectors never ran and a pass would not cover memory, CPU or repaint issues
+- `snapshot …` — the snapshot lacks or mistypes `currentIssues`, `currentIssues[].severity`, or `frameStatsSummary` fps (schema drift)
 
 ## diagnose
 
 Wraps `ext.sleuth.diagnose`. No args.
 
-Augments the extension's `data` block with two sidecar-stamped keys:
+Augments the extension's `data` block with two sidecar-stamped keys and, on a degraded session, `launchModeAdvisory`:
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
@@ -226,11 +236,7 @@ Underlying shape: see `mcp_schema.md` § `ext.sleuth.issues` (compact entries ar
 
 ## get_route_health
 
-Passthrough for `ext.sleuth.routeHealth`. Args: `route` (String, optional).
-
-**Shim — `lineage_route_wrapper`.** When the `route` arg is provided and the bridge is connected to an `acceptedPriorLineages` app emitting the v0.32 inline `RouteSession` shape (data carries `routeName` but no `route` key), the shim wraps data into `{route: <inline-session>}` so downstream consumers always see the canonical v0.33 envelope. v0.33+ apps already emit the wrapper and pass through untouched. Error envelopes and absent-route shapes are never wrapped.
-
-**Invariant — shim must be idempotent on the canonical shape.** Running the shim against an already-wrapped `{route: <session>}` payload MUST yield the same payload (no double-wrap, no key drop). The shim's gating predicate is `data.containsKey('routeName')` — a payload that already lacks the inline key is left untouched. Idempotency is regression-guarded by `test/schema/mcp_tool_schema_audit_test.dart` (the canonical-wrapper / inline-wrapped / absent-route triad of tests in the `lineage_route_wrapper` group).
+Passthrough for `ext.sleuth.routeHealth`. Args: `route` (String, optional; empty string treated as absent). The envelope passes through unmodified: every accepted lineage wraps a single-route match as `{route: <session>}`.
 
 Underlying shape: see `mcp_schema.md` § `ext.sleuth.routeHealth`.
 
@@ -238,12 +244,29 @@ Underlying shape: see `mcp_schema.md` § `ext.sleuth.routeHealth`.
 
 Passthrough for `ext.sleuth.explain`. Args: `stableId` (String, **required**, `minLength: 1`).
 
+Reads live app state. On sleuth 0.37+ apps the route, widget and count text is filled from the first live issue matching the stableId (else one in its canonical family), with neutral wording when none is live. Sleuth 0.36 apps return the raw placeholders (`{widgetName}`, `{routeName}`, `{count}`).
+
 **Errors:**
 
 - `missing_required_arg: stableId` — validated at the tool layer before delegating
 - `unknown_stable_id` — `ext.sleuth.explain` returned an error envelope; passed through unmodified
 
 Underlying shape: see `mcp_schema.md` § `ext.sleuth.explain`.
+
+## Server-level errors
+
+`McpServer` validates every `tools/call` against the tool's `inputSchema` before the handler runs, and wraps dispatch failures. Same envelope as the per-tool errors (`isError: true`, code as the message prefix); listed under `serverErrors` in `mcp_tool_schema.json`.
+
+- `missing_required_arg: <name>` — an arg in `inputSchema.required` is absent or null
+- `arg_unknown: <name> (allowed: …)` — an arg not declared in `inputSchema.properties`
+- `arg_type_mismatch: <name> expected <type> got <type>` — JSON type differs from the declared type (an integer satisfies `number`)
+- `arg_enum_violation: <name>=<value> not in [...]` — value outside the declared `enum`
+- `arg_min_length_violation: <name> must be at least <n> chars` — string shorter than `minLength`
+- `unknown_tool: <name>` — no tool registered under that name
+- `missing "name" arg` / `arguments must be a JSON object` — malformed `tools/call` params
+- `timeout_after_<ms>ms — bridge disconnected; re-invoke connect` — a tool without its own deadlines exceeded the generic timeout
+- `session_changed baseline=<uuid> current=<uuid>` — the app's session changed during the call
+- `error: <exception>` — the handler threw (stack trace goes to the log only)
 
 ## Recovery from a refused connection
 

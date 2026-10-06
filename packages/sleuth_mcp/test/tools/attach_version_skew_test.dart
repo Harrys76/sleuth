@@ -83,57 +83,53 @@ void main() {
       },
     );
 
-    test(
-      'minor lineage skew on debugUrl path returns ready (warning carries '
-      'through downstream `connect` call shape, not through attach payload)',
-      () async {
-        // Verifies the non-blocking branch: when versionLineage matches
-        // (same major.minor) the attach still returns the AppStatusPayload
-        // verbatim. Warning surfacing is the `connect` tool's concern —
-        // attach_app's contract is only "is this app speakable?".
-        final bridge = defaultFakeBridge()
-          ..setEnvelope('ext.sleuth.diagnose', {
-            'connectionMode': 'basic',
-            'schemaVersion': 1,
-            'sessionUuid': 'fake-uuid',
-            'data': {'packageVersion': '0.37.99'},
-          });
-        final server = McpServer(bridge: bridge)..registerDefaults();
-        await server.handleForTest(
-          JsonRpcMessage(
-            method: 'initialize',
-            id: 0,
-            params: const {'protocolVersion': '2024-11-05'},
-          ),
-        );
-        final session = DaemonSession(
-          bridge: bridge,
-          server: server,
-          processFactory:
-              (
-                _,
-                _, {
-                String? workingDirectory,
-                Map<String, String>? environment,
-              }) async => throw StateError('debugUrl path must bypass spawn'),
-        );
-        server.setDaemonSession(session);
+    test('minor lineage skew on debugUrl path returns ready with the same '
+        '`version_skew_minor` warning `connect` returns', () async {
+      // Verifies the non-blocking branch: when versionLineage matches
+      // (same major.minor) the attach returns the AppStatusPayload plus
+      // the advisory warning, as `connect` does.
+      final bridge = defaultFakeBridge()
+        ..setEnvelope('ext.sleuth.diagnose', {
+          'connectionMode': 'basic',
+          'schemaVersion': 1,
+          'sessionUuid': 'fake-uuid',
+          'data': {'packageVersion': '0.37.99'},
+        });
+      final server = McpServer(bridge: bridge)..registerDefaults();
+      await server.handleForTest(
+        JsonRpcMessage(
+          method: 'initialize',
+          id: 0,
+          params: const {'protocolVersion': '2024-11-05'},
+        ),
+      );
+      final session = DaemonSession(
+        bridge: bridge,
+        server: server,
+        processFactory:
+            (
+              _,
+              _, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+            }) async => throw StateError('debugUrl path must bypass spawn'),
+      );
+      server.setDaemonSession(session);
 
-        final resp = await server.handleForTest(
-          _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
-        );
-        final result = _resultFromResp(resp!.result);
-        expect(result.isError, isNot(isTrue));
-        final decoded =
-            jsonDecode(result.content.first['text'] as String) as Map;
-        expect(decoded['state'], 'ready');
-        expect(
-          bridge.isConnected,
-          isTrue,
-          reason: 'minor skew must NOT disconnect the bridge',
-        );
-      },
-    );
+      final resp = await server.handleForTest(
+        _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+      );
+      final result = _resultFromResp(resp!.result);
+      expect(result.isError, isNot(isTrue));
+      final decoded = jsonDecode(result.content.first['text'] as String) as Map;
+      expect(decoded['state'], 'ready');
+      expect(decoded['warning'], 'version_skew_minor');
+      expect(
+        bridge.isConnected,
+        isTrue,
+        reason: 'minor skew must NOT disconnect the bridge',
+      );
+    });
 
     test(
       'null packageVersion on diagnose envelope fails closed at attachHandler',
@@ -339,6 +335,78 @@ void main() {
         reason: 'accepted-prior lineage must NOT trip the refusal path',
       );
       expect(bridge.isConnected, isTrue);
+      final decoded = jsonDecode(result.content.first['text'] as String) as Map;
+      expect(
+        decoded['warning'],
+        'version_skew_prior_lineage',
+        reason:
+            'attach_app must surface the same prior-lineage warning '
+            '`connect` returns',
+      );
     });
+
+    test('exact pin match on debugUrl path carries no warning', () async {
+      final (result, _) = await _attachWithVersion(sleuthPackageVersionPin);
+      expect(result.isError, isNot(isTrue));
+      final decoded = jsonDecode(result.content.first['text'] as String) as Map;
+      expect(decoded['state'], 'ready');
+      expect(decoded.containsKey('warning'), isFalse);
+    });
+
+    for (final (version, code) in <(String, String)>[
+      ('0.35.9', 'version_skew_major'),
+      ('0.38.0', 'version_skew_major'),
+      ('0.37.garbage', 'version_skew_unknown'),
+      ('0.36', 'version_skew_unknown'),
+    ]) {
+      test(
+        'packageVersion $version is refused with $code and detaches',
+        () async {
+          final (result, bridge) = await _attachWithVersion(version);
+          expect(result.isError, isTrue);
+          expect(result.content.first['text'] as String, startsWith(code));
+          expect(bridge.isConnected, isFalse);
+        },
+      );
+    }
   });
+}
+
+/// Attach over the debugUrl path to an app whose diagnose envelope reports
+/// [packageVersion]; returns the tool result and the bridge.
+Future<(ToolCallResult, FakeVmBridge)> _attachWithVersion(
+  String packageVersion,
+) async {
+  final bridge = defaultFakeBridge()
+    ..setEnvelope('ext.sleuth.diagnose', {
+      'connectionMode': 'full',
+      'schemaVersion': 1,
+      'sessionUuid': 'fake-uuid',
+      'data': {'packageVersion': packageVersion, 'vmConnected': true},
+    });
+  final server = McpServer(bridge: bridge)..registerDefaults();
+  await server.handleForTest(
+    JsonRpcMessage(
+      method: 'initialize',
+      id: 0,
+      params: const {'protocolVersion': '2024-11-05'},
+    ),
+  );
+  server.setDaemonSession(
+    DaemonSession(
+      bridge: bridge,
+      server: server,
+      processFactory:
+          (
+            _,
+            _, {
+            String? workingDirectory,
+            Map<String, String>? environment,
+          }) async => throw StateError('debugUrl path must bypass spawn'),
+    ),
+  );
+  final resp = await server.handleForTest(
+    _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+  );
+  return (_resultFromResp(resp!.result), bridge);
 }

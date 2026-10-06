@@ -75,7 +75,8 @@ const _releaseCheck = DiagnosticPrompt(
   descriptor: Prompt(
     name: 'release_check',
     description:
-        'Run a pre-release performance gate and report a PASS or FAIL verdict.',
+        'Run a pre-release performance gate and report a PASS, FAIL, or NOT '
+        'RUN verdict.',
   ),
   usesTools: {'check_budgets', 'get_issues'},
   text:
@@ -84,7 +85,11 @@ const _releaseCheck = DiagnosticPrompt(
       '1. Determine the team\'s budget thresholds (minimum FPS, max issues, '
       'max critical issues). If you do not already know them, ask the user '
       'for them — never guess.\n'
-      '2. Call `check_budgets` with those thresholds.\n'
+      '2. Call `check_budgets` with those thresholds. If it returns an error '
+      'instead of a result (for example `coverage_degraded`: the app has no '
+      'VM service link, so memory, CPU and repaint detectors never ran), the '
+      'gate did NOT RUN — report that with the error\'s remedy and stop; '
+      'never report PASS.\n'
       '3. Call `get_issues` and list any critical-severity issues.\n'
       'Then report a clear PASS or FAIL verdict, naming the specific budget '
       'violations and critical issues that must be resolved before release.',

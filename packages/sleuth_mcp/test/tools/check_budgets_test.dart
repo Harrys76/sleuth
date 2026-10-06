@@ -4,9 +4,20 @@ import 'package:test/test.dart';
 
 import '../helpers/fake_vm_bridge.dart';
 
+String _errorText(Object result) {
+  expect(result, isA<ToolCallResult>());
+  final tc = result as ToolCallResult;
+  expect(tc.isError, isTrue);
+  return tc.content.first['text'] as String;
+}
+
 void main() {
   test('check_budgets passes when within thresholds', () async {
-    final bridge = defaultFakeBridge();
+    final bridge = defaultFakeBridge()
+      ..setEnvelope(
+        'ext.sleuth.snapshot',
+        fakeSnapshotEnvelope(isVmConnected: true),
+      );
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['check_budgets']!.handler;
     final result =
@@ -26,13 +37,14 @@ void main() {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'u',
-        'data': {'packageVersion': '0.33.0'},
+        'data': {'packageVersion': '0.37.0'},
       })
       ..setEnvelope('ext.sleuth.snapshot', {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'u',
         'data': {
+          'isVmConnected': true,
           'currentIssues': <Map<String, Object?>>[],
           'frameStatsSummary': {'averageFps': 30.0},
         },
@@ -64,10 +76,77 @@ void main() {
     expect((result as ToolCallResult).isError, isTrue);
   });
 
+  group('VM coverage', () {
+    test('check_budgets refuses with coverage_degraded when the app has no '
+        'VM link, even though every budget would pass', () async {
+      // Default fake: basic session, snapshot isVmConnected false.
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['check_budgets']!.handler;
+      final text = _errorText(
+        await handler(bridge, {
+          'minFps': 0,
+          'maxIssues': 1000,
+          'maxCriticalIssues': 1000,
+        }),
+      );
+      expect(text, startsWith('coverage_degraded:'));
+      expect(text, contains('heap_growing'));
+    });
+
+    for (final (label, value) in <(String, Object?)>[
+      ('false', false),
+      ('missing', null),
+      ('non-bool', 'true'),
+    ]) {
+      test('evaluateBudgets refuses isVmConnected $label', () {
+        final snapshot = <String, Object?>{
+          'currentIssues': <Map<String, Object?>>[],
+          'frameStatsSummary': {'averageFps': 60.0},
+          'isVmConnected': ?value,
+        };
+        final text = _errorText(
+          evaluateBudgets(
+            snapshot: snapshot,
+            minFps: 55,
+            maxIssues: 0,
+            maxCriticalIssues: 0,
+          ),
+        );
+        expect(text, startsWith('coverage_degraded:'));
+      });
+    }
+
+    test(
+      'basic connection mode with the VM connected still evaluates',
+      () async {
+        // Basic is also reported while the verdict warms with the VM linked;
+        // VM-only detectors run, so the gate must not refuse.
+        final bridge = defaultFakeBridge()
+          ..setEnvelope(
+            'ext.sleuth.snapshot',
+            fakeSnapshotEnvelope(isVmConnected: true),
+          );
+        await bridge.connect(Uri.parse('ws://localhost/ws'));
+        final handler = builtInTools['check_budgets']!.handler;
+        final result =
+            await handler(bridge, {
+                  'minFps': 55,
+                  'maxIssues': 0,
+                  'maxCriticalIssues': 0,
+                })
+                as Map<String, Object?>;
+        expect(result['passed'], isFalse);
+        expect((result['observed'] as Map)['issueCount'], 2);
+      },
+    );
+  });
+
   test('evaluateBudgets returns arg_missing_required_section on a projected '
       'snapshot lacking frameStatsSummary', () {
     final result = evaluateBudgets(
       snapshot: {
+        'isVmConnected': true,
         'currentIssues': <Map<String, Object?>>[],
         '_projectedSections': ['currentIssues'],
       },
@@ -75,33 +154,27 @@ void main() {
       maxIssues: 10,
       maxCriticalIssues: 0,
     );
-    final tc = result as ToolCallResult;
-    expect(tc.isError, isTrue);
-    expect(
-      tc.content.first['text'] as String,
-      startsWith('arg_missing_required_section:'),
-    );
+    expect(_errorText(result), startsWith('arg_missing_required_section:'));
   });
 
   test('evaluateBudgets keeps generic error when section absent + not '
       'projected (genuine drift)', () {
     final result = evaluateBudgets(
-      snapshot: {'currentIssues': <Map<String, Object?>>[]},
+      snapshot: {
+        'isVmConnected': true,
+        'currentIssues': <Map<String, Object?>>[],
+      },
       minFps: 55,
       maxIssues: 10,
       maxCriticalIssues: 0,
     );
-    final tc = result as ToolCallResult;
-    expect(tc.isError, isTrue);
-    expect(
-      tc.content.first['text'] as String,
-      'snapshot missing required frameStatsSummary',
-    );
+    expect(_errorText(result), 'snapshot missing required frameStatsSummary');
   });
 
   test('evaluateBudgets rejects a maxIssueCount-capped snapshot', () {
     final result = evaluateBudgets(
       snapshot: {
+        'isVmConnected': true,
         'currentIssues': [
           {'severity': 'warning'},
         ],
@@ -112,17 +185,13 @@ void main() {
       maxIssues: 10,
       maxCriticalIssues: 0,
     );
-    final tc = result as ToolCallResult;
-    expect(tc.isError, isTrue);
-    expect(
-      tc.content.first['text'] as String,
-      startsWith('arg_capped_issues_unbudgetable:'),
-    );
+    expect(_errorText(result), startsWith('arg_capped_issues_unbudgetable:'));
   });
 
   test('evaluateBudgets evaluates normally when only maxRouteCount capped', () {
     final result = evaluateBudgets(
       snapshot: {
+        'isVmConnected': true,
         'currentIssues': <Map<String, Object?>>[],
         'frameStatsSummary': {'averageFps': 60.0},
         '_projectionLimits': {'maxRouteCount': 3},

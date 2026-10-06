@@ -47,19 +47,19 @@ known VM service URI:
 | --- | --- | --- |
 | `list_devices` | `mobileOnly?` | `flutter devices --machine`, mobile-only by default (android + ios). |
 | `attach_app` | `device?`, `debugUrl?`, `udid?`, `bundle?`, `transport?`, `authOverride?` | Attach. Three modes — see [Attaching](#attaching). |
-| `connect` | `uri` | Attach to a known VM service URI. Returns `connectionMode`, `sessionUuid`, and a `warning` on version skew. |
+| `connect` | `uri` | Attach to a known VM service URI. Returns `connectionMode`, `sessionUuid`, and a `warning` on version skew (`attach_app` returns the same `warning`). |
 | `get_snapshot` | `sections?`, `maxIssueCount?`, `maxRouteCount?`, `diskHandoff?`, `verbose?` | Full performance snapshot (issues, frame stats, route history). Issues are compact by default — pass `verbose: true` for full fields. |
 | `get_issues` | `route?`, `severityAtLeast?`, `maxIssueCount?`, `verbose?` | Currently-aggregated issues. Optional route filter + case-insensitive severity gate (`ok` / `warning` / `critical`). Compact + capped to 50 by default; `verbose: true` for full fields, `maxIssueCount` to change the cap (`0` = unbounded). |
 | `get_route_health` | `route?` | Per-route health score + FPS + issue counts. |
-| `explain_issue` | `stableId` | Encyclopedia entry; parametric stableIds resolve through canonical form. |
-| `compare_snapshots` | `before`, `after` | Client-side diff of two snapshots — added / removed / elevated issues, fps delta. |
-| `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Compare the live snapshot against thresholds. For CI exit codes use `sleuth_check`. |
+| `explain_issue` | `stableId` | Encyclopedia entry; parametric stableIds resolve through canonical form. On sleuth 0.37+ apps the route, widget and count text comes from the matching live issue (neutral wording when none is live); sleuth 0.36 apps return raw placeholders such as `{widgetName}` and `{routeName}`. |
+| `compare_snapshots` | `before`, `after` | Client-side diff of two snapshots — added / removed / elevated issues, occurrence-count changes, fps delta. Refuses snapshots from different sleuth lineages (`arg_lineage_mismatch`) or with different VM coverage (`arg_coverage_mismatch`); warns when neither had a VM link. |
+| `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Compare the live snapshot against thresholds. Refuses with `coverage_degraded` when the app has no VM service link. For CI exit codes use `sleuth_check`. |
 | `diagnose` | — | Operational health: package version, VM connection, unbound extensions. Use when other tools return empty. |
 | `app_status` | — | `{attached, state, device, appId, sessionUuid, launchMode, mode, lastError}`. |
 | `detach_app` | — | Stop the daemon child + disconnect the bridge. Idempotent. |
 | `hot_reload` | — | Hot reload (preserves state + sessionUuid). Daemon-spawn sessions only. |
 
-The read tools (everything except `connect`, `attach_app`, `detach_app`, `hot_reload`) carry `annotations.readOnlyHint: true`, so MCP clients that honor it can auto-approve them instead of prompting per call. Descriptors also carry the other MCP behavior hints — `destructiveHint`, `idempotentHint`, `openWorldHint` — locked per tool and audit-enforced. Tools whose output reflects the live app or host (`get_snapshot`, `get_issues`, `get_route_health`, `diagnose`, `check_budgets`, `list_devices`) are `openWorldHint:true`; `detach_app` is `destructiveHint:true` (it tears down the session and deletes disk-handoff files).
+The read tools (everything except `connect`, `attach_app`, `detach_app`, `hot_reload`) carry `annotations.readOnlyHint: true`, so MCP clients that honor it can auto-approve them instead of prompting per call. Descriptors also carry the other MCP behavior hints — `destructiveHint`, `idempotentHint`, `openWorldHint` — locked per tool and audit-enforced. Tools whose output reflects the live app or host (`get_snapshot`, `get_issues`, `get_route_health`, `explain_issue`, `diagnose`, `check_budgets`, `list_devices`) are `openWorldHint:true`; `detach_app` is `destructiveHint:true` (it tears down the session and deletes disk-handoff files).
 
 **Compact issues (default).** `get_issues` and `get_snapshot` trim each issue to an actionable subset (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`) so responses stay readable and smaller. Pass `verbose: true` for the full ~22-field shape. Compaction drops fields, not field contents — hard size bounds come from `maxIssueCount` (issue count) and `diskHandoff` (large snapshots), not from field compaction. `get_issues` also caps to the top 50 ranked issues by default and stamps `_truncated` + `_totalCount` when it drops any — raise or disable with `maxIssueCount` (`0` = unbounded; negative is rejected with `arg_invalid_int`). The cap is independent of `verbose`. Compaction keeps `stableId` + `severity`, so `compare_snapshots` and `check_budgets` still work on compact snapshots.
 
@@ -81,7 +81,7 @@ Guided-diagnostic templates surfaced via `prompts/list` + `prompts/get`. Each is
 
 - `triage_performance` — snapshot → top-ranked issues → explain the worst → worst route.
 - `audit_memory` — memory-class issues (heap growth, retained streams, tracked resources) → explain → remediations.
-- `release_check` — `check_budgets` + critical issues → PASS/FAIL verdict.
+- `release_check` — `check_budgets` + critical issues → PASS/FAIL verdict, or NOT RUN when `check_budgets` refuses (for example `coverage_degraded`).
 
 ## Attaching
 
@@ -195,7 +195,10 @@ sleuth_check --uri "ws://127.0.0.1:55555/<token>=/ws" \
   --min-fps 55 --max-issues 10 --max-critical-issues 0 --json
 ```
 
-Exits `0` pass, `1` budget violation, `2` connect / handler failure.
+Exits `0` pass, `1` budget violation, `2` when the check could not run:
+connect failure, version refusal, malformed snapshot, or
+`coverage_degraded` (Sleuth has no VM service link, so its VM-only
+detectors never ran; relaunch with `flutter run --profile --no-dds`).
 
 For live programmatic inspection from a custom Dart tool, call
 `ext.sleuth.*` directly via `package:vm_service` — no sidecar needed.

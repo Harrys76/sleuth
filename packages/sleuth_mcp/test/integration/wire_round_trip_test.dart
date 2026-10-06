@@ -109,66 +109,55 @@ void main() {
     timeout: const Timeout(Duration(seconds: 30)),
   );
 
-  test(
-    'routeHealth shim normalises inline v0.32-shape envelope end-to-end',
-    () async {
-      // Registers an `ext.sleuth.routeHealth` handler that emits the
-      // pre-v0.33 inline RouteSession shape (data == session JSON, no
-      // `route` wrapper). The sidecar tool layer must wrap it before
-      // surfacing — this end-to-end test crosses the real vm_service
-      // round-trip plus the tool handler.
-      //
-      // `ext.sleuth.diagnose` is registered by the first test in this
-      // file — `registerExtension` throws on re-register so we rely on
-      // that prior registration here.
-      developer.registerExtension('ext.sleuth.routeHealth', (
-        method,
-        args,
-      ) async {
-        return developer.ServiceExtensionResponse.result(
-          jsonEncode({
-            'connectionMode': 'basic',
-            'schemaVersion': 1,
-            'sessionUuid': 'wire-test-uuid',
-            // Inline v0.32 shape — RouteSession.toJson() directly as data.
-            'data': {'routeName': 'home', 'sessionId': 'sess-1'},
-          }),
-        );
-      });
+  test('get_route_health passes the wrapped routeHealth envelope through '
+      'end-to-end', () async {
+    // Registers an `ext.sleuth.routeHealth` handler that emits the
+    // `{route: <session>}` single-match shape every accepted lineage
+    // sends and echoes the route arg. The tool must forward the arg and
+    // return the envelope unmodified across the real vm_service
+    // round-trip.
+    //
+    // `ext.sleuth.diagnose` is registered by the first test in this
+    // file — `registerExtension` throws on re-register so we rely on
+    // that prior registration here.
+    developer.registerExtension('ext.sleuth.routeHealth', (method, args) async {
+      return developer.ServiceExtensionResponse.result(
+        jsonEncode({
+          'connectionMode': 'basic',
+          'schemaVersion': 1,
+          'sessionUuid': 'wire-test-uuid',
+          'data': {
+            'route': {'routeName': args['route'], 'sessionId': 'sess-1'},
+          },
+        }),
+      );
+    });
 
-      final info = await developer.Service.controlWebServer(
-        enable: true,
-        silenceOutput: true,
-      );
-      final wsUri = info.serverWebSocketUri;
-      if (wsUri == null) {
-        markTestSkipped('VM service not available');
-        return;
-      }
-      final bridge = RealVmBridge(
-        callTimeout: const Duration(seconds: 5),
-        targetIsolateIdOverride: currentIsolateId,
-      );
-      await bridge.connect(wsUri);
-      try {
-        final handler = builtInTools['get_route_health']!.handler;
-        final result =
-            await handler(bridge, {'route': 'home'}) as Map<String, Object?>;
-        final data = result['data'] as Map<String, Object?>;
-        expect(
-          data.containsKey('route'),
-          isTrue,
-          reason:
-              'tool layer must wrap inline shape under `route` so the '
-              'sidecar always surfaces the canonical v0.33 contract',
-        );
-        final routeMap = data['route'] as Map<String, Object?>;
-        expect(routeMap['routeName'], 'home');
-        expect(routeMap['sessionId'], 'sess-1');
-      } finally {
-        await bridge.disconnect();
-      }
-    },
-    timeout: const Timeout(Duration(seconds: 30)),
-  );
+    final info = await developer.Service.controlWebServer(
+      enable: true,
+      silenceOutput: true,
+    );
+    final wsUri = info.serverWebSocketUri;
+    if (wsUri == null) {
+      markTestSkipped('VM service not available');
+      return;
+    }
+    final bridge = RealVmBridge(
+      callTimeout: const Duration(seconds: 5),
+      targetIsolateIdOverride: currentIsolateId,
+    );
+    await bridge.connect(wsUri);
+    try {
+      final handler = builtInTools['get_route_health']!.handler;
+      final result =
+          await handler(bridge, {'route': 'home'}) as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      expect(data.keys, ['route']);
+      final routeMap = data['route'] as Map<String, Object?>;
+      expect(routeMap['routeName'], 'home');
+      expect(routeMap['sessionId'], 'sess-1');
+    } finally {
+      await bridge.disconnect();
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

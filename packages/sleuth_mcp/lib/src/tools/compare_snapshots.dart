@@ -1,15 +1,30 @@
 import '../bridge/vm_bridge.dart';
 import '../mcp/mcp_types.dart';
+import '../util/version_lineage.dart';
+import 'launch_mode_advisory.dart';
 
 /// Diff two `SessionSnapshot` `data` payloads. Pure client-side; no
-/// bridge call. Returns `{added, removed, elevatedSeverity, fpsDelta}`.
+/// bridge call. Returns `{added, removed, elevatedSeverity, countChanged,
+/// fpsDelta, beforeFps, afterFps}`, plus `coverageWarning` when neither
+/// snapshot had a VM service link.
 ///
-/// Schema-drift behaviour: this tool consumes `currentIssues[].stableId`,
-/// `currentIssues[].severity`, and `frameStatsSummary.averageFps |
-/// actualFps`. If those nested fields are missing or malformed the tool
-/// returns an error envelope rather than silently dropping entries —
-/// otherwise a rename in the snapshot schema would surface as an empty
-/// diff and look like a clean comparison.
+/// Issues aggregate per stableId: the highest severity across its
+/// occurrences and the occurrence count. A new critical occurrence beside
+/// an existing warning with the same stableId reads as an elevation, and
+/// a second occurrence as a count change.
+///
+/// Refuses snapshots from different sleuth lineages (detector ids and
+/// defaults change between lineages, so the diff would report
+/// instrumentation changes as app changes) and snapshots whose VM
+/// coverage differs or is unknown (VM-only detectors report nothing
+/// without a VM link, so their issues would read as resolved or new).
+///
+/// Schema-drift behaviour: this tool consumes `packageVersion`,
+/// `isVmConnected`, `currentIssues[].stableId`, `currentIssues[].severity`,
+/// and `frameStatsSummary.averageFps | actualFps`. If those fields are
+/// missing or malformed the tool returns an error envelope rather than
+/// silently dropping entries — otherwise a rename in the snapshot schema
+/// would surface as an empty diff and look like a clean comparison.
 Future<Object> compareSnapshotsHandler(
   VmBridge bridge,
   Map<String, Object?> args,
@@ -43,29 +58,39 @@ Future<Object> compareSnapshotsHandler(
   final mismatch = _projectionMismatch(before, after);
   if (mismatch != null) return mismatch;
 
+  final lineageReject = _lineageMismatch(before, after);
+  if (lineageReject != null) return lineageReject;
+
+  final coverageReject = _coverageMismatch(before, after);
+  if (coverageReject != null) return coverageReject;
+
   final beforeIssues = _issueMap(before, 'before');
   if (beforeIssues is ToolCallResult) return beforeIssues;
   final afterIssues = _issueMap(after, 'after');
   if (afterIssues is ToolCallResult) return afterIssues;
-  final beforeIssuesMap = beforeIssues as Map<String, Map<String, Object?>>;
-  final afterIssuesMap = afterIssues as Map<String, Map<String, Object?>>;
+  final beforeIssuesMap = beforeIssues as Map<String, _IssueAggregate>;
+  final afterIssuesMap = afterIssues as Map<String, _IssueAggregate>;
   final beforeIds = beforeIssuesMap.keys.toSet();
   final afterIds = afterIssuesMap.keys.toSet();
 
   final added = afterIds.difference(beforeIds).toList()..sort();
   final removed = beforeIds.difference(afterIds).toList()..sort();
   final elevated = <Map<String, Object?>>[];
+  final countChanged = <Map<String, Object?>>[];
   for (final id in beforeIds.intersection(afterIds)) {
-    final beforeSev = beforeIssuesMap[id]?['severity'];
-    final afterSev = afterIssuesMap[id]?['severity'];
-    if (beforeSev != afterSev &&
-        _severityRank(afterSev) > _severityRank(beforeSev)) {
-      elevated.add({'stableId': id, 'before': beforeSev, 'after': afterSev});
+    final b = beforeIssuesMap[id]!;
+    final a = afterIssuesMap[id]!;
+    if (_severityRank(a.severity) > _severityRank(b.severity)) {
+      elevated.add({'stableId': id, 'before': b.severity, 'after': a.severity});
+    }
+    if (a.count != b.count) {
+      countChanged.add({'stableId': id, 'before': b.count, 'after': a.count});
     }
   }
-  elevated.sort(
-    (a, b) => (a['stableId'] as String).compareTo(b['stableId'] as String),
-  );
+  int byStableId(Map<String, Object?> a, Map<String, Object?> b) =>
+      (a['stableId'] as String).compareTo(b['stableId'] as String);
+  elevated.sort(byStableId);
+  countChanged.sort(byStableId);
 
   final beforeFps = _avgFps(before, 'before');
   if (beforeFps is ToolCallResult) return beforeFps;
@@ -77,15 +102,29 @@ Future<Object> compareSnapshotsHandler(
       ? afterFpsDouble - beforeFpsDouble
       : null;
 
-  return <String, Object?>{
+  final result = <String, Object?>{
     'added': added,
     'removed': removed,
     'elevatedSeverity': elevated,
+    'countChanged': countChanged,
     'fpsDelta': fpsDelta,
     'beforeFps': beforeFpsDouble,
     'afterFps': afterFpsDouble,
   };
+  // Coverage matched (checked above), so one side speaks for both.
+  if (_vmCoverage(before) == false) {
+    result['coverageWarning'] = noVmCoverageWarning;
+  }
+  return result;
 }
+
+/// `coverageWarning` text for a diff of two snapshots that both lacked a
+/// VM service link.
+const String noVmCoverageWarning =
+    'vm_detectors_not_observed: neither snapshot had a VM service link, so '
+    'VM-only detectors ($vmOnlyStableIds) did not run in either session; '
+    'added, removed, elevatedSeverity and countChanged cover frame-timing '
+    'and structural detectors only.';
 
 /// Returns an error envelope when either snapshot capped its issue list
 /// (`_projectionLimits.maxIssueCount`), else null. A truncated top-N
@@ -158,8 +197,102 @@ ToolCallResult? _projectionMismatch(
 bool _setEquals(Set<String> a, Set<String> b) =>
     a.length == b.length && a.containsAll(b);
 
+/// Returns an `arg_lineage_mismatch` error envelope when the two
+/// snapshots' `packageVersion` values fall in different sleuth lineages,
+/// or when either is missing or not a semver version, else null. Detector
+/// ids and defaults change between lineages (identity-keyed stableIds,
+/// opt-in detectors, new detectors), so a cross-lineage diff would report
+/// instrumentation changes as app changes.
+ToolCallResult? _lineageMismatch(
+  Map<String, Object?> before,
+  Map<String, Object?> after,
+) {
+  final beforeVersion = before['packageVersion'];
+  final afterVersion = after['packageVersion'];
+  for (final (label, raw) in [
+    ('before', beforeVersion),
+    ('after', afterVersion),
+  ]) {
+    if (raw is String && versionLineage(raw) != null) continue;
+    final got = raw is String
+        ? '"$raw"'
+        : (raw == null ? 'nothing' : '${raw.runtimeType}');
+    return ToolCallResult.text(
+      'arg_lineage_mismatch: snapshot "$label" has no valid packageVersion '
+      '(got $got), so the two snapshots cannot be shown to come from the '
+      'same sleuth lineage. Re-capture both with get_snapshot.',
+      isError: true,
+    );
+  }
+  final beforeLineage = versionLineage(beforeVersion as String);
+  final afterLineage = versionLineage(afterVersion as String);
+  if (beforeLineage != afterLineage) {
+    return ToolCallResult.text(
+      'arg_lineage_mismatch: snapshots come from different sleuth lineages '
+      '(before=$beforeVersion, after=$afterVersion). Detector ids, defaults '
+      'and coverage change between lineages, so the diff would report '
+      'instrumentation changes as app changes. Re-capture both runs with '
+      'the same sleuth version.',
+      isError: true,
+    );
+  }
+  return null;
+}
+
+/// VM coverage of one snapshot: true with a VM service link, false without
+/// one (`isVmConnected` false, or `get_snapshot` stamped a
+/// `launchModeAdvisory` on a degraded session), null when `isVmConnected`
+/// is missing or not a bool.
+bool? _vmCoverage(Map<String, Object?> snapshot) {
+  final connected = snapshot['isVmConnected'];
+  if (connected is! bool) return null;
+  return connected && !snapshot.containsKey('launchModeAdvisory');
+}
+
+/// Returns an `arg_coverage_mismatch` error envelope when the snapshots'
+/// VM coverage differs or either side's is unknown, else null. VM-only
+/// detectors report nothing without a VM link, so their issues would read
+/// as resolved (or new) across a coverage change.
+ToolCallResult? _coverageMismatch(
+  Map<String, Object?> before,
+  Map<String, Object?> after,
+) {
+  final beforeCoverage = _vmCoverage(before);
+  final afterCoverage = _vmCoverage(after);
+  if (beforeCoverage == null || afterCoverage == null) {
+    final label = beforeCoverage == null ? 'before' : 'after';
+    return ToolCallResult.text(
+      'arg_coverage_mismatch: snapshot "$label" has no boolean '
+      'isVmConnected, so whether VM-only detectors ($vmOnlyStableIds) ran '
+      'is unknown. Re-capture both with get_snapshot.',
+      isError: true,
+    );
+  }
+  if (beforeCoverage != afterCoverage) {
+    final covered = beforeCoverage ? 'before' : 'after';
+    return ToolCallResult.text(
+      'arg_coverage_mismatch: only the "$covered" snapshot had a VM service '
+      'link; the other reports isVmConnected=false or carries a '
+      'launchModeAdvisory. VM-only detectors ($vmOnlyStableIds) report '
+      'nothing without one, so their issues would read as resolved or new. '
+      'Re-capture both runs with a VM link '
+      '(`flutter run --profile --no-dds`).',
+      isError: true,
+    );
+  }
+  return null;
+}
+
+/// Highest severity and occurrence count of one stableId in a snapshot.
+class _IssueAggregate {
+  _IssueAggregate(this.severity);
+
+  String severity;
+  int count = 1;
+}
+
 /// Parse `currentIssues` from a snapshot payload. Returns either a
-/// `Map<stableId, issueMap>` or a `ToolCallResult` error envelope
+/// `Map<stableId, _IssueAggregate>` or a `ToolCallResult` error envelope
 /// describing the drift.
 Object _issueMap(Map<String, Object?> snapshot, String label) {
   final list = snapshot['currentIssues'];
@@ -175,7 +308,7 @@ Object _issueMap(Map<String, Object?> snapshot, String label) {
       isError: true,
     );
   }
-  final result = <String, Map<String, Object?>>{};
+  final result = <String, _IssueAggregate>{};
   for (var i = 0; i < list.length; i++) {
     final entry = list[i];
     if (entry is! Map<String, Object?>) {
@@ -201,7 +334,15 @@ Object _issueMap(Map<String, Object?> snapshot, String label) {
         isError: true,
       );
     }
-    result[id] = entry;
+    final existing = result[id];
+    if (existing == null) {
+      result[id] = _IssueAggregate(sev);
+    } else {
+      existing.count++;
+      if (_severityRank(sev) > _severityRank(existing.severity)) {
+        existing.severity = sev;
+      }
+    }
   }
   return result;
 }

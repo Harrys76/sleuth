@@ -97,8 +97,9 @@ enum _SkewClass {
   /// Lineage drift outside the accepted set — refuse to serve.
   refused,
 
-  /// `packageVersion` was missing or non-String. Cannot prove
-  /// wire-shape compatibility — fail closed.
+  /// `packageVersion` was missing, non-String, or not a semver
+  /// `major.minor.patch`. Cannot prove wire-shape compatibility — fail
+  /// closed.
   unknown,
 }
 
@@ -107,9 +108,10 @@ _SkewClass _classifySkew(Map<String, Object?>? diagnoseEnvelope) {
   final data = diagnoseEnvelope['data'];
   if (data is! Map<String, Object?>) return _SkewClass.unknown;
   final raw = data['packageVersion'];
-  if (raw is! String || raw.isEmpty) return _SkewClass.unknown;
-  if (raw == sleuthPackageVersionPin) return _SkewClass.exact;
+  if (raw is! String) return _SkewClass.unknown;
   final appLineage = versionLineage(raw);
+  if (appLineage == null) return _SkewClass.unknown;
+  if (raw == sleuthPackageVersionPin) return _SkewClass.exact;
   final pinLineage = versionLineage(sleuthPackageVersionPin);
   if (appLineage == pinLineage) return _SkewClass.sameLineagePatch;
   if (acceptedPriorLineages.contains(appLineage)) {
@@ -127,8 +129,10 @@ String _skewRefusalMessage(Map<String, Object?>? diag, String reason) {
   }
   switch (reason) {
     case 'version_skew_unknown':
-      return 'version_skew_unknown: diagnose envelope missing packageVersion '
-          'stamp — cannot verify wire contract. Bridge disconnected.';
+      final got = appVersion == null ? '' : ' (got "$appVersion")';
+      return 'version_skew_unknown: diagnose envelope missing or malformed '
+          'packageVersion stamp$got — cannot verify wire contract. Bridge '
+          'disconnected.';
     default:
       return 'version_skew_major: app=${appVersion ?? '<missing>'} '
           'sidecar-pin=$sleuthPackageVersionPin — refusing to serve; align '
@@ -204,8 +208,8 @@ _enforceVersionSkew(VmBridge bridge) async {
   }
 }
 
-/// Picks the warning string the connect tool should stamp on the response.
-/// Returns null when no warning is appropriate.
+/// Picks the warning string the `connect` and `attach_app` tools stamp on
+/// their response. Returns null when no warning is appropriate.
 String? _connectWarningFor(_SkewClass clazz) {
   switch (clazz) {
     case _SkewClass.sameLineagePatch:
@@ -471,46 +475,12 @@ Future<Object> _getRouteHealthHandler(
   VmBridge bridge,
   Map<String, Object?> args,
 ) async {
+  // Every accepted lineage emits the `{route: <session>}` wrapper for a
+  // single-route match, so the envelope passes through unmodified.
   final extArgs = <String, dynamic>{};
   final route = args['route'];
-  final hasRouteArg = route is String && route.isNotEmpty;
-  if (hasRouteArg) extArgs['route'] = route;
-  final envelope = await bridge.callExtension(
-    'ext.sleuth.routeHealth',
-    args: extArgs,
-  );
-  // Passthrough untouched for:
-  //   - error envelopes (no `data` block);
-  //   - absent-route shape (caller asked for the full route list and the
-  //     wrapper logic only applies to single-match responses).
-  if (!hasRouteArg) return envelope;
-  if (envelope['error'] != null) return envelope;
-  final data = envelope['data'];
-  if (data is! Map<String, Object?>) return envelope;
-  final hasRouteKey = data.containsKey('route');
-  final hasRouteNameKey = data.containsKey('routeName');
-  if (hasRouteKey && hasRouteNameKey) {
-    // Defensive: under either the canonical v0.33 wrapper or the inline
-    // v0.32 shape this state is impossible. Surface via the bridge logger
-    // when available; never double-wrap.
-    return envelope;
-  }
-  if (hasRouteKey) {
-    // Canonical v0.33 shape — already wrapped, leave alone.
-    return envelope;
-  }
-  if (hasRouteNameKey) {
-    // v0.32 inline shape from an `acceptedPriorLineages` app. Wrap so the
-    // sidecar's downstream consumers always see the canonical
-    // `{route: <session>}` shape regardless of which lineage the app
-    // speaks.
-    final wrapped = Map<String, Object?>.from(data);
-    final rewritten = Map<String, Object?>.from(envelope)
-      ..['data'] = <String, Object?>{'route': wrapped};
-    return rewritten;
-  }
-  // Ambiguous / empty match — return untouched.
-  return envelope;
+  if (route is String && route.isNotEmpty) extArgs['route'] = route;
+  return _passThrough(bridge, 'ext.sleuth.routeHealth', extArgs);
 }
 
 Future<Object> _explainIssueHandler(
@@ -547,14 +517,21 @@ Future<Object> _diagnoseHandler(
   return Map<String, Object?>.from(envelope)..['data'] = augmented;
 }
 
-/// Stamps `launchModeAdvisory` onto an attach `status.toJson()` map when the
-/// post-attach diagnose envelope reports a degraded `connectionMode`. [diag]
-/// is null on the non-attached path, which yields no advisory.
-Map<String, Object?> _withLaunchAdvisory(
+/// Stamps an attach `status.toJson()` map from the post-attach diagnose
+/// envelope: the same version-skew `warning` the `connect` tool returns
+/// (`version_skew_minor` / `version_skew_prior_lineage`), and
+/// `launchModeAdvisory` when `connectionMode` is degraded. [diag] is null on
+/// the non-attached path, which yields neither.
+Map<String, Object?> _withAttachStamps(
   Map<String, Object?> status,
   Map<String, Object?>? diag,
 ) {
-  final advisory = diag == null ? null : launchModeAdvisoryForEnvelope(diag);
+  if (diag == null) return status;
+  final warning = _connectWarningFor(_classifySkew(diag));
+  if (warning != null) {
+    status['warning'] = warning;
+  }
+  final advisory = launchModeAdvisoryForEnvelope(diag);
   if (advisory != null) {
     status['launchModeAdvisory'] = advisory;
   }
@@ -625,6 +602,7 @@ final Map<String, BuiltInTool> builtInTools = {
           },
           'verbose': <String, Object?>{
             'type': 'boolean',
+            'default': false,
             'description':
                 'Return full issue fields. Default false trims each '
                 'currentIssue to the actionable subset.',
@@ -653,12 +631,14 @@ final Map<String, BuiltInTool> builtInTools = {
           },
           'maxIssueCount': {
             'type': 'integer',
+            'default': 50,
             'description':
                 'Keep top-N already-ranked issues. Default 50; '
                 '0 means unbounded. Applies whether or not verbose is set.',
           },
           'verbose': {
             'type': 'boolean',
+            'default': false,
             'description':
                 'Return full issue fields instead of the compact '
                 'actionable subset. Field shape only — the maxIssueCount cap '
@@ -688,9 +668,13 @@ final Map<String, BuiltInTool> builtInTools = {
   'explain_issue': BuiltInTool(
     descriptor: const Tool(
       name: 'explain_issue',
-      annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: false),
+      annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
       description:
-          'Encyclopedia entry for a stableId (parametric variants resolve).',
+          'Encyclopedia entry for a stableId (parametric variants resolve). '
+          'On sleuth 0.37+ apps the route, widget and count text is filled '
+          'from the matching live issue (neutral wording when none is '
+          'live); sleuth 0.36 apps return raw placeholders such as '
+          '{widgetName} and {routeName}.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -707,7 +691,10 @@ final Map<String, BuiltInTool> builtInTools = {
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: false),
       description:
           'Pure client-side diff of two snapshots. No app call. Use for AI '
-          'conversation context: did this code change regress performance?',
+          'conversation context: did this code change regress performance? '
+          'Issues aggregate per stableId (highest severity + count). Refuses '
+          'snapshots from different sleuth lineages or with different VM '
+          'coverage.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -731,8 +718,9 @@ final Map<String, BuiltInTool> builtInTools = {
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
       description:
           'Compare live snapshot against FPS / issue-count budgets. Returns '
-          '{passed, violations}. For CI exit-code gating, use the `sleuth_check` '
-          'one-shot binary instead.',
+          '{passed, violations}; refuses with coverage_degraded when the app '
+          'has no VM service link (VM-only detectors never ran). For CI '
+          'exit-code gating, use the `sleuth_check` one-shot binary instead.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -758,7 +746,7 @@ final Map<String, BuiltInTool> builtInTools = {
   ),
 };
 
-/// Builds the 6 attach-mode tools bound to [server]. Caller registers
+/// Builds the 5 attach-mode tools bound to [server]. Caller registers
 /// them on the server alongside `builtInTools`.
 ///
 /// Closure capture reads `server.daemonSession` lazily so tests can swap
@@ -869,7 +857,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
             );
           }
         }
-        return _withLaunchAdvisory(status.toJson(), diag);
+        return _withAttachStamps(status.toJson(), diag);
       } on IosAttachException catch (e) {
         return _iosErrorEnvelope(
           _iosErrorKindToTypedName(e.kind),
@@ -914,7 +902,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
         }
         diag = result.diagnose;
       }
-      return _withLaunchAdvisory(status.toJson(), diag);
+      return _withAttachStamps(status.toJson(), diag);
     } on StateError catch (e) {
       return ToolCallResult.text(e.message, isError: true);
     } on DaemonSessionException catch (e) {
@@ -1065,6 +1053,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
             },
             'forceRelaunch': {
               'type': 'boolean',
+              'default': false,
               'description':
                   'iOS only: skip the Bonjour probe and drive a fresh '
                   '`xcrun devicectl process launch`. Recovers from a '
@@ -1120,6 +1109,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           'properties': {
             'mobileOnly': {
               'type': 'boolean',
+              'default': true,
               'description':
                   'Filter to category=="mobile" (Android + iOS). Default true.',
             },

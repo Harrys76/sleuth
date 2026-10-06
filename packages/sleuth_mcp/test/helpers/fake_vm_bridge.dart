@@ -54,6 +54,24 @@ List<Map<String, Object?>> fullFakeIssues() => [
   },
 ];
 
+/// `ext.sleuth.snapshot` envelope used by [defaultFakeBridge]: a `basic`
+/// session whose snapshot reports [isVmConnected] (default false — no VM
+/// self-connect, so the launch advisory fires and budgets refuse with
+/// `coverage_degraded`). Pass true for a session whose VM-only detectors ran.
+Map<String, Object?> fakeSnapshotEnvelope({bool isVmConnected = false}) => {
+  'connectionMode': 'basic',
+  'schemaVersion': 1,
+  'sessionUuid': 'fake-uuid',
+  'data': {
+    'schemaVersion': 5,
+    'exportedAt': '2026-05-17T00:00:00.000Z',
+    'packageVersion': '0.37.0',
+    'isVmConnected': isVmConnected,
+    'currentIssues': fullFakeIssues(),
+    'frameStatsSummary': {'averageFps': 59.5, 'jankFrames': 0},
+  },
+};
+
 /// Build a `FakeVmBridge` pre-populated with realistic envelopes for
 /// the seven `ext.sleuth.*` extensions.
 FakeVmBridge defaultFakeBridge() {
@@ -94,17 +112,7 @@ FakeVmBridge defaultFakeBridge() {
       'pollWindowFallbacks': 0,
     },
   });
-  bridge.setEnvelope('ext.sleuth.snapshot', {
-    'connectionMode': 'basic',
-    'schemaVersion': 1,
-    'sessionUuid': 'fake-uuid',
-    'data': {
-      'schemaVersion': 5,
-      'exportedAt': '2026-05-17T00:00:00.000Z',
-      'currentIssues': fullFakeIssues(),
-      'frameStatsSummary': {'averageFps': 59.5, 'jankFrames': 0},
-    },
-  });
+  bridge.setEnvelope('ext.sleuth.snapshot', fakeSnapshotEnvelope());
   bridge.setEnvelope('ext.sleuth.issues', {
     'connectionMode': 'basic',
     'schemaVersion': 1,

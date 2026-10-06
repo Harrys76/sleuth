@@ -6,8 +6,11 @@ import 'package:args/args.dart';
 import 'package:sleuth_mcp/sleuth_mcp.dart';
 
 /// One-shot CI gate. Connects, calls `ext.sleuth.snapshot`, evaluates
-/// budgets, prints report, exits 0 on pass / 1 on violation. NOT an MCP
-/// server — designed for use in CI shell scripts.
+/// budgets, prints report. Exits 0 on pass, 1 on a budget violation, and 2
+/// when the check could not run: connect failure, version refusal,
+/// malformed snapshot, or `coverage_degraded` (the app has no VM service
+/// link, so the VM-only detectors never ran). NOT an MCP server — designed
+/// for use in CI shell scripts.
 Future<void> main(List<String> argv) async {
   final parser = ArgParser()
     ..addOption(
@@ -52,6 +55,12 @@ Future<void> main(List<String> argv) async {
       'sleuth_check — one-shot CI gate for sleuth performance budgets.\n',
     );
     stdout.writeln(parser.usage);
+    stdout.writeln(
+      '\nExit codes: 0 pass, 1 budget violation, 2 check could not run '
+      '(connect failure, version refusal, malformed snapshot, or '
+      'coverage_degraded: no VM service link, so VM-only detectors never '
+      'ran).',
+    );
     return;
   }
 
@@ -101,9 +110,9 @@ Future<void> main(List<String> argv) async {
       maxCriticalIssues: maxCritical,
     );
     if (result is ToolCallResult) {
-      // Schema drift / malformed snapshot — surface the error envelope
-      // text and exit with code 2 so CI fails loudly rather than
-      // misreading it as a passing budget.
+      // Schema drift / malformed snapshot / coverage_degraded — surface
+      // the error envelope text and exit with code 2 so CI fails loudly
+      // rather than misreading it as a passing budget.
       for (final block in result.content) {
         final text = block['text'];
         if (text is String) stderr.writeln(text);

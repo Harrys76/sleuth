@@ -57,6 +57,9 @@ Directory _resolveRepoRoot() {
   );
 }
 
+/// The sleuth_mcp package root (holds `pubspec.yaml`, `lib/`, `doc/`).
+Directory _packageDir() => _resolveToolSchemaFile().parent.parent;
+
 Map<String, Object?> _loadToolSchema() {
   final file = _resolveToolSchemaFile();
   return jsonDecode(file.readAsStringSync()) as Map<String, Object?>;
@@ -72,11 +75,94 @@ Set<String> _documentedKeys(Map<String, Object?> toolSchema) {
   return data.keys.where((k) => !_isSchemaMeta(k)).toSet();
 }
 
+Set<String> _requiredKeys(Map<String, Object?> toolSchema) {
+  final data = toolSchema['data'];
+  if (data is! Map<String, Object?>) return const <String>{};
+  return {
+    for (final e in data.entries)
+      if (!_isSchemaMeta(e.key) &&
+          e.value is Map &&
+          (e.value as Map)['required'] == true)
+        e.key,
+  };
+}
+
 /// Extract the text content from a ToolCallResult error response.
 String _errorText(ToolCallResult r) {
   expect(r.isError, isTrue, reason: 'expected ToolCallResult.isError == true');
   expect(r.content, isNotEmpty);
   return r.content.first['text'] as String;
+}
+
+/// Documented arg type → JSON Schema `type` the descriptor must declare.
+const Map<String, String> _jsonSchemaTypes = {
+  'String': 'string',
+  'bool': 'boolean',
+  'int': 'integer',
+  'num': 'number',
+  'Map': 'object',
+  'List<String>': 'array',
+};
+
+/// A server with the default registry, initialized.
+Future<McpServer> _initializedServer() async {
+  final server = McpServer(bridge: defaultFakeBridge())..registerDefaults();
+  await server.handleForTest(
+    JsonRpcMessage(method: 'initialize', params: const {}, id: 0),
+  );
+  return server;
+}
+
+/// Tool descriptors as `tools/list` serves them, keyed by name.
+Future<Map<String, Map<String, Object?>>> _liveDescriptors() async {
+  final server = await _initializedServer();
+  final resp = await server.handleForTest(
+    JsonRpcMessage(method: 'tools/list', params: const {}, id: 1),
+  );
+  final list = (resp!.result as Map<String, Object?>)['tools'] as List;
+  return {
+    for (final t in list.cast<Map<String, Object?>>()) t['name'] as String: t,
+  };
+}
+
+/// Text of a `tools/call` error result sent through the server, so the
+/// server's argument validation runs.
+Future<String> _serverCallError(
+  McpServer server,
+  Map<String, Object?> params,
+) async {
+  final resp = await server.handleForTest(
+    JsonRpcMessage(method: 'tools/call', params: params, id: 2),
+  );
+  final result = resp!.result as Map<String, Object?>;
+  expect(result['isError'], isTrue, reason: 'expected an error for $params');
+  return ((result['content'] as List).first as Map)['text'] as String;
+}
+
+/// Leading literal text of every `ToolCallResult.text('…')` error in
+/// [source], cut at the first interpolation.
+List<String> _literalErrorLeads(String source) => [
+  for (final m in RegExp(
+    r"ToolCallResult\.text\(\s*'((?:[^'\\]|\\.)*)'",
+  ).allMatches(source))
+    m.group(1)!.split(r'$').first,
+];
+
+/// Whether [errors] (a doc `errors` / `serverErrors` list) documents an
+/// error message starting with [lead]: a documented `messagePrefix` it
+/// starts with, or a documented `code` equal to its `code:` token.
+bool _documents(List<Object?> errors, String lead) {
+  final code = RegExp(r'^([a-z_]+):').firstMatch(lead)?.group(1);
+  for (final e in errors.cast<Map<String, Object?>>()) {
+    final prefix = e['messagePrefix'];
+    if (prefix is String &&
+        !prefix.startsWith('<') &&
+        lead.startsWith(prefix)) {
+      return true;
+    }
+    if (code != null && e['code'] == code) return true;
+  }
+  return false;
 }
 
 void main() {
@@ -93,56 +179,85 @@ void main() {
       expect(schema['schemaVersion'], 2);
     });
 
-    test('every documented tool exists in builtInTools or lifecycleTools', () {
-      // lifecycleTools take an McpServer; reflective coverage is enough —
-      // we don't construct one in this audit. Just verify the union of
-      // tool names equals the documented set.
-      final documented = tools.keys.toSet();
-      const lifecycleNames = {
-        'attach_app',
-        'detach_app',
-        'app_status',
-        'hot_reload',
-        'list_devices',
-      };
-      final builtIn = builtInTools.keys.toSet();
-      final union = {...builtIn, ...lifecycleNames};
+    test('documented tools match the server registry both ways', () async {
+      final server = McpServer(bridge: defaultFakeBridge());
+      final fromCode = {...builtInTools.keys, ...lifecycleTools(server).keys};
+      final live = (await _liveDescriptors()).keys.toSet();
       expect(
-        documented.difference(union),
+        live,
+        fromCode,
+        reason: 'registerDefaults must register builtInTools + lifecycleTools',
+      );
+      final documented = tools.keys.toSet();
+      expect(
+        documented.difference(live),
         isEmpty,
         reason: 'tool schema lists tools that no handler binds',
       );
       expect(
-        union.difference(documented),
+        live.difference(documented),
         isEmpty,
         reason: 'handlers exist for tools missing from tool schema',
       );
     });
 
-    test('attach_app: every documented arg is declared in the live '
-        'inputSchema (allowlist drift guard)', () {
-      // The arg allowlist that `_validateArgs` enforces is the tool's
-      // inputSchema.properties. A doc that lists an arg the descriptor
-      // omits means callers get `arg_unknown` for a documented arg —
-      // exactly how `forceRelaunch` was unreachable. Cross-check both.
-      final attachDoc = tools['attach_app'] as Map<String, Object?>;
-      final docArgs = (attachDoc['args'] as Map<String, Object?>).keys.toSet();
-
-      final bridge = defaultFakeBridge();
-      final server = McpServer(bridge: bridge);
-      final descriptor = lifecycleTools(server)['attach_app']!.descriptor;
-      final schemaMap = descriptor.inputSchema;
-      final props = (schemaMap['properties'] as Map<String, Object?>).keys
-          .toSet();
-
-      expect(
-        docArgs.difference(props),
-        isEmpty,
-        reason:
-            'mcp_tool_schema documents attach_app args the live '
-            'inputSchema does not declare — callers hit arg_unknown: '
-            '${docArgs.difference(props)}',
-      );
+    test('every live descriptor argument matches the documented args both '
+        'ways (names, types, required, enum, minLength, default)', () async {
+      // `_validateArgs` enforces the live inputSchema: an arg the doc lists
+      // but the descriptor omits is rejected with arg_unknown, and a type
+      // drift rejects documented calls with arg_type_mismatch. Handler
+      // tests bypass that validation, so this is the only guard.
+      final live = await _liveDescriptors();
+      for (final name in live.keys) {
+        final doc = tools[name] as Map<String, Object?>;
+        final docArgs =
+            (doc['args'] as Map<String, Object?>?) ?? const <String, Object?>{};
+        final inputSchema = live[name]!['inputSchema'] as Map<String, Object?>;
+        expect(inputSchema['type'], 'object', reason: '$name inputSchema type');
+        final props =
+            (inputSchema['properties'] as Map<String, Object?>?) ??
+            const <String, Object?>{};
+        final required = ((inputSchema['required'] as List?) ?? const [])
+            .cast<String>()
+            .toSet();
+        expect(
+          docArgs.keys.toSet(),
+          props.keys.toSet(),
+          reason: '$name: documented args differ from inputSchema.properties',
+        );
+        expect(
+          required.difference(props.keys.toSet()),
+          isEmpty,
+          reason: '$name: inputSchema.required names an undeclared arg',
+        );
+        for (final arg in docArgs.keys) {
+          final d = docArgs[arg] as Map<String, Object?>;
+          final p = props[arg] as Map<String, Object?>;
+          final where = '$name.$arg';
+          expect(
+            _jsonSchemaTypes[d['type']],
+            isNotNull,
+            reason: '$where: unknown documented type ${d['type']}',
+          );
+          expect(p['type'], _jsonSchemaTypes[d['type']], reason: '$where type');
+          if (d['type'] == 'List<String>') {
+            expect(p['items'], {'type': 'string'}, reason: '$where items');
+          }
+          expect(
+            required.contains(arg),
+            d['required'] == true,
+            reason: '$where required flag',
+          );
+          expect(p['enum'], d['values'], reason: '$where enum');
+          expect(p['minLength'], d['minLength'], reason: '$where minLength');
+          expect(
+            p.containsKey('default'),
+            d.containsKey('default'),
+            reason: '$where default declared on one side only',
+          );
+          expect(p['default'], d['default'], reason: '$where default value');
+        }
+      }
     });
 
     test('every descriptor declares readOnlyHint matching readOnlyTools', () {
@@ -321,39 +436,60 @@ void main() {
   });
 
   group('compare_snapshots', () {
-    test('success path keys ⊆ documented', () async {
-      final bridge = defaultFakeBridge();
-      final handler = builtInTools['compare_snapshots']!.handler;
-      final before = {
-        'currentIssues': [
-          {'stableId': 'a', 'severity': 'warning'},
-        ],
-        'frameStatsSummary': {'averageFps': 60.0},
-      };
-      final after = {
-        'currentIssues': [
-          {'stableId': 'a', 'severity': 'critical'},
-        ],
-        'frameStatsSummary': {'averageFps': 45.0},
-      };
-      final result =
-          await handler(bridge, {'before': before, 'after': after})
-              as Map<String, Object?>;
-      final actual = result.keys.toSet();
-      final documented = _documentedKeys(
-        tools['compare_snapshots'] as Map<String, Object?>,
-      );
-      expect(
-        actual.difference(documented),
-        isEmpty,
-        reason: 'compare_snapshots emitted undocumented keys',
-      );
-      expect(
-        documented.difference(actual),
-        isEmpty,
-        reason: 'compare_snapshots missing documented keys',
-      );
-    });
+    Map<String, Object?> snap(String severity, {bool vm = true}) => {
+      'packageVersion': '0.37.0',
+      'isVmConnected': vm,
+      'currentIssues': [
+        {'stableId': 'a', 'severity': severity},
+        {'stableId': 'a', 'severity': 'warning'},
+      ],
+      'frameStatsSummary': {'averageFps': 60.0},
+    };
+
+    for (final vm in [true, false]) {
+      test('success path keys match documented (isVmConnected $vm)', () async {
+        final handler = builtInTools['compare_snapshots']!.handler;
+        final result =
+            await handler(defaultFakeBridge(), {
+                  'before': snap('warning', vm: vm),
+                  'after': snap('critical', vm: vm),
+                })
+                as Map<String, Object?>;
+        final doc = tools['compare_snapshots'] as Map<String, Object?>;
+        final actual = result.keys.toSet();
+        expect(
+          actual.difference(_documentedKeys(doc)),
+          isEmpty,
+          reason: 'compare_snapshots emitted undocumented keys',
+        );
+        expect(
+          _requiredKeys(doc).difference(actual),
+          isEmpty,
+          reason: 'compare_snapshots missing required documented keys',
+        );
+        expect(
+          result.containsKey('coverageWarning'),
+          !vm,
+          reason: 'coverageWarning is present iff neither side had a VM link',
+        );
+        final docData = doc['data'] as Map<String, Object?>;
+        for (final listKey in ['elevatedSeverity', 'countChanged']) {
+          final shape =
+              (docData[listKey] as Map<String, Object?>)['item_shape']
+                  as Map<String, Object?>;
+          for (final item
+              in (result[listKey] as List).cast<Map<String, Object?>>()) {
+            expect(
+              item.keys.toSet(),
+              shape.keys.toSet(),
+              reason: '$listKey item shape drifted from the doc',
+            );
+          }
+        }
+        expect(result['countChanged'], isEmpty);
+        expect(result['elevatedSeverity'], hasLength(1));
+      });
+    }
 
     test('error: arg before not object', () async {
       final bridge = defaultFakeBridge();
@@ -380,7 +516,11 @@ void main() {
 
   group('check_budgets', () {
     test('success path keys ⊆ documented', () async {
-      final bridge = defaultFakeBridge();
+      final bridge = defaultFakeBridge()
+        ..setEnvelope(
+          'ext.sleuth.snapshot',
+          fakeSnapshotEnvelope(isVmConnected: true),
+        );
       await bridge.connect(Uri.parse('ws://localhost/ws'));
       final handler = builtInTools['check_budgets']!.handler;
       final result =
@@ -533,79 +673,42 @@ void main() {
     );
   });
 
-  group('get_route_health lineage shim', () {
-    test(
-      'v0.33 canonical {route: ...} shape passes through untouched',
-      () async {
-        final bridge = FakeVmBridge(fakeSessionUuid: 'uuid');
-        bridge.setEnvelope('ext.sleuth.diagnose', {
-          'connectionMode': 'basic',
-          'schemaVersion': 1,
-          'sessionUuid': 'uuid',
-          'data': {'packageVersion': sleuthPackageVersionPin},
-        });
-        bridge.setEnvelope('ext.sleuth.routeHealth', {
-          'connectionMode': 'basic',
-          'schemaVersion': 1,
-          'sessionUuid': 'uuid',
-          'data': {
-            'route': {'routeName': 'home', 'durationSeconds': 3.0},
-          },
-        });
-        await bridge.connect(Uri.parse('ws://localhost/ws'));
-        final handler = builtInTools['get_route_health']!.handler;
-        final result =
-            await handler(bridge, {'route': 'home'}) as Map<String, Object?>;
-        final data = result['data'] as Map<String, Object?>;
-        expect(data.containsKey('route'), isTrue);
-        expect(
-          data.containsKey('routeName'),
-          isFalse,
-          reason: 'canonical wrapper shape must not leak the inline key',
-        );
-        final route = data['route'] as Map<String, Object?>;
-        expect(route['routeName'], 'home');
-      },
-    );
+  group('get_route_health passthrough', () {
+    test('doc declares no shim', () {
+      final doc = tools['get_route_health'] as Map<String, Object?>;
+      expect(doc['kind'], 'passthrough');
+      expect(doc['shims'], isEmpty);
+    });
 
-    test('legacy inline RouteSession (routeName at data root) is wrapped into '
-        '{route: <inline>} for acceptedPriorLineages app', () async {
+    test('canonical {route: ...} shape passes through untouched', () async {
       final bridge = FakeVmBridge(fakeSessionUuid: 'uuid');
       bridge.setEnvelope('ext.sleuth.diagnose', {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'uuid',
-        'data': {'packageVersion': '0.33.0'},
+        'data': {'packageVersion': sleuthPackageVersionPin},
       });
       bridge.setEnvelope('ext.sleuth.routeHealth', {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'uuid',
         'data': {
-          // Inline RouteSession shape — no `route` wrapper key.
-          'routeName': 'profile',
-          'durationSeconds': 7.0,
-          'healthScore': 92,
+          'route': {'routeName': 'home', 'durationSeconds': 3.0},
         },
       });
       await bridge.connect(Uri.parse('ws://localhost/ws'));
       final handler = builtInTools['get_route_health']!.handler;
       final result =
-          await handler(bridge, {'route': 'profile'}) as Map<String, Object?>;
+          await handler(bridge, {'route': 'home'}) as Map<String, Object?>;
       final data = result['data'] as Map<String, Object?>;
-      expect(
-        data.containsKey('route'),
-        isTrue,
-        reason: 'shim must wrap inline shape into {route: ...}',
-      );
-      final route = data['route'] as Map<String, Object?>;
-      expect(route['routeName'], 'profile');
-      expect(route['durationSeconds'], 7.0);
+      expect(data.containsKey('route'), isTrue);
       expect(
         data.containsKey('routeName'),
         isFalse,
-        reason: 'inline key must not leak alongside the wrapper',
+        reason: 'canonical wrapper shape must not leak the inline key',
       );
+      final route = data['route'] as Map<String, Object?>;
+      expect(route['routeName'], 'home');
     });
 
     test('absent-route shape (routes list) passes through untouched', () async {
@@ -621,6 +724,179 @@ void main() {
         data.containsKey('route'),
         isFalse,
         reason: 'absent-route response must never carry singular route',
+      );
+    });
+  });
+
+  group('server-level errors', () {
+    late List<Object?> serverErrors;
+
+    setUpAll(() {
+      serverErrors = schema['serverErrors'] as List<Object?>;
+    });
+
+    String prefixOf(String code) =>
+        (serverErrors.cast<Map<String, Object?>>().singleWhere(
+              (e) => e['code'] == code,
+            )['messagePrefix']
+            as String);
+
+    for (final (code, params) in <(String, Map<String, Object?>)>[
+      (
+        'missing_required_arg',
+        {'name': 'explain_issue', 'arguments': <String, Object?>{}},
+      ),
+      (
+        'arg_unknown',
+        {
+          'name': 'get_issues',
+          'arguments': {'bogus': 1},
+        },
+      ),
+      (
+        'arg_type_mismatch',
+        {
+          'name': 'get_snapshot',
+          'arguments': {'diskHandoff': 'yes'},
+        },
+      ),
+      (
+        'arg_enum_violation',
+        {
+          'name': 'get_issues',
+          'arguments': {'severityAtLeast': 'fatal'},
+        },
+      ),
+      (
+        'arg_min_length_violation',
+        {
+          'name': 'explain_issue',
+          'arguments': {'stableId': ''},
+        },
+      ),
+      ('unknown_tool', {'name': 'no_such_tool'}),
+      ('missing_tool_name', <String, Object?>{}),
+      (
+        'arguments_not_object',
+        {
+          'name': 'get_issues',
+          'arguments': [1],
+        },
+      ),
+    ]) {
+      test('$code is documented and returned through tools/call', () async {
+        final server = await _initializedServer();
+        final text = await _serverCallError(server, params);
+        expect(text, startsWith(prefixOf(code)));
+      });
+    }
+
+    test('every documented server error is returned by McpServer and every '
+        'literal server error is documented', () {
+      final source = File(
+        '${_packageDir().path}/lib/src/mcp/mcp_server.dart',
+      ).readAsStringSync();
+      final validateStart = source.indexOf('String? _validateArgs(');
+      final validateEnd = source.indexOf('String _jsonTypeOf(');
+      expect(validateStart, isNonNegative);
+      expect(validateEnd, greaterThan(validateStart));
+      final leads = [
+        ..._literalErrorLeads(source),
+        for (final m in RegExp(
+          r"return '((?:[^'\\]|\\.)*)'",
+        ).allMatches(source.substring(validateStart, validateEnd)))
+          m.group(1)!.split(r'$').first,
+      ];
+      expect(leads, isNotEmpty);
+      for (final lead in leads) {
+        expect(
+          _documents(serverErrors, lead),
+          isTrue,
+          reason: 'McpServer returns "$lead…" but serverErrors omits it',
+        );
+      }
+      for (final e in serverErrors.cast<Map<String, Object?>>()) {
+        final prefix = e['messagePrefix'] as String;
+        expect(
+          leads.any((l) => l.startsWith(prefix)),
+          isTrue,
+          reason:
+              'serverErrors documents ${e['code']} but McpServer never '
+              'returns "$prefix…"',
+        );
+      }
+    });
+  });
+
+  group('error-code coverage', () {
+    List<Object?> errorsOf(String tool) =>
+        ((tools[tool] as Map<String, Object?>)['errors'] as List?) ??
+        const <Object?>[];
+
+    List<Object?> allToolErrors() => [
+      for (final name in tools.keys) ...errorsOf(name),
+    ];
+
+    String read(String relative) =>
+        File('${_packageDir().path}/$relative').readAsStringSync();
+
+    test('every literal compare_snapshots error is documented', () {
+      for (final lead in _literalErrorLeads(
+        read('lib/src/tools/compare_snapshots.dart'),
+      )) {
+        expect(
+          _documents(errorsOf('compare_snapshots'), lead),
+          isTrue,
+          reason: 'compare_snapshots returns "$lead…" undocumented',
+        );
+      }
+    });
+
+    test('every literal check_budgets error is documented', () {
+      for (final lead in _literalErrorLeads(
+        read('lib/src/tools/budgets.dart'),
+      )) {
+        expect(
+          _documents(errorsOf('check_budgets'), lead),
+          isTrue,
+          reason: 'check_budgets returns "$lead…" undocumented',
+        );
+      }
+    });
+
+    test('every literal, typed, and version-skew error in tools.dart is '
+        'documented by some tool', () {
+      final source = read('lib/src/tools/tools.dart');
+      final documented = allToolErrors();
+      final leads = [
+        ..._literalErrorLeads(source),
+        for (final m in RegExp(r"'(version_skew_[a-z]+):").allMatches(source))
+          '${m.group(1)}:',
+      ];
+      expect(leads, isNotEmpty);
+      for (final lead in leads) {
+        expect(
+          _documents(documented, lead),
+          isTrue,
+          reason: 'tools.dart returns "$lead…" but no tool documents it',
+        );
+      }
+      final typedCodes = {
+        for (final m in RegExp(
+          r"_iosErrorEnvelope\(\s*'([a-z_]+)'",
+        ).allMatches(source))
+          m.group(1)!,
+        for (final m in RegExp(r"return '(ios_[a-z_]+)';").allMatches(source))
+          m.group(1)!,
+      };
+      expect(typedCodes, isNotEmpty);
+      final documentedCodes = {
+        for (final e in documented.cast<Map<String, Object?>>()) e['code'],
+      };
+      expect(
+        typedCodes.difference(documentedCodes),
+        isEmpty,
+        reason: 'typed error codes returned by tools.dart but undocumented',
       );
     });
   });

@@ -6,12 +6,21 @@
 /// signal for whether VM-only detectors are live.
 library;
 
+/// stableIds Sleuth reports only with a VM service link: every issue of the
+/// `vmOnly` detectors (memory, heavy compute, shader, platform channel,
+/// stream resource) plus the VM timeline paths of the hybrid rebuild and
+/// repaint detectors. `raster_dominance` is absent because its frame-timing
+/// leg runs without a VM link.
+const String vmOnlyStableIds =
+    'heap_growing, gc_pressure, heap_near_capacity, native_memory_growing, '
+    'heavy_compute, shader_compilation, platform_channel_traffic, '
+    'stream_resource_growth, rebuild_activity, excessive_repaint';
+
 /// Advisory for `connectionMode == 'basic'`: self-connect failed after the
 /// warmup window, so VM-only detectors stay silent.
 const String launchAdvisoryBasic =
     'Degraded session: Sleuth could not connect to the VM service, so its '
-    'VM-backed detectors are OFF (heap_growing, heavy_compute, '
-    'excessive_repaint, gc_pressure, stream_resource) — memory, CPU, and '
+    'VM-backed detectors are OFF ($vmOnlyStableIds) — memory, CPU, and '
     'repaint issues will not be reported and the issue list is incomplete. '
     'First, kill and reopen the app: a profile build re-attempts the connect '
     'on launch and usually recovers. If it stays basic AND the app was '

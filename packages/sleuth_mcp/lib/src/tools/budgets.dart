@@ -1,14 +1,16 @@
 import '../bridge/vm_bridge.dart';
 import '../mcp/mcp_types.dart';
+import 'launch_mode_advisory.dart';
 
 /// Evaluate live snapshot against FPS / issue-count budgets. Returns a
 /// `{passed, violations, observed}` shape. Pure data — no exit code
 /// (sidecar is long-running stdio; CI gate is `sleuth_check` binary).
 ///
-/// Schema-drift behaviour: this tool consumes `currentIssues[].severity`
-/// and `frameStatsSummary.averageFps | actualFps`. If those nested
-/// fields are missing or malformed the tool returns an error envelope
-/// rather than silently treating the input as zero-issue / null-fps.
+/// Schema-drift behaviour: this tool consumes `isVmConnected`,
+/// `currentIssues[].severity` and `frameStatsSummary.averageFps |
+/// actualFps`. If those fields are missing or malformed the tool returns
+/// an error envelope rather than silently treating the input as
+/// zero-issue / null-fps / full coverage.
 Future<Object> checkBudgetsHandler(
   VmBridge bridge,
   Map<String, Object?> args,
@@ -47,7 +49,9 @@ Future<Object> checkBudgetsHandler(
 
 /// Evaluate budgets against a snapshot payload. Exposed for `sleuth_check`
 /// one-shot binary reuse. Returns either a budget result map or a
-/// `ToolCallResult` error envelope on schema drift.
+/// `ToolCallResult` error envelope on schema drift, a capped issue list, or
+/// `coverage_degraded` when the snapshot's `isVmConnected` is false or
+/// unreadable.
 Object evaluateBudgets({
   required Map<String, Object?> snapshot,
   required double minFps,
@@ -64,6 +68,24 @@ Object evaluateBudgets({
       'maxIssueCount=${limits['maxIssueCount']}, so its issue list is '
       'truncated and budget counts would be wrong. Re-capture get_snapshot '
       'without maxIssueCount.',
+      isError: true,
+    );
+  }
+
+  // Without a VM service link the VM-only detectors never ran, so a pass
+  // would vouch for memory, CPU and repaint behaviour nobody observed.
+  // Basic connection mode with the VM connected (verdict still warming)
+  // reports isVmConnected true and passes through.
+  final vmConnected = snapshot['isVmConnected'];
+  if (vmConnected != true) {
+    final reading = vmConnected is bool
+        ? 'reports isVmConnected=false'
+        : 'has no boolean isVmConnected';
+    return ToolCallResult.text(
+      'coverage_degraded: the snapshot $reading, so the VM-only detectors '
+      '($vmOnlyStableIds) did not run and a pass would not cover memory, '
+      'CPU or repaint issues. Relaunch the app so Sleuth connects to the VM '
+      'service (`flutter run --profile --no-dds`), then re-run the check.',
       isError: true,
     );
   }

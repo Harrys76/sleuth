@@ -62,7 +62,7 @@ void main() {
     );
   });
 
-  test('binary spawns, initialize + tools/list returns 8 tool names', () async {
+  test('binary spawns, initialize + tools/list lists 13 tool names', () async {
     final process = await Process.start(Platform.resolvedExecutable, [
       'run',
       'bin/sleuth_mcp.dart',
@@ -154,10 +154,14 @@ void main() {
             'name': 'compare_snapshots',
             'arguments': {
               'before': {
+                'packageVersion': '0.37.0',
+                'isVmConnected': true,
                 'currentIssues': <Object?>[],
                 'frameStatsSummary': {'averageFps': 60.0},
               },
               'after': {
+                'packageVersion': '0.37.0',
+                'isVmConnected': true,
                 'currentIssues': <Object?>[],
                 'frameStatsSummary': {'averageFps': 55.0},
               },

@@ -1,17 +1,30 @@
+/// Semantic version `major.minor.patch` with optional `-prerelease` and
+/// `+build` suffixes (semver.org 2.0.0 grammar; numeric identifiers carry
+/// no leading zeros).
+final RegExp _semver = RegExp(
+  r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)'
+  r'(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)'
+  r'(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?'
+  r'(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$',
+);
+
 /// Returns the `major.minor` pair that defines a sleuth pre-1.0
-/// compatibility lineage. Pre-1.0 semver treats minor bumps as breaking,
-/// so the lineage boundary sits at the minor level. Once sleuth reaches
-/// 1.0, switch this to return `parts[0]` only.
-String versionLineage(String semver) {
-  final parts = semver.split('.');
-  if (parts.length < 2) return semver;
-  return '${parts[0]}.${parts[1]}';
+/// compatibility lineage, or null when [version] is not a semver
+/// `major.minor.patch` (with optional `-prerelease` / `+build`). Pre-1.0
+/// semver treats minor bumps as breaking, so the lineage boundary sits at
+/// the minor level. A prerelease or build of a version stays in that
+/// version's lineage (`0.37.0-dev.1` → `0.37`). Once sleuth reaches 1.0,
+/// switch this to return the major part only.
+String? versionLineage(String version) {
+  final match = _semver.firstMatch(version);
+  if (match == null) return null;
+  return '${match[1]}.${match[2]}';
 }
 
 /// Lineages this sidecar tolerates alongside its own pin. Each entry
 /// represents a prior-release `major.minor` whose envelope shape is
 /// known to be wire-compatible with the current sidecar. Drift across
-/// the boundary surfaces as `version_skew_minor` (warning), not
+/// the boundary surfaces as `version_skew_prior_lineage` (warning), not
 /// `version_skew_major` (refusal), so users mid-upgrade don't lose
 /// access to sleuth_mcp while one side rolls out.
 ///

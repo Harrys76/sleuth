@@ -7,7 +7,7 @@
     "get_snapshot": {"openWorldHint": true},
     "get_issues": {"openWorldHint": true},
     "get_route_health": {"openWorldHint": true},
-    "explain_issue": {"openWorldHint": false},
+    "explain_issue": {"openWorldHint": true},
     "compare_snapshots": {"openWorldHint": false},
     "check_budgets": {"openWorldHint": true},
     "diagnose": {"openWorldHint": true},
@@ -19,12 +19,26 @@
   },
   "notes": [
     "Error envelopes describe current sidecar handler behavior — each handler returns ToolCallResult.text(...) with `isError: true` and a single text content carrying the message string. Codes listed in `errors[].code` appear verbatim as the prefix of that text. A centralized typed error class is acknowledged debt.",
-    "Passthrough tools delegate to bridge.callExtension and return the ext.sleuth.* envelope unmodified. Documented shims (get_route_health v0.32 -> v0.33 wrapper, get_issues severityAtLeast filter, compact-issue projection on get_issues + get_snapshot) are spelled out explicitly so the audit can assert the shim's behavior.",
+    "Passthrough tools delegate to bridge.callExtension and return the ext.sleuth.* envelope unmodified. Documented shims (get_issues severityAtLeast filter, compact-issue projection on get_issues + get_snapshot, get_snapshot disk handoff, launchModeAdvisory stamping) are spelled out explicitly so the audit can assert the shim's behavior.",
     "Snapshot / route-session nested shapes live in mcp_schema.{json,md}. This file documents only the tool-layer wrapping.",
     "schemaVersion 2 adds the compact-issue projection: get_issues and get_snapshot trim each issue to the actionable subset by default (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds). Pass verbose:true for the full ~22-field shape. Compaction is field-only and lossless for the diff key (stableId + severity), so compare_snapshots and check_budgets work on compact snapshots.",
     "Transport (cross-cutting, not a per-tool shape): for clients that negotiate MCP protocol >= 2025-06-18, every SUCCESS tools/call result also carries a top-level `structuredContent` field — the same JSON the text content block carries, as an object. Clients on older protocol versions see the text content only. structuredContent is never set on error results (isError:true). This is additive and does not change any per-tool data/args/errors shape below, so schemaVersion stays 2.",
-    "toolAnnotations locks the three non-readOnly MCP annotation hints (destructiveHint, idempotentHint, openWorldHint) per tool; readOnlyHint stays sourced from readOnlyTools (not duplicated here). Only non-default hints are listed. openWorldHint:true for tools whose output reflects external/runtime state (the live-app readers get_snapshot/get_issues/get_route_health/diagnose/check_budgets and the host enumerator list_devices); false for self-contained tools (explain_issue static content, compare_snapshots local diff, app_status server-internal status). destructiveHint:true for detach_app (it terminates the session and deletes disk-handoff files); destructive/idempotent are omitted on read-only tools (the spec ignores those unless readOnlyHint is false). Annotations are advisory descriptor metadata, not a tool return/args shape, so schemaVersion stays 2.",
+    "toolAnnotations locks the three non-readOnly MCP annotation hints (destructiveHint, idempotentHint, openWorldHint) per tool; readOnlyHint stays sourced from readOnlyTools (not duplicated here). Only non-default hints are listed. openWorldHint:true for tools whose output reflects external/runtime state (the live-app readers get_snapshot/get_issues/get_route_health/explain_issue/diagnose/check_budgets and the host enumerator list_devices); false for self-contained tools (compare_snapshots local diff, app_status server-internal status). destructiveHint:true for detach_app (it terminates the session and deletes disk-handoff files); destructive/idempotent are omitted on read-only tools (the spec ignores those unless readOnlyHint is false). Annotations are advisory descriptor metadata, not a tool return/args shape, so schemaVersion stays 2.",
+    "serverErrors lists the errors McpServer returns for any tools/call before or around the handler: argument validation against the tool's inputSchema (missing_required_arg, arg_unknown, arg_type_mismatch, arg_enum_violation, arg_min_length_violation) and dispatch failures. They share the per-tool error envelope (isError:true, code as the message prefix) and apply to every tool, so per-tool `errors` lists only handler-level codes. The audit checks every literal error prefix in the handler and server source against these lists.",
     "The audit enforces descriptor<->toolAnnotations CONSISTENCY, not value-vs-behavior CORRECTNESS — a hint that disagrees with what a handler actually does (e.g. a destructive tool marked non-destructive) passes as long as the descriptor and this doc agree. Hint values are a spec/behavior judgment, reviewed against the MCP ToolAnnotations spec + the handlers, not machine-verified."
+  ],
+  "serverErrors": [
+    {"code": "missing_required_arg", "doc": "an arg listed in the tool's inputSchema.required is absent or null", "messagePrefix": "missing_required_arg:"},
+    {"code": "arg_unknown", "doc": "an arg not declared in the tool's inputSchema.properties; the message lists the allowed names", "messagePrefix": "arg_unknown:"},
+    {"code": "arg_type_mismatch", "doc": "an arg's JSON type differs from its inputSchema type (an integer satisfies number)", "messagePrefix": "arg_type_mismatch:"},
+    {"code": "arg_enum_violation", "doc": "an arg value outside its inputSchema enum", "messagePrefix": "arg_enum_violation:"},
+    {"code": "arg_min_length_violation", "doc": "a string arg shorter than its inputSchema minLength", "messagePrefix": "arg_min_length_violation:"},
+    {"code": "unknown_tool", "doc": "tools/call named a tool that is not registered", "messagePrefix": "unknown_tool:"},
+    {"code": "missing_tool_name", "doc": "tools/call without a String `name`", "messagePrefix": "missing \"name\" arg"},
+    {"code": "arguments_not_object", "doc": "tools/call `arguments` is present but not a JSON object", "messagePrefix": "arguments must be a JSON object"},
+    {"code": "timeout", "doc": "a tool without its own deadlines exceeded the generic tool timeout; the bridge is disconnected and the client must reconnect", "messagePrefix": "timeout_after_"},
+    {"code": "session_changed", "doc": "the app's sessionUuid changed during the call (hot restart or a different app)", "messagePrefix": "session_changed"},
+    {"code": "handler_exception", "doc": "the handler threw; the message carries the exception text only (stack trace goes to the log)", "messagePrefix": "error:"}
   ],
   "tools": {
     "connect": {
@@ -52,7 +66,7 @@
         {"code": "missing_required_arg", "doc": "uri arg missing or empty", "messagePrefix": "missing_required_arg: uri"},
         {"code": "invalid_uri", "doc": "Uri.parse threw FormatException", "messagePrefix": "invalid_uri:"},
         {"code": "version_skew_major", "doc": "app packageVersion lineage outside acceptedPriorLineages — bridge disconnected", "messagePrefix": "version_skew_major:"},
-        {"code": "version_skew_unknown", "doc": "diagnose envelope missing/non-String packageVersion — fail closed", "messagePrefix": "version_skew_unknown:"}
+        {"code": "version_skew_unknown", "doc": "diagnose envelope packageVersion missing, non-String, or not a semver major.minor.patch (optional -prerelease / +build) — fail closed", "messagePrefix": "version_skew_unknown:"}
       ]
     },
     "attach_app": {
@@ -78,12 +92,13 @@
         "lastError": {"type": "String", "required": false, "nullable": false, "presence": "when state == 'error'"},
         "transportMode": {"type": "String", "required": false, "nullable": false, "values": ["wired", "wireless", "unknown"], "presence": "when launchMode == 'ios-direct'"},
         "wsUri": {"type": "String", "required": false, "nullable": false, "presence": "when launchMode == 'ios-direct'"},
+        "warning": {"type": "String", "required": false, "nullable": false, "values": ["version_skew_minor", "version_skew_prior_lineage"], "presence": "when attached and the app's packageVersion differs from the sidecar pin within accepted bounds; same values as connect.warning"},
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}
       },
       "errors": [
         {"code": "session_missing", "doc": "DaemonSession not initialized on this server", "messagePrefix": "internal: daemon session not initialized"},
         {"code": "version_skew_major", "doc": "attach reached `ready` but app packageVersion lineage outside acceptedPriorLineages — auto-detached", "messagePrefix": "version_skew_major:"},
-        {"code": "version_skew_unknown", "doc": "attach reached `ready` but packageVersion missing — auto-detached", "messagePrefix": "version_skew_unknown:"},
+        {"code": "version_skew_unknown", "doc": "attach reached `ready` but packageVersion missing, non-String, or not semver — auto-detached", "messagePrefix": "version_skew_unknown:"},
         {"code": "daemon_failure", "doc": "DaemonSessionException raised inside attach", "messagePrefix": "<exception message>"},
         {"code": "ios_missing_bundle", "doc": "udid provided without bundle"},
         {"code": "ios_ambiguous_args", "doc": "udid combined with device or debugUrl"},
@@ -184,21 +199,37 @@
           "type": "List<Map>",
           "required": true,
           "nullable": false,
+          "doc": "stableIds in both snapshots whose highest severity across occurrences rose",
           "item_shape": {
             "stableId": {"type": "String", "required": true, "nullable": false},
             "before": {"type": "String", "required": true, "nullable": false, "values": ["ok", "warning", "critical"]},
             "after": {"type": "String", "required": true, "nullable": false, "values": ["ok", "warning", "critical"]}
           }
         },
+        "countChanged": {
+          "type": "List<Map>",
+          "required": true,
+          "nullable": false,
+          "doc": "stableIds in both snapshots whose occurrence count changed",
+          "item_shape": {
+            "stableId": {"type": "String", "required": true, "nullable": false},
+            "before": {"type": "int", "required": true, "nullable": false},
+            "after": {"type": "int", "required": true, "nullable": false}
+          }
+        },
         "fpsDelta": {"type": "double", "required": true, "nullable": true, "presence": "null when either snapshot lacked frameStatsSummary.averageFps/actualFps"},
         "beforeFps": {"type": "double", "required": true, "nullable": true},
-        "afterFps": {"type": "double", "required": true, "nullable": true}
+        "afterFps": {"type": "double", "required": true, "nullable": true},
+        "coverageWarning": {"type": "String", "required": false, "nullable": false, "presence": "when neither snapshot had a VM service link (isVmConnected false or a launchModeAdvisory); text starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover"}
       },
       "errors": [
         {"code": "arg_before_not_object", "doc": "`before` arg not a Map", "messagePrefix": "arg \"before\" must be object"},
         {"code": "arg_after_not_object", "doc": "`after` arg not a Map", "messagePrefix": "arg \"after\" must be object"},
         {"code": "arg_capped_issues_uncomparable", "doc": "one/both snapshots projected with maxIssueCount — a truncated top-N issue window can't be diffed (left-window vs resolved are indistinguishable)", "messagePrefix": "arg_capped_issues_uncomparable:"},
-        {"code": "arg_section_mismatch", "doc": "the two snapshots were projected to different sections or different pagination limits", "messagePrefix": "arg_section_mismatch:"}
+        {"code": "arg_section_mismatch", "doc": "the two snapshots were projected to different sections or different pagination limits", "messagePrefix": "arg_section_mismatch:"},
+        {"code": "arg_lineage_mismatch", "doc": "the two snapshots' packageVersion values fall in different sleuth major.minor lineages, or either is missing or not semver; detector ids and defaults change between lineages", "messagePrefix": "arg_lineage_mismatch:"},
+        {"code": "arg_coverage_mismatch", "doc": "only one snapshot had a VM service link (the other reports isVmConnected false or carries a launchModeAdvisory), or either lacks a boolean isVmConnected; VM-only detector issues would read as resolved or new", "messagePrefix": "arg_coverage_mismatch:"},
+        {"code": "snapshot_schema_drift", "doc": "a snapshot lacks or mistypes currentIssues, currentIssues[].stableId/severity, or frameStatsSummary averageFps/actualFps", "messagePrefix": "snapshot "}
       ]
     },
     "check_budgets": {
@@ -238,7 +269,9 @@
         {"code": "arg_maxCriticalIssues_not_int", "doc": "`maxCriticalIssues` arg not an int", "messagePrefix": "maxCriticalIssues must be integer"},
         {"code": "snapshot_envelope_no_data", "doc": "snapshot extension returned a malformed envelope", "messagePrefix": "snapshot envelope had no data field"},
         {"code": "arg_capped_issues_unbudgetable", "doc": "snapshot projected with maxIssueCount — truncated issue list would make budget counts wrong", "messagePrefix": "arg_capped_issues_unbudgetable:"},
-        {"code": "arg_missing_required_section", "doc": "snapshot projected without a section budgets need (currentIssues/frameStatsSummary)", "messagePrefix": "arg_missing_required_section:"}
+        {"code": "arg_missing_required_section", "doc": "snapshot projected without a section budgets need (currentIssues/frameStatsSummary)", "messagePrefix": "arg_missing_required_section:"},
+        {"code": "coverage_degraded", "doc": "the snapshot's isVmConnected is false or not a bool, so VM-only detectors never ran and a pass would not cover them; basic connection mode with isVmConnected true still evaluates", "messagePrefix": "coverage_degraded:"},
+        {"code": "snapshot_schema_drift", "doc": "the snapshot lacks or mistypes currentIssues, currentIssues[].severity, or frameStatsSummary averageFps/actualFps", "messagePrefix": "snapshot "}
       ]
     },
     "diagnose": {
@@ -246,7 +279,7 @@
       "wraps": "ext.sleuth.diagnose",
       "args": {},
       "data": {
-        "_doc": "Passes through ext.sleuth.diagnose.data and augments with two sidecar-stamped keys. All ext.sleuth.diagnose keys remain present.",
+        "_doc": "Passes through ext.sleuth.diagnose.data and augments it with two sidecar-stamped keys (sidecarVersion, sidecarBuiltAgainstSleuth) plus launchModeAdvisory on a degraded session. All ext.sleuth.diagnose keys remain present.",
         "packageVersion": {"type": "String", "required": true, "nullable": false},
         "initializedAtMicros": {"type": "int", "required": true, "nullable": true},
         "vmConnected": {"type": "bool", "required": true, "nullable": false},
@@ -353,12 +386,7 @@
       "args": {
         "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"}
       },
-      "shims": [
-        {
-          "name": "lineage_route_wrapper",
-          "doc": "When the `route` arg is provided and the bridge is connected to an `acceptedPriorLineages` app emitting the v0.32 inline RouteSession shape (data carries `routeName` but no `route` key), the shim wraps data into `{route: <inline-session>}` so downstream consumers always see the canonical v0.33 envelope. v0.33+ apps already emit the wrapper and pass through untouched. Error envelopes and absent-route shapes are never wrapped."
-        }
-      ],
+      "shims": [],
       "errors": [
         {"code": "unknown_route", "doc": "ext.sleuth.routeHealth returned an error envelope — passed through unmodified", "extensionError": "unknown_route"}
       ]
@@ -368,6 +396,9 @@
       "passthrough": "ext.sleuth.explain",
       "args": {
         "stableId": {"type": "String", "required": true, "nullable": false, "minLength": 1}
+      },
+      "data": {
+        "_doc": "Passthrough of ext.sleuth.explain.data. Reads live app state: sleuth 0.37+ fills the route, widget and count text from the first live issue matching the stableId (else its canonical family), with neutral wording when none is live; sleuth 0.36 apps return the raw placeholders ({widgetName}, {routeName}, {count})."
       },
       "shims": [],
       "errors": [
