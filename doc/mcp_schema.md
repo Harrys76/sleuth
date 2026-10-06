@@ -1,14 +1,14 @@
-# MCP Schema — ext.sleuth.* wire contract
+# MCP schema for the ext.sleuth.* extensions
 
-Locked wire shapes for the 7 `ext.sleuth.*` VM service extensions. Consumers (sleuth_mcp sidecar, third-party MCP clients) can rely on these envelope shapes within `schemaVersion: 1`.
+This file describes the envelopes of the seven `ext.sleuth.*` VM service extensions. The sleuth_mcp sidecar and other MCP clients can rely on these shapes within `schemaVersion: 1`.
 
-Structured source-of-truth: [`mcp_schema.json`](mcp_schema.json) — that file is what the audit test parses. This markdown is human-readable rendering only.
+[`mcp_schema.json`](mcp_schema.json) is the source of truth, and the audit test parses it. This markdown is a readable copy.
 
-**schemaVersion policy.** Bumps on breaking change (field rename, removal, type change). Adding optional fields or new handlers does NOT bump. The sidecar's `connect` tool warns on `version_skew_minor` and refuses on `version_skew_major`.
+**schemaVersion policy.** `schemaVersion` changes on a breaking change: a field rename, a removal or a type change. New optional fields and new handlers do not change it. The sidecar does not read `schemaVersion`. It checks `packageVersion` from `ext.sleuth.diagnose` instead. A different version in its pinned lineage connects with `version_skew_minor`, and the accepted prior lineage connects with `version_skew_prior_lineage`. Any other lineage is refused with `version_skew_major`, and a value that is not semver is refused with `version_skew_unknown`.
 
 ## Envelope
 
-Every handler returns one of two envelope shapes.
+Every handler returns one of the envelope shapes below.
 
 ### OK envelope
 
@@ -16,25 +16,29 @@ Every handler returns one of two envelope shapes.
 |---|---|---|---|---|
 | `connectionMode` | String | yes | no | one of `disconnected` / `warmup` / `basic` / `full` / `correlated` |
 | `schemaVersion` | int | yes | no | `1` for this contract |
-| `sessionUuid` | String | yes | no | rotates on sleuth init (hot restart) |
+| `sessionUuid` | String | yes | no | changes when sleuth initializes, for example after a hot restart |
 | `data` | Map | yes | no | per-handler shape below |
 
 ### Error envelope
 
 | Field | Type | Required | Nullable | Notes |
 |---|---|---|---|---|
-| `connectionMode` | String | yes | no | same enum as OK |
+| `connectionMode` | String | yes | no | same values as the OK envelope |
 | `schemaVersion` | int | yes | no | `1` |
 | `sessionUuid` | String | yes | no | |
 | `error` | String | yes | no | machine-readable error code |
-| `stack` | String | no | no | only present when an exception was caught |
-| _extra_ | _various_ | no | varies | handler-specific keys (e.g. `route` for `unknown_route`) |
+| `stack` | String | no | no | present only when the handler caught an exception |
+| _extra_ | _various_ | no | varies | handler-specific keys, such as `route` for `unknown_route` |
+
+### Disposed controller
+
+After the app's `SleuthController` is disposed, every handler returns `{connectionMode: "disconnected", schemaVersion: 1, disposed: true, method}`, with no `sessionUuid` and no `data`. If a handler throws while the controller is being disposed, the same shape also carries `error`.
 
 ## Handlers
 
 ### `ext.sleuth.diagnose`
 
-Operational health snapshot. No args.
+Operational health. No args.
 
 | `data` key | Type | Required | Nullable |
 |---|---|---|---|
@@ -68,25 +72,33 @@ Operational health snapshot. No args.
 | `pollDuplicatesDropped` | int | yes | yes |
 | `pollWindowFallbacks` | int | yes | yes |
 
-The `*Poll*` keys describe the VM timeline poll loop (null until the first poll of the current VM session). `lastPoll*Micros` are the segments of the most recent poll: `Rpc` is the `getVMTimeline` await (wall time including the VM-side work and transport), `Decode` the part of `Rpc` after the raw response arrived, spent on the UI isolate decoding the JSON and building the `Timeline` (null when the response could not be matched to the request, even after the first poll), `Parse` the timeline parse and stale-begin sweep, `Dispatch` the detector callback, `Tail` the remaining RPCs (wall time). `Decode`, `Parse` and `Dispatch` block the UI isolate; `Rpc` (outside `Decode`) and `Tail` are awaits. `lastPollDispatch{Detectors,Correlate,Aggregate,Other}Micros` split `Dispatch` (detector feed and evaluation; frame correlation and verdict; issue aggregation and ranking; the rest) and sum to it. `lastPollTailMemoryMicros` is the `getMemoryUsage` await inside `Tail`; `lastPollTail{CpuSamples,AllocationProfile}Micros` are the parts of `Tail` during which a `getCpuSamples` or `getAllocationProfile` request was in flight (these overlap each other and the memory await). `lastPollEventCount` is the raw event count, `lastPollResponseChars` the raw response length (null when it could not be matched). `maxPoll*Micros` are maxima over the last 32 polls (`maxPollDecodeMicros` is null when none of them was matched). `pollDuplicatesDropped` sums events skipped as already processed; `pollWindowFallbacks` counts polls that read the whole timeline buffer because the timeline clock could not bound a fetch window.
+The `*Poll*` keys describe the VM timeline poll loop. They are null until the first poll of the current VM session.
+
+- `lastPoll*Micros` split the most recent poll into segments. `Rpc` is the `getVMTimeline` await in wall time, including the work in the VM and the transport. `Decode` is the part of `Rpc` after the raw response arrived, spent on the UI isolate decoding the JSON and building the `Timeline`. It is null when the response could not be matched to the request, even after the first poll. `Parse` is the timeline parse and the stale-begin sweep. `Dispatch` is the detector callback. `Tail` is the remaining RPCs, in wall time.
+- `Decode`, `Parse` and `Dispatch` block the UI isolate. The rest of `Rpc`, and `Tail`, are awaits.
+- `lastPollDispatch{Detectors,Correlate,Aggregate,Other}Micros` split `Dispatch` into the detector feed and evaluation, frame correlation and the verdict, issue aggregation and ranking, and everything else. They sum to `Dispatch`.
+- `lastPollTailMemoryMicros` is the `getMemoryUsage` await inside `Tail`. `lastPollTail{CpuSamples,AllocationProfile}Micros` are the parts of `Tail` during which a `getCpuSamples` or `getAllocationProfile` request was in flight. They overlap each other and the memory await.
+- `lastPollEventCount` is the raw event count. `lastPollResponseChars` is the raw response length, or null when the response could not be matched.
+- `maxPoll*Micros` are maxima over the last 32 polls. `maxPollDecodeMicros` is null when none of those polls was matched.
+- `pollDuplicatesDropped` sums the events skipped as already processed. `pollWindowFallbacks` counts the polls that read the whole timeline buffer because the timeline clock could not bound a fetch window.
 
 ### `ext.sleuth.snapshot`
 
-`SessionSnapshot.toJson()`. Underlying shape in `lib/src/models/session_snapshot.dart`.
+`SessionSnapshot.toJson()`, defined in `lib/src/models/session_snapshot.dart`.
 
-**Args** (all optional; absent = full payload, backward-compatible):
+**Args.** All args are optional. With none, the handler returns the full payload, as it did before projection existed.
 
 | arg | Type | Notes |
 |---|---|---|
-| `sections` | String | comma-separated `SnapshotSection` keys (case-insensitive, whitespace-tolerant). Only listed payload sections serialize; metadata keys always do. Unknown name → `arg_invalid_section`. |
-| `maxIssueCount` | String (int) | keep top-N already-ranked `currentIssues`. Non-negative integer; non-numeric → `arg_invalid_int`; set without `currentIssues` in `sections` → `arg_pagination_unused`. |
-| `maxRouteCount` | String (int) | keep N most-recent `routeSessions` by `startedAt`. Same error semantics as `maxIssueCount`. |
+| `sections` | String | comma-separated `SnapshotSection` keys, matched without regard to case or surrounding whitespace. Only the listed payload sections serialize; metadata keys always do. An unknown name returns `arg_invalid_section`. |
+| `maxIssueCount` | String (int) | keeps the top N already-ranked `currentIssues`. A negative or non-numeric value returns `arg_invalid_int`. Setting it while `sections` leaves out `currentIssues` returns `arg_pagination_unused`. |
+| `maxRouteCount` | String (int) | keeps the N most recent `routeSessions` by `startedAt`. Errors as for `maxIssueCount`, with `routeSessions` in place of `currentIssues`. |
 
-When any projection arg is set, payload-bearing fields are present only if their section is in `_projectedSections`. Metadata keys (`schemaVersion`, `exportedAt`, `packageVersion`, `isVmConnected`, `isDebugMode`, `suppressedCount`) always serialize.
+When any projection arg is set, a payload field is present only if its section is in `_projectedSections`. A cap without `sections` lists every section there. Metadata keys (`schemaVersion`, `exportedAt`, `packageVersion`, `isVmConnected`, `isDebugMode`, `suppressedCount`) always serialize.
 
 | `data` key | Type | Required | Presence |
 |---|---|---|---|
-| `_projectedSections` | List\<String\> | no | when any projection arg was set; alphabetically sorted included section keys |
+| `_projectedSections` | List\<String\> | no | when any projection arg was set; the included section keys, sorted alphabetically |
 | `_projectionLimits` | Map | no | when `maxIssueCount` or `maxRouteCount` was set |
 | `_projectionApplied` | String | no | when any projection arg was set; `by_app` or `by_sidecar_fallback` |
 | `schemaVersion` | int | yes | always |
@@ -104,11 +116,11 @@ When any projection arg is set, payload-bearing fields are present only if their
 | `gcEvents` | List\<Map\> | no | when GC events have been observed on the timeline stream |
 | `platformChannelEvents` | List\<Map\> | no | when platform-channel events have been observed on the timeline stream |
 | `recentFrames` | List\<Map\> | no | when the frame-stats buffer is non-empty |
-| `widgetHeatMap` | List\<Map\> | no | when at least one issue has been ranked (heat-map is derived from ranked issues) — **opaque** (item-shape intentionally undocumented pending a sidecar consumer) |
+| `widgetHeatMap` | List\<Map\> | no | when at least one issue has been ranked (heat-map is derived from ranked issues). Opaque: the item shape stays undocumented until a sidecar consumer relies on its keys. |
 | `recurrenceTrends` | Map\<String, Map\> | no | when populated |
 | `sessionSummary` | Map | no | when at least one of its keys is present (an issue is ranked, the frame-stats buffer is non-empty, or at least two heap samples are buffered); every key inside is conditional |
 | `startupMetrics` | Map | no | when `Sleuth.init` captured first-frame data |
-| `routeSessions` | List\<Map\> | no | when route history non-empty |
+| `routeSessions` | List\<Map\> | no | when the route history is not empty |
 
 #### `recurrenceTrends.<stableId>` sub-shape
 
@@ -117,8 +129,8 @@ When any projection arg is set, payload-bearing fields are present only if their
 | `trend` | String | yes | one of `stable` / `worsening` / `improving` / `intermittent` |
 | `totalOccurrences` | int | yes | always |
 | `totalObserved` | int | yes | always |
-| `lastSeenCycle` | int | yes | always (nullable when the buffer is empty) |
-| `severityStats` | Map | no | when the trend has at least one present observation — shape `{min: int, max: int}` |
+| `lastSeenCycle` | int | yes | always; null when the buffer is empty |
+| `severityStats` | Map | no | when the trend has at least one present observation. Shape: `{min: int, max: int}` |
 
 #### `sessionSummary` sub-shape
 
@@ -126,11 +138,11 @@ Every key is conditional. A session with frames and no ranked issue carries only
 
 | Key | Type | Required | Presence |
 |---|---|---|---|
-| `topIssues` | List\<Map\> | no | when at least one issue is ranked; the top 5 ranked issues — item shape below |
-| `frameHistogram` | Map\<String, int\> | no | when the frame-stats buffer is non-empty (same condition as recentFrames); all five buckets always present — buckets `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`, `>100ms` |
+| `topIssues` | List\<Map\> | no | when at least one issue is ranked; the top 5 ranked issues. Item shape below. |
+| `frameHistogram` | Map\<String, int\> | no | when the frame-stats buffer is non-empty (same condition as recentFrames); all five buckets always present. Buckets: `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`, `>100ms` |
 | `detectorHitRates` | Map\<String, int\> | no | when at least one issue is ranked (same condition as topIssues); counts every ranked issue by detector name |
-| `memoryTrendSummary` | Map | no | when MemoryPressureDetector has at least two heap samples buffered — shape `{startBytes, endBytes, peakBytes, growthRatePerSec, sampleCount}` |
-| `causalEdges` | List\<Map\> | no | when at least two issues are ranked and CausalGraphRule.activeEdges finds at least one edge between them — item shape `{cause, effect}` |
+| `memoryTrendSummary` | Map | no | when MemoryPressureDetector has at least two heap samples buffered. Shape: `{startBytes, endBytes, peakBytes, growthRatePerSec, sampleCount}` |
+| `causalEdges` | List\<Map\> | no | when at least two issues are ranked and CausalGraphRule.activeEdges finds at least one edge between them. Item shape: `{cause, effect}` |
 
 `topIssues[]` item shape:
 
@@ -151,61 +163,58 @@ Every key is conditional. A session with frames and no ranked issue carries only
 | `routeName` | String | yes | always |
 | `scaffoldHashKey` | int | no | when the session was created from an Element subtree carrying a visible Scaffold (always true for real-device captures; absent for scaffold-free overlay sessions) |
 | `tabVisitIndex` | int | yes | always |
-| `hotReloadGeneration` | int | no | only when > 0 (i.e. session created after at least one hot reload) |
+| `hotReloadGeneration` | int | no | only when > 0, that is, when the session was created after at least one hot reload |
 | `startedAt` | String (ISO-8601) | yes | always |
 | `endedAt` | String (ISO-8601) | no | once the session has been closed |
 | `healthScore` | num | yes | always |
 | `durationSeconds` | num | yes | always |
 | `scanCycles` | int | yes | always |
-| `frameStats` | Map | yes | shape `{totalFrames, jankFrames, averageFps, p50?, p95?, p99?}` — p-values present only when `frameStats.length >= 2` |
+| `frameStats` | Map | yes | shape `{totalFrames, jankFrames, averageFps, p50?, p95?, p99?}`. The p-values are FPS percentiles, present only when `frameStats.length >= 2`. |
 | `issueCount` | int | yes | always; distinct issue keys retained for the session (at most 256) |
 | `criticalCount` | int | yes | always; critical issues among the retained keys |
 | `warningCount` | int | yes | always; warning issues among the retained keys |
-| `issues` | List\<String\> | yes | the retained keys (stableId, else the issue title) in first-seen order — not full issue maps |
+| `issues` | List\<String\> | yes | the retained keys (stableId, else the issue title) in first-seen order, not full issue maps |
 | `rebuildCountsByType` | Map\<String, int\> | no | when RebuildDetector accumulated per-type counts during the session; at most 256 widget types |
 | `totalRebuilds` | int | no | when RebuildDetector accumulated per-type counts during the session; sums the retained types only |
 
-A session keeps at most 256 issue keys and 256 widget types; on overflow the oldest-inserted key is evicted first. `issueCount`, `criticalCount`, `warningCount` and `issues` describe the retained keys, and `totalRebuilds` sums only the retained `rebuildCountsByType` entries, so a session that crossed either cap undercounts.
+A session keeps at most 256 issue keys and 256 widget types. On overflow it evicts the oldest-inserted key first. `issueCount`, `criticalCount`, `warningCount` and `issues` describe the retained keys, and `totalRebuilds` sums only the retained `rebuildCountsByType` entries, so a session that crossed either cap undercounts.
 
-Derivation procedure + capture provenance: [`mcp_schema_derivation.md`](mcp_schema_derivation.md).
+`doc/mcp_schema_derivation.md` in the sleuth repository describes how these nested shapes were derived and where the captures came from.
 
 ### `ext.sleuth.issues`
 
-Currently-aggregated issues. Args: `route` (String, optional — filter by `routeName` or `sourceRoute`).
+The current aggregated issues. Args: `route` (String, optional). With a non-empty `route`, the handler keeps the issues whose `routeName` or `sourceRoute` equals it.
 
 | `data` key | Type | Required | Presence |
 |---|---|---|---|
 | `issues` | List\<Map\> | yes | always; item shape = `PerformanceIssue.toJson()` |
-| `route` | String | no | only when route arg was non-empty |
+| `route` | String | no | only when the route arg was non-empty |
 
 ### `ext.sleuth.routeHealth`
 
-Per-route health rollup. Args: `route` (String, optional).
+Health per route. Args: `route` (String, optional).
 
-OK envelope data carries exactly one of `routes` (list) or `route`
-(single) — consumers branch on the key, never on the value's runtime
-shape.
+The OK envelope's `data` carries exactly one of `routes` (a list) or `route` (one session), so a consumer can branch on the key instead of the value's type.
 
 | `data` key | Type | Presence |
 |---|---|---|
-| `routes` | List\<Map\> | only when `route` arg absent — item shape mirrors `snapshot.data.routeSessions[]` above |
-| `route` | Map | only when `route` arg matches a session — same shape as the `routes` item above |
+| `routes` | List\<Map\> | only when the `route` arg is absent; the item shape is the same as `snapshot.data.routeSessions[]` above |
+| `route` | Map | only when the `route` arg matches a session, which is then the last matching session in the route history; same shape as a `routes` item |
 
-**Errors:** `unknown_route` (extra: `{route: String}`) when the `route`
-arg has no matching session.
+**Errors:** `unknown_route`, with extra `{route: String}`, when no session matches the `route` arg.
 
-Underlying shape: `RouteSession.toJson()` in `lib/src/models/route_session.dart`. Wire item shape is documented in the `snapshot.data.routeSessions[]` table above.
+The underlying shape is `RouteSession.toJson()` in `lib/src/models/route_session.dart`. The `snapshot.data.routeSessions[]` table above documents the wire shape of an item.
 
 ### `ext.sleuth.explain`
 
-Encyclopedia entry for a stableId. Args: `stableId` (String, **required**, `minLength: 1`).
+The encyclopedia entry for a stableId. Args: `stableId` (String, required, `minLength: 1`).
 
-Placeholders (`{routeName}`, `{widgetName}`, `{count}`, `{severity}`, `{title}`, `{stableId}`) are substituted by sleuth 0.37 and later: from the live issue with the exact `stableId`; for a canonical (bare) id with no exact match, from the first live issue of that family; otherwise with neutral wording. An occurrence id (for example `excessive_keep_alive:PageView~k-home`) with no exact live match gets neutral wording, never another occurrence's values. `encyclopedia` entries always use neutral wording. Apps on sleuth 0.36 return the raw templates with the `{placeholder}` tokens in place, from both `explain` and `encyclopedia`.
+Sleuth 0.37 and later fill the placeholders (`{routeName}`, `{widgetName}`, `{count}`, `{severity}`, `{title}`, `{stableId}`) from the live issue with the exact `stableId`. A canonical (bare) id with no exact match uses the first live issue of that family. Everything else gets neutral wording. An occurrence id, for example `excessive_keep_alive:PageView~k-home`, with no exact live match gets neutral wording and never another occurrence's values. `encyclopedia` entries always use neutral wording. Apps on sleuth 0.36 return the raw templates, with the `{placeholder}` tokens in place, from both `explain` and `encyclopedia`.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
-| `stableId` | String | yes | as-passed |
-| `canonical` | String | yes | resolved via `IssueExplanationBuilder.canonicalId` |
+| `stableId` | String | yes | as passed |
+| `canonical` | String | yes | resolved with `IssueExplanationBuilder.canonicalId` |
 | `explanation` | Map | yes | shape below |
 
 **`explanation` sub-shape:**
@@ -218,10 +227,10 @@ Placeholders (`{routeName}`, `{widgetName}`, `{count}`, `{severity}`, `{title}`,
 | `readingTheData` | String | yes | no | |
 | `whyItMatters` | String | yes | no | |
 | `howToFix` | String | yes | no | |
-| `whenToIgnore` | String | yes | yes | null when the entry has no ignore guidance (for example `heavy_compute`) |
+| `whenToIgnore` | String | yes | yes | null when the entry has no ignore guidance, for example `heavy_compute` |
 | `relatedIssues` | List\<String\> | yes | no | |
 
-**Errors:** `missing_required_arg` (extra: `{arg: 'stableId'}`), `unknown_stable_id` (extra: `{stableId, canonical}`).
+**Errors:** `missing_required_arg` (extra `{arg: 'stableId'}`) and `unknown_stable_id` (extra `{stableId, canonical}`).
 
 ### `ext.sleuth.encyclopedia`
 
@@ -234,28 +243,30 @@ Every available explanation. No args.
 
 ### `ext.sleuth.causalGraph`
 
-Rule set linking trigger stableIds to downstream effects. No args.
+The rules that link trigger stableIds to their downstream effects. No args.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
 | `count` | int | yes | `rules.length` |
-| `rules` | List\<Map\> | yes | each: `{trigger: String, effect: String}` |
+| `rules` | List\<Map\> | yes | each item is `{trigger: String, effect: String}` |
 
 ## Sidecar tool layer
 
-The `sleuth_mcp` sidecar exposes 13 MCP tools that wrap (or transform)
-the `ext.sleuth.*` envelopes above. Tool-call return shapes are
-schema-locked in [`packages/sleuth_mcp/doc/mcp_tool_schema.json`](../packages/sleuth_mcp/doc/mcp_tool_schema.json)
-(human-readable render at [`mcp_tool_schema.md`](../packages/sleuth_mcp/doc/mcp_tool_schema.md))
-and audited by `packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart`.
-That file is sidecar-only — the sleuth root carries no parallel
-`mcp_tool_schema.{json,md}` and the parity audit asserts the absence.
+The `sleuth_mcp` sidecar exposes 13 MCP tools that wrap or transform the
+envelopes above. In the sleuth repository,
+`packages/sleuth_mcp/doc/mcp_tool_schema.json` locks the tool return
+shapes, `packages/sleuth_mcp/doc/mcp_tool_schema.md` renders them, and
+`packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart` checks
+them. Those files exist only in the sidecar package. The sleuth root has
+no `mcp_tool_schema.{json,md}`, and the audit checks that it does not.
 
-Passthrough tools (`get_snapshot`, `get_issues`, `get_route_health`,
-`explain_issue`) preserve the wire envelopes above verbatim; the sidecar
-stamps its own keys (such as `launchModeAdvisory`) beside them.
+`get_route_health` and `explain_issue` return the envelopes above
+unchanged. `get_snapshot` and `get_issues` trim each issue to a compact
+key set unless the client passes `verbose: true`, and `get_issues` also
+filters by severity and keeps the top 50 issues by default. Both add
+`launchModeAdvisory` to `data` on a degraded session.
 
 ## Notes
 
-- Snapshot nested shapes derived from on-device captures in `test/validation/captures/`. See [`mcp_schema_derivation.md`](mcp_schema_derivation.md) for the procedure and device-context limitations.
-- The MCP tool-layer schema lives in the sidecar archive only; the root sleuth package does not ship `mcp_tool_schema.{json,md}`.
+- The nested snapshot shapes come from on-device captures in `test/validation/captures/mcp_snapshots/`. `doc/mcp_schema_derivation.md` describes the procedure and the limits of the device context.
+- The MCP tool-layer schema ships only in the sidecar archive. The root sleuth package does not ship `mcp_tool_schema.{json,md}`.
