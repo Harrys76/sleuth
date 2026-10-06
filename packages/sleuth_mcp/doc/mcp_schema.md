@@ -106,7 +106,7 @@ When any projection arg is set, payload-bearing fields are present only if their
 | `recentFrames` | List\<Map\> | no | when the frame-stats buffer is non-empty |
 | `widgetHeatMap` | List\<Map\> | no | when at least one issue has been ranked (heat-map is derived from ranked issues) — **opaque** (item-shape intentionally undocumented pending a sidecar consumer) |
 | `recurrenceTrends` | Map\<String, Map\> | no | when populated |
-| `sessionSummary` | Map | no | when populated |
+| `sessionSummary` | Map | no | when at least one of its keys is present (an issue is ranked, the frame-stats buffer is non-empty, or at least two heap samples are buffered); every key inside is conditional |
 | `startupMetrics` | Map | no | when `Sleuth.init` captured first-frame data |
 | `routeSessions` | List\<Map\> | no | when route history non-empty |
 
@@ -122,13 +122,27 @@ When any projection arg is set, payload-bearing fields are present only if their
 
 #### `sessionSummary` sub-shape
 
+Every key is conditional. A session with frames and no ranked issue carries only `frameHistogram`.
+
 | Key | Type | Required | Presence |
 |---|---|---|---|
-| `topIssues` | List\<Map\> | yes | always; item shape `{stableId, title, severity, confidence, confidenceReason, rankingScore}` |
-| `frameHistogram` | Map\<String, int\> | yes | fixed buckets `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`, `>100ms` |
-| `detectorHitRates` | Map\<String, int\> | yes | always |
-| `memoryTrendSummary` | Map | no | when MemoryPressureDetector has accumulated at least one sample — shape `{startBytes, endBytes, peakBytes, growthRatePerSec, sampleCount}` |
-| `causalEdges` | List\<Map\> | no | when CausalGraphRule.apply produced at least one active edge — item shape `{cause, effect}` |
+| `topIssues` | List\<Map\> | no | when at least one issue is ranked; the top 5 ranked issues — item shape below |
+| `frameHistogram` | Map\<String, int\> | no | when the frame-stats buffer is non-empty (same condition as recentFrames); all five buckets always present — buckets `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`, `>100ms` |
+| `detectorHitRates` | Map\<String, int\> | no | when at least one issue is ranked (same condition as topIssues); counts every ranked issue by detector name |
+| `memoryTrendSummary` | Map | no | when MemoryPressureDetector has at least two heap samples buffered — shape `{startBytes, endBytes, peakBytes, growthRatePerSec, sampleCount}` |
+| `causalEdges` | List\<Map\> | no | when at least two issues are ranked and CausalGraphRule.activeEdges finds at least one edge between them — item shape `{cause, effect}` |
+
+`topIssues[]` item shape:
+
+| Key | Type | Required | Nullable | Presence |
+|---|---|---|---|---|
+| `stableId` | String | yes | yes | always; null for an issue without a stableId (custom detectors) |
+| `title` | String | yes | no | always |
+| `severity` | String | yes | no | `ok` / `warning` / `critical` |
+| `confidence` | String | yes | no | `confirmed` / `likely` / `possible` |
+| `confidenceReason` | String | no | no | when the issue carries a confidence reason |
+| `rankingScore` | int | yes | no | always |
+| `widgetName` | String | no | no | when the issue names a widget |
 
 #### `routeSessions[]` item shape
 
@@ -144,12 +158,14 @@ When any projection arg is set, payload-bearing fields are present only if their
 | `durationSeconds` | num | yes | always |
 | `scanCycles` | int | yes | always |
 | `frameStats` | Map | yes | shape `{totalFrames, jankFrames, averageFps, p50?, p95?, p99?}` — p-values present only when `frameStats.length >= 2` |
-| `issueCount` | int | yes | always |
-| `criticalCount` | int | yes | always |
-| `warningCount` | int | yes | always |
-| `issues` | List\<String\> | yes | stableIds only — not full issue maps |
-| `rebuildCountsByType` | Map\<String, int\> | no | when RebuildDetector accumulated per-type counts during the session |
-| `totalRebuilds` | int | no | when RebuildDetector accumulated per-type counts during the session |
+| `issueCount` | int | yes | always; distinct issue keys retained for the session (at most 256) |
+| `criticalCount` | int | yes | always; critical issues among the retained keys |
+| `warningCount` | int | yes | always; warning issues among the retained keys |
+| `issues` | List\<String\> | yes | the retained keys (stableId, else the issue title) in first-seen order — not full issue maps |
+| `rebuildCountsByType` | Map\<String, int\> | no | when RebuildDetector accumulated per-type counts during the session; at most 256 widget types |
+| `totalRebuilds` | int | no | when RebuildDetector accumulated per-type counts during the session; sums the retained types only |
+
+A session keeps at most 256 issue keys and 256 widget types; on overflow the oldest-inserted key is evicted first. `issueCount`, `criticalCount`, `warningCount` and `issues` describe the retained keys, and `totalRebuilds` sums only the retained `rebuildCountsByType` entries, so a session that crossed either cap undercounts.
 
 Derivation procedure + capture provenance: [`mcp_schema_derivation.md`](mcp_schema_derivation.md).
 
@@ -184,7 +200,7 @@ Underlying shape: `RouteSession.toJson()` in `lib/src/models/route_session.dart`
 
 Encyclopedia entry for a stableId. Args: `stableId` (String, **required**, `minLength: 1`).
 
-Placeholder text (route, widget, count) reflects the matching live issue when one exists, otherwise neutral wording; `encyclopedia` entries always use neutral wording.
+Placeholders (`{routeName}`, `{widgetName}`, `{count}`, `{severity}`, `{title}`, `{stableId}`) are substituted by sleuth 0.37 and later: from the live issue with the exact `stableId`; for a canonical (bare) id with no exact match, from the first live issue of that family; otherwise with neutral wording. An occurrence id (for example `excessive_keep_alive:PageView~k-home`) with no exact live match gets neutral wording, never another occurrence's values. `encyclopedia` entries always use neutral wording. Apps on sleuth 0.36 return the raw templates with the `{placeholder}` tokens in place, from both `explain` and `encyclopedia`.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
@@ -194,16 +210,16 @@ Placeholder text (route, widget, count) reflects the matching live issue when on
 
 **`explanation` sub-shape:**
 
-| Key | Type | Required |
-|---|---|---|
-| `displayName` | String | yes |
-| `category` | String | yes |
-| `whatItIs` | String | yes |
-| `readingTheData` | String | yes |
-| `whyItMatters` | String | yes |
-| `howToFix` | String | yes |
-| `whenToIgnore` | String | yes |
-| `relatedIssues` | List\<String\> | yes |
+| Key | Type | Required | Nullable | Notes |
+|---|---|---|---|---|
+| `displayName` | String | yes | no | |
+| `category` | String | yes | no | `build` / `layout` / `paint` / `raster` / `memory` / `channel` / `font` / `network` / `startup` |
+| `whatItIs` | String | yes | no | |
+| `readingTheData` | String | yes | no | |
+| `whyItMatters` | String | yes | no | |
+| `howToFix` | String | yes | no | |
+| `whenToIgnore` | String | yes | yes | null when the entry has no ignore guidance (for example `heavy_compute`) |
+| `relatedIssues` | List\<String\> | yes | no | |
 
 **Errors:** `missing_required_arg` (extra: `{arg: 'stableId'}`), `unknown_stable_id` (extra: `{stableId, canonical}`).
 

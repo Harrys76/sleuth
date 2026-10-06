@@ -319,9 +319,11 @@ FutureOr<Map<String, Object?>> extRouteHealthHandler(
 
 /// `ext.sleuth.explain` — encyclopedia entry for a `stableId`. Parametric /
 /// dynamic suffixes resolve through `IssueExplanationBuilder.canonicalId`.
-/// Placeholders are filled from the first live issue matching the exact
-/// `stableId` (else the first matching the canonical id); with no live
-/// match they get neutral wording.
+/// Placeholders are filled from the first live issue with the exact
+/// `stableId`. Only a canonical (bare) id falls back to the first live
+/// issue of its family; an occurrence id such as
+/// `excessive_keep_alive:PageView~k-home` with no exact live match gets
+/// neutral wording, so it never shows another occurrence's values.
 FutureOr<Map<String, Object?>> extExplainHandler(
   SleuthController controller,
   Map<String, String> args,
@@ -351,7 +353,7 @@ FutureOr<Map<String, Object?>> extExplainHandler(
       break;
     }
   }
-  if (match == null) {
+  if (match == null && stableId == canonical) {
     for (final issue in live) {
       final id = issue.stableId;
       if (id != null && IssueExplanationBuilder.canonicalId(id) == canonical) {

@@ -300,6 +300,70 @@ void main() {
       expect(explanation['whatItIs'], contains('120'));
     });
 
+    group('explain occurrence ids', () {
+      Future<String> whatItIs(SleuthController c, String stableId) async {
+        final env = await extExplainHandler(c, {'stableId': stableId});
+        final data = env['data'] as Map<String, Object?>;
+        return (data['explanation'] as Map<String, Object?>)['whatItIs']
+            as String;
+      }
+
+      SleuthController seeded(List<PerformanceIssue> issues) =>
+          _newController()..seedIssuesForTest(issues);
+
+      final feed = _issue(
+        stableId: 'excessive_keep_alive:PageView~k-feed',
+        title: 'Excessive Keep-Alive: 7 in PageView',
+      );
+      final home = _issue(
+        stableId: 'excessive_keep_alive:PageView~k-home',
+        title: 'Excessive Keep-Alive: 3 in PageView',
+      );
+
+      test('an occurrence id without an exact live match gets neutral '
+          'wording, not another occurrence of the family', () async {
+        final text = await whatItIs(
+          seeded([feed]),
+          'excessive_keep_alive:PageView~k-home',
+        );
+        expect(text, startsWith('N pages'));
+        expect(text, isNot(contains('7')));
+      });
+
+      test('an occurrence id with an exact live match uses that '
+          'occurrence', () async {
+        final text = await whatItIs(
+          seeded([feed, home]),
+          'excessive_keep_alive:PageView~k-home',
+        );
+        expect(text, startsWith('3 pages'));
+      });
+
+      test(
+        'the canonical id falls back to a live issue of its family',
+        () async {
+          final text = await whatItIs(seeded([feed]), 'excessive_keep_alive');
+          expect(text, startsWith('7 pages'));
+        },
+      );
+
+      test('an aliased id does not borrow a sibling alias', () async {
+        // non_lazy_listview and non_lazy_gridview share an entry but are
+        // different issues.
+        final text = await whatItIs(
+          seeded([
+            _issue(
+              stableId: 'non_lazy_gridview',
+              title: 'GridView with 90 children',
+            ),
+          ]),
+          'non_lazy_listview',
+        );
+        expect(text, contains('N children'));
+        expect(text, isNot(contains('90')));
+      });
+    });
+
     test('encyclopedia entries carry no unsubstituted placeholders', () async {
       final c = _newController();
       final env = await extEncyclopediaHandler(c, const {});

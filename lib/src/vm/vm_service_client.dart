@@ -969,8 +969,8 @@ class VmServiceClient {
   /// Largest RPC segment over the last 32 polls; null before the first.
   int? get maxPollRpcMicros => _timingsWindow.maxRpcMicros;
 
-  /// Largest decode segment over the last 32 polls (−1 when none of them
-  /// matched its raw response); null before the first poll.
+  /// Largest decode segment over the last 32 polls; null before the first
+  /// poll and when none of them matched its raw response.
   int? get maxPollDecodeMicros => _timingsWindow.maxDecodeMicros;
 
   /// Largest parse segment over the last 32 polls; null before the first.
@@ -1047,7 +1047,8 @@ class VmServiceClient {
         _timelineRequestId = null;
       });
     } catch (_) {
-      // A test double without wire streams reports −1 for every poll.
+      // A test double without wire streams leaves every poll unmatched
+      // (null decode and response size).
     }
   }
 

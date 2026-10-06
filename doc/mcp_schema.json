@@ -1,5 +1,5 @@
 {
-  "_doc": "Wire schema for ext.sleuth.* VM service extensions. Load-bearing source for test/validation/ext_sleuth_schema_audit_test.dart. Markdown render at doc/mcp_schema.md.",
+  "_doc": "Wire schema for ext.sleuth.* VM service extensions. Load-bearing source for test/validation/mcp_schema_audit_test.dart. Markdown render at doc/mcp_schema.md.",
   "schemaVersion": 1,
   "envelope": {
     "ok": {
@@ -116,33 +116,36 @@
           "type": "Map",
           "required": false,
           "nullable": false,
-          "presence": "when populated",
+          "presence": "when at least one of its keys is present (an issue is ranked, the frame-stats buffer is non-empty, or at least two heap samples are buffered); every key inside is conditional",
           "shape": {
             "topIssues": {
               "type": "List<Map>",
-              "required": true,
+              "required": false,
               "nullable": false,
+              "presence": "when at least one issue is ranked; the top 5 ranked issues",
               "item_shape": {
-                "stableId": {"type": "String", "required": true, "nullable": false},
+                "stableId": {"type": "String", "required": true, "nullable": true, "doc": "null for an issue without a stableId (custom detectors)"},
                 "title": {"type": "String", "required": true, "nullable": false},
-                "severity": {"type": "String", "required": true, "nullable": false},
-                "confidence": {"type": "String", "required": true, "nullable": false},
-                "confidenceReason": {"type": "String", "required": true, "nullable": false},
-                "rankingScore": {"type": "int", "required": true, "nullable": false}
+                "severity": {"type": "String", "required": true, "nullable": false, "values": ["ok", "warning", "critical"]},
+                "confidence": {"type": "String", "required": true, "nullable": false, "values": ["confirmed", "likely", "possible"]},
+                "confidenceReason": {"type": "String", "required": false, "nullable": false, "presence": "when the issue carries a confidence reason"},
+                "rankingScore": {"type": "int", "required": true, "nullable": false},
+                "widgetName": {"type": "String", "required": false, "nullable": false, "presence": "when the issue names a widget"}
               }
             },
             "frameHistogram": {
               "type": "Map<String, int>",
-              "required": true,
+              "required": false,
               "nullable": false,
+              "presence": "when the frame-stats buffer is non-empty (same condition as recentFrames); all five buckets always present",
               "buckets": ["<16ms", "16-33ms", "33-50ms", "50-100ms", ">100ms"]
             },
-            "detectorHitRates": {"type": "Map<String, int>", "required": true, "nullable": false},
+            "detectorHitRates": {"type": "Map<String, int>", "required": false, "nullable": false, "presence": "when at least one issue is ranked (same condition as topIssues); counts every ranked issue by detector name"},
             "memoryTrendSummary": {
               "type": "Map",
               "required": false,
               "nullable": false,
-              "presence": "when MemoryPressureDetector has accumulated at least one sample",
+              "presence": "when MemoryPressureDetector has at least two heap samples buffered",
               "shape": {
                 "startBytes": {"type": "int", "required": true, "nullable": false},
                 "endBytes": {"type": "int", "required": true, "nullable": false},
@@ -155,7 +158,7 @@
               "type": "List<Map>",
               "required": false,
               "nullable": false,
-              "presence": "when CausalGraphRule.apply produced at least one active edge",
+              "presence": "when at least two issues are ranked and CausalGraphRule.activeEdges finds at least one edge between them",
               "item_shape": {
                 "cause": {"type": "String", "required": true, "nullable": false},
                 "effect": {"type": "String", "required": true, "nullable": false}
@@ -192,12 +195,12 @@
                 "p99": {"type": "num", "required": false, "nullable": false, "presence": "when frameStats.length >= 2"}
               }
             },
-            "issueCount": {"type": "int", "required": true, "nullable": false},
-            "criticalCount": {"type": "int", "required": true, "nullable": false},
-            "warningCount": {"type": "int", "required": true, "nullable": false},
-            "issues": {"type": "List<String>", "required": true, "nullable": false, "item_shape": "stableId"},
-            "rebuildCountsByType": {"type": "Map<String, int>", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session"},
-            "totalRebuilds": {"type": "int", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session"}
+            "issueCount": {"type": "int", "required": true, "nullable": false, "doc": "distinct issue keys retained for the session; at most 256, the oldest-inserted key evicted first, so a longer session undercounts"},
+            "criticalCount": {"type": "int", "required": true, "nullable": false, "doc": "critical issues among the retained keys (see issueCount)"},
+            "warningCount": {"type": "int", "required": true, "nullable": false, "doc": "warning issues among the retained keys (see issueCount)"},
+            "issues": {"type": "List<String>", "required": true, "nullable": false, "item_shape": "stableId", "doc": "the retained keys (stableId, else the issue title) in first-seen order; at most 256"},
+            "rebuildCountsByType": {"type": "Map<String, int>", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session", "doc": "at most 256 widget types, the oldest-inserted type evicted first"},
+            "totalRebuilds": {"type": "int", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session", "doc": "sum over the retained rebuildCountsByType entries only; rebuilds of evicted types are not counted"}
           }
         }
       }
@@ -237,12 +240,12 @@
           "nullable": false,
           "shape": {
             "displayName": {"type": "String", "required": true, "nullable": false},
-            "category": {"type": "String", "required": true, "nullable": false},
+            "category": {"type": "String", "required": true, "nullable": false, "values": ["build", "layout", "paint", "raster", "memory", "channel", "font", "network", "startup"]},
             "whatItIs": {"type": "String", "required": true, "nullable": false},
             "readingTheData": {"type": "String", "required": true, "nullable": false},
             "whyItMatters": {"type": "String", "required": true, "nullable": false},
             "howToFix": {"type": "String", "required": true, "nullable": false},
-            "whenToIgnore": {"type": "String", "required": true, "nullable": false},
+            "whenToIgnore": {"type": "String", "required": true, "nullable": true, "doc": "null when the entry has no ignore guidance (for example heavy_compute)"},
             "relatedIssues": {"type": "List<String>", "required": true, "nullable": false}
           }
         }

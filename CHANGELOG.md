@@ -340,6 +340,17 @@
 - The encyclopedia's debug repaint entries read the rate the detector
   alerts at (30/sec, critical above 60/sec), and the debug rebuild entry
   states its 10/sec alert.
+- `ext.sleuth.explain` borrows another live issue of the family only
+  for a bare id. An occurrence id (`excessive_keep_alive:PageView~k-home`)
+  with no exact live match gets neutral wording instead of another
+  occurrence's values.
+- `doc/mcp_schema.{json,md}` match what the handlers emit: `whenToIgnore`
+  is nullable; every `sessionSummary` key is conditional (`topIssues` and
+  `detectorHitRates` need a ranked issue, `frameHistogram` a frame,
+  `memoryTrendSummary` two heap samples); `topIssues[]` documents
+  `widgetName`, a nullable `stableId` and an optional `confidenceReason`;
+  route counts note the 256-key cap; placeholder substitution is stated
+  as 0.37 and later.
 
 ## 0.37.0
 
@@ -735,7 +746,7 @@
   `maxPollParseMicros`, `maxPollDispatchMicros` (32-poll maxima),
   `pollDuplicatesDropped`, and `pollWindowFallbacks`. The decode runs
   from the arrival of the matched raw response (`VmService.onReceive`) to
-  the completed await; −1 when the response was not matched. The response
+  the completed await; null when the response was not matched. The response
   is matched by request id within its first and last 64 characters, so ids
   nested in a payload cannot match. Every reading is null after a
   reconnect until the new session's first poll.

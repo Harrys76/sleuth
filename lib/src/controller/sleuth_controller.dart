@@ -828,8 +828,8 @@ class SleuthController {
   /// Largest RPC segment over the last 32 polls; null before the first.
   int? get maxPollRpcMicros => _vmClient?.maxPollRpcMicros;
 
-  /// Largest decode segment over the last 32 polls (−1 when none of them
-  /// matched its raw response); null before the first.
+  /// Largest decode segment over the last 32 polls; null before the first
+  /// and when none of them matched its raw response.
   int? get maxPollDecodeMicros => _vmClient?.maxPollDecodeMicros;
 
   /// Largest parse segment over the last 32 polls; null before the first.
