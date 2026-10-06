@@ -1,0 +1,6 @@
+# Commits that only reformat code. GitHub's blame view skips them; locally run
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# once to make `git blame` skip them too.
+
+# dart format with the tall style (Dart 3.8 formatter), no code changes
+0215afe81ac91351a1ca30ac8f597e19ec2f1ce5
