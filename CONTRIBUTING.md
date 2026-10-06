@@ -86,7 +86,7 @@ differences from detectors are:
   `test/validation/captures/<detector>/` and its `sleuthMetadata`
   wrapper is complete. If you added a parser fixture, its row is
   appended to `test/validation/captures/_fixtures/README.md`.
-- `CHANGELOG.md` has an entry under `## Unreleased`.
+- `CHANGELOG.md` has an entry under `## Unreleased` at the top (add the heading if it is missing).
 - Commit messages follow the style in `git log`: a `feat`, `fix`,
   `docs`, `chore` or `example` prefix, with an optional scope such as
   `fix(debug):`.

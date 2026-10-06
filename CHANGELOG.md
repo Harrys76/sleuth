@@ -1,4 +1,114 @@
-## Unreleased
+## 0.37.0
+
+- Scan-root detection works on Flutter 3.47. `IndexedStack` no longer wraps
+  inactive children in `Visibility`, so the visible-page walk now descends
+  only into the selected child through the element's onstage visitor. Before
+  this fix, every scan aborted in bottom-navigation apps on 3.47.
+- The minimum versions are Dart `^3.8.0` and Flutter `>=3.32.0`. The previous
+  declaration was `>=3.24.0`, but the code already needed 3.27+ APIs.
+- The `vm_service` constraint widens to `>=14.0.0 <16.0.0`, so apps on Flutter
+  3.32.x can resolve sleuth beside `flutter_test`.
+- Overlay keyboard-inset detection reads the hosting `View` instead of the
+  first platform view.
+- Profile captures may be recorded on Flutter 3.41 or 3.47
+  (`ProfileCaptureSchema.approvedFlutterMajorMinors`). The three legs of a
+  bracket must still share one exact `flutterVersion`, and
+  `approvedFlutterMajorMinor` stays `3.41` as the baseline member.
+- Encyclopedia, fix-hint, detector-description, guide and README text now
+  match detector behavior (thresholds, Impeller-era shader and repaint
+  guidance, profile-mode axis wording, mode table). The debug repaint entries
+  read the rate the detector alerts at (30/sec, critical above 60/sec), and
+  the debug rebuild entry states its 10/sec alert.
+- Encyclopedia entries for detectors removed in 0.20.0 are labelled legacy.
+- `non_lazy_listview`, `non_lazy_gridview`, `non_lazy_sliver_list` and
+  `non_lazy_sliver_grid` resolve to the `non_lazy_list` encyclopedia entry
+  (Learn more, AI context, `ext.sleuth.explain`).
+- Explanation placeholders (`{widgetName}`, `{routeName}`, `{count}`,
+  `{severity}`, `{title}`, `{stableId}`) are substituted in the AI prompt and
+  in `ext.sleuth.explain` and `ext.sleuth.encyclopedia` payloads. `explain`
+  fills them from the live issue with the same id. A bare id falls back to
+  another live issue of its family; any other id with no exact live match
+  (`excessive_keep_alive:PageView~k-home`) gets neutral wording instead of
+  another occurrence's values. `encyclopedia` always uses neutral wording.
+
+### Overlay
+
+- System back (gesture or button) closes the innermost overlay layer first: a
+  focused text field, then the open full-screen page or Hidden list, then the
+  dashboard. With the dashboard closed, back reaches the app unchanged. On
+  Android, Sleuth claims predictive back swipes while a layer is open and
+  requests `SystemNavigator.setFrameworkHandlesBack(true)` after each layer
+  change. The app's own navigation notification turns that flag off at its
+  root route, so while a layer is open Sleuth checks the app's navigators
+  after each frame and requests the flag again when one of them changed. The
+  inert `PopScope` wrappers on the overlay pages are gone.
+- Overlay UI state lives in the controller (`OverlayUiState`,
+  `Sleuth.overlayUiState`), so the trigger position and the card position,
+  size and window state no longer reset when the dashboard closes or on hot
+  reload.
+- `SleuthConfig.stateStore` (`SleuthStateStore`, which reads and writes a JSON
+  string) persists that state across restarts. Sleuth reads it once at startup
+  with a 2 s timeout, and the trigger appears when the read finishes. Changes
+  made before the read finishes are kept, and a dashboard opened before it
+  finishes takes the stored position and size. Writes use a trailing 500 ms
+  debounce with one write in flight at a time. A write still running after 5 s
+  is given up so later changes are saved, a change waiting for its debounce is
+  written when the app goes to the background, and a pending change is written
+  on dispose. A read that times out, throws or returns a newer schema leaves
+  the defaults and turns writes off for the session, so the stored state is
+  not overwritten. Contents no release can read (not a JSON object, no valid
+  `schemaVersion`) keep the defaults and are replaced by the next change.
+  Return null from `read` when nothing is stored. `InMemorySleuthStateStore`
+  is for tests, and the example app ships a file-backed store.
+- An expanded card's Hide action removes the card from the overlay, with a 4 s
+  Undo, and collapsed effects go with their root. The footer reads
+  `N hidden · M suppressed` and opens a Hidden list (restore one, restore all,
+  and the `suppressedIssues` patterns listed read-only). Hiding is
+  overlay-only: `ext.sleuth.*`, snapshots, MCP budgets, route sessions and
+  recurrence still see the issue. The trigger badge and summary counts follow
+  the visible cards. A hide covers the card at the severity it was hidden at,
+  so a hidden warning shows again if the same card turns critical, and a
+  hidden critical stays hidden at any severity (hide keys of critical cards
+  end in `!critical`). Restore all offers Undo. Hiding, filtering out or
+  losing the highlighted issue clears its highlight.
+- An expanded card's Copy action (or a long press on the title) puts the
+  title, severity, confidence, route, widget, detail, fix hint and stable id
+  on the clipboard as plain text (`PerformanceIssue.toClipboardText()`), with
+  a "Copied" or "Couldn't copy" confirmation.
+- The summary bar's severity counts toggle that severity, and one always stays
+  on. A chip counts the cards of its severity that the list shows; a disabled
+  severity counts the cards it would show if turned back on, so an effect
+  surfaced by filtering out its root has a chip. When fewer cards show than
+  with no filter and nothing hidden, the bar reads "Showing X of Y". Empty
+  lists explain why: no issues; none match the filter, with Reset; or all
+  hidden, with Show hidden. The bar is 36 px tall at 1x text, and its chips
+  keep 48 dp hit boxes.
+- The card's minimum height is 300 px (was 250), so two collapsed issue rows
+  fit under the summary bar. On a screen whose usable height is smaller (split
+  screen, landscape) it stops there, down to the header, summary bar and
+  footer. A maximized card refits after a rotation or window resize. The
+  status row and banners scroll so the list keeps room for the summary bar and
+  one row. The minimized count badge turns red when a critical card is among
+  the count.
+- A card's "Caused by" list reads "(+N not shown)" (was "(+N suppressed)") for
+  parents the ranker left out, so it is not confused with `suppressedIssues`.
+- The trigger and card stay inside the view padding and above the keyboard. A
+  dragged trigger snaps to the nearest side and keeps its side and vertical
+  fraction through rotation. `triggerButtonAlignment` and
+  `triggerButtonOffset` set the position until the first drag, measured from
+  the safe area.
+- One toast replaces the separate export, highlight and rebuild-panel banners,
+  and the AI chat copy confirmation now shows (it relied on a missing
+  `ScaffoldMessenger`). Toasts sit above the keyboard and are announced to
+  screen readers.
+- The trigger, the Close button, the severity chips and the card actions
+  (Copy, Hide, Learn more, Ask AI) have screen-reader labels and 48 dp
+  targets. The trigger reads `Open Sleuth, 3 issues, 1 critical` and names the
+  critical count only when an issue is critical.
+- The overlay builds its listeners, animations, semantics groups and trigger
+  layout from Sleuth-named classes, so the profile-mode rebuild filter never
+  drops app-owned `ListenableBuilder`, `AnimatedContainer`,
+  `AnimatedSwitcher`, `MergeSemantics` or `CustomSingleChildLayout` rebuilds.
 
 ### Overlay accessibility, text scaling and theme
 
@@ -290,158 +400,6 @@
   band), and its triad is re-recorded with Flutter 3.47.6 at 8, 72 and 110
   instances.
 
-### Detector fixes and schema docs
-
-- Debug repaint cards (`repaint_debug_<Type>`) name the likely origin of a
-  layer's repaints instead of every widget painted with it. Sleuth reads
-  `debugNeedsPaint` in the paint hook, credits the deepest marked render
-  object in each layer to the nearest widget the app creates, and rates
-  each type by its busiest instance instead of summing instances. Sleuth
-  does not credit widgets that only share the layer, clean
-  `RepaintBoundary` visits, slivers, viewports, framework control painters,
-  Material ink splashes or scrolling. Following the fix hint therefore no
-  longer raises a `repaint_debug_RepaintBoundary` card. The cards are
-  titled "Likely Repaint Origin", are `likely`, and highlight the busiest
-  origin instances. `frequent_repaint_painter` and the lift of
-  `always_repaint_painter` read the same origin rate and hold it across
-  scans like the repaint cards, so a slow window no longer drops them. A
-  nested boundary repainted earlier in the frame no longer makes the
-  ancestors its resize relaid out look like origins. `DebugSnapshot` adds
-  `paintOrigins` (`PaintOriginStats`, `PaintOriginInstance`) and
-  `paintOriginTypesCapped`; the participation counts are unchanged.
-- `ext.sleuth.issues` carries `vmConnected`, so MCP clients can tell a
-  connected session from one without a VM link. `ConnectionMode.basic` is
-  documented as "no VM-tier frame verdict yet": a connected session that has
-  not janked since connect stays basic.
-- A scroll that starts during layout (a page view re-fitting its pages after a
-  rotation or resize) no longer publishes issues mid-frame. The
-  interaction-context refresh runs after the frame, so debug builds no longer
-  report "Build scheduled during frame".
-- `heavy_compute` emits one issue per VM batch for the longest build over the
-  threshold, and when more than one build went over, its detail says how many.
-  Each slow build used to emit its own issue under the same stable id, which
-  stacked identical cards in the overlay.
-- `doc/mcp_schema.{json,md}` match what the handlers emit. `whenToIgnore` is
-  nullable. Every `sessionSummary` key is conditional: `topIssues` and
-  `detectorHitRates` need a ranked issue, `frameHistogram` needs a frame, and
-  `memoryTrendSummary` needs two heap samples. `topIssues[]` documents
-  `widgetName`, a nullable `stableId` and an optional `confidenceReason`.
-  Route counts note the 256-key cap, and placeholder substitution is
-  documented as 0.37 and later.
-
-## 0.37.0
-
-- Scan-root detection works on Flutter 3.47. `IndexedStack` no longer wraps
-  inactive children in `Visibility`, so the visible-page walk now descends
-  only into the selected child through the element's onstage visitor. Before
-  this fix, every scan aborted in bottom-navigation apps on 3.47.
-- The minimum versions are Dart `^3.8.0` and Flutter `>=3.32.0`. The previous
-  declaration was `>=3.24.0`, but the code already needed 3.27+ APIs.
-- The `vm_service` constraint widens to `>=14.0.0 <16.0.0`, so apps on Flutter
-  3.32.x can resolve sleuth beside `flutter_test`.
-- Overlay keyboard-inset detection reads the hosting `View` instead of the
-  first platform view.
-- Profile captures may be recorded on Flutter 3.41 or 3.47
-  (`ProfileCaptureSchema.approvedFlutterMajorMinors`). The three legs of a
-  bracket must still share one exact `flutterVersion`, and
-  `approvedFlutterMajorMinor` stays `3.41` as the baseline member.
-- Encyclopedia, fix-hint, detector-description, guide and README text now
-  match detector behavior (thresholds, Impeller-era shader and repaint
-  guidance, profile-mode axis wording, mode table). The debug repaint entries
-  read the rate the detector alerts at (30/sec, critical above 60/sec), and
-  the debug rebuild entry states its 10/sec alert.
-- Encyclopedia entries for detectors removed in 0.20.0 are labelled legacy.
-- `non_lazy_listview`, `non_lazy_gridview`, `non_lazy_sliver_list` and
-  `non_lazy_sliver_grid` resolve to the `non_lazy_list` encyclopedia entry
-  (Learn more, AI context, `ext.sleuth.explain`).
-- Explanation placeholders (`{widgetName}`, `{routeName}`, `{count}`,
-  `{severity}`, `{title}`, `{stableId}`) are substituted in the AI prompt and
-  in `ext.sleuth.explain` and `ext.sleuth.encyclopedia` payloads. `explain`
-  fills them from the live issue with the same id. A bare id falls back to
-  another live issue of its family; any other id with no exact live match
-  (`excessive_keep_alive:PageView~k-home`) gets neutral wording instead of
-  another occurrence's values. `encyclopedia` always uses neutral wording.
-
-### Overlay
-
-- System back (gesture or button) closes the innermost overlay layer first: a
-  focused text field, then the open full-screen page or Hidden list, then the
-  dashboard. With the dashboard closed, back reaches the app unchanged. On
-  Android, Sleuth claims predictive back swipes while a layer is open and
-  requests `SystemNavigator.setFrameworkHandlesBack(true)` after each layer
-  change. The app's own navigation notification turns that flag off at its
-  root route, so while a layer is open Sleuth checks the app's navigators
-  after each frame and requests the flag again when one of them changed. The
-  inert `PopScope` wrappers on the overlay pages are gone.
-- Overlay UI state lives in the controller (`OverlayUiState`,
-  `Sleuth.overlayUiState`), so the trigger position and the card position,
-  size and window state no longer reset when the dashboard closes or on hot
-  reload.
-- `SleuthConfig.stateStore` (`SleuthStateStore`, which reads and writes a JSON
-  string) persists that state across restarts. Sleuth reads it once at startup
-  with a 2 s timeout, and the trigger appears when the read finishes. Changes
-  made before the read finishes are kept, and a dashboard opened before it
-  finishes takes the stored position and size. Writes use a trailing 500 ms
-  debounce with one write in flight at a time. A write still running after 5 s
-  is given up so later changes are saved, a change waiting for its debounce is
-  written when the app goes to the background, and a pending change is written
-  on dispose. A read that times out, throws or returns a newer schema leaves
-  the defaults and turns writes off for the session, so the stored state is
-  not overwritten. Contents no release can read (not a JSON object, no valid
-  `schemaVersion`) keep the defaults and are replaced by the next change.
-  Return null from `read` when nothing is stored. `InMemorySleuthStateStore`
-  is for tests, and the example app ships a file-backed store.
-- An expanded card's Hide action removes the card from the overlay, with a 4 s
-  Undo, and collapsed effects go with their root. The footer reads
-  `N hidden · M suppressed` and opens a Hidden list (restore one, restore all,
-  and the `suppressedIssues` patterns listed read-only). Hiding is
-  overlay-only: `ext.sleuth.*`, snapshots, MCP budgets, route sessions and
-  recurrence still see the issue. The trigger badge and summary counts follow
-  the visible cards. A hide covers the card at the severity it was hidden at,
-  so a hidden warning shows again if the same card turns critical, and a
-  hidden critical stays hidden at any severity (hide keys of critical cards
-  end in `!critical`). Restore all offers Undo. Hiding, filtering out or
-  losing the highlighted issue clears its highlight.
-- An expanded card's Copy action (or a long press on the title) puts the
-  title, severity, confidence, route, widget, detail, fix hint and stable id
-  on the clipboard as plain text (`PerformanceIssue.toClipboardText()`), with
-  a "Copied" or "Couldn't copy" confirmation.
-- The summary bar's severity counts toggle that severity, and one always stays
-  on. A chip counts the cards of its severity that the list shows; a disabled
-  severity counts the cards it would show if turned back on, so an effect
-  surfaced by filtering out its root has a chip. When fewer cards show than
-  with no filter and nothing hidden, the bar reads "Showing X of Y". Empty
-  lists explain why: no issues; none match the filter, with Reset; or all
-  hidden, with Show hidden. The bar is 36 px tall at 1x text, and its chips
-  keep 48 dp hit boxes.
-- The card's minimum height is 300 px (was 250), so two collapsed issue rows
-  fit under the summary bar. On a screen whose usable height is smaller (split
-  screen, landscape) it stops there, down to the header, summary bar and
-  footer. A maximized card refits after a rotation or window resize. The
-  status row and banners scroll so the list keeps room for the summary bar and
-  one row. The minimized count badge turns red when a critical card is among
-  the count.
-- A card's "Caused by" list reads "(+N not shown)" (was "(+N suppressed)") for
-  parents the ranker left out, so it is not confused with `suppressedIssues`.
-- The trigger and card stay inside the view padding and above the keyboard. A
-  dragged trigger snaps to the nearest side and keeps its side and vertical
-  fraction through rotation. `triggerButtonAlignment` and
-  `triggerButtonOffset` set the position until the first drag, measured from
-  the safe area.
-- One toast replaces the separate export, highlight and rebuild-panel banners,
-  and the AI chat copy confirmation now shows (it relied on a missing
-  `ScaffoldMessenger`). Toasts sit above the keyboard and are announced to
-  screen readers.
-- The trigger, the highlight checkbox, the Close button, the severity chips
-  and the card actions (Copy, Hide, Learn more, Ask AI) have screen-reader
-  labels and 48 dp targets. The trigger reads
-  `Open Sleuth, 3 issues, 1 critical` and names the critical count only when
-  an issue is critical.
-- The overlay builds its listeners, animations, semantics groups and trigger
-  layout from Sleuth-named classes, so the profile-mode rebuild filter never
-  drops app-owned `ListenableBuilder`, `AnimatedContainer`,
-  `AnimatedSwitcher`, `MergeSemantics` or `CustomSingleChildLayout` rebuilds.
-
 ### Behavior changes
 
 - The VM client dispatches an empty timeline batch once per second while the
@@ -602,8 +560,6 @@
   (previously all `custom`).
 - `missing_repaint_boundary` caps at `likely`, because per-type paint rates
   cannot point at the specific unprotected widget.
-- `frequent_repaint_painter` and the `always_repaint_painter` upgrade use the
-  CustomPaint paint rate minus animation-owned paints.
 - `shader_compilation` reads engine begin/end pairs: Impeller Vulkan pipeline
   builds (`PipelineVK::Create`, `CreateComputePipeline`) and Skia shader
   compiles (`devtoolsTag: shaders`). Issues are `likely`, because a build
@@ -802,6 +758,45 @@
   a correlated verdict, and the batch coverage is at least 0.5.
   `coverageRatio` is removed, and `FrameVerdict.correlationCoverage` reports
   the batch coverage.
+
+### Detector fixes and schema docs
+
+- Debug repaint cards (`repaint_debug_<Type>`) name the likely origin of a
+  layer's repaints instead of every widget painted with it. Sleuth reads
+  `debugNeedsPaint` in the paint hook, credits the deepest marked render
+  object in each layer to the nearest widget the app creates, and rates
+  each type by its busiest instance instead of summing instances. Sleuth
+  does not credit widgets that only share the layer, clean
+  `RepaintBoundary` visits, slivers, viewports, framework control painters,
+  Material ink splashes or scrolling. Following the fix hint therefore no
+  longer raises a `repaint_debug_RepaintBoundary` card. The cards are
+  titled "Likely Repaint Origin", are `likely`, and highlight the busiest
+  origin instances. `frequent_repaint_painter` and the lift of
+  `always_repaint_painter` read the same origin rate and hold it across
+  scans like the repaint cards, so a slow window no longer drops them. A
+  nested boundary repainted earlier in the frame no longer makes the
+  ancestors its resize relaid out look like origins. `DebugSnapshot` adds
+  `paintOrigins` (`PaintOriginStats`, `PaintOriginInstance`) and
+  `paintOriginTypesCapped`; the participation counts are unchanged.
+- `ext.sleuth.issues` carries `vmConnected`, so MCP clients can tell a
+  connected session from one without a VM link. `ConnectionMode.basic` is
+  documented as "no VM-tier frame verdict yet": a connected session that has
+  not janked since connect stays basic.
+- A scroll that starts during layout (a page view re-fitting its pages after a
+  rotation or resize) no longer publishes issues mid-frame. The
+  interaction-context refresh runs after the frame, so debug builds no longer
+  report "Build scheduled during frame".
+- `heavy_compute` emits one issue per VM batch for the longest build over the
+  threshold, and when more than one build went over, its detail says how many.
+  Each slow build used to emit its own issue under the same stable id, which
+  stacked identical cards in the overlay.
+- `doc/mcp_schema.{json,md}` match what the handlers emit. `whenToIgnore` is
+  nullable. Every `sessionSummary` key is conditional: `topIssues` and
+  `detectorHitRates` need a ranked issue, `frameHistogram` needs a frame, and
+  `memoryTrendSummary` needs two heap samples. `topIssues[]` documents
+  `widgetName`, a nullable `stableId` and an optional `confidenceReason`.
+  Route counts note the 256-key cap, and placeholder substitution is
+  documented as 0.37 and later.
 
 ### Testing
 
