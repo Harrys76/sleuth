@@ -1111,9 +1111,9 @@ class _IssueCardState extends State<IssueCard> {
     final present = trend.presentCount;
     final total = trend.length;
     final ratio = total == 0 ? 0.0 : present / total;
-    // NOTE: The UI labels here are the documented surface — if you rename
-    // a label, update the table in `RecurrenceTrend`'s enum dartdoc and the
-    // "Recurrence Badge" section of README.md to match.
+    // NOTE: These labels are documented. If you rename one, update the
+    // table in `RecurrenceTrend`'s enum dartdoc, the "Recurrence badge"
+    // section of doc/internals.md and the label list in README.md.
     final (label, color, text) = switch (trend.trend) {
       TrendDirection.worsening => (
         'worsening',

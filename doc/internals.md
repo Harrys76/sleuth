@@ -1,6 +1,6 @@
 # Sleuth internals and detector reference
 
-This page holds the reference material the main [README](../README.md) leaves out: how Sleuth measures frames, the scan loop, the VM poll pipeline, debug rebuild and paint counts, the full detector matrix, recurrence-trend thresholds, ranking, overlay state, startup metrics, and platform troubleshooting.
+This page holds the reference material the main [README](../README.md) leaves out: how Sleuth measures frames, the scan loop, the VM connection and poll pipeline, debug rebuild and paint counts, the full detector matrix, recurrence-trend thresholds, ranking, overlay state, startup metrics, and platform troubleshooting.
 
 ## Measurement window
 
@@ -13,6 +13,31 @@ Sleuth reports the frame's total duration, the build-to-raster span from Flutter
 The structural scan runs on a self-rescheduling timer. Its callback scans in a post-frame callback, so a tick needs a frame to run. The interval starts at `treeScanInterval` (1 s). After three consecutive scans with no issues it doubles, up to 2 s and never below the base. Each tick times its unified walk plus aggregation. A tick over 4 ms stretches the next interval to `treeScanInterval × ceil(cost / 4 ms)`, capped at 5 s and never below the back-off interval; capture mode turns the stretch off. With `maxElementsPerScan > 0`, a walk over the cap skips the next tick once and schedules the following one at twice the interval. Walks are never cut short, and the previous issues stay visible. While the user scrolls, a tick retries after 250 ms, at most three times in a row, and a scroll with no start or update notification for 2 s counts as ended. Scroll notifications only re-measure highlight rects from the render objects they were measured from, and one early tick runs 300 ms after a scroll ends. `issuesNotifier` fires only when a rendered field of the ranked list changes. `scanTickNotifier` pulses once per tick for panels that re-read live state, such as rebuild counts and recurrence badges.
 
 A scan keys rebuild and repaint evidence on the screen: the route name, the scaffold hash and the hot-reload generation. When the key changes, `RebuildDetector` and `RepaintDetector` drop what they hold and restart their VM window, and no detector receives that scan's debug counts, which span the change (a hot reload rebuilds every element once). A scan that cannot find a single visible page, such as two Scaffolds side by side during a transition, drops the held per-widget debug cards.
+
+## VM connection
+
+Sleuth connects to the app's own VM service from inside the app. Frame timing mode is the cross-platform path and gives accurate build and raster timing in profile builds. VM full mode adds the sub-phase breakdown (build, layout, paint and raster) but depends on VM service connectivity, which varies by platform. Sleuth falls back to frame timing mode when the VM is unavailable. On cold start, a background reconnect ladder (seven attempts, from 500 ms up to 30 s apart) upgrades Sleuth to full mode once the VM web server binds, with no manual action. On Android it also covers the cold-start port bind race.
+
+`flutter run` starts DDS (Dart Development Service) by default, and DDS claims the device's VM service as its only client. That blocks Sleuth's in-process self-connect, so Sleuth stays in frame timing mode for the session. `flutter run --profile --no-dds` lets Sleuth connect on the first run, with no relaunch. Hot reload and hot restart still work; you lose the features only DDS provides (smoother multi-client DevTools, log history).
+
+When you need DDS, DevTools and Sleuth at once, launch the installed binary directly so no DDS attaches.
+
+**Android:**
+```bash
+flutter run --profile -d <id>          # build + install once, then quit (q)
+adb -s <id> shell am start -n com.example.example/.MainActivity
+adb -s <id> logcat -d | grep "Dart VM service"
+adb -s <id> forward tcp:<port> tcp:<port>   # for sleuth_mcp / external tooling
+```
+
+**iOS simulator:**
+```bash
+flutter run --profile -d <id>          # build + install once, then quit (q)
+xcrun simctl launch booted com.example.example
+# capture the URI: xcrun simctl spawn booted log stream | grep "Dart VM service"
+```
+
+On either path, `ext.sleuth.diagnose` (shown by the `sleuth_mcp` `diagnose` tool) reports `vmConnected: true`, and so does `Sleuth.diagnoseCaptureState()` in the app. On emulators and simulators (software rendering, weak CPU) VM polling can lower FPS, so measure frame rates on a real device.
 
 ## VM poll pipeline
 
@@ -158,6 +183,22 @@ The resulting order is confirmed critical, likely critical, confirmed warning, p
 [`CausalGraphRule`](../lib/src/analyzer/causal_graph.dart) holds 41 cause-to-effect rules. Before it looks for roots, it drops any edge whose cause is `possible` and whose effect is `likely` or `confirmed`, so a structural guess never claims an observed effect. `activeEdges` in the export applies the same filter.
 
 In the overlay, an effect with exactly one cause collapses under that cause only when the cause is present and at least as severe as the effect. An effect with two or more causes always stays in the main list with a "Caused by" section.
+
+## Route sessions
+
+Sleuth detects route changes from the element tree, with no `NavigatorObserver`. Each route gets its own `RouteSession` with per-route FPS, jank ratio, issue snapshots and a composite health score from 0 to 100.
+
+```dart
+final history = Sleuth.routeHistory; // List<RouteSession>?
+final score = Sleuth.routeHealthScore('/settings'); // int?
+
+SleuthConfig(
+  routeIgnorePatterns: {'/dialog*', '/splash'}, // skip ephemeral routes
+  routeHistoryCapacity: 50,                      // max sessions retained (FIFO)
+)
+```
+
+Bottom-navigation apps that use `IndexedStack`, `StatefulShellRoute.indexedStack` or `CupertinoTabScaffold` share one `ModalRoute` across all tabs but give each tab its own `Scaffold`. Sleuth keys sessions on `(routeName, scaffoldHashKey)`, so each tab gets its own `RouteSession` instead of all tabs sharing one route name. `tabVisitIndex` (starting at 1) tells repeat visits to the same tab apart. `TabBar`, `TabBarView` and `PageView` swipes within one route stay inside the outer session. `PerformanceIssue.routeName` stays raw for group-by-route filtering; use `issue.routeDisplayName` for labels that people read (for example `"/home (tab-2)"` on the second visit). Both the JSON and the markdown exports include route health data.
 
 ## Overlay state and back handling
 

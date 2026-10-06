@@ -191,9 +191,9 @@ On an iPhone 12 a poll costs about 1.5 ms on an idle screen and about
 32 ms on a screen that writes 10k timeline events per poll. Emulators and
 simulators can lose FPS to polling, so measure on a real device. To keep
 DDS and DevTools as well, launch the installed app yourself and call
-`attach_app(debugUrl:)`; the
-[sleuth README](https://github.com/Harrys76/sleuth#reaching-full-mode) has
-the Android and iOS simulator commands.
+`attach_app(debugUrl:)`.
+[Sleuth internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#vm-connection)
+has the Android and iOS simulator commands.
 
 ## CI gate with `sleuth_check`
 
