@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 9: Shader Jank
+// Demo 10: Shader Jank
 // Triggers: ShaderJank detector (VM-only, ≥100ms shader compile)
 // ─────────────────────────────────────────
 

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 7: Missing RepaintBoundary
+// Demo 8: Missing RepaintBoundary
 // Triggers: RepaintBoundary detector (structural)
 // ─────────────────────────────────────────
 

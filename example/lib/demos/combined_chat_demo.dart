@@ -7,9 +7,9 @@ import 'package:flutter/services.dart';
 import '../demo_scaffold.dart';
 
 // ───────────────────────────────────────────────
-// Demo 23: Combined: Chat App
+// Demo 24: Combined: Chat App
 // ───────────────────────────────────────────────
-// Triggers: Rebuild, SetStateScope, KeepAlive, PlatformChannel, ImageMemory
+// Triggers: SetStateScope, KeepAlive, PlatformChannel, ImageMemory
 // Interaction-dependent issues — problems that only appear during active use.
 
 /// A messaging screen with 6 conversation tabs that stacks 5 anti-patterns:

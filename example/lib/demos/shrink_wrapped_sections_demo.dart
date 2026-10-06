@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Shrink-wrapped Sections
+// Demo 4: Shrink-wrapped Sections
 // Triggers: ListView detector (non_lazy_shrinkwrap, one card per list)
 // ─────────────────────────────────────────
 

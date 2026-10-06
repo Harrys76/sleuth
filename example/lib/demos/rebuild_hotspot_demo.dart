@@ -7,8 +7,8 @@ import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
 // Demo: Rebuild Hotspot (Dashboard)
-// Triggers: Rebuild Stats rollup (profile mode)
-//           + per-type rebuild issues (debug mode)
+// Triggers: Rebuilds banner + drilldown (profile mode)
+//           + a rebuild card for the listening builder (debug mode)
 // ─────────────────────────────────────────
 
 /// Showcases v0.15.0 "Rebuild Stats" — a `Timer.periodic` drives a
@@ -19,22 +19,23 @@ import '../demo_scaffold.dart';
 /// sorted list to surface.
 ///
 /// **Run in profile mode** (`fvm flutter run --profile`) for the full
-/// Rebuild Stats experience:
+/// Rebuild Stats view:
 ///
 ///   1. Open the Sleuth overlay (paw icon).
-///   2. Tap "Start Ticker" and wait ~2 seconds.
-///   3. A "Build Hotspot" rollup card appears once the session sustains
-///      at least 20 builds/sec over a 1.5 s window (v0.15.1 rate-based
-///      threshold — the ticker's 30 builds/tick × 10 ticks/s gets there
-///      immediately).
-///   4. Tap "See all rebuilds →" on the rollup card to open the
-///      [RebuildStatsPage] drilldown, which lists every widget type
-///      rebuilt during the session, sorted descending by count.
+///   2. Tap "Start Ticker" and wait a few seconds.
+///   3. The "Rebuilds: N across M widgets" banner at the top of the card
+///      counts every widget type built on this screen; tap it to expand
+///      the top three.
+///   4. Tap "See all M →" to open the Rebuild Stats drilldown, every
+///      widget type sorted by count.
 ///
-/// In debug mode the rollup card is suppressed (profile-path only) but
-/// per-type `rebuild_debug_*` issue cards still fire for each of the
-/// five types. Both modes validate that the widgets are real rebuilds,
-/// not static inflations.
+/// In debug mode the banner stays empty (it reads the profile timeline).
+/// Sleuth instead counts a rebuild for the widget that started it: the
+/// dashboard's `ValueListenableBuilder<int>` and the metric chips'
+/// builders rebuild about 30 times a second together, the builder alert
+/// rate, so one `rebuild_debug_ValueListenableBuilder<int>` card shows
+/// and its detail counts the dashboard widgets those builds rebuilt. The
+/// fixed path rebuilds one chip per tick and raises nothing.
 class RebuildHotspotDemo extends StatefulWidget {
   const RebuildHotspotDemo({super.key});
 
@@ -101,12 +102,13 @@ class _RebuildHotspotDemoState extends State<RebuildHotspotDemo> {
           '(30 builds per tick).\n'
           '✅ FIX: The dashboard is const. Only a tiny "Last updated" chip '
           'subscribes to the tick notifier — 1 rebuild per tick.\n\n'
-          '▶ Tap "Start Ticker". Open the Sleuth overlay (paw icon) and wait '
-          '~2 s. In PROFILE mode a "Build Hotspot" rollup card surfaces once '
-          'the session sustains at least 20 builds/sec — tap '
-          '"See all rebuilds →" to open the Rebuild Stats drilldown. In DEBUG '
-          'mode you get per-type issue cards instead (the rollup is '
-          'profile-only).',
+          '▶ Tap "Start Ticker", open the Sleuth overlay (paw icon) and '
+          'wait a few seconds. In PROFILE mode the "Rebuilds" banner at the '
+          'top of the card counts the widgets built on this screen; expand '
+          'it and tap "See all" for the Rebuild Stats drilldown. In DEBUG '
+          'mode Sleuth names the widget that starts each rebuild: a card '
+          'for ValueListenableBuilder<int>, whose detail counts the '
+          'dashboard widgets it rebuilt.',
       metricsBar: MetricsBar(
         chips: [
           ValueListenableBuilder<int>(

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 19: Font Loading Stress
+// Demo 20: Font Loading Stress
 // Triggers: FontLoading detector (>3 custom fonts)
 // ─────────────────────────────────────────
 

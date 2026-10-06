@@ -101,4 +101,20 @@ void main() {
     await tester.pump();
     await expectOnstage(listTab);
   });
+
+  testWidgets('every tab fits a phone in landscape at 2x text', (tester) async {
+    tester.view
+      ..physicalSize = const Size(568, 320)
+      ..devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+    await tester.pumpWidget(const MaterialApp(home: TabbedShellDemo()));
+    for (final tab in ['Images', 'Layout', 'List']) {
+      await tester.tap(find.text(tab));
+      await tester.pump();
+    }
+    expect(tester.takeException(), isNull);
+  });
 }

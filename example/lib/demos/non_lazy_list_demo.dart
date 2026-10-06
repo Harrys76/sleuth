@@ -5,7 +5,7 @@ import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
 // Demo 3: Non-Lazy ListView
-// Triggers: ListView detector (>20 children)
+// Triggers: ListView detector (more than 50 children by default)
 // ─────────────────────────────────────────
 
 /// Demonstrates the cost of building an entire list up-front versus using

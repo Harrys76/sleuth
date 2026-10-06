@@ -199,7 +199,7 @@ class _DemoHomeState extends State<DemoHome> {
   /// '{"SLEUTH_START_DEMO":"gpu_pressure"}'`) or from
   /// `--dart-define=SLEUTH_START_DEMO=gpu_pressure`. The value is the demo
   /// title lower-cased with runs of non-alphanumerics folded to `_`.
-  void _openStartDemo(List<_DemoCategory> categories) {
+  void _openStartDemo() {
     if (_startDemoHandled) return;
     _startDemoHandled = true;
     final request = _startDemoRequest();
@@ -218,7 +218,7 @@ class _DemoHomeState extends State<DemoHome> {
   @override
   Widget build(BuildContext context) {
     final categories = _demoCategories();
-    _openStartDemo(categories);
+    _openStartDemo();
 
     return Scaffold(
       appBar: AppBar(
@@ -306,14 +306,14 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
       _DemoRoute(
         icon: Icons.refresh,
         title: 'High-Level setState',
-        subtitle: 'Rebuild • SetStateScope detectors',
+        subtitle: 'SetStateScope detector',
         color: Colors.red,
         builder: (_) => const HighLevelSetStateDemo(),
       ),
       _DemoRoute(
         icon: Icons.insights,
         title: 'Rebuild Hotspot (Dashboard)',
-        subtitle: 'Rebuild Stats rollup + drilldown',
+        subtitle: 'Rebuilds banner + drilldown',
         color: Colors.pink,
         builder: (_) => const RebuildHotspotDemo(),
       ),
@@ -531,7 +531,7 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
       _DemoRoute(
         icon: Icons.chat,
         title: 'Combined: Chat App',
-        subtitle: 'Rebuild + KeepAlive + Channel + SetState',
+        subtitle: 'SetState + KeepAlive + Channel',
         color: Colors.blue,
         builder: (_) => const CombinedChatDemo(),
       ),

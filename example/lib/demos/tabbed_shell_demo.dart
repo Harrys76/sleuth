@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 // ─────────────────────────────────────────
-// Demo 20: Tabbed Shell
+// Demo 21: Tabbed Shell
 // Triggers: ListView, ImageMemory and LayoutBottleneck detectors, one per
 // tab, scoped to the visible tab of an IndexedStack
 // ─────────────────────────────────────────
@@ -61,14 +61,22 @@ class _TabNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // On a short screen (a phone in landscape, large text) the note takes
+    // at most a quarter of the screen and scrolls, so the tab's content
+    // stays on screen.
     return ColoredBox(
       color: scheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Text(
-          '$text\nOnly this tab\'s pattern is reported, although '
-          'IndexedStack keeps every tab built.',
-          style: Theme.of(context).textTheme.bodySmall,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height / 4,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Text(
+            '$text\nOnly this tab\'s pattern is reported, although '
+            'IndexedStack keeps every tab built.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ),
       ),
     );

@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 8: GPU Pressure
+// Demo 9: GPU Pressure
 // Triggers: GpuPressure detector (structural nodes + per-frame raster
 // timing; the VM timeline confirms when connected)
 // ─────────────────────────────────────────
@@ -131,7 +131,7 @@ class _GpuPressureDemoState extends State<GpuPressureDemo>
 /// Eighteen large circles under `MaskFilter.blur(normal, 60)`, moved by
 /// [animation]. The painter repaints through its `repaint` listenable, so
 /// no widget rebuilds per frame (`rebuild_activity` stays quiet) while
-/// every frame pays for six large blurs on the raster thread.
+/// every frame pays for eighteen large blurs on the raster thread.
 ///
 /// Six circles at sigma 40 cost about 3 ms of raster per frame on an
 /// iPhone 12 (median UI 0.5 ms), under the 8 ms floor; eighteen at sigma 60

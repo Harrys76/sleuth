@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 11: IntrinsicHeight Abuse
+// Demo 12: IntrinsicHeight Abuse
 // Triggers: LayoutBottleneck detector
 // ─────────────────────────────────────────
 

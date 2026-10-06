@@ -1,6 +1,6 @@
 # Sleuth Example
 
-Demo app organized by category. 23 demo screens trigger specific detectors;
+Demo app organized by category. 24 demo screens trigger specific detectors;
 9 capture-helper screens drive `runtimeVerified` capture brackets.
 
 ## Running
@@ -17,29 +17,30 @@ cd example && flutter run
 
 | # | Screen | Detectors Triggered | Category |
 |---|--------|--------------------|----------|
-| 1 | High-Level setState | Rebuild, SetStateScope | Build |
-| 2 | Rebuild Hotspot (Dashboard) | Rebuild Stats | Build |
+| 1 | High-Level setState | SetStateScope (a rebuild card past 10 taps/s) | Build |
+| 2 | Rebuild Hotspot (Dashboard) | Rebuild Stats banner (profile); Rebuild (debug) | Build |
 | 3 | Non-Lazy ListView | ListView | Build |
-| 4 | CSV Import | HeavyCompute | Build |
-| 5 | Live Waveform | Repaint | Paint |
-| 6 | Always-Repaint CustomPainter | CustomPainter | Paint |
-| 7 | Missing RepaintBoundary | RepaintBoundary | Paint |
-| 8 | GPU Pressure | GpuPressure | GPU & Rendering |
-| 9 | Shader Jank | ShaderJank | GPU & Rendering |
-| 10 | FPS Stress Test (~20 FPS) | HeavyCompute, GpuPressure | GPU & Rendering |
-| 11 | IntrinsicHeight Abuse | LayoutBottleneck | Layout |
-| 12 | Uncached Images | ImageMemory | Memory |
-| 13 | Memory Pressure | MemoryPressure | Memory |
-| 14 | KeepAlive Overuse | KeepAlive | Memory |
-| 15 | Stream Resource Leaks | StreamResource | Memory |
-| 16 | Tracked Resource Leaks | TrackedResource | Memory |
-| 17 | Search + Gallery | NetworkMonitor | Network & I/O |
-| 18 | Platform Channel Traffic | PlatformChannel | Network & I/O |
-| 19 | Font Loading Stress | FontLoading | Network & I/O |
-| 20 | Tabbed Shell | ListView, ImageMemory, LayoutBottleneck (visible tab only) | Navigation |
-| 21 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom |
-| 22 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
-| 23 | Combined: Chat App | Rebuild, KeepAlive, Channel, SetState | Combined |
+| 4 | Shrink-wrapped Sections | ListView (two cards, one per list) | Build |
+| 5 | CSV Import | HeavyCompute | Build |
+| 6 | Live Waveform | Repaint | Paint |
+| 7 | Always-Repaint CustomPainter | CustomPainter | Paint |
+| 8 | Missing RepaintBoundary | RepaintBoundary | Paint |
+| 9 | GPU Pressure | GpuPressure | GPU & Rendering |
+| 10 | Shader Jank | ShaderJank | GPU & Rendering |
+| 11 | FPS Stress Test (~20 FPS) | HeavyCompute, GpuPressure | GPU & Rendering |
+| 12 | IntrinsicHeight Abuse | LayoutBottleneck | Layout |
+| 13 | Uncached Images | ImageMemory | Memory |
+| 14 | Memory Pressure | MemoryPressure | Memory |
+| 15 | KeepAlive Overuse | KeepAlive | Memory |
+| 16 | Stream Resource Leaks | StreamResource | Memory |
+| 17 | Tracked Resource Leaks | TrackedResource | Memory |
+| 18 | Search + Gallery | NetworkMonitor | Network & I/O |
+| 19 | Platform Channel Traffic | PlatformChannel | Network & I/O |
+| 20 | Font Loading Stress | FontLoading | Network & I/O |
+| 21 | Tabbed Shell | ListView, ImageMemory, LayoutBottleneck (visible tab only) | Navigation |
+| 22 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom |
+| 23 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
+| 24 | Combined: Chat App | SetState, KeepAlive, Channel | Combined |
 
 ### Capture Helpers (`runtimeVerified` brackets)
 
@@ -108,7 +109,7 @@ initialised.
 
 ## Before/After Toggle
 
-Every demo is wrapped in the shared `DemoScaffold` with a **Before/After toggle** + **live metrics bar**. Flip between anti-pattern and fix in-place; watch Sleuth's detection appear and disappear.
+Most demos are wrapped in the shared `DemoScaffold` with a **Before/After toggle** + **live metrics bar** (Tabbed Shell, the resource-leak screens and the Custom Detector Cookbook have their own layouts). Flip between anti-pattern and fix in-place; watch Sleuth's detection appear and disappear.
 
 **Working "Fixed Pattern" bodies** (not descriptions) so the segmented toggle shows real comparison:
 

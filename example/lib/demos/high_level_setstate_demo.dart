@@ -4,7 +4,7 @@ import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
 // Demo 1: High-Level setState
-// Triggers: Rebuild, SetStateScope
+// Triggers: SetStateScope (a rebuild card only past 10 taps a second)
 // ─────────────────────────────────────────
 
 /// Demonstrates calling `setState` at the top of the tree to mutate a value
@@ -68,7 +68,8 @@ class _HighLevelSetStateDemoState extends State<HighLevelSetStateDemo> {
           'constant and never rebuilds.\n\n'
           '▶ Tap the + FAB and watch the "Rebuilt" counters. In the bad path '
           'every press rebuilds $_itemCount tiles; in the fixed path only the '
-          'counter chip rebuilds.',
+          'counter chip rebuilds. Sleuth counts each press as one rebuild of '
+          'this screen, with the tiles it rebuilt in the detail.',
       metricsBar: MetricsBar(
         chips: [
           ValueListenableBuilder<int>(

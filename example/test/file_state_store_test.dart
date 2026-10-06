@@ -15,6 +15,24 @@ void main() {
     await store.write('{"schemaVersion":1}');
     await store.write('{"schemaVersion":1,"hiddenKeys":["a"]}');
     expect(await store.read(), '{"schemaVersion":1,"hiddenKeys":["a"]}');
-    expect(File('${dir.path}/state.json.tmp').existsSync(), isFalse);
+    expect(dir.listSync().map((e) => e.path.split('/').last), ['state.json']);
+  });
+
+  test('a write that finishes after a newer one does not replace it', () async {
+    final file = File('${dir.path}/state.json');
+    final store = FileSleuthStateStore(file);
+    // Both writes run at once; whichever finishes its temp file last, the
+    // newer state is the one kept.
+    final older = store.write('{"schemaVersion":1,"hiddenKeys":["old"]}');
+    final newer = store.write('{"schemaVersion":1,"hiddenKeys":["new"]}');
+    await Future.wait([newer, older]);
+    expect(await store.read(), '{"schemaVersion":1,"hiddenKeys":["new"]}');
+    expect(dir.listSync().map((e) => e.path.split('/').last), ['state.json']);
+  });
+
+  test('a file that is not UTF-8 reads as no saved state', () async {
+    final file = File('${dir.path}/state.json')
+      ..writeAsBytesSync([0xff, 0xfe, 0x00, 0x7b]);
+    expect(await FileSleuthStateStore(file).read(), isNull);
   });
 }
