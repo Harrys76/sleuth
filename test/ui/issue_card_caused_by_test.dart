@@ -96,7 +96,7 @@ void main() {
         // Header counts ALL parents (resolved + suppressed).
         expect(find.text('Caused by (3):'), findsOneWidget);
         expect(find.text('uncached_images'), findsOneWidget);
-        expect(find.text('(+2 not shown)'), findsOneWidget);
+        expect(find.text('(2 more not shown)'), findsOneWidget);
       },
     );
 
@@ -126,7 +126,7 @@ void main() {
         ),
       );
       expect(find.text('Caused by (2):'), findsOneWidget);
-      expect(find.text('(+2 not shown)'), findsOneWidget);
+      expect(find.text('(2 more not shown)'), findsOneWidget);
     });
   });
 }

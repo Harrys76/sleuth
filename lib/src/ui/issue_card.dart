@@ -47,8 +47,8 @@ class IssueCard extends StatefulWidget {
     this.isNew = false,
   }) : assert(
          suppressedParentCount >= 0,
-         'suppressedParentCount must be >= 0; negative values produce '
-         'incorrect "Caused by (N):" header counts',
+         'suppressedParentCount must be at least 0. A negative value '
+         'produces an incorrect "Caused by (N):" header count.',
        );
 
   final PerformanceIssue issue;
@@ -444,7 +444,7 @@ class _IssueCardState extends State<IssueCard> {
           Padding(
             padding: EdgeInsets.only(top: theme.spacingXs),
             child: Text(
-              '[DEBUG MODE — verify in profile]',
+              'Debug mode result. Verify it in profile mode.',
               style: TextStyle(
                 color: theme.disclaimerText,
                 fontSize: theme.fontXs,
@@ -948,7 +948,7 @@ class _IssueCardState extends State<IssueCard> {
                 Padding(
                   padding: EdgeInsets.only(top: theme.spacingXxs),
                   child: Text(
-                    '(+$suppressed not shown)',
+                    '($suppressed more not shown)',
                     style: TextStyle(
                       color: theme.textQuaternary,
                       fontSize: theme.fontXs,

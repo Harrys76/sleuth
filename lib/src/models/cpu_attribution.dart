@@ -13,7 +13,7 @@ class CpuAttribution {
     this.inclusivePercentage,
   }) : assert(
          inclusivePercentage == null || inclusivePercentage >= percentage,
-         'Inclusive percentage must be >= exclusive percentage',
+         'Inclusive percentage must be at least the exclusive percentage',
        );
 
   /// The function name (e.g. "build", "jsonDecode").

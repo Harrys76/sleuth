@@ -47,7 +47,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     int? Function()? appStartMonotonicUsForTest,
   }) : assert(
          minRasterDominantFrames >= 1,
-         'minRasterDominantFrames must be >= 1.',
+         'minRasterDominantFrames must be at least 1.',
        ),
        _sourceRouteProvider = sourceRouteProvider ?? (() => null),
        _appStartForTest = appStartMonotonicUsForTest,
@@ -55,7 +55,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
          type: DetectorType.gpuPressure,
          lifecycle: DetectorLifecycle.hybrid,
          name: 'GPU Pressure',
-         description: 'Detects GPU bottlenecks (raster > UI × 2.0 per frame)',
+         description:
+             'Detects GPU bottlenecks (raster above 2.0 times UI per frame)',
        );
 
   /// Flag when raster time exceeds UI time by this factor.
@@ -128,7 +129,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   final List<int> _subtreeSizeStack = [];
 
   static const String _structuralOnlyReason =
-      'Structural pattern only — no raster-dominant frames observed';
+      'Structural pattern only. Sleuth saw no raster-dominant frames';
 
   // -- Frame leg --
   //
@@ -491,7 +492,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
             'were raster-dominant, ${frameLeg.qualifyingCount} within one '
             'second (worst raster '
             '${(worstFrameRasterUs / 1000).toStringAsFixed(1)}ms, median '
-            'ratio $median×).',
+            'raster-to-UI ratio $median).',
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.frameTiming,
@@ -506,7 +507,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           'medianRatio': frameLeg.medianRatio.toStringAsFixed(2),
           'lifecyclePhase': 'steady',
         },
-        confidenceReason: 'Per-frame FrameTiming raster vs UI durations',
+        confidenceReason: 'Per-frame FrameTiming raster and UI durations',
       );
     }
 
@@ -524,7 +525,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           detail:
               'Worst-frame raster '
               '(${(_lastMaxFrameRasterUs / 1000).toStringAsFixed(1)}ms) is '
-              '${ratio.toStringAsFixed(1)}× the UI thread total '
+              '${ratio.toStringAsFixed(1)} times the UI thread total '
               '(${(_lastUiUs / 1000).toStringAsFixed(1)}ms).',
           fixHint: hint,
           fixEffort: effort,
@@ -556,16 +557,16 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
               ? 'Expensive Render Nodes May Contribute: ${_expensiveNodes.length} found'
               : 'Expensive Render Nodes: ${_expensiveNodes.length} found',
           detail:
-              '${hasRasterDominance ? 'Raster-dominant frames coincided with ' : 'Found '}'
+              '${hasRasterDominance ? 'Raster-dominant frames coincided with ' : 'Sleuth found '}'
               'expensive render objects with deep subtrees:\n'
               '${_expensiveNodes.join("\n")}'
-              '${noRasterTiming ? '\nNo raster timing observed yet.' : ''}',
+              '${noRasterTiming ? '\nSleuth has not observed raster timing yet.' : ''}',
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.structural,
           detectedAt: DateTime.now(),
           confidenceReason: hasRasterDominance
-              ? 'Raster-dominant frames + structural render node scan'
+              ? 'Raster-dominant frames and a structural render node scan'
               : _structuralOnlyReason,
         ),
       );
@@ -608,45 +609,49 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     tier: EvidenceTier.reproducerOnly,
     rationale:
         'Hybrid detector with a frame leg, a VM leg and a structural leg. '
-        'Frame leg (every tier): `processFrame` reads per-frame '
-        '`FrameTiming` UI (build + layout + paint) and raster durations. '
-        'A frame is raster-dominant when UI > 0, raster > 0, raster > the '
-        'per-frame floor (default 8000us; half the resolved frame budget '
-        'once the controller supplies one) and raster > 2.0 × UI. '
-        '`raster_dominance` emits `likely` (source `frameTiming`) when at '
-        'least 3 dominant frames fall inside any 1 s span since the last '
-        'scan, over a 64-entry ring that drops the oldest; critical when 3 '
-        'frames in that span also exceeded their frame budget. Frames inside '
-        'the startup window (`startupPhaseWindowSeconds` after Dart entry) '
-        'do not count, on either leg. VM leg: ratio = worst single-frame raster scope / '
-        'UI thread total (`TimelineParser.parse()` output), strict `> 2.0`, '
-        'critical at `> 4.0`, same per-frame floor, requires '
-        '`vmConnected && _lastUiUs > 0 && _lastRasterUs > 0`. When both legs '
-        'qualify one `raster_dominance` is emitted from the VM leg '
-        '(`confirmed`), its reason noting the frame corroboration. '
-        'Tradeoff: the VM UI denominator is aggregate, so sustained '
-        'moderate raster across an active batch may under-classify on that '
-        'leg; the frame leg compares per frame. Impeller raster durations '
-        'can include present back-pressure, so the frame leg stays '
-        '`likely`. `expensive_gpu_nodes` (structural): subtree-size strict '
-        '`> 5` gate over 4 RenderObject checks (`RenderOpacity` with '
-        'opacity-value short-circuit at 0.0 / 1.0 pinned by 4-axis '
-        'matrix; `RenderClipPath` except the clip a transparency `Material` '
-        'builds for its own shape; `RenderBackdropFilter` with sigma '
-        '3-band — ≤ 2.0 suppressed, (2.0, 10.0] warning highlight, '
-        '> 10.0 critical highlight; `RenderShaderMask`) plus 1 '
-        'widget-level check (`element.widget is ColorFiltered`; '
-        'no public RenderObject type for ColorFiltered). The '
-        '`expensive_gpu_nodes` issue severity is always `warning`. '
-        'Nested-expense subtree-stack arithmetic verified by '
-        'Opacity-wrapping-Opacity test. Confidence correlation: '
-        '`expensive_gpu_nodes` is `likely` when either raster leg '
-        'qualified, `possible` otherwise. VM-disconnect setter removes '
-        'only the VM-sourced `raster_dominance` (swapping in the frame-leg '
-        'version when that leg also qualified), leaves frame-sourced issues '
-        'untouched, and downgrades `expensive_gpu_nodes` only when no '
-        'frame-sourced `raster_dominance` remains. Not runtime-verified '
-        'against Impeller/Skia budgets or externally cited.',
+        'On the frame leg (every tier), `processFrame` reads the per-frame '
+        '`FrameTiming` UI (build, layout and paint) and raster durations. A '
+        'frame is raster-dominant when UI is above 0, raster is above 0, '
+        'raster is above the per-frame floor (default 8000us, or half the '
+        'resolved frame budget once the controller supplies one) and raster '
+        'is above 2.0 times UI. `raster_dominance` emits `likely` (source '
+        '`frameTiming`) when at least 3 dominant frames fall inside any 1 s '
+        'span since the last scan, over a 64-entry ring that drops the '
+        'oldest. It is critical when 3 frames in that span also exceeded '
+        'their frame budget. Frames inside the startup window '
+        '(`startupPhaseWindowSeconds` after Dart entry) do not count on '
+        'either leg. On the VM leg, the ratio is the worst single-frame '
+        'raster scope divided by the UI thread total '
+        '(`TimelineParser.parse()` output). The ratio must be strictly '
+        'above 2.0 and is critical above 4.0. The VM leg uses the same '
+        'per-frame floor and requires `vmConnected && _lastUiUs > 0 && '
+        '_lastRasterUs > 0`. When both legs qualify, the VM leg emits one '
+        '`raster_dominance` (`confirmed`), and its reason notes the frame '
+        'corroboration. The tradeoff is that the VM UI denominator is an '
+        'aggregate, so sustained moderate raster across an active batch may '
+        'under-classify on that leg. The frame leg compares per frame. '
+        'Impeller raster durations can include present back-pressure, so '
+        'the frame leg stays `likely`. `expensive_gpu_nodes` (structural) '
+        'gates on a subtree size strictly above 5 over 4 RenderObject '
+        'checks. These are `RenderOpacity` (an opacity-value short-circuit '
+        'at 0.0 and 1.0, pinned by a 4-axis matrix), `RenderClipPath` '
+        '(except the clip a transparency `Material` builds for its own '
+        'shape), `RenderBackdropFilter` (3 sigma bands: at most 2.0 is '
+        'suppressed, above 2.0 up to 10.0 is a warning highlight, above '
+        '10.0 is a critical highlight) and `RenderShaderMask`. One more '
+        'check runs at widget level (`element.widget is ColorFiltered`), '
+        'because ColorFiltered has no public RenderObject type. The '
+        '`expensive_gpu_nodes` issue severity is always `warning`. An '
+        'Opacity-wrapping-Opacity test verifies the nested-expense '
+        'subtree-stack arithmetic. For confidence, `expensive_gpu_nodes` is '
+        '`likely` when either raster leg qualified and `possible` '
+        'otherwise. The VM-disconnect setter removes only the VM-sourced '
+        '`raster_dominance` and swaps in the frame-leg version when that '
+        'leg also qualified. It leaves frame-sourced issues untouched, and '
+        'it downgrades `expensive_gpu_nodes` only when no frame-sourced '
+        '`raster_dominance` remains. The detector has no runtime '
+        'verification against Impeller or Skia budgets and no external '
+        'citation.',
     reproducerPath: 'test/validation/gpu_pressure_reproducer_test.dart',
     coveredStableIds: {'raster_dominance', 'expensive_gpu_nodes'},
   );

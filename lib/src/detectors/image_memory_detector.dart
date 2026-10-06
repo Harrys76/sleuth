@@ -342,17 +342,17 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
             '(worst ${worstRatio.toStringAsFixed(1)}×, '
             '~${_mb(totalWasted)} MB wasted)',
         detail:
-            '$count image${count == 1 ? '' : 's'} decoded at least '
-            '${oversizeRatio.toStringAsFixed(1)}× the physical pixels '
-            'their display box needs'
+            '$count image${count == 1 ? ' was' : 's were'} decoded at '
+            'least ${oversizeRatio.toStringAsFixed(1)} times the physical '
+            'pixels their display box needs'
             '${widgetCount > count ? ' (shown by $widgetCount widgets)' : ''}'
-            ', wasting ~${_mb(totalWasted)} MB of decoded memory.'
+            '. This wastes about ${_mb(totalWasted)} MB of decoded memory.'
             '\n\n$imageList',
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
         confidenceReason:
-            'Measured decoded size against display size; the widget may '
+            'Measured decoded size against display size. The widget may '
             'still grow later',
         extraTraceArgs: {
           'imageCount': '$count',
@@ -420,25 +420,25 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
     tier: EvidenceTier.reproducerOnly,
     rationale:
         'Hermetic reproducer decodes real PNGs (engine-encoded test images '
-        'through Image.memory + precacheImage) at explicit device pixel '
-        'ratios and pins the measured rule: each Image pairs once with the '
-        'first RawImage it can measure; widgets showing one decode '
+        'through Image.memory and precacheImage) at explicit device pixel '
+        'ratios and pins the measured rule. Each Image pairs once with the '
+        'first RawImage it can measure. Widgets that show one decode '
         '(ui.Image.isCloneOf) count it once, against the largest needed '
-        'size on each axis; a decode qualifies when '
-        'min(decodedW / (boxW × dpr), decodedH / (boxH × dpr)) >= 1.5; the '
-        'issue emits when the qualifying decodes waste >= 1 MiB of RGBA '
-        'bytes in total and is critical at >= 16 MiB. Pinned silent: a '
-        'single 400 px image at 100 dp @ 2x (480 KB), ratio 1.4 at any '
-        'count, a BoxFit.cover crop whose smaller axis matches, '
-        'BoxFit.none, centerSlice, repeat, ResizeImage providers, and an '
-        'image not yet decoded (absence, then presence after decode). '
-        'Device pixel ratio comes from the nearest MediaQuery without a '
-        'dependency, else the root RenderView; with neither the pair is not '
-        'measured. BoxDecoration images are '
-        'not reported: their decoded image is private to the painter, so '
-        'no measurement is possible. Confidence is likely: decode and '
-        'display are measured, but a widget may legitimately grow later. '
-        'Not yet runtime-verified on a profile-mode capture.',
+        'size on each axis. A decode qualifies when '
+        '`min(decodedW / (boxW * dpr), decodedH / (boxH * dpr)) >= 1.5`. '
+        'The issue emits when the qualifying decodes waste at least 1 MiB '
+        'of RGBA bytes in total, and it is critical at 16 MiB or more. The '
+        'reproducer pins these as silent: a single 400 px image at 100 dp '
+        'and 2x (480 KB), ratio 1.4 at any count, a BoxFit.cover crop '
+        'whose smaller axis matches, BoxFit.none, centerSlice, repeat, '
+        'ResizeImage providers, and an image not yet decoded (absence, '
+        'then presence after decode). The device pixel ratio comes from '
+        'the nearest MediaQuery without a dependency, else from the root '
+        'RenderView. With neither, the pair is not measured. BoxDecoration '
+        'images are not reported, because their decoded image is private '
+        'to the painter and cannot be measured. Confidence is likely. '
+        'Decode and display are measured, but a widget may grow later. No '
+        'profile-mode capture verifies it at runtime yet.',
     reproducerPath: 'test/validation/image_memory_reproducer_test.dart',
     coveredStableIds: {'uncached_images'},
   );

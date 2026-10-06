@@ -62,7 +62,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     int? Function()? appStartMonotonicUsForTest,
   }) : assert(
          buildTimePercentThreshold > 0 && buildTimePercentThreshold <= 100,
-         'buildTimePercentThreshold must be in the range (0, 100].',
+         'buildTimePercentThreshold must be above 0 and at most 100.',
        ),
        _captureMode = captureMode,
        _clock = clock ?? monotonicClock(),
@@ -73,7 +73,8 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
          name: 'Rebuild',
          description:
              'Detects rebuild work above 10% of UI-thread time '
-             '(VM) or widgets rebuilding over 10 times/sec (debug)',
+             '(VM) or widgets that rebuild more than 10 times per second '
+             '(debug)',
        ) {
     _windowStart = _clock();
   }
@@ -660,7 +661,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       confidence: IssueConfidence.confirmed,
       title: 'Excessive Rebuilds: $typeName (${rate.round()}/sec)',
       detail:
-          '$typeName: ${held.count} rebuilds in '
+          '$typeName rebuilt ${held.count} times in '
           '${held.seconds.toStringAsFixed(1)}s '
           '(${rate.round()}/sec).$builderNote$forcedNote',
       fixHint: hint,
@@ -711,8 +712,8 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         ..sort((a, b) => b.value.compareTo(a.value));
       detailSuffix = topRebuilders.isNotEmpty
           ? '\nMost common StatefulWidget on screen: ${topRebuilders.first.key} '
-                '(${topRebuilders.first.value} instances — screen context, '
-                'not proven rebuild source).'
+                '(${topRebuilders.first.value} instances). This is screen '
+                'context, not a proven rebuild source.'
           : '';
     }
 
@@ -733,7 +734,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       title: 'Rebuild Activity: build phase $formatted% of UI time',
       detail:
           'Widget rebuilding (BUILD scopes on the UI thread) took '
-          '$formatted% of wall time in the last ~1 s window '
+          '$formatted% of wall time in the last window of about 1 s '
           '(threshold ${_formatPercent(buildTimePercentThreshold)}%).'
           '$detailSuffix',
       fixHint: hint,
@@ -779,9 +780,9 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         confidence: IssueConfidence.possible,
         title: 'High StatefulWidget Density: $totalStateful instances',
         detail:
-            '$totalStateful StatefulWidget instances on screen '
-            '(VM unavailable — rebuild rate unknown).'
-            '${topRebuilders.isNotEmpty ? '\nMost common: $topWidget '
+            '$totalStateful StatefulWidget instances are on screen. The VM '
+            'is unavailable, so the rebuild rate is unknown.'
+            '${topRebuilders.isNotEmpty ? '\nThe most common one is $topWidget '
                       '(${topRebuilders.first.value} instances).' : ''}',
         fixHint: hint,
         fixEffort: effort,
@@ -789,7 +790,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         detectedAt: DateTime.now(),
         extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
         confidenceReason:
-            'Structural scan only — connect VM for higher confidence',
+            'Structural scan only. Connect the VM for higher confidence',
       ),
     );
   }
@@ -887,42 +888,42 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       ),
     ],
     rationale:
-        'Hybrid detector. Three families: `stateful_density` '
-        '(public-named StatefulWidget density at or above '
-        '`statefulDensityThreshold` instances, default 10, independent '
-        'of rebuild cost; framework/private filtered), '
-        '`rebuild_activity` (share of UI-thread wall time spent inside '
-        'VM-timeline BUILD scopes over each ~1 s window, normalised by '
-        'the measured window length — warning at '
-        '`> buildTimePercentThreshold` default 10 %, critical at `> 3×` '
-        '= 30 %; reproducer pins 9.5 → silent, 10.5 → warning, 31 → '
-        'critical), and parametric `rebuild_debug_<typeName>` (per-widget '
-        'rebuilds/sec from debug instrumentation against '
-        '`rebuildsPerSecThreshold`; declared via `parametricFamilies` — '
-        'concrete `rebuild_debug_MyWidget` credits via `_` separator '
-        'matcher). `rebuild_activity` warning and critical are '
-        'runtimeVerified via on-device capture triads on iPhone 12 + '
-        'iOS 17.5 + Flutter 3.47.x. The capture workload varies BUILD '
-        'cost per frame (64 non-const leaf widgets rebuilt by a '
-        'per-frame Ticker, each running a work loop in build) at a fixed '
-        'frame rate, with a calibration pre-pass that scales the work per '
-        'leaf to the leg target and an '
-        'idle window between pre-pass and scenario so pre-pass build '
-        'time cannot reach an in-span emission. The `max` reduction '
-        'over in-span `observedBuildPercent` args matches '
-        '`peakObservedBuildPercent`, which moves only on the emission '
-        'path; atTolerance 0.5 and observedAxisTolerance 0.25 absorb '
-        'thermal drift in build duration across a leg. VM → '
-        'TimelineParser → detector boundary exercised via '
-        'cross-harness reproducer (raw `List<TimelineEvent>` '
-        'through `parseAndAssertShape` + real `pumpWidget` for '
-        'the structural-fallback leg). Builder-widget 3× per-widget '
-        'threshold multiplier proven with paired non-builder/builder '
-        'fixture at identical rate=25. Source-mode '
-        '`RebuildCountSource.flutterTimeline` per-type suppression '
-        'pinned. Detector stamps `observedBuildPercent` and '
-        '`dedupIdentityMicros` on every `rebuild_activity` emission; '
-        '`lastObservedBuildPercent` tracks every closed window.',
+        'Hybrid detector with three families. `stateful_density` counts '
+        'public-named StatefulWidget instances and fires at or above '
+        '`statefulDensityThreshold` (default 10), independent of rebuild '
+        'cost, with framework and private widgets filtered out. '
+        '`rebuild_activity` measures the share of UI-thread wall time spent '
+        'inside VM-timeline BUILD scopes over each window of about 1 s, '
+        'normalised by the measured window length. It warns above '
+        '`buildTimePercentThreshold` (default 10 %) and is critical above 3 '
+        'times that (30 %). The reproducer pins 9.5 as silent, 10.5 as a '
+        'warning and 31 as critical. The parametric '
+        '`rebuild_debug_<typeName>` family compares per-widget rebuilds/sec '
+        'from debug instrumentation against `rebuildsPerSecThreshold`. It '
+        'is declared via `parametricFamilies`, so a concrete '
+        '`rebuild_debug_MyWidget` credits the family through the `_` '
+        'separator matcher. `rebuild_activity` warning and critical are '
+        'runtimeVerified via on-device capture triads on iPhone 12, iOS '
+        '17.5 and Flutter 3.47.x. The capture workload varies BUILD cost '
+        'per frame (64 non-const leaf widgets rebuilt by a per-frame '
+        'Ticker, each running a work loop in build) at a fixed frame rate. '
+        'A calibration pre-pass scales the work per leaf to the leg target, '
+        'and an idle window between the pre-pass and the scenario keeps '
+        'pre-pass build time out of any in-span emission. The `max` '
+        'reduction over in-span `observedBuildPercent` args matches '
+        '`peakObservedBuildPercent`, which moves only on the emission path. '
+        'atTolerance 0.5 and observedAxisTolerance 0.25 absorb thermal '
+        'drift in build duration across a leg. A cross-harness reproducer '
+        'exercises the boundary from the VM through TimelineParser to the '
+        'detector (raw `List<TimelineEvent>` through `parseAndAssertShape`, '
+        'and a real `pumpWidget` for the structural-fallback leg). A paired '
+        'non-builder and builder fixture at the same rate=25 proves the 3 '
+        'times per-widget threshold multiplier for builder widgets. A test '
+        'pins per-type suppression in source mode '
+        '`RebuildCountSource.flutterTimeline`. The detector stamps '
+        '`observedBuildPercent` and `dedupIdentityMicros` on every '
+        '`rebuild_activity` emission, and `lastObservedBuildPercent` tracks '
+        'every closed window.',
     reproducerPath: 'test/validation/rebuild_reproducer_test.dart',
     coveredStableIds: {'stateful_density', 'rebuild_activity'},
     coveredThresholds: {

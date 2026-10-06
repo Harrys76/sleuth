@@ -68,7 +68,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Header pieces: title, subtitle (route), total chip, types chip.
-      expect(find.text('Rebuild Stats'), findsOneWidget);
+      expect(find.text('Rebuild stats'), findsOneWidget);
       expect(find.text('/home'), findsOneWidget);
       expect(find.text('Total'), findsOneWidget);
       expect(find.text('8'), findsOneWidget); // 5 + 2 + 1
@@ -227,7 +227,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Title still renders.
-      expect(find.text('Rebuild Stats'), findsOneWidget);
+      expect(find.text('Rebuild stats'), findsOneWidget);
       // No subtitle route line.
       expect(find.text('/home'), findsNothing);
     });

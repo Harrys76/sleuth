@@ -100,8 +100,8 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
         fixEffort: effort,
         observationSource: ObservationSource.structural,
         confidenceReason:
-            'Measured from Sleuth.init() to first FrameTiming '
-            'raster-end via SchedulerBinding.addTimingsCallback',
+            'Measured from Sleuth.init() to the first FrameTiming raster '
+            'end with SchedulerBinding.addTimingsCallback',
         detectedAt: DateTime.now(),
       ),
     );
@@ -110,12 +110,12 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
   String _buildTtffDetail(StartupMetrics metrics) {
     final buffer = StringBuffer();
     buffer.writeln(
-      'Time-to-first-frame: ${metrics.ttffMs!.toStringAsFixed(0)} ms.',
+      'Time to first frame: ${metrics.ttffMs!.toStringAsFixed(0)} ms.',
     );
 
     if (metrics.ttiMs != null) {
       buffer.writeln(
-        'Time-to-interactive: ${metrics.ttiMs!.toStringAsFixed(0)} ms.',
+        'Time to interactive: ${metrics.ttiMs!.toStringAsFixed(0)} ms.',
       );
     }
 
@@ -239,17 +239,17 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'Hermetic reproducer pins `slow_startup_ttff` via '
-        'injected StartupMetrics through the `@visibleForTesting` '
-        '`Sleuth.setStartupMetricsForTest` hook: ttffMs >= '
-        '`ttffWarningMs` fires at warning severity, ttffMs >= '
-        '`ttffCriticalMs` promotes to critical, ttffMs < warning '
-        'threshold silent (strict-less), ttffMs null silent, no '
-        'StartupMetrics at all silent, and the one-shot `_consumed` '
-        'guard pinned by second-prepareScan no-op. Detector is '
-        '`prepareScan`-only (element methods are no-ops). Not yet '
-        'runtime-verified against a reference cold-start profile '
-        'capture.',
+        'Hermetic reproducer pins `slow_startup_ttff` by injecting '
+        'StartupMetrics through the `@visibleForTesting` '
+        '`Sleuth.setStartupMetricsForTest` hook. A ttffMs at or above '
+        '`ttffWarningMs` fires at warning severity, and a ttffMs at or '
+        'above `ttffCriticalMs` promotes to critical. The detector stays '
+        'silent when ttffMs is below the warning threshold (strict-less), '
+        'when ttffMs is null and when there are no StartupMetrics at all. '
+        'A no-op second prepareScan pins the one-shot `_consumed` guard. '
+        'The detector works only in `prepareScan` (its element methods are '
+        'no-ops). No reference cold-start profile capture verifies it at '
+        'runtime yet.',
     reproducerPath: 'test/validation/startup_reproducer_test.dart',
     coveredStableIds: {'slow_startup_ttff'},
   );

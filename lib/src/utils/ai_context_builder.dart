@@ -51,7 +51,7 @@ class AiContextBuilder {
     buf.writeln();
 
     // 2. Focus issue
-    buf.writeln('## Current Issue');
+    buf.writeln('## Current issue');
     buf.writeln('Title: ${issue.title}');
     buf.writeln('Severity: ${issue.severity.name}');
     buf.writeln('Category: ${issue.category.name}');
@@ -103,7 +103,7 @@ class AiContextBuilder {
       final display = causeIds.length <= _maxCauses
           ? causeIds.join(', ')
           : '${causeIds.take(_maxCauses).join(', ')} '
-                '(+${causeIds.length - _maxCauses} more)';
+                '(${causeIds.length - _maxCauses} more)';
       final label = causeIds.length == 1
           ? 'Root cause issue'
           : 'Root cause issues';
@@ -132,7 +132,7 @@ class AiContextBuilder {
         ? null
         : IssueExplanationBuilder.substitute(rawExplanation, issue);
     if (explanation != null) {
-      buf.writeln('## Encyclopedia Knowledge');
+      buf.writeln('## Encyclopedia knowledge');
       buf.writeln('What it is: ${explanation.whatItIs}');
       if (explanation.readingTheData != null) {
         buf.writeln('Reading the data: ${explanation.readingTheData}');
@@ -161,7 +161,7 @@ class AiContextBuilder {
           ..sort((a, b) => b.severity.index.compareTo(a.severity.index));
     if (otherIssues.isNotEmpty) {
       final capped = otherIssues.take(5);
-      buf.writeln('## Other Active Issues');
+      buf.writeln('## Other active issues');
       for (final other in capped) {
         buf.writeln(
           '- ${other.title} (${other.severity.name}, ${other.category.name})',

@@ -51,8 +51,9 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Heavy Compute',
          description:
-             'Detects slow widget build passes (>8 ms warning, >16 ms '
-             'critical at 60 Hz; scales with the measured frame rate)',
+             'Detects slow widget build passes (warning above 8 ms, '
+             'critical above 16 ms at 60 Hz, scaled to the measured frame '
+             'rate)',
        );
 
   /// Warning threshold in milliseconds (critical is 2x). Used as-is unless
@@ -275,8 +276,8 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       confidence: IssueConfidence.confirmed,
       title: 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
       detail:
-          'Long-running operation detected on UI thread '
-          '(${ms.toStringAsFixed(1)}ms). This blocks frame rendering.'
+          'A long-running operation ran on the UI thread '
+          '(${ms.toStringAsFixed(1)}ms). It blocks frame rendering.'
           '${_batchNote(batchCount)}',
       fixHint: hint,
       fixEffort: effort,
@@ -297,14 +298,14 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Suffix naming the other over-threshold builds of the same batch.
   static String _batchNote(int batchCount) => batchCount > 1
-      ? ' $batchCount builds exceeded the threshold in this batch; the '
-            'longest is shown.'
+      ? ' $batchCount builds exceeded the threshold in this batch. This '
+            'issue shows the longest.'
       : '';
 
   String _buildDetail(double ms, PhaseEvent event) {
     final buf = StringBuffer(
-      'Long-running operation detected on UI thread '
-      '(${ms.toStringAsFixed(1)}ms). This blocks frame rendering.',
+      'A long-running operation ran on the UI thread '
+      '(${ms.toStringAsFixed(1)}ms). It blocks frame rendering.',
     );
     if (event.dirtyCount != null) {
       buf.write('\nDirty widget count: ${event.dirtyCount}.');
@@ -336,43 +337,40 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.runtimeVerified,
     rationale:
-        'VM-only detector. Frame-blocking compute-gap threshold '
-        '(8 ms strict warning, 16 ms strict critical = 2×) pinned '
-        'by hermetic reproducer (`BUILD` events through '
-        '`TimelineParser.parse()` exercising all three emission '
-        'paths: enriched `_createIssue` with dirtyList, unenriched '
-        '`_createIssue` with `ts`, fallback `_createGenericIssue` '
-        'on raw `buildScopeDurations`). The runtimeVerified tier '
-        'is backed by SIX on-device captures (iPhone 12 / iOS '
-        '17.5 / Flutter 3.41.x): three bracketing the 8 ms warning '
-        'threshold (canonical bracket) and three bracketing the '
-        '16 ms critical threshold (additionalBrackets[0], v0.19.13 '
-        'tier-stack raise). All six captures use '
-        '`Sleuth.markScenarioBegin/End` + `flushTimelineNow` to '
-        'drive synchronous detector emission inside the scenario '
-        'span. Captures recorded under v0.18.2+ producer-side dedup '
-        '(a stable per-BUILD trace identity taken from '
-        '`event.timestampUs`) so the strong uniqueness invariant '
-        '(`requireUniqueDetectedAtMicros: true`) protects against '
-        'capture replay forgery on both brackets. The 8 ms / 16 ms '
-        'thresholds apply at the `fpsTarget` frame budget; when the '
-        'resolved budget is shorter (a faster display) the warning '
-        'threshold drops to half of it (critical stays 2×), unless '
-        '`heavyComputeGapMs` is set. Capture mode keeps the '
-        '`fpsTarget` budget. Issue lifetime: each VM batch emits at most one '
-        'issue, for the longest BUILD over the threshold, with the '
-        'count of other slow builds in the detail. Emitted issues '
-        'persist for `emissionPersistence` wall-clock duration '
-        '(default 10s, monotonic Stopwatch) so a slow build that '
-        'appears in a single batch stays observable past the '
-        'tap-to-open delay on the '
-        'FloatingIssuesCard. Wall-clock semantics are independent '
-        'of VM poll cadence — iOS profile-mode batches arrive '
-        'multiple times per second. Fresh emissions reset the '
-        'persistence window and replace the stale issue '
-        'immediately. Persisted issues stamp `sourceRoute` at '
-        'emission so post-emission navigation does not reattribute '
-        'the issue via the controller aggregate stamp.',
+        'VM-only detector. A hermetic reproducer pins the frame-blocking '
+        'compute-gap threshold (warning above 8 ms, critical above 16 ms, '
+        'both strict, so critical is 2 times the warning). It feeds `BUILD` '
+        'events through `TimelineParser.parse()` and exercises all three '
+        'emission paths: the enriched `_createIssue` with dirtyList, the '
+        'unenriched `_createIssue` with `ts`, and the fallback '
+        '`_createGenericIssue` on raw `buildScopeDurations`. Six on-device '
+        'captures (iPhone 12, iOS 17.5, Flutter 3.41.x) support the '
+        'runtimeVerified tier. Three bracket the 8 ms warning threshold '
+        '(the canonical bracket) and three bracket the 16 ms critical '
+        'threshold (additionalBrackets[0], from the v0.19.13 tier-stack '
+        'raise). All six captures use `Sleuth.markScenarioBegin/End` and '
+        '`flushTimelineNow` to drive synchronous detector emission inside '
+        'the scenario span. They were recorded under the producer-side '
+        'dedup of v0.18.2 and later (a stable per-BUILD trace identity '
+        'taken from `event.timestampUs`), so the strong uniqueness '
+        'invariant (`requireUniqueDetectedAtMicros: true`) protects against '
+        'capture replay forgery on both brackets. The 8 ms and 16 ms '
+        'thresholds apply at the `fpsTarget` frame budget. When the '
+        'resolved budget is shorter (a faster display), the warning '
+        'threshold drops to half of it and critical stays at 2 times, '
+        'unless `heavyComputeGapMs` is set. Capture mode keeps the '
+        '`fpsTarget` budget. Each VM batch emits at most one issue, for the '
+        'longest BUILD over the threshold, and the detail gives the count '
+        'of other slow builds. Emitted issues persist for the '
+        '`emissionPersistence` wall-clock duration (default 10s, monotonic '
+        'Stopwatch), so a slow build that appears in a single batch stays '
+        'visible past the tap-to-open delay on the FloatingIssuesCard. '
+        'Wall-clock semantics do not depend on VM poll cadence. iOS '
+        'profile-mode batches arrive several times per second. A fresh '
+        'emission resets the persistence window and replaces the stale '
+        'issue at once. Persisted issues stamp `sourceRoute` at emission, '
+        'so navigation after the emission does not reattribute the issue '
+        'through the controller aggregate stamp.',
     reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
     profileCapturePaths: [
       'test/validation/captures/heavy_compute/heavy_compute_below.json',

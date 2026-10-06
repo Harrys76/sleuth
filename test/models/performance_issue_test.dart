@@ -531,7 +531,7 @@ void main() {
         severity: IssueSeverity.critical,
         category: IssueCategory.build,
         confidence: IssueConfidence.likely,
-        confidenceReason: 'seen in 3 scans',
+        confidenceReason: 'Seen in 3 scans',
         title: 'Excessive rebuilds',
         detail: 'Rebuilt 40 times per second.',
         fixHint: 'Split the widget.',
@@ -544,7 +544,7 @@ void main() {
         issue.toClipboardText(),
         'Excessive rebuilds\n'
         'Severity: critical\n'
-        'Confidence: likely — seen in 3 scans\n'
+        'Confidence: likely. Seen in 3 scans\n'
         'Route: /feed (tab-2)\n'
         'Widget: FeedItem\n'
         '\n'

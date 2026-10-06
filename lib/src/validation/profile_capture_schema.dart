@@ -155,9 +155,9 @@ class ProfileCaptureSchema {
       throw FormatException(
         'Invalid `sleuthMetadata.role`: ${role == null ? 'null' : '"$role"'}. '
         'Must be exactly one of ${allowedRoles.toList()..sort()} '
-        '(case-sensitive). The below-leg inverse-ratio bypass is '
-        'driven by this field — typos default to enforcement and '
-        'will surface as false-positive failures.',
+        '(case-sensitive). This field drives the below-leg inverse-ratio '
+        'bypass. A typo falls back to enforcement and shows up as a '
+        'false-positive failure.',
       );
     }
     // Below-leg semantics: sub-threshold workload paired with normal-
@@ -237,10 +237,10 @@ class ProfileCaptureSchema {
     // backing it.
     if (raw.length < minTraceEvents) {
       throw FormatException(
-        '"traceEvents" has only ${raw.length} entries — a real profile-'
-        'mode capture emits thousands. A wrapper with fewer than '
-        '$minTraceEvents events is rejected so runtimeVerified claims '
-        'cannot be fabricated from empty exports.',
+        '"traceEvents" has only ${raw.length} entries. A real '
+        'profile-mode capture emits thousands. The schema rejects a '
+        'wrapper with fewer than $minTraceEvents events so nobody can '
+        'fabricate a runtimeVerified claim from an empty export.',
       );
     }
     // Every entry must be an object with a recognized `ph` field. We
@@ -262,8 +262,8 @@ class ProfileCaptureSchema {
           '"traceEvents[$i].ph" is missing or unknown (got '
           '${ph is String ? '"$ph"' : ph.runtimeType}). Allowed phases: '
           '${(allowedTracePhases.toList()..sort()).join(', ')}. '
-          'Fabricated events with unknown phases are rejected to keep '
-          'runtimeVerified claims honest.',
+          'The schema rejects fabricated events with unknown phases to '
+          'keep runtimeVerified claims honest.',
         );
       }
       if (workTracePhases.contains(ph)) workPhaseCount++;
@@ -277,9 +277,9 @@ class ProfileCaptureSchema {
       throw FormatException(
         '"traceEvents" contains only $workPhaseCount work-phase entries '
         '(B/E/X/b/e); at least $minWorkPhaseEvents are required. '
-        'A capture composed entirely of metadata (M), instant (i/I), '
-        'counter (C), or flow (s/f/t) events carries no runtime '
-        'evidence for the claim and is rejected.',
+        'A capture made only of metadata (M), instant (i/I), counter '
+        '(C) or flow (s/f/t) events carries no runtime evidence for the '
+        'claim, so the schema rejects it.',
       );
     }
   }
@@ -341,8 +341,8 @@ class ProfileCaptureSchema {
     final unit = magnitude['unit'];
     assert(
       unit is String && unit.trim().isNotEmpty,
-      '_crossCheckTraceVsObserved called before _validateExpectedMagnitude '
-      'enforced `unit` — reorder bug in parse().',
+      '_crossCheckTraceVsObserved ran before _validateExpectedMagnitude '
+      'enforced `unit`. This is a reorder bug in parse().',
     );
     final unitMicros = _unitToMicroseconds(unit as String);
     if (unitMicros == null) {
@@ -389,9 +389,9 @@ class ProfileCaptureSchema {
         'emit exactly one "$scenarioBeginMarker" and one '
         '"$scenarioEndMarker" instant event (ph="i", "I", or "n") so '
         'the trace-vs-observed cross-check can bound the observed '
-        'magnitude against a scoped work window. The global min/max '
-        'over every work-phase event was bypassable by padding '
-        'unrelated events to inflate the denominator. '
+        'magnitude against a scoped work window. A global min/max over '
+        'every work-phase event could be bypassed by padding unrelated '
+        'events to inflate the denominator. '
         'Got begin=$beginCount, end=$endCount.',
       );
     }
@@ -399,23 +399,24 @@ class ProfileCaptureSchema {
       throw FormatException(
         'Capture has duplicate scenario markers (begin=$beginCount, '
         'end=$endCount). Exactly one "$scenarioBeginMarker" and one '
-        '"$scenarioEndMarker" are permitted; more than one creates '
-        'ambiguity about which span to validate against.',
+        '"$scenarioEndMarker" are permitted. With more than one, it is '
+        'unclear which span to validate against.',
       );
     }
     if (endTs! < beginTs!) {
       throw FormatException(
         'Scenario markers inverted: end ts ($endTs) precedes begin ts '
         '($beginTs). The capture declares a negative-duration '
-        'scenario — reject rather than silently flip.',
+        'scenario, and the schema rejects it instead of flipping the '
+        'markers.',
       );
     }
     final spanMicros = (endTs - beginTs).toDouble();
     if (spanMicros <= 0) {
       throw FormatException(
-        'Scenario-marker span is non-positive ($spanMicros µs) — '
-        'cannot have produced the claimed expectedMagnitude.observed '
-        'of ${magnitude['observed']} $unit.',
+        'Scenario-marker span is non-positive ($spanMicros µs). Such a '
+        'span cannot produce the claimed expectedMagnitude.observed of '
+        '${magnitude['observed']} $unit.',
       );
     }
     final observed = (magnitude['observed'] as num).toDouble();
@@ -431,9 +432,10 @@ class ProfileCaptureSchema {
     // value before the threshold check.
     if (!observedMicros.isFinite) {
       throw FormatException(
-        'Derived "observed × unit" is non-finite ($observedMicros µs). '
-        'Upstream finite-positive guard on expectedMagnitude.observed '
-        'regressed; trace-vs-observed cross-check cannot proceed.',
+        'Derived value "observed times unit" is non-finite '
+        '($observedMicros µs). The upstream finite-positive guard on '
+        'expectedMagnitude.observed regressed, so the trace-vs-observed '
+        'cross-check cannot proceed.',
       );
     }
     final ratio = observedMicros / spanMicros;
@@ -447,12 +449,12 @@ class ProfileCaptureSchema {
     if (ratio > maxObservedToSpanRatio) {
       throw FormatException(
         'Trace-vs-observed cross-check failed: expectedMagnitude.observed '
-        '= $observed $unit is ${ratio.toStringAsFixed(0)}× larger than '
-        'the scenario-marker span ($spanMicros µs, bounded by '
-        '"$scenarioBeginMarker" → "$scenarioEndMarker"). A real '
+        '= $observed $unit is ${ratio.toStringAsFixed(0)} times larger '
+        'than the scenario-marker span ($spanMicros µs, from '
+        '"$scenarioBeginMarker" to "$scenarioEndMarker"). A real '
         'profile-mode capture of a $observed$unit scenario emits '
-        'markers bracketing the full duration; a ratio above '
-        '${maxObservedToSpanRatio.toInt()}× indicates a fabricated '
+        'markers around the full duration. A ratio above '
+        '${maxObservedToSpanRatio.toInt()} times points to a fabricated '
         'export or misplaced markers. Widen the scenario window to '
         'match the claim.',
       );
@@ -474,14 +476,14 @@ class ProfileCaptureSchema {
     if (inverseRatio > maxObservedToSpanRatio) {
       throw FormatException(
         'Trace-vs-observed cross-check failed: scenario-marker span '
-        '($spanMicros µs, bounded by "$scenarioBeginMarker" → '
-        '"$scenarioEndMarker") is ${inverseRatio.toStringAsFixed(0)}× '
-        'larger than expectedMagnitude.observed = $observed $unit. A '
-        'span this much wider than the observed magnitude means the '
-        'markers bracket unrelated work (warmup, dwell, other '
-        'requests); a ratio above ${maxObservedToSpanRatio.toInt()}× '
-        'indicates misplaced markers. Tighten the scenario window to '
-        'match the claim.',
+        '($spanMicros µs, from "$scenarioBeginMarker" to '
+        '"$scenarioEndMarker") is ${inverseRatio.toStringAsFixed(0)} '
+        'times larger than expectedMagnitude.observed = $observed $unit. '
+        'A span this much wider than the observed magnitude means the '
+        'markers enclose unrelated work (warmup, dwell, other '
+        'requests). A ratio above ${maxObservedToSpanRatio.toInt()} '
+        'times points to misplaced markers. Tighten the scenario window '
+        'to match the claim.',
       );
     }
   }
@@ -523,7 +525,7 @@ class ProfileCaptureSchema {
       throw FormatException(
         '"captureCommand" "$captureCommand" does not contain '
         '"--profile". Runtime-verified captures must be recorded in '
-        'profile mode (e.g. `fvm flutter run --profile`). Debug-mode '
+        'profile mode (for example `fvm flutter run --profile`). Debug-mode '
         'timings are not representative of production.',
       );
     }
@@ -827,10 +829,11 @@ class ProfileCaptureSchema {
     throw FormatException(
       '"sleuthMetadata.scenario" "$scenario" does not match the capture '
       'file path. Expected either "$basenameNoExt" (basename-exact) or '
-      'a value ending in "_$basenameNoExt" (e.g. '
+      'a value ending in "_$basenameNoExt" (for example '
       '"${parentName}_$basenameNoExt") for file ${file.path}. A scenario '
-      'that disagrees with the file name silently certifies the wrong '
-      'evidence when the file is moved or copied with a stale field.',
+      'that disagrees with the file name certifies the wrong evidence '
+      'without any error when the file is moved or copied with a stale '
+      'field.',
     );
   }
 
@@ -944,10 +947,11 @@ class ProfileCaptureSchema {
       throw const FormatException(
         '`validateBracket` was called with requireDetectorTraceRecord: true '
         'but severityLabel was null or empty. The bracket validates a '
-        'specific severity threshold (e.g. warning at 8 ms vs critical at '
-        '16 ms); the trace-record proof must match THAT severity, not just '
-        'any emission on the same stableId. Pass IssueSeverity.warning.name '
-        'or .critical.name (the wire-format string).',
+        'specific severity threshold (for example warning at 8 ms and '
+        'critical at 16 ms). The trace-record proof must match that '
+        'severity, not any emission on the same stableId. Pass '
+        'IssueSeverity.warning.name or .critical.name (the wire-format '
+        'string).',
       );
     }
     // Reject non-finite numeric inputs before any comparison. Dart's
@@ -973,9 +977,9 @@ class ProfileCaptureSchema {
     final normalisedBracketUnit = unit.trim().toLowerCase();
     if (normalisedBracketUnit.isEmpty) {
       throw const FormatException(
-        '`validateBracket` was called with an empty `unit` — bracketing '
-        'requires a non-empty unit string matching every capture\'s '
-        'expectedMagnitude.unit.',
+        '`validateBracket` was called with an empty `unit`. A bracket '
+        'needs a non-empty unit string that matches the '
+        'expectedMagnitude.unit of every capture.',
       );
     }
     final triad = <(String, Map<String, Object?>, File)>[
@@ -1023,9 +1027,9 @@ class ProfileCaptureSchema {
           '${belowValue is String ? '"$belowValue"' : belowValue}, at='
           '${atValue is String ? '"$atValue"' : atValue}, above='
           '${aboveValue is String ? '"$aboveValue"' : aboveValue}. '
-          'Bracketing a threshold requires the three captures to come '
-          'from the same reference environment — otherwise the '
-          'observed values are not comparable. Files: '
+          'A threshold bracket needs all three captures from the same '
+          'reference environment, or the observed values are not '
+          'comparable. Files: '
           '${belowFile.path}, ${atFile.path}, ${aboveFile.path}.',
         );
       }
@@ -1045,7 +1049,7 @@ class ProfileCaptureSchema {
     if (atObs < threshold || atObs > atUpper) {
       throw FormatException(
         'Bracket violation: $unit "at" observed ($atObs) must lie in '
-        '[$threshold, $atUpper] (threshold × ${1 + atTolerance}). '
+        '[$threshold, $atUpper] (threshold times ${1 + atTolerance}). '
         'File: ${atFile.path}',
       );
     }
@@ -1064,9 +1068,9 @@ class ProfileCaptureSchema {
     // the artifact on disk.
     if (aboveCeilingMultiplier <= 1.0) {
       throw FormatException(
-        'aboveCeilingMultiplier ($aboveCeilingMultiplier) must be > 1.0 — '
-        'a ceiling at or below the threshold makes the "above" bracket '
-        'unreachable.',
+        'aboveCeilingMultiplier ($aboveCeilingMultiplier) must be above '
+        '1.0. A ceiling at or below the threshold makes the "above" '
+        'bracket unreachable.',
       );
     }
     // Guard against a ceiling that collides with the at-band upper
@@ -1090,7 +1094,7 @@ class ProfileCaptureSchema {
     if (aboveObs > aboveCeiling) {
       throw FormatException(
         'Bracket violation: $unit "above" observed ($aboveObs) exceeds '
-        'ceiling ($aboveCeiling = threshold × $aboveCeilingMultiplier). '
+        'ceiling ($aboveCeiling = threshold times $aboveCeilingMultiplier). '
         'Re-record within (threshold, ceiling] so the artifact cannot '
         'provide ambient evidence for an adjacent higher-severity '
         'threshold. File: ${aboveFile.path}',
@@ -1109,9 +1113,9 @@ class ProfileCaptureSchema {
       throw FormatException(
         'Bracket violation: $unit "above" observed ($aboveObs) must be '
         'strictly greater than "at" observed ($atObs). The bracket '
-        'rule expects below < at < above magnitudes; an inverted '
-        'triad provides no ordering evidence about the threshold '
-        'even when each leg individually satisfies its constraint. '
+        'rule expects the below, at and above magnitudes in increasing '
+        'order. An inverted triad gives no ordering evidence about the '
+        'threshold, even when each leg satisfies its own constraint. '
         'Re-record `above` with a larger magnitude (within the '
         'above-ceiling) or `at` with a smaller magnitude (within '
         'the at-band). Files: at=${atFile.path}, '
@@ -1131,7 +1135,7 @@ class ProfileCaptureSchema {
             'Capture missing or stale `sleuthMetadata.schemaVersion`: '
             '"${entry.$1}" capture declared "${declared ?? 'null'}" but '
             'this validation requires "$captureSchemaVersion". '
-            'Re-record under the v0.18.0+ procedure (see '
+            'Re-record under the v0.18.0 or later procedure (see '
             'test/validation/captures/<detector>/README.md) to populate '
             'the schemaVersion field. File: ${entry.$3.path}',
           );
@@ -1317,10 +1321,10 @@ class ProfileCaptureSchema {
         'event named "$expected" with `ts` inside the scenario span '
         '[$beginTs, $endTs] (the work window between '
         'sleuth.scenario.begin and sleuth.scenario.end). A '
-        '`runtimeVerified` capture must contain proof the detector '
-        'fired AT THE CLAIMED SEVERITY during the captured scenario; '
-        'a `.critical` event does not satisfy a `warning`-tier audit '
-        'and vice versa. File: ${file.path}',
+        '`runtimeVerified` capture must contain proof that the detector '
+        'fired at the claimed severity during the captured scenario. A '
+        '`.critical` event does not satisfy a `warning`-tier audit, and '
+        'the reverse holds too. File: ${file.path}',
       );
     }
     // Uniqueness invariant (opt-in via requireUniqueDetectedAtMicros).
@@ -1346,10 +1350,10 @@ class ProfileCaptureSchema {
           'Found $matchCount records but only '
           '${uniqueDetectedAtMicros.length} distinct '
           '`detectedAtMicros` value(s) inside the scenario span. This '
-          'indicates either capture replay/forgery (N records '
-          'replayed from one, possibly with the arg stripped) or a '
-          'pre-v0.18.1 capture binary without producer dedup. '
-          'Re-record with v0.18.1+ to refresh. File: ${file.path}',
+          'points to capture replay or forgery (N records replayed from '
+          'one, possibly with the arg stripped) or to a pre-v0.18.1 '
+          'capture binary without producer dedup. Re-record with v0.18.1 '
+          'or later to refresh. File: ${file.path}',
         );
       }
     }
@@ -1404,14 +1408,15 @@ class ProfileCaptureSchema {
           'Detector-observed axis cross-check failed in $context: '
           'capture\'s `expectedMagnitude.observed` ($observedAxisExpected) '
           'and trace-record `args["$observedAxisArgKey"]` ($observed) '
-          'diverge beyond ±${(observedAxisTolerance * 100).toStringAsFixed(0)}% '
-          '(allowed band [$lower, $upper]). The capture screen reports a '
-          'send-side estimate; the trace record carries the detector-'
-          'observed value. A divergence this wide indicates iOS '
-          'coalescing, dropped events, or a mislabeled bracket leg — '
-          'the operator may have reported an `at`-band send rate while '
-          'the detector saw an above-band count (or vice versa). '
-          'Re-record the leg. File: ${file.path}',
+          'diverge by more than '
+          '${(observedAxisTolerance * 100).toStringAsFixed(0)}% (allowed '
+          'band [$lower, $upper]). The capture screen reports a send-side '
+          'estimate, and the trace record carries the value the detector '
+          'observed. A divergence this wide points to iOS coalescing, '
+          'dropped events or a mislabeled bracket leg. The operator may '
+          'have reported an `at`-band send rate while the detector saw an '
+          'above-band count, or the reverse. Re-record the leg. '
+          'File: ${file.path}',
         );
       }
     }
@@ -1451,9 +1456,9 @@ class ProfileCaptureSchema {
         throw FormatException(
           'Unexpected detector trace record in $context: found instant '
           'event "$expected" inside the scenario span. The `below` '
-          'capture is sub-threshold and the detector should NOT fire '
-          'at this severity — re-record below the threshold or pick '
-          'a smaller magnitude. File: ${file.path}',
+          'capture is sub-threshold, so the detector should not fire '
+          'at this severity. Re-record below the threshold or pick a '
+          'smaller magnitude. File: ${file.path}',
         );
       }
     }
@@ -1532,12 +1537,12 @@ class ProfileCaptureSchema {
   static num _requireFinitePositive(num value, String fieldName) {
     if (!value.isFinite) {
       throw FormatException(
-        '"$fieldName" must be a finite number (got $value). NaN, '
-        '+Infinity, and -Infinity are rejected because Dart\'s '
-        'NaN-comparison semantics silently bypass every downstream '
-        'bracket and magnitude guard. Exponent-overflow JSON forms '
-        'like 1e400 decode to Infinity — canonicalise the capture '
-        'or pin the tier metadata to a finite numeric value.',
+        '"$fieldName" must be a finite number (got $value). The schema '
+        'rejects NaN, +Infinity and -Infinity because Dart\'s '
+        'NaN-comparison semantics skip every downstream bracket and '
+        'magnitude guard without an error. Exponent-overflow JSON forms '
+        'like 1e400 decode to Infinity. Canonicalise the capture or pin '
+        'the tier metadata to a finite numeric value.',
       );
     }
     if (value <= 0) {
@@ -1557,10 +1562,10 @@ class ProfileCaptureSchema {
   static num _requireFiniteNonNegative(num value, String fieldName) {
     if (!value.isFinite) {
       throw FormatException(
-        '"$fieldName" must be a finite number (got $value). NaN, '
-        '+Infinity, and -Infinity are rejected because Dart\'s '
-        'NaN-comparison semantics silently bypass every downstream '
-        'bracket and magnitude guard.',
+        '"$fieldName" must be a finite number (got $value). The schema '
+        'rejects NaN, +Infinity and -Infinity because Dart\'s '
+        'NaN-comparison semantics skip every downstream bracket and '
+        'magnitude guard without an error.',
       );
     }
     if (value < 0) {
@@ -1617,8 +1622,8 @@ class ProfileCaptureSchema {
       throw FormatException(
         '"device" "$device" is not an approved reference device. '
         'Allowed: ${approvedDevicePairs.keys.toList()..sort()}. '
-        'Pinned-device policy lives in doc/reference_devices.md; add new '
-        'devices via an annual rotation release, not an individual tier '
+        'The pinned-device policy is in doc/reference_devices.md. Add '
+        'new devices in an annual rotation release, not in a single tier '
         'raise PR.',
       );
     }
@@ -1657,9 +1662,9 @@ class ProfileCaptureSchema {
       throw FormatException(
         '"flutterVersion" "$version" does not match pinned Flutter '
         'stable ${pins.map((p) => '$p.<patch>').join(' or ')} '
-        '(pre-release or build-metadata suffixes like "-1.0.pre" / '
-        '"+channel-stable" are accepted). Pinned-version policy rotates '
-        'annually — see doc/reference_devices.md.',
+        '(pre-release or build-metadata suffixes like "-1.0.pre" or '
+        '"+channel-stable" are accepted). The pinned-version policy '
+        'rotates annually. See doc/reference_devices.md.',
       );
     }
   }
@@ -1704,16 +1709,16 @@ class ProfileCaptureSchema {
     }
     if (min > observed) {
       throw FormatException(
-        '"expectedMagnitude" invariant violated: min ($min) > observed '
-        '($observed). A capture claiming an observed magnitude must fall '
-        'within its declared bounds.',
+        '"expectedMagnitude" invariant violated: min ($min) is greater '
+        'than observed ($observed). The observed magnitude of a capture '
+        'must fall within its declared bounds.',
       );
     }
     if (observed > max) {
       throw FormatException(
-        '"expectedMagnitude" invariant violated: observed ($observed) > '
-        'max ($max). A capture claiming an observed magnitude must fall '
-        'within its declared bounds.',
+        '"expectedMagnitude" invariant violated: observed ($observed) is '
+        'greater than max ($max). The observed magnitude of a capture '
+        'must fall within its declared bounds.',
       );
     }
     // Unit is mandatory. The trace-vs-observed cross-check needs a unit
@@ -1730,10 +1735,10 @@ class ProfileCaptureSchema {
     if (unit is! String || unit.trim().isEmpty) {
       throw const FormatException(
         '"expectedMagnitude.unit" must be a non-empty string naming the '
-        'unit the magnitude is expressed in (e.g. "ms", "bytes", '
-        '"frames"). A capture with no unit silently disables the '
-        'trace-vs-observed cross-check and leaves the bracketing '
-        'rule scale-confused.',
+        'unit of the magnitude (for example "ms", "bytes" or '
+        '"frames"). A capture with no unit turns off the '
+        'trace-vs-observed cross-check without an error, and the '
+        'bracketing rule cannot tell which scale it compares.',
       );
     }
     final normalisedUnit = unit.trim().toLowerCase();
@@ -1741,9 +1746,9 @@ class ProfileCaptureSchema {
       throw FormatException(
         '"expectedMagnitude.unit" "$unit" is not in the approved unit '
         'set. Allowed: ${(approvedUnits.toList()..sort()).join(', ')}. '
-        'Add new units by amending ProfileCaptureSchema.approvedUnits '
-        'in the same PR — silent unit-name drift (e.g. "millis" vs '
-        '"ms") undermines the audit gate.',
+        'To add a unit, amend ProfileCaptureSchema.approvedUnits in the '
+        'same PR. Silent unit-name drift, such as "millis" for "ms", '
+        'weakens the audit gate.',
       );
     }
   }
@@ -1813,7 +1818,7 @@ class ProfileCaptureSchema {
       throw FormatException(
         '"captureDate" "$raw" has an out-of-range month ($month) that '
         'DateTime.parse round-trips through silent rollover. '
-        'Reject rather than absorb the drift.',
+        'The schema rejects it instead of absorbing the drift.',
       );
     }
     if (hour > 23 || minute > 59 || second > 60) {
@@ -1821,7 +1826,7 @@ class ProfileCaptureSchema {
         '"captureDate" "$raw" has out-of-range time components '
         '(hour=$hour, minute=$minute, second=$second) that DateTime.parse '
         'round-trips through silent rollover. '
-        'Reject rather than absorb the drift.',
+        'The schema rejects it instead of absorbing the drift.',
       );
     }
     final isLeap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
@@ -1830,7 +1835,8 @@ class ProfileCaptureSchema {
       throw FormatException(
         '"captureDate" "$raw" has an out-of-range day ($day for month '
         '$month in year $year) that DateTime.parse round-trips through '
-        'silent rollover. Reject rather than absorb the drift.',
+        'silent rollover. The schema rejects it instead of absorbing '
+        'the drift.',
       );
     }
 
@@ -1895,7 +1901,7 @@ class ProfileCaptureSchema {
       if (storedRole != label) {
         throw FormatException(
           'Bracket "$label" slot received a capture whose '
-          '`sleuthMetadata.role` is "$storedRole" — the positional '
+          '`sleuthMetadata.role` is "$storedRole". The positional '
           'bracket label and the stored role must match. Either '
           'pass this file to the "$storedRole" slot or correct the '
           'role field in the capture.',

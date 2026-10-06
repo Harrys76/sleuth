@@ -34,7 +34,8 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
          type: DetectorType.setStateScope,
          lifecycle: DetectorLifecycle.structural,
          name: 'setState Scope',
-         description: 'Detects StatefulWidgets owning >50% of tree',
+         description:
+             'Detects StatefulWidgets that own more than 50% of the tree',
        );
 
   /// If subtreeSize/totalElements exceeds this ratio, flag it.
@@ -292,7 +293,7 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
       IssueConfidence.confirmed =>
         'Measured directly from debug callback rebuild counter',
       IssueConfidence.likely =>
-        'Rebuild evidence detected + structural subtree scan',
+        'Rebuild evidence and a structural subtree scan',
       IssueConfidence.possible =>
         'Rebuild evidence detected, but an animation scope in the subtree '
             'may be the rebuild source',
@@ -319,8 +320,8 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
             'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
         detail:
             '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
-            'elements (~$percent%) in its subtree$constNote. Rebuild '
-            'activity was observed on this wide subtree.$location',
+            'elements (about $percent%) in its subtree$constNote. Sleuth '
+            'observed rebuild activity on this wide subtree.$location',
         fixHint: hint,
         fixEffort: effort,
         widgetName: _widestStatefulWidget,
@@ -392,7 +393,7 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
         widgetName: widgetName,
         severity: severity,
         detectorName: 'setState',
-        detail: 'Owns ~$percent% of tree ($subtreeSize elements)',
+        detail: 'Owns about $percent% of the tree ($subtreeSize elements)',
       ),
     );
   }
@@ -533,20 +534,21 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     tier: EvidenceTier.reproducerOnly,
     rationale:
         'Hermetic reproducer pins `setstate_scope` on the two-scan '
-        'churn path: the widest public StatefulWidget owns > '
+        'churn path. The widest public StatefulWidget owns more than '
         '`dirtyRatioThreshold` of the scanned tree with '
         '`_maxSubtreeSize >= minSubtreeSize`, and its child widget '
         'identity changes between scans (`rebuildEvidenceThreshold`). '
-        'Severity is critical above `min(1.0, 1.5 × dirtyRatioThreshold)`, '
-        'warning otherwise. A debug-callback DebugSnapshot naming the owner '
-        'is the other accepted evidence (confirmed); timeline-sourced '
-        'snapshots are ignored. A structural ratio without rebuild '
-        'evidence never emits. Animation scope drops confidence to '
-        'possible. Private-named owners, builder-style owners '
-        '(FutureBuilder, StreamBuilder, ValueListenableBuilder, Form, '
-        'Focus, ...), and below-minSubtreeSize trees are pinned as '
-        'negative controls. Thresholds tuned down in tests to validate '
-        'classification semantics, not threshold values.',
+        'Severity is critical above `min(1.0, 1.5 * dirtyRatioThreshold)` '
+        'and warning otherwise. A debug-callback DebugSnapshot that names '
+        'the owner is the other accepted evidence, and it gives confirmed '
+        'confidence. The detector ignores timeline-sourced snapshots. A '
+        'structural ratio without rebuild evidence never emits. An '
+        'animation scope drops confidence to possible. Private-named '
+        'owners, builder-style owners (FutureBuilder, StreamBuilder, '
+        'ValueListenableBuilder, Form, Focus, ...) and trees below '
+        'minSubtreeSize are pinned as negative controls. Tests tune the '
+        'thresholds down to validate classification semantics, not '
+        'threshold values.',
     reproducerPath: 'test/validation/setstate_scope_reproducer_test.dart',
     coveredStableIds: {'setstate_scope'},
   );

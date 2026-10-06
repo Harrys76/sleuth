@@ -639,7 +639,7 @@ void main() {
       await tester.pump();
 
       expect(clipboardText, isNotNull);
-      expect(clipboardText!, contains('# Sleuth AI Conversation'));
+      expect(clipboardText!, contains('# Sleuth AI conversation'));
       expect(clipboardText!, contains('**Issue:** Excessive GlobalKeys: 25'));
       expect(clipboardText!, contains('`excessive_global_keys:0`'));
       expect(clipboardText!, contains('POSSIBLE'));
@@ -1240,7 +1240,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.copy_all_outlined));
       await tester.pump();
       final text = clipboardText!;
-      expect('### \u{1F9D1} User'.allMatches(text), hasLength(2));
+      expect('### User'.allMatches(text), hasLength(2));
       expect(text.indexOf('First'), lessThan(text.indexOf('Second')));
       // Nothing was sent with a session provider: no context section.
       expect(text, isNot(contains('## Context sent')));
@@ -1418,7 +1418,7 @@ void main() {
       await tester.pump();
       expect(
         copied(),
-        'The reply stalled after 9 characters: no more text arrived '
+        'The reply stalled after 9 characters. No more text arrived '
         'within 15 s.',
       );
     });

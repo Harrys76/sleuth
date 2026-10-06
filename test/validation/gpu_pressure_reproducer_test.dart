@@ -665,7 +665,7 @@ void main() {
         expect(issue.confidence, IssueConfidence.likely);
         expect(
           issue.confidenceReason,
-          'Raster-dominant frames + structural render node scan',
+          'Raster-dominant frames and a structural render node scan',
         );
       });
 
@@ -683,12 +683,12 @@ void main() {
         expect(issue.confidence, IssueConfidence.possible);
         expect(
           issue.confidenceReason,
-          'Structural pattern only — no raster-dominant frames observed',
+          'Structural pattern only. Sleuth saw no raster-dominant frames',
         );
       });
 
       testWidgets('vmConnected=false + no frames + expense → possible + detail '
-          '"No raster timing observed yet."', (tester) async {
+          '"Sleuth has not observed raster timing yet."', (tester) async {
         detector.vmConnected = false;
         final issues = await scanAndIssues(
           tester,
@@ -701,9 +701,12 @@ void main() {
         expect(issue.confidence, IssueConfidence.possible);
         expect(
           issue.confidenceReason,
-          'Structural pattern only — no raster-dominant frames observed',
+          'Structural pattern only. Sleuth saw no raster-dominant frames',
         );
-        expect(issue.detail, contains('No raster timing observed yet.'));
+        expect(
+          issue.detail,
+          contains('Sleuth has not observed raster timing yet.'),
+        );
       });
 
       testWidgets(
@@ -723,9 +726,12 @@ void main() {
           expect(issue.confidence, IssueConfidence.likely);
           expect(
             issue.confidenceReason,
-            'Raster-dominant frames + structural render node scan',
+            'Raster-dominant frames and a structural render node scan',
           );
-          expect(issue.detail, isNot(contains('No raster timing')));
+          expect(
+            issue.detail,
+            isNot(contains('has not observed raster timing')),
+          );
         },
       );
 
@@ -751,7 +757,7 @@ void main() {
           expect(issue.confidence, IssueConfidence.possible);
           expect(
             issue.confidenceReason,
-            'Structural pattern only — no raster-dominant frames observed',
+            'Structural pattern only. Sleuth saw no raster-dominant frames',
           );
         },
       );
@@ -787,7 +793,7 @@ void main() {
           expect(postDowngrade.confidence, IssueConfidence.possible);
           expect(
             postDowngrade.confidenceReason,
-            'Structural pattern only — no raster-dominant frames observed',
+            'Structural pattern only. Sleuth saw no raster-dominant frames',
           );
         },
       );

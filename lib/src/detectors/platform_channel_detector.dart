@@ -45,8 +45,9 @@ class PlatformChannelDetector extends BaseDetector
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Platform Channel',
          description:
-             'Detects excessive platform channel calls (>20/sec; opt in '
-             'with SleuthConfig(profilePlatformChannels: true))',
+             'Detects excessive platform channel calls (more than '
+             '20/sec). Opt in with '
+             'SleuthConfig(profilePlatformChannels: true)',
        ) {
     _windowStart = _clock();
   }
@@ -211,7 +212,7 @@ class PlatformChannelDetector extends BaseDetector
         ..sort((a, b) => b.value.compareTo(a.value));
       final methodSummary = topMethods
           .take(3)
-          .map((e) => '${e.key}: ${e.value}×')
+          .map((e) => '${e.key}: ${e.value} ${e.value == 1 ? 'call' : 'calls'}')
           .join(', ');
 
       final topMethod = topMethods.isNotEmpty ? topMethods.first.key : null;
@@ -328,59 +329,53 @@ class PlatformChannelDetector extends BaseDetector
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.runtimeVerified,
     rationale:
-        'VM-only detector. The emission axis is call count per 1s '
-        'window, pinned by hermetic reproducer feeding events through '
-        '`TimelineParser.parse()` into the detector: >20/sec '
-        '(strict, 2× critical at 41 calls; 40 calls held at warning '
-        'to pin critical-escalation inequality). Call duration is '
-        'observational: async `\'b\'`/`\'e\'` pairs matched by `id` '
-        '(and sync `\'X\'` events) yield per-call durations, stamped '
-        'as `maxCallDurationUs` / `p95CallDurationUs` / '
-        '`callsOverThreshold` (calls over 8 ms) but never gating '
-        'emission. Two '
-        'parser-accepted phase+name shapes covered: lowercase async '
-        '`\'b\'` with `Platform Channel send ` prefix (real '
-        '`debugProfilePlatformChannels` output via TimelineTask) and '
-        'sync `\'X\'` with `MethodChannel` name. Parser allowlist '
-        'accepts 9 shapes total (6 sync names + 3 async-prefix '
-        'casings); the 7 untested shapes (`PlatformChannel`, '
+        'VM-only detector. The emission axis is the call count per 1s '
+        'window. A hermetic reproducer pins it by feeding events through '
+        '`TimelineParser.parse()` into the detector. It fires above 20/sec '
+        '(strict) and is critical at 2 times that, at 41 calls. 40 calls '
+        'stay at warning to pin the critical-escalation inequality. Call '
+        'duration is observational. Async `\'b\'`/`\'e\'` pairs matched by '
+        '`id` (and sync `\'X\'` events) yield per-call durations, stamped as '
+        '`maxCallDurationUs`, `p95CallDurationUs` and `callsOverThreshold` '
+        '(calls over 8 ms), but they never gate emission. The reproducer '
+        'covers two parser-accepted phase and name shapes: lowercase async '
+        '`\'b\'` with the `Platform Channel send ` prefix (real '
+        '`debugProfilePlatformChannels` output through TimelineTask) and '
+        'sync `\'X\'` with the `MethodChannel` name. The parser allowlist '
+        'accepts 9 shapes in total (6 sync names and 3 async-prefix '
+        'casings). The 7 untested shapes (`PlatformChannel`, '
         '`platformchannel`, `Platform_Channel`, `platform_channel`, '
         '`methodchannel`, `Platform Channel Send ` prefix, `platform '
-        'channel send ` prefix) are implicitly uncovered at this '
-        'tier. Uppercase sync `\'B\'` '
-        'async-shaped events are silently dropped by the parser '
-        'and asserted non-emitting — the canonical format-boundary '
-        'trap for channel observers. The runtimeVerified tier is '
-        'backed by three on-device captures (iPhone 12 / iOS 17.5 '
-        '/ Flutter 3.41.x) that bracket the 20 calls/sec warning '
-        'threshold via `Sleuth.markScenarioBegin/End` + '
-        '`flushTimelineNow` driving synchronous emission inside '
-        'the scenario span. The capture screen sets '
-        '`debugProfilePlatformChannels = true` per leg (restored '
-        'in `finally`) so real `MethodChannel.invokeMethod` calls '
-        'flow through the `TimelineTask` lowercase async '
-        '`\'b\'`/`\'e\'` path the parser already accepts. '
-        'Captures recorded under v0.19.4 producer-side dedup '
-        '(stable per-window `dedupIdentityMicros` derived from '
-        '`_windowStart.microsecondsSinceEpoch`) so the strong '
-        'uniqueness invariant '
-        '(`requireUniqueDetectedAtMicros: true`) protects against '
-        'capture replay forgery. The bracket is the count axis; '
-        'replaying the captures through the parser shows nonzero '
-        'per-call durations on every leg with the below leg still '
-        'silent. After the 3-window cooldown the issue is retained '
-        'until `emissionPersistence` (10 s) has passed since the '
-        'emission without re-emitting, so each leg still records '
-        'exactly one trace event. The 2× critical '
-        'tier at 41 calls/sec also remains implicitly '
-        'reproducer-pinned in this metadata — '
-        '`DetectorMetadata` carries one `tier` per detector '
-        'instance, so this declaration covers '
-        '`platform_channel_traffic.warning` only; the '
-        'aboveCeilingMultiplier is set to 1.95 → above-band '
-        'ceiling 39 calls/sec, strictly under the 41-call '
-        'critical-escalation boundary so the above-leg cannot '
-        'ambiently bracket the critical tier.',
+        'channel send ` prefix) are implicitly uncovered at this tier. The '
+        'parser silently drops uppercase sync `\'B\'` async-shaped events, '
+        'and the reproducer asserts that they do not emit. This is the '
+        'canonical format-boundary trap for channel observers. The '
+        'runtimeVerified tier rests on three on-device captures (iPhone 12, '
+        'iOS 17.5, Flutter 3.41.x) whose legs sit below, at and above the '
+        '20 calls/sec warning threshold. They use '
+        '`Sleuth.markScenarioBegin/End` and `flushTimelineNow` to drive '
+        'synchronous emission inside the scenario span. The capture screen '
+        'sets `debugProfilePlatformChannels = true` per leg (restored in '
+        '`finally`), so real `MethodChannel.invokeMethod` calls flow through '
+        'the `TimelineTask` lowercase async `\'b\'`/`\'e\'` path that the '
+        'parser already accepts. The captures were recorded under the '
+        'v0.19.4 producer-side dedup (a stable per-window '
+        '`dedupIdentityMicros` derived from '
+        '`_windowStart.microsecondsSinceEpoch`), so the strong uniqueness '
+        'invariant (`requireUniqueDetectedAtMicros: true`) protects against '
+        'capture replay forgery. The bracket is the count axis. Replaying '
+        'the captures through the parser shows nonzero per-call durations '
+        'on every leg, and the below leg stays silent. After the 3-window '
+        'cooldown the detector keeps the issue, without re-emitting, until '
+        '`emissionPersistence` (10 s) has passed since the emission, so '
+        'each leg still records exactly one trace event. The critical tier '
+        'at 2 times the threshold (41 calls/sec) also remains implicitly '
+        'reproducer-pinned in this metadata. `DetectorMetadata` carries one '
+        '`tier` per detector instance, so this declaration covers '
+        '`platform_channel_traffic.warning` only. The '
+        'aboveCeilingMultiplier is 1.95, which puts the above-band ceiling '
+        'at 39 calls/sec, under the 41-call critical-escalation boundary, '
+        'so the above leg cannot reach the critical tier by accident.',
     reproducerPath: 'test/validation/platform_channel_reproducer_test.dart',
     profileCapturePaths: [
       'test/validation/captures/platform_channel/'

@@ -146,7 +146,7 @@ class _HighlightPainter extends CustomPainter {
     // Label
     final label =
         '${h.detectorName}: ${h.widgetName}'
-        '${h.detail != null ? ' — ${h.detail}' : ''}';
+        '${h.detail != null ? ', ${h.detail}' : ''}';
     final textSpan = TextSpan(
       text: label,
       style: TextStyle(

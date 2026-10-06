@@ -150,7 +150,7 @@ class _GuidePageState extends State<GuidePage>
                       _section(
                         index: 0,
                         icon: Icons.rocket_launch_outlined,
-                        title: 'Quick Start',
+                        title: 'Quick start',
                         accent: theme.categoryBuild,
                         theme: theme,
                         child: _quickStartContent(),
@@ -159,7 +159,7 @@ class _GuidePageState extends State<GuidePage>
                       _section(
                         index: 1,
                         icon: Icons.dashboard_customize_outlined,
-                        title: 'Understanding the Card',
+                        title: 'Understanding the card',
                         accent: theme.categoryMemory,
                         theme: theme,
                         child: _cardExplanation(theme),
@@ -168,7 +168,7 @@ class _GuidePageState extends State<GuidePage>
                       _section(
                         index: 2,
                         icon: Icons.palette_outlined,
-                        title: 'Color Legend',
+                        title: 'Color legend',
                         accent: theme.severityOk,
                         theme: theme,
                         child: _colorLegend(theme),
@@ -177,7 +177,7 @@ class _GuidePageState extends State<GuidePage>
                       _section(
                         index: 3,
                         icon: Icons.tips_and_updates_outlined,
-                        title: 'Tips & Tricks',
+                        title: 'Tips and tricks',
                         accent: theme.severityWarning,
                         theme: theme,
                         child: _tipsContent(theme),
@@ -324,32 +324,31 @@ class _GuidePageState extends State<GuidePage>
       children: [
         _GuideStep(
           step: '1',
-          title: 'Run in Profile Mode',
-          detail: 'flutter run --profile \u2014 for accurate timing data',
+          title: 'Run in profile mode',
+          detail: 'Use flutter run --profile for accurate timing data.',
         ),
         _GuideStep(
           step: '2',
-          title: 'Navigate Your App',
-          detail: 'Use as normal. Sleuth monitors every frame automatically.',
+          title: 'Use your app',
+          detail: 'Use it as normal. Sleuth monitors every frame.',
         ),
         _GuideStep(
           step: '3',
-          title: 'Watch the FPS Number',
+          title: 'Watch the FPS number',
           detail:
-              'Green at or above about 83% of your target frame rate, '
-              'amber at or above 50%, red below that.',
+              'It is green at or above about 83% of your target frame rate, '
+              'amber at or above 50% and red below that.',
         ),
         _GuideStep(
           step: '4',
-          title: 'Review Issues',
+          title: 'Review issues',
           detail:
-              'Tap any issue to see detail, fix hint, and confidence level.',
+              'Tap an issue to see its detail, fix hint and confidence level.',
         ),
         _GuideStep(
           step: '5',
-          title: 'Apply Fixes & Verify',
-          detail:
-              'Follow the fix hints. Hot reload to see improvement instantly.',
+          title: 'Apply fixes and verify',
+          detail: 'Follow the fix hints, then hot reload to see the change.',
         ),
       ],
     );
@@ -364,64 +363,64 @@ class _GuidePageState extends State<GuidePage>
         _infoTile(
           theme,
           '\u{1F4CA}',
-          'FPS Display',
-          'The number on the trigger button and the card status row. '
-              'Color-coded '
-              'against your target frame rate: green at or above about 83%, '
-              'amber at or above 50%, red below that.',
+          'FPS display',
+          'The number on the trigger button and the card status row. Its '
+              'color follows your target frame rate. It is green at or above '
+              'about 83%, amber at or above 50% and red below that.',
         ),
         _infoTile(
           theme,
           '\u{1F534}',
-          'Severity Dot',
-          'Red = at least one critical issue. Amber = warnings only. '
-              'Green = no issues detected. Hidden cards and severities '
-              'turned off in the summary bar do not count.',
+          'Severity dot',
+          'Red means at least one critical issue. Amber means warnings only. '
+              'Green means no issues. Hidden cards and severities turned off '
+              'in the summary bar do not count.',
         ),
         _infoTile(
           theme,
           '\u{2705}',
-          'Summary Bar',
-          'Severity counts double as filters: tap one to show or hide that '
-              'severity (one always stays on). On the right: evidence '
-              'quality (confirmed vs heuristic), or "Showing X of Y" while '
-              'a filter or a hidden card narrows the list.',
+          'Summary bar',
+          'Each severity count is also a filter. Tap one to show or hide '
+              'that severity. One always stays on. The right side shows '
+              'evidence quality (confirmed and heuristic counts), or '
+              '"Showing X of Y" while a filter or a hidden card narrows the '
+              'list.',
         ),
         _infoTile(
           theme,
           '\u{1F50D}',
-          'Highlight Toggle',
+          'Highlight toggle',
           'Check the box on a locatable issue to highlight the widget '
               'on screen with a border coloured by the issue\'s severity.',
         ),
         _infoTile(
           theme,
           '\u{1F501}',
-          'Rebuild Stats Panel',
-          'Always-on row above the issue list (profile mode with '
-              'enableDeepDebugInstrumentation). Shows total rebuilds and '
-              'unique widget count. Tap to expand the top-3 widgets with '
-              'live counts and bar fills. Pause/Resume freezes the snapshot; '
-              'See all N → opens the full drilldown. Counts include initial '
-              'widget inflations.',
+          'Rebuild stats panel',
+          'An always-on row above the issue list, in profile mode with '
+              'enableDeepDebugInstrumentation. It shows total rebuilds and '
+              'the unique widget count. Tap it to expand the top 3 widgets '
+              'with live counts and bar fills. Pause freezes the snapshot and '
+              'Resume unfreezes it. See all N opens the full drilldown. '
+              'Counts include initial widget inflations.',
         ),
         _infoTile(
           theme,
           '\u{1F4DD}',
-          'Copy & Hide',
-          'Expand an issue to copy its details as plain text (or long-press '
-              'the title) or to hide the card, with Undo. The footer shows '
-              'how many cards are hidden; tap it to restore them. Hiding '
-              'only affects the overlay: exports, snapshots and MCP still '
-              'include the issue.',
+          'Copy and hide',
+          'Expand an issue to copy its details as plain text, or long-press '
+              'the title to copy them. You can also hide the card, with Undo. '
+              'The footer shows how many cards are hidden. Tap it to restore '
+              'them. Hiding affects only the overlay. Exports, snapshots and '
+              'MCP still include the issue.',
         ),
         _infoTile(
           theme,
           '\u{2194}\u{FE0F}',
-          'Resize & Move',
+          'Resize and move',
           'Drag the bottom-right corner to resize width and height. Drag '
-              'the trigger button to move it; it settles on the nearest side '
-              'and keeps its place, like the card, when you close and reopen.',
+              'the trigger button to move it. It settles on the nearest side. '
+              'Like the card, it keeps its place when you close and reopen.',
         ),
         _infoTile(
           theme,
@@ -498,55 +497,55 @@ class _GuidePageState extends State<GuidePage>
         _legendSubtext(theme, 'Emoji at the start of each issue card header.'),
         const _LegendRow(
           icon: '\u{1F534}',
-          label: 'Critical \u2014 immediate attention',
+          label: 'Critical, needs immediate attention',
         ),
         _legendDetail(
           theme,
-          'Observed impact: dropped frames, high memory, or severe bottleneck.',
+          'Sleuth observed an impact, such as dropped frames, high memory or a severe bottleneck.',
         ),
         const _LegendRow(
           icon: '\u{1F7E1}',
-          label: 'Warning \u2014 should investigate',
+          label: 'Warning, worth investigating',
         ),
         _legendDetail(
           theme,
-          'Pattern detected that could degrade performance under load.',
+          'Sleuth found a pattern that could slow the app under load.',
         ),
-        const _LegendRow(icon: '\u{1F7E2}', label: 'OK \u2014 informational'),
+        const _LegendRow(icon: '\u{1F7E2}', label: 'OK, informational'),
         _legendDetail(
           theme,
-          'Minor observation with no measurable impact yet.',
+          'A minor observation with no measurable impact yet.',
         ),
 
         // ── Confidence Badges ─────────────────────────────────────────
         _legendDivider(theme),
-        _legendHeading(theme, 'Confidence Badges'),
+        _legendHeading(theme, 'Confidence badges'),
         _legendSubtext(
           theme,
-          'Shown at the top-right of each issue. Reflects how the issue was detected.',
+          'Shown at the top right of each issue. It reflects how Sleuth detected the issue.',
         ),
         _badgeLegendRow(
           theme,
           'CONFIRMED',
           theme.confidenceConfirmed,
-          'Directly observed \u2014 caught in real-time profiling data',
+          'Observed directly in real-time profiling data',
         ),
         _badgeLegendRow(
           theme,
           'LIKELY',
           theme.confidenceLikely,
-          'Runtime + structural evidence \u2014 two independent signals',
+          'Two independent signals, runtime and structural evidence',
         ),
         _badgeLegendRow(
           theme,
           'POSSIBLE',
           theme.confidencePossible,
-          'Structural pattern only \u2014 code analysis, no runtime confirmation',
+          'Structural pattern only, from code analysis with no runtime confirmation',
         ),
 
         // ── Recurrence Badges ─────────────────────────────────────────
         _legendDivider(theme),
-        _legendHeading(theme, 'Recurrence Badges'),
+        _legendHeading(theme, 'Recurrence badges'),
         _legendSubtext(
           theme,
           'Shown under each issue as "Seen X/Y \u00B7 label" where X is the number of recent scan cycles that fired this issue and Y is the total observed (ring buffer, capacity 60).',
@@ -555,39 +554,39 @@ class _GuidePageState extends State<GuidePage>
           theme,
           'worsening',
           theme.severityCritical,
-          'Severity rising \u2014 average cost increasing across recent cycles',
+          'Severity rising. The average cost is increasing across recent cycles',
         ),
         _badgeLegendRow(
           theme,
           'persistent',
           theme.severityWarning,
-          'Sticky \u2014 issue fires in \u2265 90% of recent scan cycles',
+          'Sticky. The issue fires in at least 90% of recent scan cycles',
         ),
         _badgeLegendRow(
           theme,
           'stable',
           theme.textSecondary,
-          'Present at consistent severity \u2014 not trending up or down',
+          'Present at a consistent severity, not trending up or down',
         ),
         _badgeLegendRow(
           theme,
           'improving',
           theme.severityOk,
-          'Severity falling \u2014 getting better across recent cycles',
+          'Severity falling. It is getting better across recent cycles',
         ),
         _badgeLegendRow(
           theme,
           'flaky',
           theme.textSecondary,
-          'Toggles present/absent irregularly (\u2265 3 transitions in window)',
+          'Appears and disappears irregularly, with at least 3 transitions in the window',
         ),
 
         // ── Source Accent ─────────────────────────────────────────────
         _legendDivider(theme),
-        _legendHeading(theme, 'Source Accent (left bar)'),
+        _legendHeading(theme, 'Source accent (left bar)'),
         _legendSubtext(
           theme,
-          'Colored bar on the left edge of each issue card. Shows where data came from.',
+          'The colored bar on the left edge of each issue card shows where the data came from.',
         ),
         _colorBarLegendRow(
           theme,
@@ -610,63 +609,63 @@ class _GuidePageState extends State<GuidePage>
 
         // ── Category Badges ───────────────────────────────────────────
         _legendDivider(theme),
-        _legendHeading(theme, 'Category Badges'),
+        _legendHeading(theme, 'Category badges'),
         _legendSubtext(
           theme,
-          'Pipeline stage tag next to severity. Shows which part of rendering is affected.',
+          'The pipeline stage tag next to the severity shows which part of rendering is affected.',
         ),
         _categoryLegendRow(
           theme,
           'BUILD',
           theme.categoryBuild,
-          'Widget rebuild overhead \u2014 missing const, broad setState',
+          'Widget rebuild overhead, such as missing const or broad setState',
         ),
         _categoryLegendRow(
           theme,
           'LAYOUT',
           theme.categoryLayout,
-          'Layout constraint issues \u2014 unconstrained lists, overflow',
+          'Layout constraint issues, such as unconstrained lists or overflow',
         ),
         _categoryLegendRow(
           theme,
           'PAINT',
           theme.categoryPaint,
-          'Paint layer complexity \u2014 heavy CustomPaint, missing RepaintBoundary',
+          'Paint layer complexity, such as heavy CustomPaint or a missing RepaintBoundary',
         ),
         _categoryLegendRow(
           theme,
           'RASTER',
           theme.categoryRaster,
-          'GPU rasterization cost \u2014 shader compilation, saveLayer',
+          'GPU rasterization cost, such as shader compilation or saveLayer',
         ),
         _categoryLegendRow(
           theme,
           'MEMORY',
           theme.categoryMemory,
-          'Memory allocation patterns \u2014 leaks, unbounded growth',
+          'Memory allocation patterns, such as leaks or unbounded growth',
         ),
         _categoryLegendRow(
           theme,
           'CHANNEL',
           theme.categoryChannel,
-          'Platform channel latency \u2014 slow method channel calls',
+          'Platform channel latency, such as slow method channel calls',
         ),
         _categoryLegendRow(
           theme,
           'FONT',
           theme.categoryFont,
-          'Font loading & rendering \u2014 too many custom font families',
+          'Font loading and rendering, such as too many custom font families',
         ),
         _categoryLegendRow(
           theme,
           'NETWORK',
           theme.categoryNetwork,
-          'HTTP request performance \u2014 slow responses, large payloads',
+          'HTTP request performance, such as slow responses or large payloads',
         ),
 
         // ── Effort Badges ─────────────────────────────────────────────
         _legendDivider(theme),
-        _legendHeading(theme, 'Effort Badges'),
+        _legendHeading(theme, 'Effort badges'),
         _legendSubtext(
           theme,
           'Shown in the fix hint box when an issue is expanded.',
@@ -675,24 +674,24 @@ class _GuidePageState extends State<GuidePage>
           theme,
           'QUICK FIX',
           theme.effortQuick,
-          'Simple change \u2014 add const, swap a widget, tweak a parameter',
+          'A simple change, such as adding const, swapping a widget or tweaking a parameter',
         ),
         _badgeLegendRow(
           theme,
           'MEDIUM FIX',
           theme.effortMedium,
-          'Some refactoring \u2014 restructure widget tree, add caching',
+          'Some refactoring, such as restructuring the widget tree or adding caching',
         ),
         _badgeLegendRow(
           theme,
           'INVOLVED FIX',
           theme.effortInvolved,
-          'Architecture change \u2014 isolate work, redesign data flow',
+          'An architecture change, such as moving work to an isolate or redesigning data flow',
         ),
 
         // ── Special Indicators ────────────────────────────────────────
         _legendDivider(theme),
-        _legendHeading(theme, 'Special Indicators'),
+        _legendHeading(theme, 'Special indicators'),
         _legendSubtext(
           theme,
           'Contextual badges and colors that appear under specific conditions.',
@@ -708,19 +707,19 @@ class _GuidePageState extends State<GuidePage>
           theme,
           theme.cardHighlighted,
           'Highlighted',
-          'Widget highlight checkbox is checked \u2014 affected widget is outlined on screen',
+          'The widget highlight checkbox is checked, so the affected widget is outlined on screen',
         ),
         _cardStateLegendRow(
           theme,
           theme.cardJankFlash,
           'Jank flash',
-          'Momentary amber tint when a new jank correlation is detected',
+          'A brief amber tint when Sleuth detects a new jank correlation',
         ),
         _cardStateLegendRow(
           theme,
           theme.cardDefault,
           'Default',
-          'Normal issue card background',
+          'The normal issue card background',
         ),
       ],
     );
@@ -1000,12 +999,12 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.info_outline,
-          '"About this detection" inside each issue explains how it was found and how to verify.',
+          '"About this detection" inside each issue explains how Sleuth found it and how to verify it.',
         ),
         _tipRow(
           theme,
           Icons.speed,
-          'Always profile (not debug) for accurate frame timings. Debug overhead skews results.',
+          'Use profile mode, not debug, for accurate frame timings. Debug overhead skews the results.',
         ),
       ],
     );
@@ -1019,15 +1018,15 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.record_voice_over_outlined,
-          'Screen readers: drag the card header, resize grip or trigger '
-          'through their actions menu (Move up, Taller, Move to left '
+          'Screen reader users can move the card header, resize grip and '
+          'trigger through their actions menu (Move up, Taller, Move to left '
           'edge and so on).',
         ),
         _tipRow(
           theme,
           Icons.format_size,
-          'Text follows the system size up to 2x; the header, counts and '
-          'badges stop at 1.3x so the issue list keeps its room.',
+          'Text follows the system size up to 2 times. The header, counts '
+          'and badges stop at 1.3 times so the issue list keeps its room.',
         ),
         _tipRow(
           theme,

@@ -715,7 +715,7 @@ void main() {
 
           expect(detector.issues, isNotEmpty);
           expect(detector.issues.first.confidence, IssueConfidence.possible);
-          expect(detector.issues.first.detail, contains('VM unavailable'));
+          expect(detector.issues.first.detail, contains('VM is unavailable'));
         },
       );
 
@@ -1292,7 +1292,7 @@ void main() {
       expect(issues.single.extraTraceArgs?['observedBuildPercent'], '11.0');
       expect(issues.single.title, contains('11.0% of UI time'));
       expect(issues.single.detail, contains('BUILD scopes'));
-      expect(issues.single.detail, contains('~1 s window'));
+      expect(issues.single.detail, contains('window of about 1 s'));
       expect(issues.single.fixHint, contains('11.0% of UI-thread time'));
     });
 

@@ -135,7 +135,7 @@ void main() {
         issue: makeIssue(stableId: 'heap_near_capacity'),
       );
       // Encyclopedia entry exists for heap_near_capacity
-      expect(prompt, contains('Encyclopedia Knowledge'));
+      expect(prompt, contains('Encyclopedia knowledge'));
       expect(prompt, contains('What it is:'));
       expect(prompt, contains('Why it matters:'));
       expect(prompt, contains('How to fix:'));
@@ -145,7 +145,7 @@ void main() {
       final prompt = AiContextBuilder.buildSystemPrompt(
         issue: makeIssue(stableId: 'unknown_xyz'),
       );
-      expect(prompt, isNot(contains('Encyclopedia Knowledge')));
+      expect(prompt, isNot(contains('Encyclopedia knowledge')));
     });
 
     test('includes other active issues', () {
@@ -167,7 +167,7 @@ void main() {
           ),
         ],
       );
-      expect(prompt, contains('Other Active Issues'));
+      expect(prompt, contains('Other active issues'));
       expect(prompt, contains('GC Pressure'));
       expect(prompt, contains('Shader Jank'));
     });
@@ -196,8 +196,8 @@ void main() {
           makeIssue(title: 'Other', stableId: 'other_id'),
         ],
       );
-      // "Other Active Issues" should not contain "Focus"
-      final otherSection = prompt.split('Other Active Issues')[1];
+      // "Other active issues" should not contain "Focus"
+      final otherSection = prompt.split('Other active issues')[1];
       expect(otherSection, isNot(contains('- Focus')));
       expect(otherSection, contains('Other'));
     });
@@ -234,7 +234,7 @@ void main() {
         issue: makeIssue(rootCauseIds: ['a', 'b', 'c', 'd', 'e', 'f', 'g']),
         allIssues: active(['a', 'b', 'c', 'd', 'e', 'f', 'g']),
       );
-      expect(prompt, contains('Root cause issues: a, b, c, d, e (+2 more)'));
+      expect(prompt, contains('Root cause issues: a, b, c, d, e (2 more)'));
       expect(prompt, isNot(contains('f, g')));
     });
 
@@ -295,7 +295,7 @@ void main() {
         ),
       );
       final encyclopedia = prompt.substring(
-        prompt.indexOf('## Encyclopedia Knowledge'),
+        prompt.indexOf('## Encyclopedia knowledge'),
       );
       expect(encyclopedia, contains('/home'));
       expect(prompt, isNot(contains('{routeName}')));
@@ -331,9 +331,9 @@ void main() {
         issue: makeIssue(stableId: 'heap_growing'),
         session: session,
       );
-      final current = prompt.indexOf('## Current Issue');
+      final current = prompt.indexOf('## Current issue');
       final block = prompt.indexOf('## Session');
-      final encyclopedia = prompt.indexOf('## Encyclopedia Knowledge');
+      final encyclopedia = prompt.indexOf('## Encyclopedia knowledge');
       expect(current, lessThan(block));
       expect(block, lessThan(encyclopedia));
     });
@@ -441,7 +441,7 @@ void main() {
       );
       expect(prompt, contains('Route: /reset-password\n'));
       final encyclopedia = prompt.substring(
-        prompt.indexOf('## Encyclopedia Knowledge'),
+        prompt.indexOf('## Encyclopedia knowledge'),
       );
       expect(encyclopedia, contains('/reset-password'));
       expect(prompt, isNot(contains('s3cret')));
@@ -562,7 +562,7 @@ void main() {
         ),
         allIssues: active(['a', 'b', 'c', 'd', 'e', 'f']),
       );
-      expect(prompt, contains('Root cause issues: a, b, c, d, e (+1 more)\n'));
+      expect(prompt, contains('Root cause issues: a, b, c, d, e (1 more)\n'));
       expect(prompt, contains('1 related issue not listed\n'));
       expect(prompt, isNot(contains('hidden_g')));
     });

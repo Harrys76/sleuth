@@ -14,7 +14,7 @@ void main() {
       );
 
       // Color Legend section visible
-      expect(find.text('Color Legend'), findsOneWidget);
+      expect(find.text('Color legend'), findsOneWidget);
 
       // Severity section
       expect(find.textContaining('Critical'), findsOneWidget);

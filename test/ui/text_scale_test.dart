@@ -213,7 +213,7 @@ void main() {
         expect(find.byType(StartupMetricsPage), findsOneWidget);
         // Every section, down to the methodology at the bottom.
         await tester.scrollUntilVisible(
-          find.text('How Sleuth Measures Startup'),
+          find.text('How Sleuth measures startup'),
           100,
           scrollable: find.descendant(
             of: find.byType(StartupMetricsPage),

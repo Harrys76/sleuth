@@ -493,7 +493,7 @@ void main() {
             .where((i) => i.stableId == 'raster_cache_growing')
             .toList();
         expect(growth, hasLength(1));
-        expect(growth.first.detail, contains('Layer cache'));
+        expect(growth.first.detail, contains('the layer cache'));
       });
 
       test('suppresses cache analysis when all metrics zero for 30 frames', () {

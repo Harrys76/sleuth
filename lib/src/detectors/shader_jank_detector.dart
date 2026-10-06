@@ -34,8 +34,9 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Shader Jank',
          description:
-             'Impeller Vulkan pipeline builds and Skia shader compiles '
-             '(≥100ms); silent on Impeller Metal by design',
+             'Detects Impeller Vulkan pipeline builds and Skia shader '
+             'compiles of at least 100ms (silent on Impeller Metal by '
+             'design)',
        );
 
   final int thresholdMs;
@@ -91,7 +92,7 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
             confidence: IssueConfidence.likely,
             title: 'Shader Compilation: ${ms.toStringAsFixed(0)}ms',
             detail:
-                'A pipeline/shader build took ${ms.toStringAsFixed(0)}ms. '
+                'A pipeline or shader build took ${ms.toStringAsFixed(0)}ms. '
                 'Frames that need that pipeline wait for it. Total shader '
                 'events so far: $_totalShaderEvents.',
             fixHint: hint,
@@ -99,8 +100,9 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
             observationSource: ObservationSource.vmTimeline,
             detectedAt: DateTime.now(),
             confidenceReason:
-                'Build duration measured from VM timeline begin/end events; '
-                'frame impact depends on whether a frame waited for it',
+                'Build duration measured from VM timeline begin and end '
+                'events. Frame impact depends on whether a frame waited for '
+                'it',
             extraTraceArgs: {'shaderWarmupContext': context},
           ),
         );
@@ -152,23 +154,22 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'VM-only detector. Build duration threshold (100ms '
-        'inclusive, 2× critical) pinned by hermetic reproducer '
-        'feeding raw `List<TimelineEvent>` through '
-        '`TimelineParser.parse()` into the detector. Fixtures mirror '
-        'the engine shapes: `TRACE_EVENT` begin/end pairs for Impeller '
-        'Vulkan `PipelineVK::Create` / `CreateComputePipeline` and '
-        'Skia events tagged `devtoolsTag: shaders`; `PipelineItem` and '
+        'VM-only detector. A hermetic reproducer pins the build duration '
+        'threshold (100ms inclusive, critical at 2 times) by feeding raw '
+        '`List<TimelineEvent>` through `TimelineParser.parse()` into the '
+        'detector. Fixtures mirror the engine shapes. They use '
+        '`TRACE_EVENT` begin and end pairs for Impeller Vulkan '
+        '`PipelineVK::Create` and `CreateComputePipeline`, and Skia events '
+        'tagged `devtoolsTag: shaders`. `PipelineItem` and '
         '`CreateShaderLibrary` stay silent, as does an empty Impeller '
-        'Metal timeline. '
-        '`extraTraceArgs.shaderWarmupContext` discriminates '
+        'Metal timeline. `extraTraceArgs.shaderWarmupContext` tells apart '
         'cold_start (within `coldStartShaderWindowSeconds` of '
-        '`Sleuth.dartEntryMonotonicUs`), keyframe (build event '
-        'within `shaderKeyframeWindowMs` BEFORE shader compile), '
-        'and hot_path (fallback) — pinned by per-context reproducer '
-        'tests with mocked app-start clock and synthetic '
-        '`PhaseEvent` fixtures. Real-device capture comparison on '
-        'an Impeller Vulkan device is runtime-verified-tier work.',
+        '`Sleuth.dartEntryMonotonicUs`), keyframe (a build event within '
+        '`shaderKeyframeWindowMs` before the shader compile) and hot_path '
+        '(the fallback). Per-context reproducer tests pin these with a '
+        'mocked app-start clock and synthetic `PhaseEvent` fixtures. A '
+        'real-device capture comparison on an Impeller Vulkan device '
+        'belongs to the runtimeVerified tier.',
     reproducerPath: 'test/validation/shader_jank_reproducer_test.dart',
     coveredStableIds: {'shader_compilation'},
   );

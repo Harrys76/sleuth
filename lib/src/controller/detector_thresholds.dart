@@ -44,101 +44,101 @@ class DetectorThresholds {
     this.paintTimePercentThreshold = 10,
   }) : assert(
          buildTimePercentThreshold > 0 && buildTimePercentThreshold <= 100,
-         'buildTimePercentThreshold must be in the range (0, 100].',
+         'buildTimePercentThreshold must be above 0 and at most 100.',
        ),
        assert(
          paintTimePercentThreshold > 0 && paintTimePercentThreshold <= 100,
-         'paintTimePercentThreshold must be in the range (0, 100].',
+         'paintTimePercentThreshold must be above 0 and at most 100.',
        ),
        assert(
          trackedResourceMaxConcurrent >= 1,
-         'trackedResourceMaxConcurrent must be >= 1.',
+         'trackedResourceMaxConcurrent must be at least 1.',
        ),
        assert(
          trackedResourceLongLivedSeconds > 0,
-         'trackedResourceLongLivedSeconds must be > 0.',
+         'trackedResourceLongLivedSeconds must be above 0.',
        ),
        assert(
          trackedResourceMaxDistinctNames >= 1,
-         'trackedResourceMaxDistinctNames must be >= 1.',
+         'trackedResourceMaxDistinctNames must be at least 1.',
        ),
        assert(
          trackedResourceSweepIntervalSeconds > 0,
-         'trackedResourceSweepIntervalSeconds must be > 0.',
+         'trackedResourceSweepIntervalSeconds must be above 0.',
        ),
        assert(
          streamResourceSampleSeconds > 0,
-         'streamResourceSampleSeconds must be > 0.',
+         'streamResourceSampleSeconds must be above 0.',
        ),
        assert(
          streamResourceMinDelta > 0,
-         'streamResourceMinDelta must be > 0.',
+         'streamResourceMinDelta must be above 0.',
        ),
        assert(
          streamResourceWarmupSeconds >= 0,
-         'streamResourceWarmupSeconds must be >= 0.',
+         'streamResourceWarmupSeconds must be at least 0.',
        ),
        assert(
          streamResourceHeapGrowingRecencyMicros > 0,
-         'streamResourceHeapGrowingRecencyMicros must be > 0.',
+         'streamResourceHeapGrowingRecencyMicros must be above 0.',
        ),
        assert(
          streamResourcePollFailureBackoffSeconds > 0,
-         'streamResourcePollFailureBackoffSeconds must be > 0.',
+         'streamResourcePollFailureBackoffSeconds must be above 0.',
        ),
-       assert(
-         shaderJankMs >= 0,
-         'shaderJankMs must be >= 0 (got a negative value).',
-       ),
+       assert(shaderJankMs >= 0, 'shaderJankMs must not be negative.'),
        assert(
          coldStartShaderWindowSeconds >= 1,
-         'coldStartShaderWindowSeconds must be >= 1.',
+         'coldStartShaderWindowSeconds must be at least 1.',
        ),
        assert(
          shaderKeyframeWindowMs >= 1,
-         'shaderKeyframeWindowMs must be >= 1.',
+         'shaderKeyframeWindowMs must be at least 1.',
        ),
        assert(
          startupPhaseWindowSeconds >= 1,
-         'startupPhaseWindowSeconds must be >= 1.',
+         'startupPhaseWindowSeconds must be at least 1.',
        ),
        assert(
          heavyComputeGapMs == null || heavyComputeGapMs >= 0,
-         'heavyComputeGapMs must be >= 0 (got a negative value).',
+         'heavyComputeGapMs must not be negative.',
        ),
        assert(
          gpuPressureRatio > 0,
-         'gpuPressureRatio must be > 0 (ratios must be positive).',
+         'gpuPressureRatio must be above 0, because ratios are positive.',
        ),
        assert(
          memoryGrowthBytesPerSec >= 0,
-         'memoryGrowthBytesPerSec must be >= 0 (got a negative value).',
+         'memoryGrowthBytesPerSec must not be negative.',
        ),
        assert(
          memoryCapacityPercent >= 0.0 && memoryCapacityPercent <= 1.0,
-         'memoryCapacityPercent must be in the range 0.0..1.0.',
+         'memoryCapacityPercent must be between 0.0 and 1.0.',
        ),
        assert(
          memoryBudgetBytes == null || memoryBudgetBytes > 0,
-         'memoryBudgetBytes must be > 0 when set.',
+         'memoryBudgetBytes must be above 0 when set.',
        ),
        assert(
          setStateScopeOwnershipPercent >= 0.0 &&
              setStateScopeOwnershipPercent <= 1.0,
-         'setStateScopeOwnershipPercent must be in the range 0.0..1.0.',
+         'setStateScopeOwnershipPercent must be between 0.0 and 1.0.',
        ),
        assert(
          keepAliveMax >= 1,
-         'keepAliveMax must be >= 1 (zero would flag every keep-alive).',
+         'keepAliveMax must be at least 1. Zero would flag every keep-alive.',
        ),
        assert(
          fontLoadingMaxFamilies >= 1,
-         'fontLoadingMaxFamilies must be >= 1 (zero would flag every screen).',
+         'fontLoadingMaxFamilies must be at least 1. Zero would flag every screen.',
        ),
-       assert(startupTtffWarningMs >= 0, 'startupTtffWarningMs must be >= 0.'),
+       assert(
+         startupTtffWarningMs >= 0,
+         'startupTtffWarningMs must be at least 0.',
+       ),
        assert(
          startupTtffCriticalMs >= startupTtffWarningMs,
-         'startupTtffCriticalMs must be >= startupTtffWarningMs.',
+         'startupTtffCriticalMs must be at least startupTtffWarningMs.',
        );
 
   /// Shader compilation duration in milliseconds above which

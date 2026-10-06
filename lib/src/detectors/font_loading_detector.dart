@@ -152,16 +152,16 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
               'famil${count == 1 ? 'y' : 'ies'}',
           detail:
               '$count font famil${count == 1 ? 'y' : 'ies'} '
-              'appear${count == 1 ? 's' : ''} to be loaded at runtime '
-              '(fontFamilyFallback detected): '
+              'appear${count == 1 ? 's' : ''} to be loaded at runtime, '
+              'because fontFamilyFallback is set: '
               '${families.take(5).join(", ")}.\n'
-              'Runtime-loaded fonts trigger HTTP requests during first render, '
-              'causing visible text flicker (FOUT/FOIT).',
+              'Fonts loaded at runtime send HTTP requests during the first '
+              'render, and the text visibly flickers (FOUT/FOIT).',
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.structural,
           confidenceReason:
-              'Structural scan only — runtime font loading heuristic',
+              'Structural scan only, using a runtime font loading heuristic',
           detectedAt: DateTime.now(),
         ),
       );
@@ -183,14 +183,15 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
           confidence: IssueConfidence.possible,
           title: 'Multiple Custom Fonts: ${_customFonts.length} families',
           detail:
-              'Using ${_customFonts.length} custom font families: '
+              'The app uses ${_customFonts.length} custom font families: '
               '${_customFonts.take(5).join(", ")}.\n'
-              'Each font adds to download/load time.',
+              'Each font adds download and load time.',
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.structural,
           confidenceReason:
-              'Structural scan only — font families detected in widget tree',
+              'Structural scan only. The scan found font families in the '
+              'widget tree',
           detectedAt: DateTime.now(),
         ),
       );
@@ -208,17 +209,16 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'Hermetic reproducer pins `runtime_font_loading` '
-        '(custom `fontFamily` + non-empty `fontFamilyFallback`, '
-        'exercised on both Text and RichText paths) and '
-        '`multiple_custom_fonts` (distinct-family count > '
-        '`maxFamilies`, strict-greater). System-font suppression, '
-        'no-fallback silence, and duplicate-family dedup are '
-        'pinned as negative controls. Families are normalised (package '
-        'prefix stripped, google_fonts `<Family>_<variant>` folded to '
-        '`<Family>`) and platform system families are ignored. '
-        'Runtime loading is always warning. Not yet runtime-verified '
-        'against a device-specific font-load profile.',
+        'Hermetic reproducer pins `runtime_font_loading` (a custom '
+        '`fontFamily` with a non-empty `fontFamilyFallback`, exercised on '
+        'both the Text and RichText paths) and `multiple_custom_fonts` '
+        '(distinct-family count above `maxFamilies`, strict-greater). '
+        'System-font suppression, silence without a fallback and '
+        'duplicate-family dedup are pinned as negative controls. The '
+        'detector normalises families (it strips the package prefix and '
+        'folds google_fonts `<Family>_<variant>` to `<Family>`) and ignores '
+        'platform system families. Runtime loading is always warning. No '
+        'device-specific font-load profile verifies it at runtime yet.',
     reproducerPath: 'test/validation/font_loading_reproducer_test.dart',
     coveredStableIds: {'runtime_font_loading', 'multiple_custom_fonts'},
   );

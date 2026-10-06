@@ -193,11 +193,12 @@ class EscalateGpuCustomPainterRule extends CorrelationRule {
     final escalated = painter.copyWith(
       confidence: IssueConfidence.likely,
       confidenceReason:
-          'Upgraded from possible: GPU raster pressure corroborates structural finding',
+          'Upgraded from possible because GPU raster pressure corroborates '
+          'the structural finding',
       detail:
           '${painter.detail}\n\n'
-          '[Correlated] GPU raster pressure detected — '
-          'this painter is likely contributing to raster overhead.',
+          '[Correlated] Sleuth also detected GPU raster pressure. This '
+          'painter likely adds to the raster overhead.',
     );
 
     return [
@@ -242,12 +243,12 @@ class EscalateMemoryImageRule extends CorrelationRule {
     final escalated = image.copyWith(
       confidence: IssueConfidence.likely,
       confidenceReason:
-          'Upgraded from possible: ${growth.toLowerCase()} corroborates '
-          'structural finding',
+          'Upgraded from possible because ${growth.toLowerCase()} '
+          'corroborates the structural finding',
       detail:
           '${image.detail}\n\n'
-          '[Correlated] $growth detected — '
-          'uncached images are likely contributing to memory pressure.',
+          '[Correlated] Sleuth also detected ${growth.toLowerCase()}. '
+          'Uncached images likely add to the memory pressure.',
     );
 
     return [
@@ -296,11 +297,12 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
           issues[i].copyWith(
             confidence: IssueConfidence.likely,
             confidenceReason:
-                'Upgraded from possible: heap pressure corroborates structural finding',
+                'Upgraded from possible because heap pressure corroborates '
+                'the structural finding',
             detail:
                 '${issues[i].detail}\n\n'
-                '[Correlated] Heap pressure detected — '
-                'kept-alive pages may be contributing to memory growth.',
+                '[Correlated] Sleuth also detected heap pressure. Kept-alive '
+                'pages may add to the memory growth.',
           )
         else
           issues[i],
@@ -363,11 +365,12 @@ class EscalateStructuralWithJankRule extends CorrelationRule {
           issue.copyWith(
             confidence: IssueConfidence.likely,
             confidenceReason:
-                'Upgraded from possible: frame jank corroborates structural finding',
+                'Upgraded from possible because frame jank corroborates the '
+                'structural finding',
             detail:
                 '${issue.detail}\n\n'
-                '[Correlated] Frame jank detected — '
-                'this structural pattern is likely contributing to jank.',
+                '[Correlated] Sleuth also detected frame jank. This '
+                'structural pattern likely adds to the jank.',
           ),
         );
       } else {
@@ -411,11 +414,12 @@ class EscalateStructuralWithRebuildRule extends CorrelationRule {
           issue.copyWith(
             confidence: IssueConfidence.likely,
             confidenceReason:
-                'Upgraded from possible: rebuild evidence corroborates structural finding',
+                'Upgraded from possible because rebuild evidence '
+                'corroborates the structural finding',
             detail:
                 '${issue.detail}\n\n'
-                '[Correlated] Rebuild activity detected — '
-                'this pattern is likely contributing to excessive rebuilds.',
+                '[Correlated] Sleuth also detected rebuild activity. This '
+                'pattern likely adds to the excessive rebuilds.',
           ),
         );
       } else {
@@ -463,8 +467,9 @@ class EnrichRebuildRepaintBoundaryRule extends CorrelationRule {
           issues[i].copyWith(
             detail:
                 '${issues[i].detail}\n\n'
-                '[Correlated] Missing RepaintBoundary detected — '
-                'rebuilds may propagate unnecessary repaints.',
+                '[Correlated] Sleuth also detected a missing '
+                'RepaintBoundary. These rebuilds may spread unnecessary '
+                'repaints.',
           )
         else
           issues[i],

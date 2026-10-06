@@ -581,7 +581,7 @@ class _AiChatPageState extends State<AiChatPage>
               failure: _ReplyFailure(
                 'Reply stalled',
                 'The reply stalled after $length '
-                    '${length == 1 ? 'character' : 'characters'}: no more '
+                    '${length == 1 ? 'character' : 'characters'}. No more '
                     'text arrived within ${_formatTimeout(timeout)}.',
               ),
             );
@@ -955,22 +955,20 @@ class _AiChatPageState extends State<AiChatPage>
     if (_messages.isEmpty) return;
     final issue = widget.issue;
     final buf = StringBuffer()
-      ..writeln('# Sleuth AI Conversation')
+      ..writeln('# Sleuth AI conversation')
       ..writeln();
     buf
       ..writeln('**Issue:** ${_escapeMd(issue.title)}')
       ..writeln('**Stable ID:** `${issue.stableId ?? '-'}`')
       ..writeln(
         '**Confidence:** ${issue.confidence.name.toUpperCase()}'
-        '${issue.confidenceReason != null ? ' — ${_escapeMd(issue.confidenceReason!)}' : ''}',
+        '${issue.confidenceReason != null ? '. ${_escapeMd(issue.confidenceReason!)}' : ''}',
       )
       ..writeln()
       ..writeln('---')
       ..writeln();
     for (final msg in _messages) {
-      final marker = msg.role == AiChatRole.user
-          ? '### \u{1F9D1} User'
-          : '### \u{1F916} Assistant';
+      final marker = msg.role == AiChatRole.user ? '### User' : '### Assistant';
       buf
         ..writeln(marker)
         ..writeln(

@@ -465,9 +465,9 @@ class VmServiceClient {
       // would produce.
       debugPrint(
         'VmServiceClient.setTimelineStreams($streams): RPC failed: $e. '
-        'Capture procedures fall back to existing stream set; ring-'
-        'buffer overflow is likely if scenario duration > ~5 s with '
-        'Embedder/GC streams enabled.',
+        'Capture procedures keep the existing stream set. The ring '
+        'buffer will likely overflow if a scenario runs longer than '
+        'about 5 s with the Embedder or GC streams on.',
       );
     }
   }

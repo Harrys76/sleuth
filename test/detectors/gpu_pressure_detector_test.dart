@@ -302,11 +302,11 @@ void main() {
         expect(rasterIssues, isNotEmpty);
         expect(
           rasterIssues.first.detail,
-          contains('No raster timing observed yet.'),
+          contains('Sleuth has not observed raster timing yet.'),
         );
         expect(
           rasterIssues.first.confidenceReason,
-          'Structural pattern only — no raster-dominant frames observed',
+          'Structural pattern only. Sleuth saw no raster-dominant frames',
         );
       });
 
@@ -326,7 +326,7 @@ void main() {
         final nodes = detector.issues.single;
         expect(nodes.stableId, 'expensive_gpu_nodes');
         expect(nodes.confidence, IssueConfidence.possible);
-        expect(nodes.detail, isNot(contains('No raster timing')));
+        expect(nodes.detail, isNot(contains('has not observed raster timing')));
       });
     });
 
@@ -405,7 +405,7 @@ void main() {
         expect(nodesAfter.first.confidence, IssueConfidence.possible);
         expect(
           nodesAfter.first.confidenceReason,
-          'Structural pattern only — no raster-dominant frames observed',
+          'Structural pattern only. Sleuth saw no raster-dominant frames',
         );
       });
 
@@ -490,7 +490,7 @@ void main() {
         expect(issue.title, 'Raster Dominance: 12.0× UI time');
         expect(
           issue.confidenceReason,
-          'Per-frame FrameTiming raster vs UI durations',
+          'Per-frame FrameTiming raster and UI durations',
         );
         expect(issue.detail, contains('3 of 3 frames since the last scan'));
         expect(issue.detail, contains('worst raster 14.0ms'));
@@ -792,9 +792,9 @@ void main() {
         expect(nodes.confidence, IssueConfidence.likely);
         expect(
           nodes.confidenceReason,
-          'Raster-dominant frames + structural render node scan',
+          'Raster-dominant frames and a structural render node scan',
         );
-        expect(nodes.detail, isNot(contains('No raster timing')));
+        expect(nodes.detail, isNot(contains('has not observed raster timing')));
       });
 
       testWidgets('disabled detector ignores frames', (tester) async {

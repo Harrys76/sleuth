@@ -83,7 +83,7 @@ List<PerformanceIssue> applyFreezeZone({
   assert(
     (orderSnapshot == null) == expandedIndices.isEmpty,
     'orderSnapshot/expandedIndices must be set together or cleared '
-    'together — snapshot=${orderSnapshot?.length}, '
+    'together: snapshot=${orderSnapshot?.length}, '
     'expandedIndices=${expandedIndices.length}, '
     'keys=${expandedIndices.keys.toList()}',
   );
@@ -1535,10 +1535,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// suddenly-live counts.
   void _onRebuildPauseDiscarded() {
     if (!mounted) return;
-    _toast.show(
-      'Pause cleared — route changed',
-      tone: OverlayToastTone.warning,
-    );
+    _toast.show('Route changed, pause cleared', tone: OverlayToastTone.warning);
   }
 
   /// Called when the user taps `See all M →` in the expanded
@@ -2729,8 +2726,8 @@ class _StatusRowState extends State<_StatusRow> {
                 theme.spacingXs,
               ),
               child: Text(
-                'TPUT (primary): latency-derived capacity estimate.\n'
-                'ACTUAL: presented frames/sec (count — low when idle).',
+                'TPUT (primary) estimates capacity from frame latency.\n'
+                'ACTUAL counts presented frames per second, so it is low when idle.',
                 style: TextStyle(
                   color: theme.textTertiary,
                   fontSize: theme.fontXs,
@@ -2988,7 +2985,7 @@ class _DebugModeBanner extends StatelessWidget {
             SizedBox(width: theme.spacingXs),
             Expanded(
               child: Text(
-                'Debug mode \u2014 timings are ~10\u00D7 slower than production. '
+                'Debug mode timings are about 10 times slower than production. '
                 'Run with flutter run --profile for accurate measurements.',
                 style: TextStyle(
                   color: theme.bannerWarningText,
@@ -3056,7 +3053,7 @@ class _WarningBanners extends StatelessWidget {
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
-                    'Debug mode — data inaccurate.\nRun: flutter run --profile',
+                    'Debug mode data is inaccurate.\nRun: flutter run --profile',
                     style: TextStyle(
                       color: theme.bannerDebugText,
                       fontSize: theme.fontSm,
@@ -3087,8 +3084,8 @@ class _WarningBanners extends StatelessWidget {
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
-                    'Instrumentation active — rebuild/paint counts useful for '
-                    'attribution. Timings not representative of real performance.',
+                    'Instrumentation active. Rebuild and paint counts help with '
+                    'attribution, but timings do not reflect real performance.',
                     style: TextStyle(
                       color: theme.bannerInstrumentationText,
                       fontSize: theme.fontSm,
@@ -4245,7 +4242,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
         // widgets are excluded) tap through to the drilldown.
         Flexible(
           child: Text(
-            'incl. inflations',
+            'includes inflations',
             style: TextStyle(
               color: theme.textTertiary,
               fontSize: theme.fontXxs,
@@ -4277,7 +4274,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
                   child: Center(
                     widthFactor: 1,
                     child: Text(
-                      'See all $widgetCount \u2192',
+                      'See all $widgetCount',
                       style: TextStyle(
                         color: theme.textPrimary,
                         fontSize: theme.fontXs,

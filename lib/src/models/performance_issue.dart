@@ -347,10 +347,11 @@ class PerformanceIssue {
         json.containsKey('rootCauseId') &&
         !json.containsKey('rootCauseIds')) {
       debugPrint(
-        'sleuth: legacy snapshot detected — JSON contains "rootCauseId" '
-        '(singular) but no "rootCauseIds" (plural). Causal annotation '
-        'will be dropped. Re-export through v0.24.2 to upgrade '
-        'singular → plural before importing on v0.25.0+.',
+        'sleuth: legacy snapshot detected. The JSON contains "rootCauseId" '
+        '(singular) but no "rootCauseIds" (plural), so the import drops the '
+        'causal annotation. Re-export it through v0.24.2 to convert the '
+        'singular key to the plural one before importing on v0.25.0 or '
+        'later.',
       );
     }
     return PerformanceIssue(
@@ -520,7 +521,7 @@ class PerformanceIssue {
       title,
       'Severity: ${severity.name}',
       'Confidence: ${confidence.name}'
-          '${confidenceReason != null ? ' — $confidenceReason' : ''}',
+          '${confidenceReason != null ? '. $confidenceReason' : ''}',
       if (routeDisplayName != null) 'Route: $routeDisplayName',
       if (widgetName != null) 'Widget: $widgetName',
       '',
@@ -616,7 +617,7 @@ extension ObservationSourceDisplay on ObservationSource {
     ObservationSource.vmTimeline => 'VM timeline',
     ObservationSource.debugCallback => 'debug callback',
     ObservationSource.debugCallbackAndStructural =>
-      'debug callback + structural',
+      'debug callback and structural scan',
     ObservationSource.frameTiming => 'frame timing',
   };
 }

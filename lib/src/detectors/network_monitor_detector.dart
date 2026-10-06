@@ -29,7 +29,7 @@ class NetworkMonitorDetector extends BaseDetector
     this.frequencyLimit = 30,
     this.largeResponseBytes = 1048576,
     DateTime Function()? clock,
-  }) : assert(slowThresholdMs >= 0, 'slowThresholdMs must be >= 0.'),
+  }) : assert(slowThresholdMs >= 0, 'slowThresholdMs must not be negative.'),
        assert(
          criticalSlowThresholdMs > slowThresholdMs,
          'criticalSlowThresholdMs must be strictly greater than '
@@ -245,8 +245,8 @@ class NetworkMonitorDetector extends BaseDetector
     final urlDetails = slowRecords
         .map(
           (r) =>
-              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} — '
-              '${(r.durationMs / 1000).toStringAsFixed(1)}s',
+              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} '
+              '(${(r.durationMs / 1000).toStringAsFixed(1)}s)',
         )
         .join('\n');
 
@@ -267,8 +267,8 @@ class NetworkMonitorDetector extends BaseDetector
         detail:
             '$urlDetails\n\n'
             'Threshold: ${(slowThresholdMs / 1000).toStringAsFixed(0)}s. '
-            '${slowRecords.length} slow request${slowRecords.length > 1 ? 's' : ''} '
-            'in buffer.',
+            'The buffer holds ${slowRecords.length} slow '
+            'request${slowRecords.length > 1 ? 's' : ''}.',
         fixHint: hint,
         fixEffort: effort,
         detectedAt: detectedAt,
@@ -309,8 +309,8 @@ class NetworkMonitorDetector extends BaseDetector
     final urlDetails = largeRecords
         .map(
           (r) =>
-              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} — '
-              '${_formatBytes(r.responseBytes)}',
+              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} '
+              '(${_formatBytes(r.responseBytes)})',
         )
         .join('\n');
 
@@ -331,8 +331,8 @@ class NetworkMonitorDetector extends BaseDetector
         detail:
             '$urlDetails\n\n'
             'Threshold: ${_formatBytes(largeResponseBytes)}. '
-            '${largeRecords.length} large response${largeRecords.length > 1 ? 's' : ''} '
-            'in buffer.',
+            'The buffer holds ${largeRecords.length} large '
+            'response${largeRecords.length > 1 ? 's' : ''}.',
         fixHint: hint,
         fixEffort: effort,
         detectedAt: detectedAt,
@@ -391,7 +391,7 @@ class NetworkMonitorDetector extends BaseDetector
             'Request Frequency Spike: $peakCount requests in 5s '
             '(limit: $frequencyLimit)',
         detail:
-            '$peakCount HTTP requests within a 5-second window. '
+            'The app sent $peakCount HTTP requests within a 5-second window. '
             'Threshold: $frequencyLimit/5s.',
         fixHint: hint,
         fixEffort: effort,
@@ -451,8 +451,8 @@ class NetworkMonitorDetector extends BaseDetector
         .take(5)
         .map(
           (r) =>
-              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} — '
-              '${r.statusCode == -1 ? 'FAILED' : r.statusCode}',
+              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} '
+              '(${r.statusCode == -1 ? 'FAILED' : r.statusCode})',
         )
         .join('\n');
 
@@ -469,7 +469,7 @@ class NetworkMonitorDetector extends BaseDetector
         confidence: IssueConfidence.confirmed,
         title: 'HTTP Error Spike: $peakCount errors in 5s',
         detail:
-            '$peakCount HTTP errors within a 5-second window'
+            '$peakCount HTTP errors occurred within a 5-second window'
             '${transportFailures > 0 ? ' ($transportFailures transport failures)' : ''}'
             '${serverErrors > 0 ? ' ($serverErrors server errors)' : ''}.\n\n'
             '$urlDetails',
@@ -554,16 +554,17 @@ class NetworkMonitorDetector extends BaseDetector
               '${_shortenUrl(records.first.url)} ×$maxCluster in '
               '${_duplicateWindowMs}ms',
           detail:
-              '$maxCluster requests to '
+              '$maxCluster requests went to '
               '${_shortenUrl(records.first.url)} within ${_duplicateWindowMs}ms '
-              '(query strings ignored). This often indicates missing caching, '
-              'un-debounced input, redundant fetches from multiple widgets, or '
-              'a rebuild triggering repeated API calls.',
+              '(query strings ignored). Common causes are missing caching, '
+              'input without a debounce, redundant fetches from several '
+              'widgets, or a rebuild that repeats API calls.',
           fixHint: hint,
           fixEffort: effort,
           detectedAt: _clock(),
           confidenceReason:
-              'Request timing correlation + same-path clustering (query stripped)',
+              'Request timing correlation and same-path clustering (query '
+              'stripped)',
         ),
       );
     }
@@ -615,34 +616,32 @@ class NetworkMonitorDetector extends BaseDetector
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'Hermetic reproducer: direct `processRecord` boundary '
-        'tests at 999/1000/2999/3000/3001 ms plus a loopback '
-        '`HttpServer` exercising the full `SleuthHttpOverrides` → '
-        '`_MonitoringHttpClient` → `RequestRecord` → `processRecord` '
-        'pipeline. Three families ship at runtimeVerified backed by '
-        'on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x): '
-        'slow_request (1000 ms warning), large_response (1 MB warning), '
-        'and request_frequency (>30 req per 5 s sliding window '
-        'warning). Captures driven by the in-app capture helper '
-        'screen via a loopback HTTP server; mode toggle selects '
-        'family. slow_request scenarios delay the response to '
-        '800/1020/1500 ms; large_response returns sized payloads '
-        '(800 KB / 1.05 MB / 1.5 MB); request_frequency spreads N '
-        'parallel requests across a 5.5 s scenario span with '
-        '`Sleuth.suspendNonEssentialTimelineStreams` to prevent '
-        'ring-buffer overflow on the longer span. Each leg brackets '
-        'the workload in `Sleuth.markScenarioBegin/End` markers with '
-        'a 200 ms post-completion dwell so detector trace events '
-        'land inside the scenario span, then exports the wrapped '
-        'JSON via the iOS clipboard. request_frequency uses '
-        '`atTolerance: 0.50` (at-band [30, 45]) to absorb iOS '
-        'scheduling jitter on Dart `HttpClient` request dispatch; '
-        'multiple in-span emissions per scenario carry distinct '
-        '`detectedAtMicros` and a monotone-growing `peakCount` that '
-        'the audit-gate MAX reduction picks. Critical tier '
+        'The hermetic reproducer has direct `processRecord` boundary tests '
+        'at 999, 1000, 2999, 3000 and 3001 ms. It also runs a loopback '
+        '`HttpServer` through the full pipeline, from `SleuthHttpOverrides` '
+        'through `_MonitoringHttpClient` and `RequestRecord` to '
+        '`processRecord`. Three families ship at runtimeVerified, backed by '
+        'on-device captures (iPhone 12, iOS 17.5, Flutter 3.41.x): '
+        'slow_request (1000 ms warning), large_response (1 MB warning) and '
+        'request_frequency (warning above 30 requests per 5 s sliding '
+        'window). The in-app capture helper screen drives the captures '
+        'through a loopback HTTP server, and a mode toggle selects the '
+        'family. slow_request scenarios delay the response to 800, 1020 and '
+        '1500 ms. large_response returns sized payloads (800 KB, 1.05 MB, '
+        '1.5 MB). request_frequency spreads N parallel requests across a '
+        '5.5 s scenario span and calls '
+        '`Sleuth.suspendNonEssentialTimelineStreams` to prevent ring-buffer '
+        'overflow on the longer span. Each leg wraps the workload in '
+        '`Sleuth.markScenarioBegin/End` markers with a 200 ms dwell after '
+        'completion, so detector trace events land inside the scenario '
+        'span. The leg then exports the wrapped JSON through the iOS '
+        'clipboard. request_frequency uses `atTolerance: 0.50` (at-band '
+        '[30, 45]) to absorb iOS scheduling jitter on Dart `HttpClient` '
+        'request dispatch. Multiple in-span emissions per scenario carry '
+        'distinct `detectedAtMicros` and a `peakCount` that only grows, '
+        'which the audit-gate MAX reduction picks. The critical tier '
         '(slow_request 3000 ms) and the two unraised families '
-        '(http_error_spike, high_frequency_same_path) stay '
-        'reproducerOnly.',
+        '(http_error_spike, high_frequency_same_path) stay reproducerOnly.',
     reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
     profileCapturePaths: [
       'test/validation/captures/network_monitor/slow_request_below.json',

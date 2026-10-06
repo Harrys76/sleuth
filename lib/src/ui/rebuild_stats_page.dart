@@ -128,10 +128,10 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
               Expanded(
                 child: Text(
                   'Profile-mode counts include initial widget '
-                  'inflations as well as rebuilds — route entry '
-                  'shows transient elevated counts that decay as '
-                  'the tree stabilises. Sleuth\u2019s own overlay '
-                  'widgets are excluded from the drain.',
+                  'inflations as well as rebuilds. Counts rise for a '
+                  'short time after a route change and fall as the tree '
+                  'settles. The drain excludes Sleuth\'s own overlay '
+                  'widgets.',
                   style: TextStyle(
                     color: theme.textSecondary,
                     fontSize: theme.fontSm,
@@ -203,7 +203,7 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
                           children: [
                             // Title and route wrap at large text.
                             Text(
-                              'Rebuild Stats',
+                              'Rebuild stats',
                               softWrap: true,
                               style: TextStyle(
                                 color: theme.textPrimary,

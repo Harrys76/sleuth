@@ -315,7 +315,7 @@ void main() {
       final images = result.firstWhere((i) => i.stableId == 'uncached_images');
       expect(images.confidence, IssueConfidence.likely);
       expect(images.detail, contains('[Correlated]'));
-      expect(images.detail, contains('Heap growth'));
+      expect(images.detail, contains('detected heap growth'));
     });
 
     test('escalates images from possible to likely with only '
@@ -338,7 +338,7 @@ void main() {
       final images = result.firstWhere((i) => i.stableId == 'uncached_images');
       expect(images.confidence, IssueConfidence.likely);
       expect(images.detail, contains('[Correlated]'));
-      expect(images.detail, contains('Native memory growth'));
+      expect(images.detail, contains('detected native memory growth'));
 
       // The upgraded image issue now claims the native growth effect.
       final native = result.firstWhere(
@@ -741,7 +741,7 @@ void main() {
       );
       expect(keepAlive.confidence, IssueConfidence.likely);
       expect(keepAlive.detail, contains('[Correlated]'));
-      expect(keepAlive.detail, contains('Heap pressure'));
+      expect(keepAlive.detail, contains('detected heap pressure'));
     });
 
     test('escalates keep-alive with heap_near_capacity', () {
@@ -842,7 +842,7 @@ void main() {
         );
         expect(
           rebuild.detail,
-          contains('[Correlated] Missing RepaintBoundary'),
+          contains('[Correlated] Sleuth also detected a missing'),
         );
         expect(rebuild.detail, contains('unnecessary repaints'));
         // Confidence should NOT change (informational only).
@@ -873,7 +873,7 @@ void main() {
         );
         expect(
           rebuild.detail,
-          contains('[Correlated] Missing RepaintBoundary'),
+          contains('[Correlated] Sleuth also detected a missing'),
         );
         // Confidence unchanged.
         expect(rebuild.confidence, IssueConfidence.likely);
@@ -923,7 +923,10 @@ void main() {
         (i) => i.stableId == 'rebuild_activity',
       );
       expect(rebuild.confidence, IssueConfidence.possible);
-      expect(rebuild.detail, contains('[Correlated] Missing RepaintBoundary'));
+      expect(
+        rebuild.detail,
+        contains('[Correlated] Sleuth also detected a missing'),
+      );
     });
   });
 

@@ -32,14 +32,14 @@ class SessionMarkdownExporter {
   static String render(SessionSnapshot snapshot, {required int topN}) {
     final buf = StringBuffer();
     // Header
-    buf.writeln('# Sleuth Session Summary');
+    buf.writeln('# Sleuth session summary');
     buf.writeln();
     buf.writeln('**Captured:** ${_formatTs(snapshot.exportedAt)}');
     buf.writeln();
 
     // Frame stats
     final stats = snapshot.frameStatsSummary;
-    buf.writeln('## Frame Stats');
+    buf.writeln('## Frame stats');
     buf.writeln('- Actual FPS: **${stats.actualFps.round()}**');
     buf.writeln('- Throughput FPS: **${stats.throughputFps.round()}**');
     buf.writeln(
@@ -90,7 +90,7 @@ class SessionMarkdownExporter {
     // Route health
     final routes = snapshot.routeSessions;
     if (routes != null && routes.isNotEmpty) {
-      buf.writeln('## Route Health');
+      buf.writeln('## Route health');
       buf.writeln('| Route | Score | FPS | Issues | Time |');
       buf.writeln('|-------|-------|-----|--------|------|');
       for (final r in routes) {
@@ -126,10 +126,10 @@ class SessionMarkdownExporter {
     // Top issues
     final top = snapshot.currentIssues.take(topN).toList();
     if (top.isNotEmpty) {
-      buf.writeln('## Top Issues (${top.length})');
+      buf.writeln('## Top issues (${top.length})');
       for (final (i, issue) in top.indexed) {
         buf.writeln(
-          '${i + 1}. **${_escape(issue.title)}** — '
+          '${i + 1}. **${_escape(issue.title)}**, '
           '`${issue.stableId ?? issue.category.name}`',
         );
         if (issue.confidenceReason != null) {
@@ -142,10 +142,10 @@ class SessionMarkdownExporter {
     // Causal chains from sessionSummary
     final causalEdges = snapshot.sessionSummary?['causalEdges'];
     if (causalEdges is List && causalEdges.isNotEmpty) {
-      buf.writeln('## Causal Chains');
+      buf.writeln('## Causal chains');
       for (final edge in causalEdges.take(5)) {
         if (edge is Map) {
-          buf.writeln('- `${edge['cause']}` → `${edge['effect']}`');
+          buf.writeln('- `${edge['cause']}` causes `${edge['effect']}`');
         }
       }
       buf.writeln();

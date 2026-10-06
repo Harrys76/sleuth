@@ -589,7 +589,7 @@ void main() {
       detector.processTimelineData(emptyTimelineData());
 
       expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.detail, contains('getLocation: 25×'));
+      expect(detector.issues.first.detail, contains('getLocation: 25 calls'));
     });
 
     test(

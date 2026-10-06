@@ -30,10 +30,13 @@ class TrackedResourceDetector extends BaseDetector
     int maxDistinctNames = 1000,
     int sweepIntervalSeconds = 10,
     DateTime Function()? clock,
-  }) : assert(maxConcurrent >= 1, 'maxConcurrent must be >= 1.'),
-       assert(longLivedSeconds > 0, 'longLivedSeconds must be > 0.'),
-       assert(maxDistinctNames >= 1, 'maxDistinctNames must be >= 1.'),
-       assert(sweepIntervalSeconds > 0, 'sweepIntervalSeconds must be > 0.'),
+  }) : assert(maxConcurrent >= 1, 'maxConcurrent must be at least 1.'),
+       assert(longLivedSeconds > 0, 'longLivedSeconds must be positive.'),
+       assert(maxDistinctNames >= 1, 'maxDistinctNames must be at least 1.'),
+       assert(
+         sweepIntervalSeconds > 0,
+         'sweepIntervalSeconds must be positive.',
+       ),
        _maxConcurrent = maxConcurrent,
        _longLivedSeconds = longLivedSeconds,
        _maxDistinctNames = maxDistinctNames,
@@ -44,8 +47,8 @@ class TrackedResourceDetector extends BaseDetector
          lifecycle: DetectorLifecycle.runtime,
          name: 'Tracked Resource',
          description:
-             'Detects retained resources via explicit '
-             'Sleuth.track registration.',
+             'Detects retained resources that the app registers with '
+             'Sleuth.track.',
        );
 
   /// StableId for "more than maxConcurrent live instances of the same name".
@@ -516,12 +519,12 @@ class TrackedResourceDetector extends BaseDetector
             'Tracked Resource Concurrent: $name '
             '($liveCount live instances)',
         detail:
-            'Sleuth.track has $liveCount live instances of "$name" '
-            '— the bucket is above the configured threshold of '
-            '$effectiveMax concurrent. The tracker holds only '
-            'WeakReferences, so this is a confirmed retention by user '
-            'code: each instance is reachable from somewhere outside '
-            'the tracker. Audit the dispose / cancel paths for "$name".',
+            'Sleuth.track has $liveCount live instances of "$name", above '
+            'the configured threshold of $effectiveMax concurrent. The '
+            'tracker holds only WeakReferences, so user code is confirmed '
+            'to retain them. Each instance is reachable from somewhere '
+            'outside the tracker. Audit the dispose and cancel paths for '
+            '"$name".',
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
@@ -535,7 +538,8 @@ class TrackedResourceDetector extends BaseDetector
           'thresholdSource': overrideMax != null ? 'override' : 'global',
         },
         confidenceReason:
-            'User-registered Sleuth.track instances exceed concurrent threshold.',
+            'User-registered Sleuth.track instances exceed the concurrent '
+            'threshold.',
       );
     } else {
       bucket.concurrentFirstCrossMicros = null;
@@ -582,13 +586,12 @@ class TrackedResourceDetector extends BaseDetector
       confidence: IssueConfidence.confirmed,
       title: 'Tracked Resource Long-Lived: $name alive ${ageSeconds}s',
       detail:
-          'Sleuth.track instance of "$name" has been alive for '
-          '$ageSeconds seconds — past the configured long-lived '
-          'threshold of $effectiveLongLived seconds. Confirmed retention '
-          'via WeakReference + Finalizer: the GC has not reclaimed it, '
-          'so something outside the tracker is holding it. If this is '
-          'intentional (DI singleton, app-scope service), exclude '
-          '"$name" from tracking.',
+          'A Sleuth.track instance of "$name" has been alive for '
+          '$ageSeconds seconds, past the configured long-lived threshold '
+          'of $effectiveLongLived seconds. Its WeakReference and Finalizer '
+          'confirm that the GC has not reclaimed it, so something outside '
+          'the tracker still holds it. If that is intentional (a DI '
+          'singleton or an app-scope service), stop tracking "$name".',
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.structural,
@@ -602,7 +605,8 @@ class TrackedResourceDetector extends BaseDetector
         'thresholdSource': overrideLongLived != null ? 'override' : 'global',
       },
       confidenceReason:
-          'User-registered Sleuth.track instance has not been finalised within long-lived threshold.',
+          'User-registered Sleuth.track instance has not been finalised '
+          'within the long-lived threshold.',
     );
   }
 
@@ -623,41 +627,40 @@ class TrackedResourceDetector extends BaseDetector
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'Pure-Dart, opt-in. `Sleuth.trackResource(name, resource)` '
-        'registers a `WeakReference` + Finalizer token + first-seen '
-        'timestamp. Token is the registration identity '
-        '(allocation-unique); shared `Finalizer` dispatches '
-        '`_recordRelease(token)` on GC reclaim so bucket count matches '
-        'reality without retaining targets. Periodic sweep '
-        '(default 10 s) evaluates two thresholds: '
-        '`tracked_resource_concurrent.warning` when live count > '
-        '`maxConcurrent` (default 5); '
-        '`tracked_resource_long_lived.warning` when the oldest instance '
-        'is alive past `longLivedSeconds` (default 300). Both '
-        '`confirmed` confidence. LRU cap (default 1000) bounds the '
-        'bucket map; eviction detaches per-ref Finalizer entries. '
-        'Cross-isolate registration is a no-op.\n'
-        '\n'
+        'Pure Dart and opt-in. `Sleuth.trackResource(name, resource)` '
+        'registers a `WeakReference`, a Finalizer token and a first-seen '
+        'timestamp. The token is the registration identity '
+        '(allocation-unique). A shared `Finalizer` dispatches '
+        '`_recordRelease(token)` when the GC reclaims a target, so the '
+        'bucket count matches reality without retaining targets. A periodic '
+        'sweep (default 10 s) evaluates two thresholds. '
+        '`tracked_resource_concurrent.warning` fires when the live count is '
+        'above `maxConcurrent` (default 5). '
+        '`tracked_resource_long_lived.warning` fires when the oldest '
+        'instance is alive past `longLivedSeconds` (default 300). Both have '
+        '`confirmed` confidence. An LRU cap (default 1000) bounds the '
+        'bucket map, and eviction detaches per-ref Finalizer entries. '
+        'Cross-isolate registration is a no-op.\n\n'
         '`tracked_resource_concurrent.warning` is runtimeVerified via '
-        '`perStableIdTier` (three iPhone 12 / iOS 17.5 / Flutter 3.41.4 '
-        'captures). Threshold 6 (smallest count > default 5 that '
-        'triggers emission); atTolerance 0.5 (at-band [6, 9] absorbs '
-        'discrete-count quantisation); aboveCeilingMultiplier 3.0 '
-        '(ceiling 18). `PerformanceIssue.captureTraceStableId` routes '
-        'parametric `tracked_resource_concurrent:<name>` emissions to '
-        'the bare family so the bracket validator matches every '
-        'member. `requireUniqueDetectedAtMicros: true`.\n'
-        '\n'
+        '`perStableIdTier` (three iPhone 12, iOS 17.5, Flutter 3.41.4 '
+        'captures). The threshold is 6, the smallest count above the '
+        'default 5 that triggers emission. atTolerance is 0.5 (the at-band '
+        '[6, 9] absorbs discrete-count quantisation), and '
+        'aboveCeilingMultiplier is 3.0 (ceiling 18). '
+        '`PerformanceIssue.captureTraceStableId` routes parametric '
+        '`tracked_resource_concurrent:<name>` emissions to the bare family '
+        'so the bracket validator matches every member. The metadata sets '
+        '`requireUniqueDetectedAtMicros: true`.\n\n'
         '`tracked_resource_long_lived.warning` is runtimeVerified via '
-        '`additionalBrackets[0]` (separate axis: '
-        '`oldestInstanceAgeSeconds`, unit `seconds`). Three iPhone 12 / '
-        'iOS 17.5 / Flutter 3.41.4 captures recorded with real waits '
-        'past the default 300 s threshold. atTolerance 0.5 '
-        '(at-band [300, 450]); aboveCeilingMultiplier 3.0 (ceiling '
-        '900). Detector re-emits each sweep while age > threshold so '
-        'the trace contains an ascending-age series ending at the '
-        'leg-end value; observedAxisReduction `max` picks the leg-end '
-        'value naturally. `requireUniqueDetectedAtMicros: true`.',
+        '`additionalBrackets[0]` on a separate axis '
+        '(`oldestInstanceAgeSeconds`, unit `seconds`). Three iPhone 12, iOS '
+        '17.5, Flutter 3.41.4 captures use real waits past the default 300 '
+        's threshold. atTolerance is 0.5 (at-band [300, 450]) and '
+        'aboveCeilingMultiplier is 3.0 (ceiling 900). The detector re-emits '
+        'on each sweep while the age is above the threshold, so the trace '
+        'holds an ascending-age series that ends at the leg-end value. '
+        'observedAxisReduction `max` therefore picks the leg-end value. The '
+        'metadata sets `requireUniqueDetectedAtMicros: true`.',
     reproducerPath: 'test/validation/tracked_resource_reproducer_test.dart',
     coveredStableIds: {concurrentStableId, longLivedStableId},
     coveredThresholds: {'tracked_resource_concurrent.warning'},

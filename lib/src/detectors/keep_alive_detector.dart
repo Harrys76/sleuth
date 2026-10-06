@@ -70,7 +70,7 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
         type: DetectorType.keepAlive,
         lifecycle: DetectorLifecycle.structural,
         name: 'Keep Alive',
-        description: 'Detects excessive keep-alive pages (>5)',
+        description: 'Detects excessive keep-alive pages (more than 5)',
       );
 
   final int threshold;
@@ -285,7 +285,7 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
         );
 
         final subtreeCostLine = avgSubtreeSize > 0
-            ? '\n~$avgSubtreeSize elements per page '
+            ? '\nAbout $avgSubtreeSize elements per page '
                   '(${data.totalElements} total in scrollable).'
             : '';
 
@@ -299,15 +299,16 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
             confidence: IssueConfidence.possible,
             title: 'Excessive Keep-Alive: ${data.count} in ${data.typeName}',
             detail:
-                '${data.count} widgets are using '
-                'AutomaticKeepAliveClientMixin, keeping them all in '
-                'memory.$subtreeCostLine\n\n  • ${data.chain}',
+                '${data.count} widgets use AutomaticKeepAliveClientMixin, '
+                'so all of them stay in memory.$subtreeCostLine'
+                '\n\n  • ${data.chain}',
             fixHint: hint,
             fixEffort: effort,
             widgetName: data.typeName,
             observationSource: ObservationSource.structural,
             confidenceReason:
-                'Structural scan only — AutomaticKeepAliveClientMixin count',
+                'Structural scan only, based on the '
+                'AutomaticKeepAliveClientMixin count',
             detectedAt: DateTime.now(),
           ),
         );
@@ -331,24 +332,24 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
         'Hermetic reproducer pins the parameterised '
         '`excessive_keep_alive:<TypeName>~<part>` family on a PageView '
         'with AutomaticKeepAliveClientMixin pages, above '
-        '`threshold` (strict-greater). Pages are visited via '
+        '`threshold` (strict-greater). The reproducer visits pages with '
         'PageController.jumpToPage so `_isActiveKeepAlive` reads '
-        'parent-data `true` — the stale '
-        '`element.widget.keepAlive` path stays false otherwise. '
-        'ListView-suppression, wantKeepAlive=false silence, and '
-        'at-threshold silence are pinned as negative controls. '
-        'Family prefix convention pinned at the `:` separator. '
-        'Keep-alives count toward the innermost page scrollable only; '
-        'ListView/GridView/CustomScrollView/NestedScrollView/'
-        'SingleChildScrollView are barriers, so a TabBarView emits once '
-        'and list items inside a page are not counted. The id names the '
-        'reported scrollable: `k-` and its string or number `ValueKey` '
-        'value (sanitised to `[A-Za-z0-9_-]`, 24 chars), else its '
-        'ordinal among unkeyed page scrollables of the same type, taken '
-        'in tree order before its children, so it holds when another '
-        'scrollable starts keeping pages alive or a nested one changes; '
-        'a suffix repeated within a scan gets `-2`, `-3`. '
-        'Not yet runtime-verified on a profile-mode capture.',
+        'parent-data `true`. Otherwise the stale '
+        '`element.widget.keepAlive` path stays false. ListView '
+        'suppression, silence with wantKeepAlive=false and silence at the '
+        'threshold are pinned as negative controls. The family prefix '
+        'convention is pinned at the `:` separator. Keep-alives count '
+        'toward the innermost page scrollable only. ListView, GridView, '
+        'CustomScrollView, NestedScrollView and SingleChildScrollView are '
+        'barriers, so a TabBarView emits once and list items inside a page '
+        'are not counted. The id names the reported scrollable. It is `k-` '
+        'followed by the string or number `ValueKey` value of the '
+        'scrollable (sanitised to `[A-Za-z0-9_-]`, 24 chars), or else its '
+        'ordinal among unkeyed page scrollables of the same type, taken in '
+        'tree order before its children. So the id holds when another '
+        'scrollable starts keeping pages alive or a nested one changes. A '
+        'suffix repeated within a scan gets `-2`, `-3`. No profile-mode '
+        'capture verifies it at runtime yet.',
     reproducerPath: 'test/validation/keep_alive_reproducer_test.dart',
     coveredStableIds: {'excessive_keep_alive'},
   );

@@ -34,14 +34,15 @@ class MemoryPressureDetector extends BaseDetector
     this.gcRateThresholdPerMin = _defaultGcRateThresholdPerMin,
   }) : assert(
          memoryBudgetBytes == null || memoryBudgetBytes > 0,
-         'memoryBudgetBytes must be > 0 when set.',
+         'memoryBudgetBytes must be positive when set.',
        ),
        _clock = clock ?? DateTime.now,
        super(
          type: DetectorType.memoryPressure,
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Memory Pressure',
-         description: 'Detects memory pressure via GC frequency + heap trends',
+         description:
+             'Detects memory pressure from GC frequency and heap trends',
        );
 
   /// Duration in milliseconds to suppress heap trend alerts after first sample.
@@ -332,11 +333,11 @@ class MemoryPressureDetector extends BaseDetector
           confidence: IssueConfidence.likely,
           title: 'High GC Pressure: ${gcPerMinute.toStringAsFixed(0)} GC/min',
           detail:
-              'Garbage collection is running frequently '
-              '(${gcPerMinute.toStringAsFixed(0)}/min: $scavengeCount '
+              'Garbage collection runs '
+              '${gcPerMinute.toStringAsFixed(0)}/min ($scavengeCount '
               'scavenges, $oldGenCount old-generation collections in the '
-              'last ${_gcWindowDuration.inSeconds} s), indicating a high '
-              'object creation/disposal rate.',
+              'last ${_gcWindowDuration.inSeconds} s). This points to a high '
+              'rate of object creation and disposal.',
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
@@ -347,7 +348,7 @@ class MemoryPressureDetector extends BaseDetector
             'scavengeCount': scavengeCount.toString(),
             'oldGenCount': oldGenCount.toString(),
           },
-          confidenceReason: 'VM GC frequency elevated + object churn rate',
+          confidenceReason: 'Elevated VM GC frequency and object churn rate',
         ),
       );
     } else {
@@ -390,10 +391,10 @@ class MemoryPressureDetector extends BaseDetector
                 'Heap Growing: +${slopeKbSec.toStringAsFixed(0)} KB/s '
                 'for ${sustained.inSeconds}s',
             detail:
-                'Heap has been growing at ${slopeKbSec.toStringAsFixed(1)} KB/sec '
-                'for ${sustained.inSeconds} seconds. '
-                'Current: ${_formatBytes(_heapSamples.last.heapUsage)}, '
-                'Window: ${_heapSamples.length} samples over '
+                'The heap has grown at ${slopeKbSec.toStringAsFixed(1)} KB/sec '
+                'for ${sustained.inSeconds} seconds. It now holds '
+                '${_formatBytes(_heapSamples.last.heapUsage)}. The window has '
+                '${_heapSamples.length} samples over '
                 '${_heapSamples.last.timestamp.difference(_heapSamples.first.timestamp).inSeconds}s.',
             fixHint: hint,
             fixEffort: effort,
@@ -418,7 +419,7 @@ class MemoryPressureDetector extends BaseDetector
             },
             topAllocators: _lastTopAllocators,
             confidenceReason:
-                'Heap trend analysis + sustained growth regression',
+                'Heap trend analysis and a sustained growth regression',
           ),
         );
         _lastHeapGrowingEmittedAtMicros = _clock().microsecondsSinceEpoch;
@@ -510,8 +511,8 @@ class MemoryPressureDetector extends BaseDetector
           'memoryBudgetBytes': budget.toString(),
         },
         confidenceReason:
-            'Measured process RSS over the configured budget + sustained '
-            'heap growth (budget supplied by the app)',
+            'Measured process RSS above the budget the app configured, '
+            'with sustained heap growth',
       ),
     );
   }
@@ -549,19 +550,20 @@ class MemoryPressureDetector extends BaseDetector
                 '+${slopeMbSec.toStringAsFixed(1)} MB/s '
                 'for ${sustained.inSeconds}s',
             detail:
-                'Process memory outside the Dart heap is growing at '
+                'Process memory outside the Dart heap has grown at '
                 '${slopeMbSec.toStringAsFixed(2)} MB/sec for '
-                '${sustained.inSeconds} seconds. This may indicate undisposed '
-                'GPU textures, decoded images at full resolution, or platform '
-                'channel buffer accumulation. '
-                'Current native estimate: '
+                '${sustained.inSeconds} seconds. Possible causes are '
+                'undisposed GPU textures, images decoded at full resolution, '
+                'or platform channel buffers that keep growing. The current '
+                'native estimate is '
                 '${_formatBytes(nativeSamples.last.nativeBytes!)}.',
             fixHint: hint,
             fixEffort: effort,
             observationSource: ObservationSource.vmTimeline,
             detectedAt: _clock(),
             confidenceReason:
-                'Native memory trend analysis + sustained growth regression',
+                'Native memory trend analysis and a sustained growth '
+                'regression',
           ),
         );
       }
@@ -630,67 +632,64 @@ class MemoryPressureDetector extends BaseDetector
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'VM-only detector. 4 families pinned by hermetic '
-        'reproducer at detector entrypoints (`processHeapSample` + '
-        '`recordGcCycle`): `gc_pressure` (>30 cycles / 10s sliding '
-        'window = >180/min rate, default; configurable; scavenge / '
-        'old-gen split stamped), '
-        '`heap_growing` (slope > 512KB/s '
-        'sustained ≥10s), `heap_near_capacity` (opt-in '
-        '`memoryBudgetBytes`; RSS ≥ 80% of the budget in 4 of the last '
-        '5 samples AND `heap_growing` emitted in the same evaluation; '
-        'silent when the budget is unset; RSS-null samples never count), '
-        '`native_memory_growing` (RSS-heap gap slope > 1MB/s '
-        'sustained ≥10s). Null-rssBytes (web) and zero-heap / '
-        'zero-capacity null-coalesce edges asserted non-emitting.\n'
-        '\n'
-        'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s '
-        'sustained ≥10 s) to runtimeVerified via `perStableIdTier`, '
-        'backed by three on-device captures (iPhone 12 / iOS 17.5 / '
-        'Flutter 3.41.x) recorded via the in-app capture procedure: '
-        '`MemoryPressureCaptureScreen` calibrates an allocation-loop '
-        'rate, narrows VM timeline streams to `Dart` only (so 30 s '
-        'of heavy allocation does not overflow the ring buffer), '
-        'drives a 30 s sustained-allocation phase inside '
-        '`Sleuth.markScenarioBegin/End` with a 600 ms pre-end dwell '
-        '(detector emission landing) and 800 ms post-end dwell '
-        '(VM-service buffer flush), then exports the wrapped JSON '
-        'via the iOS clipboard. `markScenarioBegin` resets the '
-        'detector window so the regression slope is computed on '
-        'scenario allocation only — pre-scenario flat samples '
-        'would otherwise dilute slope below threshold. Producer-'
-        'side dedup keys on `_sustainedGrowthStart.microsecondsSinceEpoch` '
-        'for stable per-trigger identity → '
-        '`requireUniqueDetectedAtMicros: true` locks single-issue '
-        'replay protection. Other 3 families (`gc_pressure`, '
-        '`heap_near_capacity`, `native_memory_growing`) stay '
-        'reproducerOnly — each requires a separate capture campaign '
-        'with multi-axis brackets the current single-bracket schema '
-        'cannot express. v0.19.18 backfills the '
-        '`observedSlopeBytesPerSec` extraTraceArgs stamp + '
-        '`observedAxisArgKey` declaration on the canonical bracket; '
-        'cross-check is plumbing-only until on-device captures are '
-        'refreshed (schema skips per-record when the arg is absent).\n'
-        '\n'
-        'Three upstream hops disclosed as skipped: (1) '
-        '`VmServiceClient.getMemoryUsage` repacks '
-        '`vm_service.MemoryUsage` into `HeapSample` with `null → 0` '
-        'fallback on heap/capacity/external fields — the '
-        'zero-coalesce edge is exercised but the repack is not; '
-        '(2) `EventStreams.kGC → _onGcEvent → recordGcCycle` is '
-        'the authoritative per-cycle GC signal and is called '
-        'directly, bypassing the VM-service stream plumbing; '
-        '(3) `VmServiceClient._readRssBytes() → '
-        '`ProcessInfo.currentRss` is the OS-level RSS collection '
-        'boundary that sources `HeapSample.rssBytes` and therefore '
-        'gates `native_memory_growing` (which derives `nativeBytes '
-        '= rssBytes - heapUsage`) and `heap_near_capacity` — the '
-        'null-rssBytes edge (web / unusual embeddings) is exercised '
-        'but the `ProcessInfo` call and its try/catch are not. '
-        'TimelineParser\'s `gcEvents` list is NOT used by this '
-        'detector (it over-counts GC sub-phase events 5–15× per '
-        'cycle); that design choice is verified at the controller '
-        'boundary, not here.',
+        'VM-only detector. A hermetic reproducer pins 4 families at the '
+        'detector entry points (`processHeapSample` and `recordGcCycle`). '
+        '`gc_pressure` fires above 30 cycles in a 10s sliding window, a '
+        'rate above 180/min, by default. The threshold is configurable, and '
+        'the issue stamps the scavenge and old-gen split. `heap_growing` '
+        'fires on a slope above 512KB/s sustained for at least 10s. '
+        '`heap_near_capacity` needs the opt-in `memoryBudgetBytes`. It '
+        'fires when RSS is at least 80% of the budget in 4 of the last 5 '
+        'samples and `heap_growing` emitted in the same evaluation. It '
+        'stays silent when the budget is unset, and RSS-null samples never '
+        'count. `native_memory_growing` fires when the slope of the '
+        'RSS-heap gap is above 1MB/s sustained for at least 10s. The '
+        'reproducer asserts that null rssBytes (web) and the zero-heap and '
+        'zero-capacity null-coalesce edges emit nothing.\n\n'
+        'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s sustained '
+        'for at least 10 s) to runtimeVerified via `perStableIdTier`. Three '
+        'on-device captures (iPhone 12, iOS 17.5, Flutter 3.41.x) back the '
+        'raise, recorded with the in-app capture procedure. '
+        '`MemoryPressureCaptureScreen` calibrates an allocation-loop rate '
+        'and narrows VM timeline streams to `Dart` only, so 30 s of heavy '
+        'allocation does not overflow the ring buffer. It then drives a 30 '
+        's sustained-allocation phase inside '
+        '`Sleuth.markScenarioBegin/End`, with a 600 ms dwell before the end '
+        'for the detector emission and an 800 ms dwell after it for the '
+        'VM-service buffer flush. Last, it exports the wrapped JSON through '
+        'the iOS clipboard. `markScenarioBegin` resets the detector window '
+        'so the regression slope covers scenario allocation only. Flat '
+        'samples from before the scenario would otherwise dilute the slope '
+        'below the threshold. Producer-side dedup keys on '
+        '`_sustainedGrowthStart.microsecondsSinceEpoch` for a stable '
+        'per-trigger identity, so `requireUniqueDetectedAtMicros: true` '
+        'locks single-issue replay protection. The other 3 families '
+        '(`gc_pressure`, `heap_near_capacity`, `native_memory_growing`) '
+        'stay reproducerOnly. Each needs a separate capture campaign with '
+        'multi-axis brackets that the current single-bracket schema cannot '
+        'express. v0.19.18 backfills the `observedSlopeBytesPerSec` '
+        'extraTraceArgs stamp and the `observedAxisArgKey` declaration on '
+        'the canonical bracket. The cross-check is plumbing only until the '
+        'on-device captures are refreshed, and the schema skips a record '
+        'when the arg is absent.\n\n'
+        'The reproducer skips three upstream hops. (1) '
+        '`VmServiceClient.getMemoryUsage` repacks `vm_service.MemoryUsage` '
+        'into `HeapSample` and falls back from null to 0 on the heap, '
+        'capacity and external fields. The reproducer exercises the '
+        'zero-coalesce edge but not the repack. (2) `EventStreams.kGC`, '
+        'then `_onGcEvent`, then `recordGcCycle` is the authoritative '
+        'per-cycle GC signal. The reproducer calls `recordGcCycle` directly '
+        'and skips the VM-service stream plumbing. (3) '
+        '`VmServiceClient._readRssBytes()` calls `ProcessInfo.currentRss`, '
+        'the OS-level RSS collection boundary. It sources '
+        '`HeapSample.rssBytes`, so it gates `native_memory_growing` (which '
+        'derives `nativeBytes = rssBytes - heapUsage`) and '
+        '`heap_near_capacity`. The reproducer exercises the null-rssBytes '
+        'edge (web, unusual embeddings) but not the `ProcessInfo` call and '
+        'its try/catch. This detector does not use the `gcEvents` list from '
+        'TimelineParser, because that list over-counts GC sub-phase events '
+        '5 to 15 times per cycle. The controller boundary verifies that '
+        'design choice, not this reproducer.',
     reproducerPath: 'test/validation/memory_pressure_reproducer_test.dart',
     profileCapturePaths: [
       'test/validation/captures/memory_pressure/heap_growing_below.json',

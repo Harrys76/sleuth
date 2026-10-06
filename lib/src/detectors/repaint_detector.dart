@@ -34,7 +34,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     DateTime Function()? clock,
   }) : assert(
          paintTimePercentThreshold > 0 && paintTimePercentThreshold <= 100,
-         'paintTimePercentThreshold must be in the range (0, 100].',
+         'paintTimePercentThreshold must be above 0 and at most 100.',
        ),
        _captureMode = captureMode,
        _clock = clock ?? monotonicClock(),
@@ -44,7 +44,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
          name: 'Repaint',
          description:
              'Detects paint work above 10% of UI-thread time (VM) or '
-             'widgets that start repaints over 30 times/sec (debug)',
+             'widgets that start more than 30 repaints per second (debug)',
        ) {
     _windowStart = _clock();
   }
@@ -538,7 +538,8 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       title: 'Excessive Repainting: paint phase $formatted% of UI time',
       detail:
           'Painting (PAINT scopes on the UI thread) took $formatted% of '
-          'wall time in the last ~1 s window (threshold $threshold%).'
+          'wall time in the last window of about 1 s (threshold '
+          '$threshold%).'
           '$detailSuffix',
       fixHint: hint,
       fixEffort: effort,
@@ -614,9 +615,9 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       detail:
           '$typeName$instanceNote was the likely origin of '
           '${held.count} repaints in ${held.seconds.toStringAsFixed(1)}s '
-          '(${rate.round()}/sec): the deepest widget marked as needing '
-          'paint in its layer. Widgets that only repainted because they '
-          'share that layer are not counted.$ownedSuffix',
+          '(${rate.round()}/sec). It was the deepest widget marked as '
+          'needing paint in its layer. The count leaves out widgets that '
+          'only repainted because they share that layer.$ownedSuffix',
       fixHint: hint,
       fixEffort: effort,
       widgetName: typeName,
@@ -624,11 +625,12 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
       confidenceReason: ownedCount > 0
-          ? 'Debug paint callbacks: deepest widget marked as needing paint '
-                'in its layer, a likely origin rather than a measured cause '
-                '(animation-owned repaints excluded)'
-          : 'Debug paint callbacks: deepest widget marked as needing paint '
-                'in its layer, a likely origin rather than a measured cause',
+          ? 'Debug paint callbacks name the deepest widget marked as '
+                'needing paint in its layer, a likely origin rather than a '
+                'measured cause (animation-owned repaints excluded)'
+          : 'Debug paint callbacks name the deepest widget marked as '
+                'needing paint in its layer, a likely origin rather than a '
+                'measured cause',
     );
   }
 
@@ -674,14 +676,15 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       detail:
           '$residualCount paint calls in '
           '${elapsedSec.toStringAsFixed(1)}s '
-          '(~${residualRate.round()}/sec, aggregate debug callback count).'
+          '(about ${residualRate.round()}/sec, from the aggregate debug '
+          'callback count).'
           '$ownedSuffix',
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
       confidenceReason:
-          'Aggregate debug callback count + structural scan '
+          'Aggregate debug callback count and a structural scan '
           '(animation-owned paints excluded)',
     );
   }
@@ -700,41 +703,42 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'Hybrid detector. All three families pinned: '
-        '`excessive_repaint` (share of UI-thread wall time spent inside '
-        'VM-timeline PAINT scopes over each ~1 s window, normalised by '
-        'the measured window length — warning at '
-        '`> paintTimePercentThreshold` default 10 %, critical at `> 3×` '
-        '= 30 %), `excessive_repaint_debug` (debug-callback aggregate '
-        'paint rate, animation-owned paints excluded), and parametric '
-        '`repaint_debug_<typeName>` (per-instance likely-origin '
-        'repaints/sec against `paintFrequencyThreshold`: the deepest node '
-        'marked as needing paint in each layer, credited to the nearest '
-        'app-created widget; declared via `parametricFamilies`, so a '
-        'concrete `repaint_debug_CustomPaint` credits the family via the '
-        '`_` separator matcher). VM → TimelineParser → detector boundary '
-        'exercised via cross-harness reproducer (raw '
-        '`List<TimelineEvent>` through `parseAndAssertShape` + real '
-        '`pumpWidget` for the debug + structural legs). Animation-owner '
-        'Gate B suppression pinned with broad `expect(issues, isEmpty)` '
+        'Hybrid detector. The reproducer pins all three families. '
+        '`excessive_repaint` measures the share of UI-thread wall time '
+        'spent inside VM-timeline PAINT scopes over each window of about 1 '
+        's, normalised by the measured window length. It warns above '
+        '`paintTimePercentThreshold` (default 10 %) and is critical above 3 '
+        'times that (30 %). `excessive_repaint_debug` is the debug-callback '
+        'aggregate paint rate, with animation-owned paints excluded. The '
+        'parametric `repaint_debug_<typeName>` family compares per-instance '
+        'likely-origin repaints/sec against `paintFrequencyThreshold`. The '
+        'likely origin is the deepest node marked as needing paint in each '
+        'layer, credited to the nearest app-created widget. The family is '
+        'declared via `parametricFamilies`, so a concrete '
+        '`repaint_debug_CustomPaint` credits the family through the `_` '
+        'separator matcher. A cross-harness reproducer exercises the '
+        'boundary from the VM through TimelineParser to the detector (raw '
+        '`List<TimelineEvent>` through `parseAndAssertShape`, and a real '
+        '`pumpWidget` for the debug and structural legs). A broad '
+        '`expect(issues, isEmpty)` pins animation-owner Gate B suppression, '
         'so a regression cannot leak through any of the three emission '
         'paths. `excessive_repaint.warning` is runtimeVerified via three '
-        'iPhone 12 / iOS 17.5 / Flutter 3.47.x captures whose workload '
-        'varies paint cost per frame (32 distinct CustomPainter types '
-        'repainting through a shared per-frame notifier, so BUILD stays '
-        'flat and the per-widget debug gate stays sub-threshold) with a '
-        'calibration pre-pass that scales the paint operations to the leg '
-        'target. `peakObservedPaintPercent` moves only on natural window '
-        'closes and populates `expectedMagnitude.observed`, so the '
+        'iPhone 12, iOS 17.5, Flutter 3.47.x captures. Their workload '
+        'varies paint cost per frame with 32 distinct CustomPainter types '
+        'that repaint through a shared per-frame notifier, so BUILD stays '
+        'flat and the per-widget debug gate stays below its threshold. A '
+        'calibration pre-pass scales the paint operations to the leg '
+        'target. `peakObservedPaintPercent` moves only when a window closes '
+        'on its own and populates `expectedMagnitude.observed`, so the '
         'audit-gate `\'max\'` axis reduction matches the emitted '
         '`observedPaintPercent`. atTolerance 0.5 and observedAxisTolerance '
         '0.25 absorb thermal drift in paint duration across a leg. '
         '`excessive_repaint_debug` and `repaint_debug_<typeName>` remain '
-        'reproducerOnly — no per-widget debug-path captures. While a '
-        'screen reader is on, the debug paint counts leave out the '
-        "framework's semantics-only widgets (`Semantics`, "
+        'reproducerOnly, because there are no per-widget debug-path '
+        'captures. While a screen reader is on, the debug paint counts '
+        'leave out the framework\'s semantics-only widgets (`Semantics`, '
         '`MergeSemantics`, `_GestureSemantics`, ...), which repaint as '
-        'pass-throughs; the VM PAINT axis is unchanged.',
+        'pass-throughs. The VM PAINT axis is unchanged.',
     reproducerPath: 'test/validation/repaint_reproducer_test.dart',
     coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
     parametricFamilies: {'repaint_debug'},

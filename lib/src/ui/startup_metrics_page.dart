@@ -106,7 +106,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                       // Wraps at large text on a narrow screen.
                       Expanded(
                         child: Text(
-                          'Startup Metrics',
+                          'Startup metrics',
                           softWrap: true,
                           style: TextStyle(
                             color: theme.textPrimary,
@@ -177,7 +177,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           _section(
             index: 2,
             icon: Icons.view_timeline_outlined,
-            title: 'First Frame Breakdown',
+            title: 'First frame breakdown',
             accent: accent,
             theme: theme,
             child: _firstFrameSection(m, theme),
@@ -190,7 +190,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           _section(
             index: 3,
             icon: Icons.memory_outlined,
-            title: 'Engine Phases',
+            title: 'Engine phases',
             accent: accent,
             theme: theme,
             child: _engineSection(m, theme),
@@ -203,7 +203,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           _section(
             index: 4,
             icon: Icons.analytics_outlined,
-            title: 'VM Sub-Phases',
+            title: 'VM sub-phases',
             accent: accent,
             theme: theme,
             child: _vmSection(m, theme),
@@ -215,7 +215,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         _section(
           index: 5,
           icon: Icons.science_outlined,
-          title: 'How Sleuth Measures Startup',
+          title: 'How Sleuth measures startup',
           accent: theme.textTertiary,
           theme: theme,
           child: _methodologySection(m, theme),
@@ -304,13 +304,13 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         if (m.ttffMs != null)
           _metricRow(
             theme,
-            'Time to First Frame (TTFF)',
+            'Time to first frame (TTFF)',
             '${m.ttffMs!.toStringAsFixed(1)} ms',
           ),
         if (m.ttiMs != null)
           _metricRow(
             theme,
-            'Time to Interactive (TTI)',
+            'Time to interactive (TTI)',
             '${m.ttiMs!.toStringAsFixed(1)} ms',
           ),
         if (m.engineTtffMs != null)
@@ -318,7 +318,8 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
             theme,
             'Engine TTFF',
             '${m.engineTtffMs!.toStringAsFixed(1)} ms',
-            subtitle: 'FlutterEngineMainEnter \u2192 first frame rasterized',
+            subtitle:
+                'From FlutterEngineMainEnter to the first rasterized frame',
           ),
       ],
     );
@@ -334,7 +335,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         if (m.firstFrameVsyncOverheadMs != null)
           _metricBarRow(
             theme,
-            'Vsync Overhead',
+            'Vsync overhead',
             m.firstFrameVsyncOverheadMs!,
             total,
             theme.textTertiary,
@@ -360,7 +361,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           _infoChip(
             theme,
             m.dominantPhase == 'balanced'
-                ? 'Balanced \u2014 no phase exceeds 50%'
+                ? 'Balanced, no phase exceeds 50%'
                 : 'Dominant: ${m.dominantPhase} '
                       '(${m.dominantPhasePercent.round()}% of first frame)',
           ),
@@ -381,21 +382,21 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         if (m.preDartOverheadMs != null)
           _metricRow(
             theme,
-            'Pre-Dart Overhead',
+            'Pre-Dart overhead',
             '${m.preDartOverheadMs!.toStringAsFixed(1)} ms',
             subtitle: 'C++ engine init before Dart entry',
           ),
         if (m.frameworkInitMs != null)
           _metricRow(
             theme,
-            'Framework Init',
+            'Framework init',
             '${m.frameworkInitMs!.toStringAsFixed(1)} ms',
             subtitle: 'WidgetsFlutterBinding.ensureInitialized()',
           ),
         if (m.preDartOverheadMs == null && m.engineEnterUs == null)
           _infoChip(
             theme,
-            'Engine timestamps not available \u2014 VM connected too late',
+            'No engine timestamps, because the VM connected too late',
           ),
       ],
     );
@@ -439,8 +440,8 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         SizedBox(height: theme.spacingXs),
         _infoChip(
           theme,
-          'From VM timeline \u2014 first poll after startup. '
-          '~95% reliable (ring buffer may evict early events).',
+          'From the VM timeline at the first poll after startup. About 95% '
+          'reliable, because the ring buffer may evict early events.',
         ),
       ],
     );
@@ -468,12 +469,12 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Sleuth does NOT use flutter run --trace-startup.',
+          'Sleuth does not use flutter run --trace-startup.',
           style: labelStyle,
         ),
         SizedBox(height: theme.spacingXs),
         Text(
-          'Instead, it captures startup data using two independent layers:',
+          'It captures startup data with two independent layers:',
           style: bodyStyle,
         ),
         SizedBox(height: theme.spacingMd),
@@ -481,7 +482,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         // Layer 1
         _methodBlock(
           theme,
-          label: 'Layer 1: Direct Capture (100% reliable)',
+          label: 'Layer 1: direct capture (100% reliable)',
           items: [
             'TTFF: wall-clock DateTime from Sleuth.init() to first '
                 'FrameTiming raster-end callback',
@@ -498,24 +499,24 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         // Layer 2
         _methodBlock(
           theme,
-          label: 'Layer 2: VM Timeline Extraction (~95% reliable)',
+          label: 'Layer 2: VM timeline extraction (about 95% reliable)',
           items: [
-            'FlutterEngineMainEnter \u2014 C++ instant event '
+            'FlutterEngineMainEnter: C++ instant event '
                 '(engine start timestamp)',
-            'Rasterized first useful frame \u2014 instant event '
+            'Rasterized first useful frame: instant event '
                 '(engine TTFF end)',
-            'buildScope / flushLayout / flushPaint / raster \u2014 '
-                'duration events from first timeline poll',
-            'Pre-Dart overhead = Dart entry \u2212 engine enter '
+            'buildScope, flushLayout, flushPaint and raster: duration '
+                'events from the first timeline poll',
+            'Pre-Dart overhead: Dart entry minus engine enter '
                 '(same monotonic clock)',
           ],
         ),
         SizedBox(height: theme.spacingMd),
 
         Text(
-          'Layer 2 depends on the VM timeline ring buffer. Events may be '
-          'evicted if the buffer fills before Sleuth polls. This is why '
-          'engine-level fields are nullable.',
+          'Layer 2 depends on the VM timeline ring buffer. The buffer can '
+          'evict events if it fills before Sleuth polls, so engine-level '
+          'fields are nullable.',
           style: dimStyle,
         ),
         SizedBox(height: theme.spacingXs),

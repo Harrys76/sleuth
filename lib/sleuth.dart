@@ -690,8 +690,9 @@ class Sleuth {
         _preInitWarned = true;
         // ignore: avoid_print
         print(
-          '[Sleuth] setResourceThreshold called before Sleuth.init(); '
-          'override(s) dropped. (This warning prints once per session.)',
+          '[Sleuth] setResourceThreshold was called before Sleuth.init(), '
+          'so the override was dropped. This warning prints once per '
+          'session.',
         );
       }
       return;

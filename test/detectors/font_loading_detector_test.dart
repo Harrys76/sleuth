@@ -418,7 +418,7 @@ void main() {
 
         expect(
           detector.issues.first.detail,
-          contains('fontFamilyFallback detected'),
+          contains('fontFamilyFallback is set'),
         );
       });
 

@@ -163,13 +163,13 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
           title: 'Always-Repaint CustomPainter: ${_found.length} found',
           detail:
               '${_found.length} CustomPainter(s) return true from '
-              'shouldRepaint(). This causes unnecessary repaint on every '
-              'frame.\n\n$locations',
+              'shouldRepaint(). This forces a repaint on every frame, '
+              'needed or not.\n\n$locations',
           fixHint: hint1,
           fixEffort: effort1,
           observationSource: source,
           confidenceReason:
-              'Structural scan only — connect VM for higher confidence',
+              'Structural scan only. Connect the VM for higher confidence',
           detectedAt: DateTime.now(),
         ),
       );
@@ -192,13 +192,13 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
             title: 'Frequent CustomPainter Repaints: ${cpRate.round()}/sec',
             detail:
                 'A CustomPaint was the likely origin of '
-                '${cpRate.round()} repaints/sec. Verify shouldRepaint() '
-                "returns false when visual state hasn't changed.",
+                '${cpRate.round()} repaints/sec. Check that shouldRepaint() '
+                'returns false when the visual state has not changed.',
             fixHint: hint2,
             fixEffort: effort2,
             observationSource: ObservationSource.debugCallbackAndStructural,
             confidenceReason:
-                'Debug callback likely-origin rate + structural scan',
+                'Debug callback likely-origin rate and a structural scan',
             detectedAt: DateTime.now(),
           ),
         );
@@ -220,29 +220,29 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'Hermetic reproducer pins both emission branches: '
-        '`always_repaint_painter` (shouldRepaint self-comparison returns '
-        'true, exercised on both `painter` and `foregroundPainter` '
-        'slots) and `frequent_repaint_painter` (CustomPaint '
-        'likely-origin repaints/sec > 30 for the busiest instance, '
-        'excluding animation-owned repaints and repaints it only shared '
-        'with its layer, via injected `DebugSnapshot`, silent at the '
-        'threshold, strict-greater). The "always-repaint suppresses frequent" '
-        'ordering contract is pinned as a negative control so both '
-        'branches cannot fire simultaneously. Framework toggle and '
-        'scrollbar painters (ToggleablePainter, ScrollbarPainter) are '
-        'skipped, as are private framework painters matched by class '
-        'name plus an owner widget within a measured hop budget (Material '
-        'shape borders, input borders, TabBar indicator and divider, '
-        'progress and activity indicators, overscroll glow and stretch, '
-        'AnimatedIcon, dropdown menu, Placeholder, GridPaper; hop counts '
-        'recorded on RepaintBoundaryDetector). A TabBar image indicator '
-        'whose image just arrived (shouldRepaint(self) true until the '
-        'next paint) is pinned silent on a real decode, and a user '
-        'always-repaint painter carrying a framework painter name outside '
-        'its owner still fires. The paint-rate branch needs at least one '
-        'user CustomPaint in the scan. Not yet runtime-verified '
-        'against a real paint-counter stream.',
+        'Hermetic reproducer pins both emission branches. '
+        '`always_repaint_painter` fires when the shouldRepaint '
+        'self-comparison returns true, exercised on both the `painter` and '
+        '`foregroundPainter` slots. `frequent_repaint_painter` fires when '
+        'CustomPaint likely-origin repaints/sec are above 30 for the '
+        'busiest instance (strict-greater, silent at the threshold), driven '
+        'by an injected `DebugSnapshot`. That rate excludes animation-owned '
+        'repaints and repaints the instance only shared with its layer. The '
+        '"always-repaint suppresses frequent" ordering contract is pinned '
+        'as a negative control, so both branches cannot fire at once. The '
+        'detector skips framework toggle and scrollbar painters '
+        '(ToggleablePainter, ScrollbarPainter). It also skips private '
+        'framework painters that it matches by class name plus an owner '
+        'widget within a measured hop budget: Material shape borders, input '
+        'borders, the TabBar indicator and divider, progress and activity '
+        'indicators, overscroll glow and stretch, AnimatedIcon, the '
+        'dropdown menu, Placeholder and GridPaper. RepaintBoundaryDetector '
+        'records the hop counts. A TabBar image indicator whose image just '
+        'arrived (shouldRepaint(self) is true until the next paint) is '
+        'pinned silent on a real decode. A user always-repaint painter with '
+        'a framework painter name outside its owner still fires. The '
+        'paint-rate branch needs at least one user CustomPaint in the scan. '
+        'No real paint-counter stream verifies it at runtime yet.',
     reproducerPath: 'test/validation/custom_painter_reproducer_test.dart',
     coveredStableIds: {'always_repaint_painter', 'frequent_repaint_painter'},
   );

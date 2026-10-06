@@ -676,9 +676,9 @@ void main() {
       // …but the 4th widget is NOT inlined.
       expect(find.text('BadgeChip'), findsNothing);
       // Inflation footnote is rendered…
-      expect(find.text('incl. inflations'), findsOneWidget);
+      expect(find.text('includes inflations'), findsOneWidget);
       // …and the drilldown link uses the full hotspot count (4).
-      expect(find.text('See all 4 \u2192'), findsOneWidget);
+      expect(find.text('See all 4'), findsOneWidget);
       // Chevron flipped.
       expect(find.byIcon(Icons.expand_less), findsOneWidget);
       expect(find.byIcon(Icons.expand_more), findsNothing);
@@ -728,9 +728,9 @@ void main() {
 
         // Now tap the "See all 4 →" link.
         // The banners scroll when the card is short.
-        await tester.ensureVisible(find.text('See all 4 \u2192'));
+        await tester.ensureVisible(find.text('See all 4'));
         await tester.pump();
-        await tester.tap(find.text('See all 4 \u2192'));
+        await tester.tap(find.text('See all 4'));
         await tester.pump();
 
         // Drilldown is now mounted.
@@ -817,9 +817,9 @@ void main() {
       // the fix end-to-end through the full
       // banner.onTap → _onSeeAllRebuildsTap(overrideCounts) → push
       // path.
-      await tester.ensureVisible(find.text('See all 4 \u2192'));
+      await tester.ensureVisible(find.text('See all 4'));
       await tester.pump();
-      await tester.tap(find.text('See all 4 \u2192'));
+      await tester.tap(find.text('See all 4'));
       await tester.pumpAndSettle();
       expect(find.byType(RebuildStatsPage), findsOneWidget);
 

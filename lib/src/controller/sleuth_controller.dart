@@ -99,7 +99,8 @@ class SleuthController {
       final interval = (config ?? const SleuthConfig()).treeScanInterval;
       if (interval <= Duration.zero) {
         throw ArgumentError(
-          'SleuthConfig.treeScanInterval must be > Duration.zero, got $interval. '
+          'SleuthConfig.treeScanInterval must be greater than Duration.zero, '
+          'got $interval. '
           'Use Duration(seconds: 1) or longer for normal operation.',
         );
       }
@@ -2104,17 +2105,16 @@ class SleuthController {
           '`flutter run --profile --no-dds`, or start the installed app '
           'from the home screen, so DDS does not take the VM service.';
       _lastCaptureExportFailure = reason;
-      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
+      debugPrint('Sleuth.exportCaptureJson($scenario) returned null. $reason');
       return null;
     }
     final events = await client.fetchRawTimelineEventsJson();
     if (events.isEmpty) {
       const reason =
-          'VM service returned 0 timeline events. Either the '
-          'buffer was just cleared or the VM service handshake is '
-          'incomplete.';
+          'The VM service returned 0 timeline events. The buffer was '
+          'just cleared, or the VM service handshake is not complete.';
       _lastCaptureExportFailure = reason;
-      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
+      debugPrint('Sleuth.exportCaptureJson($scenario) returned null. $reason');
       return null;
     }
     // Locate scenario.begin / scenario.end pair MATCHING the requested
@@ -2177,15 +2177,15 @@ class SleuthController {
           .length;
       final reason =
           'Scenario markers not found (begin=$beginTs, end=$endTs). '
-          '$scenarioMarkersInBuffer scenario markers exist in buffer but '
-          'none match scenario name "$scenario". Causes: (1) captureMode '
-          'is OFF — verify SleuthConfig(captureMode: true) AND '
-          '`--dart-define=SLEUTH_CAPTURE_MODE=true` was passed at launch. '
-          '(2) Scenario name mismatch between markScenarioBegin/End and '
-          'exportCaptureJson arguments. (3) VM trace ring buffer '
-          'overflowed and rolled the markers off.';
+          '$scenarioMarkersInBuffer scenario markers exist in the buffer, '
+          'but none match scenario name "$scenario". Causes: (1) '
+          'captureMode is off. Check that SleuthConfig(captureMode: true) '
+          'is set and that `--dart-define=SLEUTH_CAPTURE_MODE=true` was '
+          'passed at launch. (2) The scenario name differs between the '
+          'markScenarioBegin/End and exportCaptureJson arguments. (3) The '
+          'VM trace ring buffer overflowed and rolled the markers off.';
       _lastCaptureExportFailure = reason;
-      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
+      debugPrint('Sleuth.exportCaptureJson($scenario) returned null. $reason');
       return null;
     }
     final spanLo = beginTs;
@@ -2223,14 +2223,14 @@ class SleuthController {
       if (role == 'below') {
         if (inSpanIssueCount > 0) {
           final reason =
-              'role="below" must contain ZERO "$expectedName" events '
-              'in scenario span [$spanLo, $spanHi]; found '
-              '$inSpanIssueCount. Re-record below the threshold or '
-              'pick a smaller magnitude. The detector should not '
-              'fire at sub-threshold input.';
+              'role="below" must contain no "$expectedName" events in '
+              'scenario span [$spanLo, $spanHi], but it has '
+              '$inSpanIssueCount. Re-record below the threshold or pick a '
+              'smaller magnitude. The detector should not fire at '
+              'sub-threshold input.';
           _lastCaptureExportFailure = reason;
           debugPrint(
-            'Sleuth.exportCaptureJson($scenario): null return — $reason',
+            'Sleuth.exportCaptureJson($scenario) returned null. $reason',
           );
           return null;
         }
@@ -2238,16 +2238,17 @@ class SleuthController {
         if (inSpanIssueCount == 0) {
           final reason =
               'role="$role" must contain at least one "$expectedName" '
-              'event in scenario span [$spanLo, $spanHi]; found 0. '
-              'Causes: (1) detector did not fire (workload below '
-              'threshold despite operator intent); (2) emission fell '
-              'outside the scenario span (timer phase issue — extend '
-              'span or call detector\'s flushXxx hook before '
-              'markScenarioEnd); (3) capture-mode dedup recorded the '
-              'event but timeline buffer rolled it off (overflow).';
+              'event in scenario span [$spanLo, $spanHi], but it has 0. '
+              'Causes: (1) The detector did not fire because the workload '
+              'stayed below the threshold, despite the operator\'s intent. '
+              '(2) The emission fell outside the scenario span because of '
+              'timer phase. Extend the span, or call the detector\'s '
+              'flushXxx hook before markScenarioEnd. (3) Capture-mode dedup '
+              'recorded the event, but the timeline buffer overflowed and '
+              'rolled it off.';
           _lastCaptureExportFailure = reason;
           debugPrint(
-            'Sleuth.exportCaptureJson($scenario): null return — $reason',
+            'Sleuth.exportCaptureJson($scenario) returned null. $reason',
           );
           return null;
         }
@@ -5241,9 +5242,9 @@ class SleuthConfig {
        ),
        assert(
          rebuildThreshold >= 1,
-         'rebuildThreshold must be at least 1. To disable rebuild '
-         'detection entirely, exclude DetectorType.rebuild from '
-         'enabledDetectors instead.',
+         'rebuildThreshold must be at least 1. To turn off rebuild '
+         'detection, remove DetectorType.rebuild from enabledDetectors '
+         'instead.',
        ),
        assert(maxListChildren >= 1, 'maxListChildren must be at least 1.'),
        assert(
@@ -5256,12 +5257,13 @@ class SleuthConfig {
        // body and fires with the same intent.
        assert(
          captureBufferCapacity >= 0,
-         'captureBufferCapacity must be >= 0. Use 0 to disable the buffer.',
+         'captureBufferCapacity must be at least 0. Use 0 to turn off the '
+         'buffer.',
        ),
        assert(maxTrackedTypes >= 1, 'maxTrackedTypes must be at least 1.'),
        assert(
          slowRequestThresholdMs >= 0,
-         'slowRequestThresholdMs must be >= 0.',
+         'slowRequestThresholdMs must be at least 0.',
        ),
        assert(
          criticalSlowRequestThresholdMs > slowRequestThresholdMs,
@@ -5274,22 +5276,22 @@ class SleuthConfig {
        ),
        assert(
          largeResponseThresholdBytes >= 0,
-         'largeResponseThresholdBytes must be >= 0.',
+         'largeResponseThresholdBytes must be at least 0.',
        ),
        assert(
          memoryWarmupDurationMs >= 0,
-         'memoryWarmupDurationMs must be >= 0.',
+         'memoryWarmupDurationMs must be at least 0.',
        ),
        assert(
          gcRateThresholdPerMin >= 1,
-         'gcRateThresholdPerMin must be at least 1. To disable '
-         'gc_pressure detection entirely, exclude '
-         'DetectorType.memoryPressure from enabledDetectors instead.',
+         'gcRateThresholdPerMin must be at least 1. To turn off '
+         'gc_pressure detection, remove DetectorType.memoryPressure from '
+         'enabledDetectors instead.',
        ),
        assert(
          frameTimingWarmupFrameCount >= 0,
-         'frameTimingWarmupFrameCount must be >= 0. '
-         'Set to 0 in tests to disable warmup suppression.',
+         'frameTimingWarmupFrameCount must be at least 0. '
+         'Set it to 0 in tests to turn off warmup suppression.',
        ),
        // Duration operators are not const-evaluable. Runtime validation
        // for `frameTimingWarmupDuration >= Duration.zero` lives in the
@@ -5297,7 +5299,7 @@ class SleuthConfig {
        // `treeScanInterval > Duration.zero` check.
        assert(
          platformChannelDurationThresholdMs >= 0,
-         'platformChannelDurationThresholdMs must be >= 0.',
+         'platformChannelDurationThresholdMs must be at least 0.',
        ),
        assert(
          routeHistoryCapacity >= 1,
@@ -5305,7 +5307,7 @@ class SleuthConfig {
        ),
        assert(
          maxElementsPerScan >= 0,
-         'maxElementsPerScan must be >= 0 (0 = unlimited).',
+         'maxElementsPerScan must be at least 0 (0 means unlimited).',
        );
 
   /// Minimal configuration for first-time integration.

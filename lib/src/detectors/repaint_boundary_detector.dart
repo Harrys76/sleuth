@@ -26,7 +26,7 @@ class RepaintBoundaryDetector extends BaseDetector
         type: DetectorType.repaintBoundary,
         lifecycle: DetectorLifecycle.structural,
         name: 'RepaintBoundary',
-        description: 'Detects expensive GPU widgets without RepaintBoundary',
+        description: 'Detects expensive GPU widgets without a RepaintBoundary',
       );
 
   final int maxAncestorDepth;
@@ -161,7 +161,7 @@ class RepaintBoundaryDetector extends BaseDetector
         widgetName: typeNameCache.lookup(element.widget),
         severity: IssueSeverity.warning,
         detectorName: 'RepaintBoundary',
-        detail: '$count RepaintBoundary children — excessive GPU memory',
+        detail: '$count RepaintBoundary children use excessive GPU memory',
       ),
     );
   }
@@ -220,17 +220,18 @@ class RepaintBoundaryDetector extends BaseDetector
               'Missing RepaintBoundary: ${_found.length} expensive '
               'widget${_found.length == 1 ? '' : 's'} unprotected',
           detail:
-              '${_found.length} GPU-expensive widget(s) found without a '
+              'Found ${_found.length} GPU-expensive widget(s) with no '
               'RepaintBoundary ancestor within $maxAncestorDepth levels. '
-              'Repaints propagate up the render tree unnecessarily.'
-              '\n\n$locations',
+              'Their repaints spread further up the render tree than they '
+              'need to.\n\n$locations',
           fixHint: hint,
           fixEffort: effort,
           observationSource: source,
           confidenceReason: confidence == IssueConfidence.likely
               ? 'Debug callback paint rate for the unprotected widget '
-                    'types + structural GPU node scan'
-              : 'Structural scan only — enable debug callbacks for paint evidence',
+                    'types and a structural GPU node scan'
+              : 'Structural scan only. Enable debug callbacks for paint '
+                    'evidence',
           detectedAt: DateTime.now(),
         ),
       );
@@ -250,14 +251,14 @@ class RepaintBoundaryDetector extends BaseDetector
           confidence: IssueConfidence.possible,
           title: 'Excessive RepaintBoundary: ${finding.count} in scrollable',
           detail:
-              '${finding.count} RepaintBoundary widgets inside a single '
-              'scrollable. Each creates a separate compositing layer, '
-              'increasing GPU memory.\n\n  • ${finding.location}',
+              'A single scrollable holds ${finding.count} RepaintBoundary '
+              'widgets. Each one creates a separate compositing layer, which '
+              'uses more GPU memory.\n\n  • ${finding.location}',
           fixHint: exHint,
           fixEffort: exEffort,
           observationSource: ObservationSource.structural,
           confidenceReason:
-              'Structural scan only — excessive boundaries in scrollable',
+              'Structural scan only. The scrollable has too many boundaries',
           detectedAt: DateTime.now(),
           occurrenceId: finding.occurrenceId,
         ),
@@ -304,46 +305,48 @@ class RepaintBoundaryDetector extends BaseDetector
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'Hermetic reproducer pins `missing_repaint_boundary` '
-        '(Opacity 0<x<1 and ClipPath without RepaintBoundary ancestor '
-        'within `maxAncestorDepth`) and `excessive_repaint_boundary` '
-        '(21 user-placed RepaintBoundaries in CustomScrollView with '
-        '`addRepaintBoundaries: false` cross the 20-boundary hardcoded '
-        'threshold). Known narrowing: the strict-greater at-threshold '
-        'boundary is NOT pinned — the framework\'s scrollable '
-        'pipeline injects extra RepaintBoundary nodes the detector '
-        'counter observes, so exactly-20 tests cross unpredictably '
-        'across Flutter SDK versions. Boundary frames are keyed by the '
-        'element that pushed them: scroll views count, and every sliver '
-        'list or grid whose delegate adds per-child boundaries (the '
-        'default, or any non-framework delegate) pushes a -1 frame, so '
-        'default ListView, GridView, SliverList, and SliverGrid '
-        'boundaries are never counted while user boundaries under '
-        'SliverToBoxAdapter or an addRepaintBoundaries: false delegate '
-        'count toward the enclosing scroll view. Opacity 0.0/1.0 '
-        'passthrough suppression and the framework-managed sliver '
-        'boundaries are pinned as negative controls. Framework '
-        'toggle and scrollbar painters (ToggleablePainter, '
-        'ScrollbarPainter) are not treated as user CustomPaint, nor are '
-        'private framework painters matched by class name plus an owner '
-        'widget within a measured hop budget (hops measured on Flutter '
-        '3.32/3.47: _ShapeBorderPainter parent _ShapeBorderPaint and '
-        'Material 3-4; _InputBorderPainter InputDecorator 3/4; TabBar '
-        '_IndicatorPainter 3/11 fixed and 19/27 scrollable, _DividerPainter '
-        '2/10; ProgressIndicator linear 4, circular 4/5, refresh 17; '
+        'Hermetic reproducer pins `missing_repaint_boundary` and '
+        '`excessive_repaint_boundary`. `missing_repaint_boundary` fires for '
+        'an Opacity strictly between 0 and 1 and a ClipPath with no '
+        'RepaintBoundary ancestor within `maxAncestorDepth`. '
+        '`excessive_repaint_boundary` fires when 21 user-placed '
+        'RepaintBoundaries in a CustomScrollView with '
+        '`addRepaintBoundaries: false` cross the hardcoded 20-boundary '
+        'threshold. Known narrowing: the reproducer does not pin the '
+        'strict-greater boundary at the threshold. The framework\'s '
+        'scrollable pipeline injects extra RepaintBoundary nodes that the '
+        'detector counts, so tests at exactly 20 cross unpredictably across '
+        'Flutter SDK versions. Boundary frames are keyed by the element '
+        'that pushed them. Scroll views count. Every sliver list or grid '
+        'whose delegate adds per-child boundaries (the default, or any '
+        'non-framework delegate) pushes a -1 frame. So the detector never '
+        'counts default ListView, GridView, SliverList and SliverGrid '
+        'boundaries, while user boundaries under a SliverToBoxAdapter or an '
+        'addRepaintBoundaries: false delegate count toward the enclosing '
+        'scroll view. Opacity 0.0 and 1.0 passthrough suppression and the '
+        'framework-managed sliver boundaries are pinned as negative '
+        'controls. The detector does not treat framework toggle and '
+        'scrollbar painters (ToggleablePainter, ScrollbarPainter) as user '
+        'CustomPaint. It also skips private framework painters that it '
+        'matches by class name plus an owner widget within a measured hop '
+        'budget. The hops measured on Flutter 3.32/3.47 are: '
+        '_ShapeBorderPainter parent _ShapeBorderPaint and Material 3 to 4; '
+        '_InputBorderPainter InputDecorator 3/4; TabBar _IndicatorPainter '
+        '3/11 fixed and 19/27 scrollable, _DividerPainter 2/10; '
+        'ProgressIndicator linear 4, circular 4/5, refresh 17; '
         'CupertinoActivityIndicator 2; GlowingOverscrollIndicator 3; '
-        'AnimatedIcon 2; _DropdownMenu 2; Placeholder 2; GridPaper 1; '
-        'budgets sit at or one above). Real Material and Cupertino '
-        'widgets are pinned silent, and a user painter carrying a '
-        'framework painter name outside its owner still fires. A ClipPath '
-        'whose parent element is Material (the transparency-type clip '
-        'Material builds itself) is skipped; a user ClipPath given as a '
-        'Material child sits below that clip and stays reported. A debug '
-        'paint rate above 10/sec for an unprotected type lifts confidence '
-        'to likely, never confirmed: paint counts aggregate per type and '
-        'cannot attribute to the specific instance. '
-        'Fixtures use Opacity, not CustomPaint, to keep the '
-        'missing-branch test cross-detector clean.',
+        'AnimatedIcon 2; _DropdownMenu 2; Placeholder 2; GridPaper 1. Each '
+        'budget sits at the measured count or one above it. Real Material '
+        'and Cupertino widgets are pinned silent. A user painter with a '
+        'framework painter name outside its owner still fires. The '
+        'detector skips a ClipPath whose parent element is Material, which '
+        'is the transparency-type clip that Material builds itself. A user '
+        'ClipPath given as a Material child sits below that clip and is '
+        'still reported. A debug paint rate above 10/sec for an unprotected '
+        'type raises confidence to likely, never to confirmed, because '
+        'paint counts aggregate per type and cannot be attributed to a '
+        'specific instance. Fixtures use Opacity, not CustomPaint, to keep '
+        'the missing-branch test cross-detector clean.',
     reproducerPath: 'test/validation/repaint_boundary_reproducer_test.dart',
     coveredStableIds: {
       'missing_repaint_boundary',
