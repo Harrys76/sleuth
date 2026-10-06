@@ -1,6 +1,7 @@
 // Shared state and leg sequence for the time-share capture screens
-// (`RebuildActivityCaptureScreen`, `RepaintCaptureScreen`), and the
-// provenance every capture screen stamps on its exports.
+// (`RebuildActivityCaptureScreen`, `RepaintCaptureScreen`), the
+// provenance every capture screen stamps on its exports, and the band and
+// record checks the capture screens run before they offer an export.
 //
 // The screens register with [CaptureDriver.instance] while mounted and
 // publish each leg's progress, observed magnitude and wrapped capture
@@ -446,15 +447,44 @@ CaptureProvenanceCheck currentCaptureProvenance() => checkCaptureProvenance(
   flutterVersion: FlutterVersion.version,
 );
 
-/// This build's provenance for a capture export, or null after printing
-/// why it cannot be stamped (an export without approved provenance would
-/// fail the audit, or worse, pass it with a false label).
-CaptureProvenance? captureProvenanceOrReport() {
-  final check = currentCaptureProvenance();
-  if (check.provenance == null) {
-    debugPrint('Sleuth capture: not exporting: ${check.problem}');
+/// This build cannot stamp an approved capture provenance.
+class CaptureProvenanceUnavailable implements Exception {
+  const CaptureProvenanceUnavailable(this.problem);
+
+  /// Every problem [checkCaptureProvenance] found.
+  final String problem;
+
+  @override
+  String toString() => 'capture provenance: $problem';
+}
+
+/// This build's provenance for a capture export. Throws
+/// [CaptureProvenanceUnavailable] naming every problem when it cannot be
+/// stamped, since an export without approved provenance would fail the
+/// audit, or worse, pass it with a false label.
+CaptureProvenance requireCaptureProvenance({
+  CaptureProvenanceCheck Function() check = currentCaptureProvenance,
+}) {
+  final result = check();
+  final provenance = result.provenance;
+  if (provenance == null) {
+    throw CaptureProvenanceUnavailable(result.problem ?? 'unknown problem');
   }
-  return check.provenance;
+  return provenance;
+}
+
+/// The log line that refuses the capture leg labelled [label] before its
+/// workload when this build cannot stamp an approved provenance, or null
+/// when it can. Capture screens check this when a leg starts, so a
+/// missing `--dart-define=SLEUTH_CAPTURE_DEVICE` costs no workload time.
+String? provenanceRefusal(
+  String label, {
+  CaptureProvenanceCheck Function() check = currentCaptureProvenance,
+}) {
+  final problem = check().problem;
+  return problem == null
+      ? null
+      : '[$label] ABORT: capture provenance: $problem';
 }
 
 // ── Bracket and bands ──
@@ -579,6 +609,24 @@ class CaptureBracket {
     'above' => value > atUpper && value <= aboveCeiling,
     _ => false,
   };
+
+  /// Whether a leg's own measurement [value] fits [role]: below is
+  /// positive and under [threshold] (the schema rejects an observed value
+  /// at or below zero), at and above follow [inRoleBand].
+  bool acceptsMeasurement(num value, String role) => role == 'below'
+      ? value > 0 && value < threshold
+      : inRoleBand(value, role);
+
+  /// [role]'s band as [acceptsMeasurement] draws it, e.g. `[50, 80]`.
+  String bandText(String role) => switch (role) {
+    'below' => '(0, ${_bound(threshold)})',
+    'at' => '[${_bound(threshold)}, ${_bound(atUpper)}]',
+    'above' => '(${_bound(atUpper)}, ${_bound(aboveCeiling)}]',
+    _ => '(none)',
+  };
+
+  static String _bound(double value) =>
+      value.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
 }
 
 /// `expectedMagnitude` band for a time-share capture leg against the
@@ -653,9 +701,11 @@ class CaptureRecordCount {
 }
 
 /// Counts the in-span [CaptureBracket.eventName] records of the wrapped
-/// capture [json] for a [role] leg. The span comes from
-/// [ProfileCaptureSchema.findScenarioSpan]; values are read from the
-/// record's args (or its `Dart Arguments`) under
+/// capture [json] for a [role] leg. Like the capture schema, it counts
+/// only instant events (`ph` of `i`, `I` or `n`), so a duration or
+/// async event that shares the name is not a record. The span comes
+/// from [ProfileCaptureSchema.findScenarioSpan]; values are read from
+/// the record's args (or its `Dart Arguments`) under
 /// [CaptureBracket.argKey]. Throws [FormatException] when the JSON or its
 /// scenario markers are malformed.
 CaptureRecordCount countCaptureRecords(
@@ -679,8 +729,12 @@ CaptureRecordCount countCaptureRecords(
   num? reducedTs;
   for (final event in events) {
     if (event is! Map || event['name'] != bracket.eventName) continue;
-    final ts = event['ts'];
-    if (ts is! num || ts < begin || ts > end) continue;
+    final ph = event['ph'];
+    if (ph != 'i' && ph != 'I' && ph != 'n') continue;
+    final rawTs = event['ts'];
+    if (rawTs is! num) continue;
+    final ts = rawTs.toInt();
+    if (ts < begin || ts > end) continue;
     inSpan++;
     final args = event['args'];
     if (args is! Map) continue;
@@ -709,6 +763,202 @@ CaptureRecordCount countCaptureRecords(
     stamped: stamped,
     inBand: inBand,
     reduced: reduced,
+  );
+}
+
+/// What [checkCaptureRecords] found wrong with a capture's in-span
+/// records.
+enum CaptureRecordProblem {
+  /// A below span holds a bracketed record.
+  belowHasRecords,
+
+  /// An at or above span holds no bracketed record.
+  noRecords,
+
+  /// Some in-span records carry no observed value.
+  unstamped,
+
+  /// The reduced detector value lies outside the role band.
+  outOfBand,
+
+  /// The reduced detector value is further from the capture's observed
+  /// magnitude than the bracket's observed-axis tolerance allows.
+  offObserved,
+
+  /// Fewer in-band records than the bracket requires.
+  tooFewInBand,
+
+  /// The capture JSON or its scenario markers could not be read.
+  unreadable,
+}
+
+/// Outcome of [checkCaptureRecords]: passed, or the first problem found
+/// and a readable reason.
+@immutable
+class CaptureRecordCheck {
+  const CaptureRecordCheck.passed() : problem = null, reason = null;
+
+  const CaptureRecordCheck.failed(
+    CaptureRecordProblem this.problem,
+    String this.reason,
+  );
+
+  /// The first problem found, or null when the records pass.
+  final CaptureRecordProblem? problem;
+
+  /// Why the records fail, or null when they pass.
+  final String? reason;
+
+  /// Whether the records satisfy the bracket for the role.
+  bool get isPassed => problem == null;
+}
+
+/// Checks the in-span [records] of a composed capture the way the capture
+/// audit does for [bracket] and [role]. A below span must hold no
+/// bracketed record. An at or above span must hold at least one, every
+/// one stamped with [CaptureBracket.argKey], its reduced value inside
+/// [CaptureBracket.inRoleBand], and at least
+/// [CaptureBracket.requiredInBand] records in that band. With [observed]
+/// (the capture's `expectedMagnitude.observed`, in [unit]) the reduced
+/// value must also lie within [CaptureBracket.observedAxisTolerance] of
+/// it. Problems are checked in that order and the first one is returned.
+CaptureRecordCheck checkCaptureRecords(
+  CaptureRecordCount records, {
+  required CaptureBracket bracket,
+  required String role,
+  num? observed,
+  String unit = '',
+}) {
+  final event = bracket.eventName;
+  if (role == 'below') {
+    if (records.inSpan == 0) return const CaptureRecordCheck.passed();
+    return CaptureRecordCheck.failed(
+      CaptureRecordProblem.belowHasRecords,
+      '${records.inSpan} in-span $event record(s); a below span must hold '
+      'none',
+    );
+  }
+  if (records.inSpan == 0) {
+    return CaptureRecordCheck.failed(
+      CaptureRecordProblem.noRecords,
+      'no in-span $event',
+    );
+  }
+  if (records.stamped < records.inSpan) {
+    return CaptureRecordCheck.failed(
+      CaptureRecordProblem.unstamped,
+      '${records.inSpan - records.stamped} of ${records.inSpan} in-span '
+      '$event records carry no ${bracket.argKey}',
+    );
+  }
+  final reduced = records.reduced!;
+  if (!bracket.inRoleBand(reduced, role)) {
+    return CaptureRecordCheck.failed(
+      CaptureRecordProblem.outOfBand,
+      'in-span ${bracket.reduction} ${bracket.argKey} $reduced lies '
+      'outside the $role band',
+    );
+  }
+  if (observed != null &&
+      (reduced < observed * (1 - bracket.observedAxisTolerance) ||
+          reduced > observed * (1 + bracket.observedAxisTolerance))) {
+    return CaptureRecordCheck.failed(
+      CaptureRecordProblem.offObserved,
+      'in-span ${bracket.reduction} ${bracket.argKey} $reduced is more '
+      'than ±${(bracket.observedAxisTolerance * 100).round()} % from the '
+      'observed $observed${unit.isEmpty ? '' : ' $unit'}',
+    );
+  }
+  if (records.inBand < bracket.requiredInBand) {
+    return CaptureRecordCheck.failed(
+      CaptureRecordProblem.tooFewInBand,
+      '${records.inBand} in-band $event record(s); the bracket requires '
+      '${bracket.requiredInBand}',
+    );
+  }
+  return const CaptureRecordCheck.passed();
+}
+
+/// Counts and checks the in-span records of the composed capture [json]
+/// for [bracket] and [role] in one step ([countCaptureRecords], then
+/// [checkCaptureRecords]). A malformed capture fails as
+/// [CaptureRecordProblem.unreadable] with the parse error as its reason.
+CaptureRecordCheck checkCaptureJson(
+  String json, {
+  required CaptureBracket bracket,
+  required String role,
+  num? observed,
+  String unit = '',
+}) {
+  final CaptureRecordCount records;
+  try {
+    records = countCaptureRecords(json, bracket: bracket, role: role);
+  } on FormatException catch (e) {
+    return CaptureRecordCheck.failed(
+      CaptureRecordProblem.unreadable,
+      'capture unreadable: ${e.message}',
+    );
+  }
+  return checkCaptureRecords(
+    records,
+    bracket: bracket,
+    role: role,
+    observed: observed,
+    unit: unit,
+  );
+}
+
+/// Why a capture leg is refused before its capture is stashed or offered
+/// for export. [verdict] is `UNMEASURED` when the leg measured nothing,
+/// else `OUT-OF-BAND`; [reason] says what was wrong.
+typedef LegRefusal = ({String verdict, String reason});
+
+/// Why a [role] leg whose own measurement of [what] is [value] (in
+/// [unit]) cannot be exported against [bracket], or null when
+/// [CaptureBracket.acceptsMeasurement] accepts it. A missing or
+/// non-positive value is `UNMEASURED` (the schema rejects an observed
+/// magnitude at or below zero); a value outside the role band is
+/// `OUT-OF-BAND`.
+LegRefusal? measurementRefusal(
+  num? value, {
+  required String role,
+  required CaptureBracket bracket,
+  required String what,
+  String unit = '',
+}) {
+  final suffix = unit.isEmpty ? '' : ' $unit';
+  if (value == null) {
+    return (verdict: 'UNMEASURED', reason: 'no $what was measured');
+  }
+  if (value <= 0) {
+    return (verdict: 'UNMEASURED', reason: '$what is $value$suffix');
+  }
+  if (!bracket.acceptsMeasurement(value, role)) {
+    return (
+      verdict: 'OUT-OF-BAND',
+      reason:
+          '$what $value$suffix lies outside the $role band '
+          '${bracket.bandText(role)}$suffix',
+    );
+  }
+  return null;
+}
+
+/// [check] as a refusal of a [role] leg, or null when it passed. Every
+/// failed record check is `OUT-OF-BAND`; a reduced value outside the
+/// role band also names the band.
+LegRefusal? recordRefusal(
+  CaptureRecordCheck check, {
+  required String role,
+  required CaptureBracket bracket,
+}) {
+  final reason = check.reason;
+  if (reason == null) return null;
+  return (
+    verdict: 'OUT-OF-BAND',
+    reason: check.problem == CaptureRecordProblem.outOfBand
+        ? '$reason ${bracket.bandText(role)}'
+        : reason,
   );
 }
 
@@ -938,12 +1188,14 @@ LegDecision decideAfterPeak({
 /// Decision after the export of an in-band span of [leg] at [knob]
 /// (peak [observed], [attempts] spans run). A below leg is done: the
 /// export already refuses one with an in-span record. An at or above leg
-/// is done when its in-span [records] pass what the capture audit checks:
-/// every record stamped, the reduced value in the role band and within
-/// the observed-axis tolerance of [observed], and at least
-/// [CaptureBracket.requiredInBand] records in the band. Otherwise it
-/// retries while attempts remain (at the knob rescaled toward the target
-/// when the peak fell short of it, else at the same knob), or fails.
+/// is done when its in-span [records] pass [checkCaptureRecords] with
+/// [observed] as the capture's observed magnitude: every record stamped,
+/// the reduced value in the role band and within the observed-axis
+/// tolerance of [observed], and at least [CaptureBracket.requiredInBand]
+/// records in the band. A record without the observed arg fails the leg
+/// at once. Any other shortfall retries while attempts remain (at the
+/// knob rescaled toward the target when the peak fell short of it, else
+/// at the same knob), or fails.
 LegDecision decideAfterExport({
   required TimeShareLeg leg,
   required int knob,
@@ -952,37 +1204,27 @@ LegDecision decideAfterExport({
   required CaptureRecordCount? records,
 }) {
   if (leg.role == 'below') return const LegComplete();
-  final bracket = leg.bracket;
-  final event = bracket.eventName;
-  if (records == null || records.inSpan == 0) {
-    return _retryOrFail(leg, knob, observed, attempts, 'no in-span $event');
-  }
-  if (records.stamped < records.inSpan) {
-    return LegFail(
-      '${records.inSpan - records.stamped} of ${records.inSpan} in-span '
-      '$event records carry no ${bracket.argKey}',
+  if (records == null) {
+    return _retryOrFail(
+      leg,
+      knob,
+      observed,
+      attempts,
+      'no in-span ${leg.bracket.eventName}',
     );
   }
-  final reduced = records.reduced!;
-  final String? shortfall;
-  if (!bracket.inRoleBand(reduced, leg.role)) {
-    shortfall =
-        'in-span ${bracket.reduction} ${bracket.argKey} $reduced lies '
-        'outside the ${leg.role} band';
-  } else if (reduced < observed * (1 - bracket.observedAxisTolerance) ||
-      reduced > observed * (1 + bracket.observedAxisTolerance)) {
-    shortfall =
-        'in-span ${bracket.reduction} ${bracket.argKey} $reduced is more '
-        'than ±${(bracket.observedAxisTolerance * 100).round()} % from the '
-        'observed $observed %';
-  } else if (records.inBand < bracket.requiredInBand) {
-    shortfall =
-        '${records.inBand} in-band $event record(s); the bracket requires '
-        '${bracket.requiredInBand}';
-  } else {
-    shortfall = null;
-  }
+  final check = checkCaptureRecords(
+    records,
+    bracket: leg.bracket,
+    role: leg.role,
+    observed: observed,
+    unit: '%',
+  );
+  final shortfall = check.reason;
   if (shortfall == null) return const LegComplete();
+  if (check.problem == CaptureRecordProblem.unstamped) {
+    return LegFail(shortfall);
+  }
   return _retryOrFail(leg, knob, observed, attempts, shortfall);
 }
 

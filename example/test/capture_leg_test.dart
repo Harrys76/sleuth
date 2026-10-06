@@ -59,17 +59,20 @@ TimeShareLeg _leg(
 
 /// A wrapped capture whose scenario span holds one record per entry of
 /// [inSpan] (null = a record without the observed arg) and whose
-/// [outside] records sit before the span.
+/// [outside] records sit before the span. [rawInSpan] events are added
+/// inside the span as given.
 String _capture(
   List<Object?> inSpan, {
   List<Object?> outside = const [],
+  List<Map<String, Object?>> rawInSpan = const [],
   String event = 'sleuth.issue.rebuild_activity.critical',
+  String argKey = 'observedBuildPercent',
   bool dartArguments = false,
 }) {
   Map<String, Object?> record(int ts, Object? value) {
     final args = value == null
         ? <String, Object?>{}
-        : <String, Object?>{'observedBuildPercent': value};
+        : <String, Object?>{argKey: value};
     return {
       'name': event,
       'ph': 'n',
@@ -89,6 +92,7 @@ String _capture(
       },
       for (var i = 0; i < inSpan.length; i++)
         record(2000 + i * 1000, inSpan[i]),
+      ...rawInSpan,
       {
         'name': 'sleuth.scenario.end',
         'ph': 'n',
@@ -464,6 +468,27 @@ void main() {
       );
     });
 
+    test('a non-instant event with the bracket name is not a record', () {
+      final count = countCaptureRecords(
+        _capture(
+          ['33.0'],
+          rawInSpan: [
+            for (final ph in ['X', 'B', 'E', 'b'])
+              {
+                'name': _critical.eventName,
+                'ph': ph,
+                'ts': 50000,
+                'args': {'observedBuildPercent': '90.0'},
+              },
+          ],
+        ),
+        bracket: _critical,
+        role: 'at',
+      );
+      expect(count.inSpan, 1, reason: 'the schema counts i, I and n only');
+      expect(count.reduced, 33.0);
+    });
+
     test('malformed captures throw', () {
       expect(
         () => countCaptureRecords('{}', bracket: _critical, role: 'at'),
@@ -477,6 +502,230 @@ void main() {
         ),
         throwsFormatException,
         reason: 'no scenario markers',
+      );
+    });
+  });
+
+  group('checkCaptureRecords', () {
+    CaptureRecordCheck check(
+      List<Object?> inSpan,
+      String role, {
+      CaptureBracket bracket = _warning,
+      List<Map<String, Object?>> rawInSpan = const [],
+      num? observed,
+    }) => checkCaptureJson(
+      _capture(inSpan, event: bracket.eventName, rawInSpan: rawInSpan),
+      bracket: bracket,
+      role: role,
+      observed: observed,
+    );
+
+    test('in-band records pass', () {
+      expect(check(['12.0', '14.0'], 'at').isPassed, isTrue);
+      expect(check(['12.0'], 'at', observed: 12.5).isPassed, isTrue);
+      expect(check(['20.0'], 'above').isPassed, isTrue);
+      final result = check(['40.0', '33.1'], 'at', bracket: _critical);
+      expect(result.isPassed, isTrue);
+      expect(result.problem, isNull);
+      expect(result.reason, isNull);
+    });
+
+    test('a reduced value outside the role band fails', () {
+      final at = check(['12.0', '16.0'], 'at');
+      expect(at.problem, CaptureRecordProblem.outOfBand);
+      expect(
+        at.reason,
+        'in-span max observedBuildPercent 16.0 lies outside the at band',
+      );
+      expect(
+        check(['14.0'], 'above').problem,
+        CaptureRecordProblem.outOfBand,
+        reason: '14.0 is in the at band, not above it',
+      );
+      expect(
+        check(['28.0'], 'above').problem,
+        CaptureRecordProblem.outOfBand,
+        reason: 'past the 27.0 ceiling',
+      );
+    });
+
+    test('an unstamped in-span record fails', () {
+      final result = check(['12.0', null], 'at');
+      expect(result.problem, CaptureRecordProblem.unstamped);
+      expect(
+        result.reason,
+        '1 of 2 in-span sleuth.issue.rebuild_activity.warning records carry '
+        'no observedBuildPercent',
+      );
+    });
+
+    test('a non-instant event neither counts nor needs a stamp', () {
+      final unstampedSlice = {
+        'name': _warning.eventName,
+        'ph': 'X',
+        'ts': 50000,
+        'dur': 10,
+        'args': <String, Object?>{},
+      };
+      expect(
+        check(['12.0'], 'at', rawInSpan: [unstampedSlice]).isPassed,
+        isTrue,
+      );
+      expect(
+        check(const [], 'at', rawInSpan: [unstampedSlice]).problem,
+        CaptureRecordProblem.noRecords,
+      );
+      expect(
+        check(const [], 'below', rawInSpan: [unstampedSlice]).isPassed,
+        isTrue,
+        reason: 'a below span may hold a non-instant event of that name',
+      );
+    });
+
+    test('a below span passes only without records', () {
+      expect(check(const [], 'below').isPassed, isTrue);
+      final result = check(['5.0'], 'below');
+      expect(result.problem, CaptureRecordProblem.belowHasRecords);
+      expect(result.reason, contains('a below span must hold none'));
+    });
+
+    test('an at or above span without records fails', () {
+      expect(check(const [], 'at').problem, CaptureRecordProblem.noRecords);
+      expect(
+        check(const [], 'above').reason,
+        'no in-span sleuth.issue.rebuild_activity.warning',
+      );
+    });
+
+    test('the reduced value must lie near the observed magnitude', () {
+      final result = check(['14.0'], 'at', observed: 10);
+      expect(result.problem, CaptureRecordProblem.offObserved);
+      expect(result.reason, contains('±25 % from the observed 10'));
+      expect(check(['12.5'], 'at', observed: 10).isPassed, isTrue);
+    });
+
+    test('too few in-band records fail', () {
+      expect(
+        check(['40.0'], 'at', bracket: _critical).problem,
+        CaptureRecordProblem.tooFewInBand,
+      );
+    });
+
+    test('an unreadable capture fails without throwing', () {
+      final result = checkCaptureJson('{}', bracket: _warning, role: 'at');
+      expect(result.problem, CaptureRecordProblem.unreadable);
+      expect(result.reason, contains('traceEvents'));
+    });
+
+    test('decideAfterExport keeps its decisions on the shared check', () {
+      final at = _leg('at');
+      LegDecision decide(List<Object?> records, {double observed = 12.0}) =>
+          decideAfterExport(
+            leg: at,
+            knob: 100,
+            observed: observed,
+            attempts: 1,
+            records: countCaptureRecords(
+              _capture(records, event: _warning.eventName),
+              bracket: _warning,
+              role: 'at',
+            ),
+          );
+      expect(decide(['12.0']), isA<LegComplete>());
+      expect(decide(['12.0', null]), isA<LegFail>());
+      expect(decide(['16.0']), isA<LegRetry>());
+      expect(decide(const []), isA<LegRetry>());
+      expect(
+        decide(['14.0'], observed: 10.0),
+        isA<LegRetry>().having(
+          (s) => s.reason,
+          'reason',
+          contains('from the observed 10.0 %'),
+        ),
+      );
+    });
+  });
+
+  group('leg refusals', () {
+    const stream = CaptureBracket(
+      stableId: 'stream_resource_growth',
+      severityLabel: 'warning',
+      threshold: 50,
+      atTolerance: 0.6,
+      aboveCeilingMultiplier: 3.0,
+      argKey: 'topGrowthDelta',
+    );
+
+    test('bands read as the audit draws them', () {
+      expect(stream.bandText('below'), '(0, 50)');
+      expect(stream.bandText('at'), '[50, 80]');
+      expect(stream.bandText('above'), '(80, 150]');
+      expect(_warning.bandText('above'), '(15, 27]');
+    });
+
+    test('a missing or non-positive measurement is unmeasured', () {
+      for (final value in <num?>[null, 0, -3]) {
+        final refusal = measurementRefusal(
+          value,
+          role: 'below',
+          bracket: stream,
+          what: 'top-class growth',
+        );
+        expect(refusal?.verdict, 'UNMEASURED', reason: '$value');
+      }
+      expect(
+        measurementRefusal(
+          null,
+          role: 'at',
+          bracket: stream,
+          what: 'peak',
+        )?.reason,
+        'no peak was measured',
+      );
+    });
+
+    test('a measurement outside its role band is out of band', () {
+      LegRefusal? refuse(num value, String role) => measurementRefusal(
+        value,
+        role: role,
+        bracket: stream,
+        what: 'top-class growth',
+        unit: 'instances',
+      );
+      expect(refuse(1, 'below'), isNull);
+      expect(refuse(49, 'below'), isNull);
+      expect(refuse(50, 'at'), isNull);
+      expect(refuse(80, 'at'), isNull);
+      expect(refuse(81, 'above'), isNull);
+      expect(refuse(150, 'above'), isNull);
+      final below = refuse(50, 'below')!;
+      expect(below.verdict, 'OUT-OF-BAND');
+      expect(
+        below.reason,
+        'top-class growth 50 instances lies outside the below band '
+        '(0, 50) instances',
+      );
+      expect(refuse(81, 'at')?.verdict, 'OUT-OF-BAND');
+      expect(refuse(80, 'above')?.verdict, 'OUT-OF-BAND');
+      expect(refuse(151, 'above')?.verdict, 'OUT-OF-BAND');
+    });
+
+    test('a failed record check is out of band and names the band', () {
+      final failed = checkCaptureJson(
+        _capture(['90'], event: stream.eventName, argKey: stream.argKey),
+        bracket: stream,
+        role: 'at',
+      );
+      final refusal = recordRefusal(failed, role: 'at', bracket: stream)!;
+      expect(refusal.verdict, 'OUT-OF-BAND');
+      expect(refusal.reason, endsWith('outside the at band [50, 80]'));
+      expect(
+        recordRefusal(
+          const CaptureRecordCheck.passed(),
+          role: 'at',
+          bracket: stream,
+        ),
+        isNull,
       );
     });
   });
@@ -728,6 +977,31 @@ void main() {
         contains(kCaptureDeviceDefine),
       );
     });
+
+    test('a leg is refused with the problem text, not a placeholder', () {
+      expect(provenanceRefusal('at', check: _approvedProvenance), isNull);
+      final refusal = provenanceRefusal('below')!;
+      expect(refusal, startsWith('[below] ABORT: capture provenance: '));
+      expect(refusal, contains(currentCaptureProvenance().problem));
+      expect(refusal, contains(kCaptureDeviceDefine));
+    });
+
+    test('an export without provenance throws the problem text', () {
+      expect(requireCaptureProvenance(check: _approvedProvenance), _approved);
+      expect(
+        requireCaptureProvenance,
+        throwsA(
+          isA<CaptureProvenanceUnavailable>().having(
+            (e) => e.toString(),
+            'text',
+            allOf(
+              startsWith('capture provenance: '),
+              contains(kCaptureDeviceDefine),
+            ),
+          ),
+        ),
+      );
+    });
   });
 
   group('CaptureBracket.fromMetadata', () {
@@ -762,6 +1036,41 @@ void main() {
         ),
         isNull,
       );
+    });
+
+    test('reads the brackets the event-driven capture screens judge', () {
+      final stream = StreamResourceDetector(
+        vmClientProvider: () => null,
+        heapGrowingStateProvider: () => false,
+      );
+      final network = NetworkMonitorDetector();
+      addTearDown(stream.dispose);
+      addTearDown(network.dispose);
+
+      CaptureBracket read(
+        DetectorMetadataProvider d,
+        String stableId, [
+        String? label,
+      ]) => CaptureBracket.fromMetadata(
+        d.validationMetadata,
+        stableId: stableId,
+        severityLabel: label ?? 'warning',
+      )!;
+
+      final growth = read(stream, 'stream_resource_growth');
+      expect(growth.argKey, 'topGrowthDelta');
+      expect(growth.bandText('at'), '[50, 80]');
+      expect(growth.bandText('above'), '(80, 150]');
+
+      final slow = read(network, 'slow_request');
+      expect(slow.bandText('at'), '[1000, 1100]');
+      expect(slow.observedAxisTolerance, 0.10);
+      expect(
+        read(network, 'slow_request', 'critical').bandText('at'),
+        '[3000, 4200]',
+      );
+      expect(read(network, 'large_response').threshold, 1048576);
+      expect(read(network, 'request_frequency').bandText('at'), '[30, 45]');
     });
   });
 }

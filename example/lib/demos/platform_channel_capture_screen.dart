@@ -252,15 +252,22 @@ class _PlatformChannelCaptureScreenState
       });
       return;
     }
-    if (!_captureModeOn) {
+    // Capture mode and provenance are properties of the build, so a leg
+    // that could never be exported is refused before its workload. Both
+    // are reported so one relaunch can fix both.
+    final provenanceProblem = provenanceRefusal(leg.label);
+    if (!_captureModeOn || provenanceProblem != null) {
       setState(() {
-        _log.add(
-          '[${leg.label}] ABORT — captureMode is OFF. Restart the app '
-          'with `--dart-define=SLEUTH_CAPTURE_MODE=true`. Without it '
-          'markScenarioBegin/End are no-ops, no scenario markers reach '
-          'the VM trace buffer, and Export will fail with no markers '
-          'found.',
-        );
+        if (!_captureModeOn) {
+          _log.add(
+            '[${leg.label}] ABORT — captureMode is OFF. Restart the app '
+            'with `--dart-define=SLEUTH_CAPTURE_MODE=true`. Without it '
+            'markScenarioBegin/End are no-ops, no scenario markers reach '
+            'the VM trace buffer, and Export will fail with no markers '
+            'found.',
+          );
+        }
+        if (provenanceProblem != null) _log.add(provenanceProblem);
       });
       return;
     }
@@ -373,9 +380,12 @@ class _PlatformChannelCaptureScreenState
       final operatorCps = totalCallsSent / (callPhaseElapsedMs / 1000.0);
 
       String? stashed;
+      // Why the capture did not compose: the export's own reason when it
+      // returned null, or the text of a failure before or inside the call.
+      String? composeFailure;
       try {
-        final provenance = captureProvenanceOrReport();
-        if (provenance == null) throw StateError('capture provenance');
+        // Checked when the leg started; this is a safety net.
+        final provenance = requireCaptureProvenance();
         stashed = await Sleuth.exportCaptureJson(
           scenario: 'platform_channel_traffic_${leg.label}',
           role: leg.label,
@@ -396,8 +406,17 @@ class _PlatformChannelCaptureScreenState
           // count.
           magnitudeSourceEventName: '',
         );
-      } catch (_) {
+        if (stashed == null) {
+          final reason =
+              Sleuth.lastCaptureExportFailure ??
+              'exportCaptureJson gave no reason';
+          composeFailure =
+              '$reason. Keep the screen on and in the foreground while '
+              'the leg runs; iOS auto-lock drops the VM service connection';
+        }
+      } catch (e) {
         stashed = null;
+        composeFailure = '$e';
       }
 
       double? detectorCps;
@@ -428,11 +447,15 @@ class _PlatformChannelCaptureScreenState
       final reportedCps = leg == _ChannelLeg.below
           ? operatorCps
           : (detectorCps ?? operatorCps);
+      // A leg is offered for export only with an in-band value and a
+      // composed capture. An in-band leg whose export or rewrite failed
+      // logs the failure after its band verdict.
+      final stashedJson = inBand ? rewrittenJson : null;
       setState(() {
         _busy = false;
-        _lastCompletedLeg = inBand ? leg : null;
-        _lastMeasuredCps = inBand ? reportedCps : null;
-        _stashedCaptureJson = inBand ? rewrittenJson : null;
+        _lastCompletedLeg = stashedJson != null ? leg : null;
+        _lastMeasuredCps = stashedJson != null ? reportedCps : null;
+        _stashedCaptureJson = stashedJson;
         final ratio = (detectorCps != null && operatorCps > 0)
             ? (detectorCps / operatorCps).toStringAsFixed(2)
             : null;
@@ -447,26 +470,17 @@ class _PlatformChannelCaptureScreenState
           '${leg == _ChannelLeg.below ? 'operator' : 'detector'}: '
           '[${leg.cpsMin}, ${leg.cpsMax}] calls/sec)',
         );
-        if (inBand) {
+        if (stashedJson != null) {
           _activeRetryLeg = null;
-          if (rewrittenJson != null) {
-            _log.add(
-              '[${leg.label}] capture stashed (${rewrittenJson.length} chars) '
-              '— tap "Export last leg" to copy to clipboard.',
-            );
-          }
+          _log.add(
+            '[${leg.label}] capture stashed (${stashedJson.length} chars) '
+            '— tap "Export last leg" to copy to clipboard.',
+          );
         } else {
           if (stashed == null) {
             _log.add(
-              '[${leg.label}] capture FAILED to compose. Check the '
-              'flutter run terminal — Sleuth.exportCaptureJson logs the '
-              'exact reason via debugPrint (VM client null, VM client '
-              'disconnected, empty trace buffer, or scenario markers '
-              'not found). Most common cause when '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true was passed: '
-              'iOS auto-locked the screen during the leg and the VM '
-              'service connection dropped. Keep the screen on and '
-              'foreground; re-tap after fixing.',
+              '[${leg.label}] capture FAILED to compose: $composeFailure. '
+              'Re-tap after fixing.',
             );
           } else if (rewriteError != null) {
             // Persistent shape change: every retry on this leg AND

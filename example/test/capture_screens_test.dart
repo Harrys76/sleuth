@@ -1,16 +1,24 @@
-// Time-share capture screens, their shared driver, and the hands-free
-// capture extensions' helpers.
+// Capture screens (the provenance preflight every screen runs when a leg
+// starts, and the stream leg's judgement), their shared driver, and the
+// hands-free capture extensions' helpers.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/sleuth.dart';
 
 import 'package:example/demos/capture_driver.dart';
 import 'package:example/demos/frame_timing_capture_screen.dart';
+import 'package:example/demos/heavy_compute_capture_screen.dart';
+import 'package:example/demos/memory_pressure_capture_screen.dart';
+import 'package:example/demos/network_monitor_capture_screen.dart';
+import 'package:example/demos/platform_channel_capture_screen.dart';
 import 'package:example/demos/rebuild_activity_capture_screen.dart';
 import 'package:example/demos/repaint_capture_screen.dart';
+import 'package:example/demos/stream_resource_capture_screen.dart';
+import 'package:example/demos/tracked_resource_capture_screen.dart';
 import 'package:example/main.dart' show readVmAxes, startCaptureLeg;
 
 /// Leg calls whose stream suspension never answers.
@@ -88,6 +96,158 @@ void main() {
         find.textContaining('Provenance: device model unknown'),
         findsOneWidget,
       );
+    });
+  });
+
+  group('provenance preflight', () {
+    // Tests build without `--dart-define=SLEUTH_CAPTURE_DEVICE`, so every
+    // leg must be refused when it starts, with the problem on screen.
+    Future<void> pumpScreen(WidgetTester tester, Widget screen) async {
+      // The test font draws every glyph a full em wide, so these
+      // phone-sized screens get a tablet-sized surface to lay out on.
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(home: screen));
+      await tester.pump();
+    }
+
+    Future<void> tapLeg(WidgetTester tester, Finder button) async {
+      expect(button, findsOneWidget);
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pump();
+    }
+
+    void expectRefused(String label) {
+      expect(
+        find.textContaining('[$label] ABORT: capture provenance: '),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          'relaunch with --dart-define=$kCaptureDeviceDefine',
+        ),
+        findsOneWidget,
+      );
+    }
+
+    testWidgets('stream: a leg is refused before its warmup', (tester) async {
+      await pumpScreen(tester, const StreamResourceCaptureScreen());
+      await tapLeg(tester, find.text('below\nΔ 1-49'));
+      expectRefused('below');
+      expect(find.textContaining('start ==='), findsNothing);
+      expect(find.text('Phase: idle'), findsOneWidget);
+      expect(find.textContaining('refused: capture provenance'), findsOne);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tracked resource: a leg is refused before its wait', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const TrackedResourceCaptureScreen());
+      await tapLeg(tester, find.text('Below (wait 250 s ≈ 4 min) — passes'));
+      expectRefused('below');
+      expect(find.textContaining('pre-leg'), findsNothing);
+      expect(find.textContaining('long-lived leg'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('heavy compute: a leg is refused before its workload', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const HeavyComputeCaptureScreen());
+      expect(find.textContaining('Calibrated:'), findsOneWidget);
+      await tapLeg(tester, find.textContaining('Below ('));
+      expectRefused('warning/below');
+      expect(find.textContaining('scenario.begin'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('platform channel: a leg is refused before its calls', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const PlatformChannelCaptureScreen());
+      await tapLeg(tester, find.textContaining('Below ('));
+      expectRefused('below');
+      expect(
+        find.textContaining('captureMode is OFF'),
+        findsOneWidget,
+        reason: 'both build problems are reported at once',
+      );
+      expect(find.textContaining('attempt 1/'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('memory pressure: a leg is refused before its allocation', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const MemoryPressureCaptureScreen());
+      // Calibration times a 1 s allocation run on a real stopwatch.
+      await tapLeg(tester, find.text('Calibrate'));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1100)),
+      );
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(find.textContaining('Calibrated:'), findsOneWidget);
+      await tapLeg(tester, find.textContaining('Below ('));
+      expectRefused('below');
+      expect(find.textContaining('attempt 1/'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('network monitor: a leg is refused before its request', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const NetworkMonitorCaptureScreen());
+      // The loopback server binds on a real socket.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 200)),
+      );
+      await tester.pump();
+      expect(find.textContaining('Server ready'), findsOneWidget);
+      await tapLeg(tester, find.textContaining('Below ('));
+      expectRefused('warning/below');
+      expect(find.textContaining('scenario.begin'), findsNothing);
+      expect(tester.takeException(), isNull);
+      // Release the socket before the test ends.
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+    });
+  });
+
+  group('stream leg judgement', () {
+    final detector = StreamResourceDetector(
+      vmClientProvider: () => null,
+      heapGrowingStateProvider: () => false,
+    );
+    tearDownAll(detector.dispose);
+    final bracket = streamResourceBracket(detector.validationMetadata)!;
+
+    test('a below leg with no measured growth is refused, not exported '
+        'as 0', () {
+      final refusal = streamBelowRefusal(null, bracket)!;
+      expect(refusal.verdict, 'UNMEASURED');
+      expect(refusal.reason, 'no top-class growth was measured');
+    });
+
+    test('a below leg exports only a growth under the threshold', () {
+      expect(streamBelowRefusal(1, bracket), isNull);
+      expect(streamBelowRefusal(49, bracket), isNull);
+      final refusal = streamBelowRefusal(50, bracket)!;
+      expect(refusal.verdict, 'OUT-OF-BAND');
+      expect(refusal.reason, contains('below band (0, 50)'));
+    });
+
+    test('the above leg is judged on the audit band, not its export '
+        'minimum', () {
+      expect(bracket.acceptsMeasurement(70, 'above'), isFalse);
+      expect(bracket.acceptsMeasurement(81, 'above'), isTrue);
+      expect(bracket.acceptsMeasurement(151, 'above'), isFalse);
     });
   });
 

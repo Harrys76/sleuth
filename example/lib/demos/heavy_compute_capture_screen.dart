@@ -264,6 +264,13 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
   void _requestCapture(_Leg leg) {
     if (_busy || _iterationsPerMs == null) return;
     final tier = _activeTier;
+    // Provenance is a property of the build, so a leg that could never
+    // be exported is refused before its workload runs.
+    final refusal = provenanceRefusal('${tier.label}/${leg.label}');
+    if (refusal != null) {
+      setState(() => _log.add(refusal));
+      return;
+    }
     final spec = _legSpec(tier, leg);
     setState(() {
       _busy = true;
@@ -314,9 +321,10 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       );
     });
     String? json;
+    String? localFailure;
     try {
-      final provenance = captureProvenanceOrReport();
-      if (provenance == null) throw StateError('capture provenance');
+      // Checked when the leg started; this is a safety net.
+      final provenance = requireCaptureProvenance();
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg.label, // 'below' | 'at' | 'above'
@@ -356,23 +364,28 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
         bracketSeverityLabel: tier.label,
       );
     } catch (e) {
+      // A failure before or inside the export call; its own text says
+      // why, and `lastCaptureExportFailure` does not describe it.
       json = null;
-      if (mounted) {
-        setState(() {
-          _log.add('[${tier.label}/${leg.label}] Export FAILED: $e');
-        });
-      }
+      localFailure = '$e';
     }
     if (!mounted) return;
+    if (localFailure != null) {
+      final failure = localFailure;
+      setState(() {
+        _busy = false;
+        _log.add('[${tier.label}/${leg.label}] Export FAILED: $failure');
+      });
+      return;
+    }
     if (json == null) {
+      final reason =
+          Sleuth.lastCaptureExportFailure ?? 'exportCaptureJson gave no reason';
       setState(() {
         _busy = false;
         _log.add(
           '[${tier.label}/${leg.label}] Export FAILED: returned null. '
-          'Common causes: VM service disconnected (FRAME mode — kill the '
-          'app from Xcode and re-open from the home screen so VM+ mode '
-          'activates), or scenario markers missing from the trace '
-          'buffer (re-tap the leg and Export within 30 s).',
+          'Reason: $reason',
         );
       });
       return;

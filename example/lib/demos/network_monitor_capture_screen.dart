@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -142,6 +143,9 @@ class _NetworkMonitorCaptureScreenState
   // export an out-of-band run from an earlier session.
   String? _lastCompletedLeg;
   _CaptureMode? _lastCompletedMode;
+  // Bracket the last completed leg was judged against; the export
+  // checks its records against the same one.
+  CaptureBracket? _lastCompletedBracket;
   // slow_request: tier of the completed leg (warning or critical).
   _Tier? _lastCompletedTier;
   // slow_request: ms wall-clock from Stopwatch.
@@ -272,6 +276,7 @@ class _NetworkMonitorCaptureScreenState
   void _resetLastLeg() {
     _lastCompletedLeg = null;
     _lastCompletedMode = null;
+    _lastCompletedBracket = null;
     _lastCompletedTier = null;
     _lastMeasuredMs = null;
     _lastObservedBytes = null;
@@ -287,6 +292,84 @@ class _NetworkMonitorCaptureScreenState
       ? 'slow_request_$leg'
       : 'slow_request_critical_$leg';
 
+  /// Checks what a leg labelled [logLabel] needs before its workload: a
+  /// build that can stamp an approved provenance and the detector's
+  /// bracket for [mode] at [severityLabel]. Returns the bracket, or null
+  /// after logging why the leg is refused.
+  CaptureBracket? _preflight(
+    String logLabel,
+    _CaptureMode mode,
+    String severityLabel,
+  ) {
+    final refusal = provenanceRefusal(logLabel);
+    if (refusal != null) {
+      setState(() => _log.add(refusal));
+      return null;
+    }
+    final monitor = Sleuth.networkMonitor;
+    if (monitor == null) {
+      setState(() {
+        _log.add(
+          '[$logLabel] FAILED: Sleuth.networkMonitor is null. '
+          'Verify Sleuth.init() ran with captureMode=true and '
+          '--dart-define=SLEUTH_CAPTURE_MODE=true.',
+        );
+      });
+      return null;
+    }
+    final bracket = CaptureBracket.fromMetadata(
+      monitor.validationMetadata,
+      stableId: mode.stableId,
+      severityLabel: severityLabel,
+    );
+    if (bracket == null) {
+      setState(() {
+        _log.add(
+          '[$logLabel] FAILED: NetworkMonitorDetector declares no '
+          '${mode.stableId}.$severityLabel bracket.',
+        );
+      });
+    }
+    return bracket;
+  }
+
+  /// Ends a leg labelled [logLabel] whose own measurement is [value]:
+  /// returns true when [bracket] accepts it, else logs why nothing can
+  /// be exported (`UNMEASURED` or `OUT-OF-BAND`), clears the busy flag
+  /// and returns false.
+  bool _acceptMeasurement(
+    String logLabel,
+    num value, {
+    required String role,
+    required CaptureBracket bracket,
+    required String what,
+    required String unit,
+    required ScaffoldMessengerState messenger,
+  }) {
+    final refusal = measurementRefusal(
+      value,
+      role: role,
+      bracket: bracket,
+      what: what,
+      unit: unit,
+    );
+    if (refusal == null) return true;
+    setState(() {
+      _busy = false;
+      _log.add(
+        '[$logLabel] ${refusal.verdict}: ${refusal.reason}. Nothing to '
+        'export; re-run the leg.',
+      );
+    });
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('$logLabel ${refusal.verdict} (see log)'),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+    return false;
+  }
+
   Future<void> _runSlowRequestCapture({
     required _Tier tier,
     required String label,
@@ -295,6 +378,12 @@ class _NetworkMonitorCaptureScreenState
     final server = _server;
     final client = _client;
     if (server == null || client == null || _busy) return;
+    final bracket = _preflight(
+      '${tier.label}/$label',
+      _CaptureMode.slowRequest,
+      tier.label,
+    );
+    if (bracket == null) return;
     setState(() {
       _busy = true;
       _resetLastLeg();
@@ -343,10 +432,22 @@ class _NetworkMonitorCaptureScreenState
       await Future<void>.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
+      if (!_acceptMeasurement(
+        '${tier.label}/$label',
+        measuredMs,
+        role: label,
+        bracket: bracket,
+        what: 'measured duration',
+        unit: 'ms',
+        messenger: messenger,
+      )) {
+        return;
+      }
       setState(() {
         _busy = false;
         _lastCompletedLeg = label;
         _lastCompletedMode = _CaptureMode.slowRequest;
+        _lastCompletedBracket = bracket;
         _lastCompletedTier = tier;
         _lastMeasuredMs = measuredMs;
         _log.add(
@@ -385,6 +486,8 @@ class _NetworkMonitorCaptureScreenState
     final server = _server;
     final client = _client;
     if (server == null || client == null || _busy) return;
+    final bracket = _preflight(label, _CaptureMode.largeResponse, 'warning');
+    if (bracket == null) return;
     setState(() {
       _busy = true;
       _resetLastLeg();
@@ -412,10 +515,22 @@ class _NetworkMonitorCaptureScreenState
       await Future<void>.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
+      if (!_acceptMeasurement(
+        label,
+        bytes,
+        role: label,
+        bracket: bracket,
+        what: 'response size',
+        unit: 'bytes',
+        messenger: messenger,
+      )) {
+        return;
+      }
       setState(() {
         _busy = false;
         _lastCompletedLeg = label;
         _lastCompletedMode = _CaptureMode.largeResponse;
+        _lastCompletedBracket = bracket;
         _lastObservedBytes = bytes;
         _log.add(
           '[$label] scenario.end (${bytes}B observed, target '
@@ -454,6 +569,8 @@ class _NetworkMonitorCaptureScreenState
     final server = _server;
     final client = _client;
     if (server == null || client == null || _busy) return;
+    final bracket = _preflight(label, _CaptureMode.requestFrequency, 'warning');
+    if (bracket == null) return;
     setState(() {
       _busy = true;
       _resetLastLeg();
@@ -552,10 +669,22 @@ class _NetworkMonitorCaptureScreenState
       Sleuth.resumeAllTimelineStreams();
 
       if (!mounted) return;
+      if (!_acceptMeasurement(
+        label,
+        observedCount,
+        role: label,
+        bracket: bracket,
+        what: 'detector peak count',
+        unit: 'events',
+        messenger: messenger,
+      )) {
+        return;
+      }
       setState(() {
         _busy = false;
         _lastCompletedLeg = label;
         _lastCompletedMode = _CaptureMode.requestFrequency;
+        _lastCompletedBracket = bracket;
         _lastObservedCount = observedCount;
         _log.add(
           '[$label] scenario.end ($observedCount requests sent across '
@@ -593,8 +722,9 @@ class _NetworkMonitorCaptureScreenState
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
     final mode = _lastCompletedMode;
+    final bracket = _lastCompletedBracket;
     final messenger = ScaffoldMessenger.of(context);
-    if (leg == null || mode == null) {
+    if (leg == null || mode == null || bracket == null) {
       setState(() {
         _log.add(
           'Export: no completed leg yet. Tap a leg button and wait '
@@ -610,10 +740,10 @@ class _NetworkMonitorCaptureScreenState
     final scenarioName = (mode == _CaptureMode.slowRequest && tier != null)
         ? _slowRequestScenarioName(tier, leg)
         : '${mode.stableId}_$leg';
-    final bracketSeverityLabel =
-        (mode == _CaptureMode.slowRequest && tier != null)
-        ? tier.label
-        : 'warning';
+    final bracketSeverityLabel = bracket.severityLabel;
+    // The window around the observed value is `expectedMagnitude.min`
+    // and `max`. The leg only completes with a positive measurement, and
+    // the schema needs a positive min no larger than observed.
     final (
       int magnitudeMin,
       int magnitudeObserved,
@@ -628,26 +758,21 @@ class _NetworkMonitorCaptureScreenState
           setState(() => _log.add('Export: missing slow_request ms.'));
           return;
         }
-        magnitude = ((ms - 50).clamp(0, 1 << 30), ms, ms + 50, 'ms');
+        magnitude = (math.max(1, ms - 50), ms, ms + 50, 'ms');
       case _CaptureMode.largeResponse:
         final bytes = _lastObservedBytes;
         if (bytes == null) {
           setState(() => _log.add('Export: missing large_response bytes.'));
           return;
         }
-        magnitude = (
-          (bytes - 1024).clamp(0, 1 << 30),
-          bytes,
-          bytes + 1024,
-          'bytes',
-        );
+        magnitude = (math.max(1, bytes - 1024), bytes, bytes + 1024, 'bytes');
       case _CaptureMode.requestFrequency:
         final count = _lastObservedCount;
         if (count == null) {
           setState(() => _log.add('Export: missing request_frequency count.'));
           return;
         }
-        magnitude = ((count - 2).clamp(0, 1 << 30), count, count + 2, 'events');
+        magnitude = (math.max(1, count - 2), count, count + 2, 'events');
     }
 
     setState(() {
@@ -656,9 +781,10 @@ class _NetworkMonitorCaptureScreenState
     });
 
     String? json;
+    String? localFailure;
     try {
-      final provenance = captureProvenanceOrReport();
-      if (provenance == null) throw StateError('capture provenance');
+      // Checked when the leg started; this is a safety net.
+      final provenance = requireCaptureProvenance();
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg, // 'below' | 'at' | 'above'
@@ -685,23 +811,50 @@ class _NetworkMonitorCaptureScreenState
         bracketSeverityLabel: bracketSeverityLabel,
       );
     } catch (e) {
+      // A failure before or inside the export call; its own text says
+      // why, and `lastCaptureExportFailure` does not describe it.
       json = null;
-      if (mounted) {
-        setState(() {
-          _log.add('[$leg] Export FAILED: $e');
-        });
-      }
+      localFailure = '$e';
     }
     if (!mounted) return;
+    if (localFailure != null) {
+      final failure = localFailure;
+      setState(() {
+        _busy = false;
+        _log.add('[$leg] Export FAILED: $failure');
+      });
+      return;
+    }
     if (json == null) {
+      final reason =
+          Sleuth.lastCaptureExportFailure ?? 'exportCaptureJson gave no reason';
+      setState(() {
+        _busy = false;
+        _log.add('[$leg] Export FAILED: returned null. Reason: $reason');
+      });
+      return;
+    }
+    // The composed capture must pass what the audit checks: no in-span
+    // record for below; for at and above, stamped records whose reduced
+    // value lies in the role band and within the bracket's tolerance of
+    // the measured value.
+    final recordsRefusal = recordRefusal(
+      checkCaptureJson(
+        json,
+        bracket: bracket,
+        role: leg,
+        observed: magnitude.$2,
+        unit: magnitude.$4,
+      ),
+      role: leg,
+      bracket: bracket,
+    );
+    if (recordsRefusal != null) {
       setState(() {
         _busy = false;
         _log.add(
-          '[$leg] Export FAILED: returned null. Common causes: VM '
-          'service disconnected (FRAME mode — kill the app from Xcode '
-          'and re-open from the home screen so VM+ mode activates), '
-          'or scenario markers missing from the trace buffer (re-tap '
-          'the leg and Export within 30 s).',
+          '[$leg] ${recordsRefusal.verdict}: ${recordsRefusal.reason}. '
+          'Nothing copied; re-run the leg.',
         );
       });
       return;

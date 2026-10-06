@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -110,6 +111,9 @@ class _TrackedResourceCaptureScreenState
   bool _busy = false;
   String? _lastCompletedLeg;
   _LegFamily? _lastCompletedLegFamily;
+  // Bracket the last completed leg was judged against; the export
+  // checks its records against the same one.
+  CaptureBracket? _lastCompletedBracket;
   int? _legObservedPeak;
   String? _inFlightScenarioName;
   // Strong-ref list so GC cannot reclaim the workload mid-scenario.
@@ -153,9 +157,17 @@ class _TrackedResourceCaptureScreenState
 
   Future<void> _runLeg(_Leg leg) async {
     if (_busy) return;
+    // Provenance is a property of the build, so a leg that could never
+    // be exported is refused before its wait of up to 600 s.
+    final refusal = provenanceRefusal(leg.label);
+    if (refusal != null) {
+      setState(() => _log.add(refusal));
+      return;
+    }
     setState(() {
       _busy = true;
       _lastCompletedLeg = null;
+      _lastCompletedBracket = null;
       _legObservedPeak = null;
       _log.add(
         '[${leg.label}] pre-leg → untrackAll($_kResourceName), '
@@ -179,6 +191,21 @@ class _TrackedResourceCaptureScreenState
           '[${leg.label}] FAILED: Sleuth.trackedResourceDetector is null. '
           'Verify Sleuth.init() ran with captureMode=true and '
           '--dart-define=SLEUTH_CAPTURE_MODE=true.',
+        );
+      });
+      return;
+    }
+    final bracket = CaptureBracket.fromMetadata(
+      detector.validationMetadata,
+      stableId: leg.scenarioFamily,
+      severityLabel: 'warning',
+    );
+    if (bracket == null) {
+      setState(() {
+        _busy = false;
+        _log.add(
+          '[${leg.label}] FAILED: the detector declares no '
+          '${leg.scenarioFamily}.warning bracket.',
         );
       });
       return;
@@ -267,10 +294,42 @@ class _TrackedResourceCaptureScreenState
       await Future<void>.delayed(const Duration(milliseconds: 600));
 
       if (!mounted) return;
+      // The peak is the leg's observed magnitude. An unmeasured peak or
+      // one outside the leg's band would export a capture the schema or
+      // the audit rejects, so the leg offers no export.
+      final legRefusal = measurementRefusal(
+        observed,
+        role: leg.label,
+        bracket: bracket,
+        what: leg.family == _LegFamily.concurrent
+            ? 'peak live count'
+            : 'peak age',
+        unit: unitLabel,
+      );
+      if (legRefusal != null) {
+        setState(() {
+          _busy = false;
+          _log.add(
+            '[${leg.scenarioFamily}/${leg.label}] ${legRefusal.verdict}: '
+            '${legRefusal.reason}. Nothing to export; re-run the leg.',
+          );
+        });
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              '${leg.scenarioFamily}/${leg.label} ${legRefusal.verdict} '
+              '(see log)',
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
       setState(() {
         _busy = false;
         _lastCompletedLeg = leg.label;
         _lastCompletedLegFamily = leg.family;
+        _lastCompletedBracket = bracket;
         _legObservedPeak = observed;
         _log.add(
           '[${leg.scenarioFamily}/${leg.label}] scenario.end '
@@ -313,9 +372,10 @@ class _TrackedResourceCaptureScreenState
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
     final family = _lastCompletedLegFamily;
+    final bracket = _lastCompletedBracket;
     final observed = _legObservedPeak;
     final messenger = ScaffoldMessenger.of(context);
-    if (leg == null || family == null || observed == null) {
+    if (leg == null || family == null || bracket == null || observed == null) {
       setState(() {
         _log.add(
           'Export: no completed leg yet. Tap a leg button and wait '
@@ -337,14 +397,17 @@ class _TrackedResourceCaptureScreenState
     final unitLabel = family == _LegFamily.concurrent ? 'instances' : 'seconds';
     // ±1 unit absorbs single-step jitter between detector measurement
     // and exportCaptureJson read; observed is load-bearing — bracket
-    // gate cross-checks via the family's observedAxisArgKey.
-    final magnitudeMin = (observed - 1).clamp(0, 1 << 30);
+    // gate cross-checks via the family's observedAxisArgKey. The leg
+    // only completes with a positive peak, and the schema needs a
+    // positive min no larger than observed.
+    final magnitudeMin = math.max(1, observed - 1);
     final magnitudeMax = observed + 1;
 
     String? json;
+    String? localFailure;
     try {
-      final provenance = captureProvenanceOrReport();
-      if (provenance == null) throw StateError('capture provenance');
+      // Checked when the leg started; this is a safety net.
+      final provenance = requireCaptureProvenance();
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg,
@@ -364,12 +427,20 @@ class _TrackedResourceCaptureScreenState
         bracketSeverityLabel: 'warning',
       );
     } catch (e) {
+      // A failure before or inside the export call; its own text says
+      // why, and `lastCaptureExportFailure` does not describe it.
       json = null;
-      if (mounted) {
-        setState(() => _log.add('[$leg] Export FAILED: $e'));
-      }
+      localFailure = '$e';
     }
     if (!mounted) return;
+    if (localFailure != null) {
+      final failure = localFailure;
+      setState(() {
+        _busy = false;
+        _log.add('[$leg] Export FAILED: $failure');
+      });
+      return;
+    }
     if (json == null) {
       final state = Sleuth.diagnoseCaptureState();
       final reason = Sleuth.lastCaptureExportFailure ?? '(no reason captured)';
@@ -381,6 +452,30 @@ class _TrackedResourceCaptureScreenState
           'captureMode=${state.captureMode} '
           'vmConnected=${state.vmConnected}. '
           'Reason: $reason',
+        );
+      });
+      return;
+    }
+    // The composed capture must pass what the audit checks: no in-span
+    // record for below; for at and above, stamped records whose largest
+    // value lies in the role band and near the exported peak.
+    final recordsRefusal = recordRefusal(
+      checkCaptureJson(
+        json,
+        bracket: bracket,
+        role: leg,
+        observed: observed,
+        unit: unitLabel,
+      ),
+      role: leg,
+      bracket: bracket,
+    );
+    if (recordsRefusal != null) {
+      setState(() {
+        _busy = false;
+        _log.add(
+          '[$leg] ${recordsRefusal.verdict}: ${recordsRefusal.reason}. '
+          'Nothing copied; re-run the leg.',
         );
       });
       return;

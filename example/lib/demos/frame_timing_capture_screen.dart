@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -387,6 +386,9 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       // Compose-then-stash: snapshot wrapped JSON immediately while
       // scenario markers are still present in the VM trace buffer.
       String? stashed;
+      // Why the capture did not compose: the export's own reason when it
+      // returned null, or the text of a failure inside the call.
+      String? composeFailure;
       try {
         stashed = await Sleuth.exportCaptureJson(
           scenario: 'frame_timing_jank_detected_${leg.label}',
@@ -410,9 +412,14 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           // operator's measured jank count is authoritative.
           magnitudeSourceEventName: '',
         );
+        if (stashed == null) {
+          composeFailure =
+              Sleuth.lastCaptureExportFailure ??
+              'exportCaptureJson gave no reason';
+        }
       } catch (e) {
         stashed = null;
-        if (kDebugMode) debugPrint('exportCaptureJson threw: $e');
+        composeFailure = '$e';
       }
 
       if (!mounted) return;
@@ -429,10 +436,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         _stashedCaptureJson = inBand ? stashed : null;
         if (stashed == null) {
           _log.add(
-            '[${leg.label}] capture FAILED to compose. Common causes: '
-            '(1) captureMode OFF; (2) VM service disconnected (FRAME '
-            'mode — kill app from Xcode and re-open from home screen); '
-            '(3) scenario markers rolled off the VM ring buffer. '
+            '[${leg.label}] capture FAILED to compose: $composeFailure. '
             'Re-tap leg after fixing.',
           );
         } else if (validationFailure != null) {

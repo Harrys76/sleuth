@@ -39,13 +39,16 @@ class _Leg {
   final int topDeltaMax;
 }
 
-// Bands describe `topGrowthDelta` (single-class delta over K=4) — the
-// same axis the detector gates on AND the BracketSpec validates. Must
-// stay in lockstep with the BracketSpec in
-// `lib/src/detectors/stream_resource_detector.dart`: threshold 50,
-// atTolerance 0.6 (at-band [50, 80]), aboveCeilingMultiplier 3.0
-// (above-band (50, 150]). `totalSubsPerClass` is tuned for the
-// iPhone-12 first-emission ratio (~0.44); above=230 lands ~101.
+// `topDeltaMin` and `topDeltaMax` are only the `expectedMagnitude.min`
+// and `max` the export writes, in `topGrowthDelta` units (single-class
+// delta over K=4). The schema needs min <= observed <= max. They are
+// not the acceptance bands: the screen judges each leg against the
+// detector's bracket (threshold 50, atTolerance 0.6, ceiling 3.0) with
+// `CaptureBracket`, which draws below as under 50, at as [50, 80] and
+// above as (80, 150], the band the audit requires of the above leg's
+// detector value. The above leg's min of 51 is therefore looser than
+// what the screen accepts. `totalSubsPerClass` is tuned for the
+// iPhone 12 first-emission ratio (about 0.44); above=230 lands near 101.
 const _legs = <_Leg>[
   _Leg(label: 'below', totalSubsPerClass: 20, topDeltaMin: 1, topDeltaMax: 49),
   _Leg(label: 'at', totalSubsPerClass: 100, topDeltaMin: 50, topDeltaMax: 80),
@@ -75,6 +78,29 @@ const _allocPollIntervalSec = 10; // K=4 window → 5 polls × 10 s = 50 s scena
 // Detector needs ~3 s warmup + 10 s sustained slope = ~13 s minimum.
 // 25 s gives margin for thermal throttling.
 const _scenarioHeapGrowingTimeoutSec = 25;
+
+/// The bracket every stream leg is judged against, read from [metadata]
+/// (the detector's `validationMetadata`).
+CaptureBracket? streamResourceBracket(DetectorMetadata metadata) =>
+    CaptureBracket.fromMetadata(
+      metadata,
+      stableId: 'stream_resource_growth',
+      severityLabel: 'warning',
+    );
+
+/// Why a below leg cannot be exported given the detector's last
+/// top-class growth [delta], or null when [delta] lies in
+/// `[1, threshold)`. A null delta means no watched class rose at every
+/// poll of the window, which is no measurement at all, so the leg is
+/// `UNMEASURED` rather than exported with an observed value of 0.
+LegRefusal? streamBelowRefusal(int? delta, CaptureBracket bracket) =>
+    measurementRefusal(
+      delta,
+      role: 'below',
+      bracket: bracket,
+      what: 'top-class growth',
+      unit: 'instances',
+    );
 
 class StreamResourceCaptureScreen extends StatefulWidget {
   const StreamResourceCaptureScreen({super.key});
@@ -154,11 +180,32 @@ class _StreamResourceCaptureScreenState
 
   Future<void> _runLeg(_Leg leg) async {
     if (_busy.value) return;
+    // Provenance is a property of the build, so a leg that could never
+    // be exported is refused before the warmup and the 50 s workload.
+    final refusal = provenanceRefusal(leg.label);
+    if (refusal != null) {
+      _appendLog(refusal);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${leg.label} refused: capture provenance (see log)'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
     final monitor = Sleuth.streamResourceDetector;
     if (monitor == null) {
       _appendLog(
         'FAIL: StreamResourceDetector not available — verify '
         'kReleaseMode=false AND DetectorType.streamResource enabled.',
+      );
+      return;
+    }
+    final bracket = streamResourceBracket(monitor.validationMetadata);
+    if (bracket == null) {
+      _appendLog(
+        'FAIL: StreamResourceDetector declares no '
+        'stream_resource_growth.warning bracket.',
       );
       return;
     }
@@ -289,6 +336,7 @@ class _StreamResourceCaptureScreenState
       if (!mounted) return;
 
       await Sleuth.resumeAllTimelineStreams();
+      if (!mounted) return;
 
       final observedDelta = monitor.lastObservedTopGrowthDelta;
       final samples = monitor.lastObservedSamplesInWindow;
@@ -316,16 +364,30 @@ class _StreamResourceCaptureScreenState
         return;
       }
 
-      String? stashed;
-      String? rewriteError;
+      // A below leg exports the detector's own top-class growth, so it
+      // needs one in [1, threshold). A null growth is no measurement and
+      // the schema rejects an observed value of 0.
+      if (leg.label == 'below') {
+        final belowRefusal = streamBelowRefusal(observedDelta, bracket);
+        if (belowRefusal != null) {
+          _refuseLeg(leg, belowRefusal, messenger);
+          return;
+        }
+      }
+
+      String? exported;
+      String? exportFailure;
       try {
-        final provenance = captureProvenanceOrReport();
-        if (provenance == null) throw StateError('capture provenance');
-        stashed = await Sleuth.exportCaptureJson(
+        // Checked when the leg started; this is a safety net.
+        final provenance = requireCaptureProvenance();
+        exported = await Sleuth.exportCaptureJson(
           scenario: scenarioName,
           role: leg.label,
           magnitudeMin: leg.topDeltaMin,
-          magnitudeObserved: observedDelta ?? 0,
+          // The at and above values are placeholders; the post-process
+          // after the export replaces them with the in-span detector
+          // value.
+          magnitudeObserved: observedDelta ?? leg.topDeltaMin,
           magnitudeMax: leg.topDeltaMax,
           unit: 'instances',
           device: provenance.device,
@@ -336,52 +398,91 @@ class _StreamResourceCaptureScreenState
           bracketStableId: 'stream_resource_growth',
           bracketSeverityLabel: 'warning',
         );
-        if (stashed != null) {
-          // Align operator-claimed observed to the detector-stamped
-          // `topGrowthDelta` so bracket-band check + per-record
-          // cross-check + axis-in-role-band all reduce to one value.
-          try {
-            final detectorObserved = _extractTopGrowthDeltaMax(stashed);
-            if (detectorObserved != null) {
-              stashed = _replaceExpectedObserved(stashed, detectorObserved);
-            } else if (leg.label != 'below') {
-              rewriteError =
-                  'no `sleuth.issue.stream_resource_growth.warning` event '
-                  'in scenario span — cannot rewrite expectedMagnitude.observed';
-            }
-          } catch (e) {
-            rewriteError = '$e';
-          }
+        if (exported == null) {
+          exportFailure =
+              Sleuth.lastCaptureExportFailure ??
+              'exportCaptureJson returned null without a reason';
         }
       } catch (e, st) {
         developer.log(
-          '[sleuth.capture] exportCaptureJson threw: $e',
+          '[sleuth.capture] export threw: $e',
           name: 'sleuth.capture',
           error: e,
           stackTrace: st,
         );
-        stashed = null;
+        exportFailure = '$e';
       }
-      if (rewriteError != null) {
-        _appendLog('[${leg.label}] post-process WARNING: $rewriteError');
+      if (!mounted) return;
+      if (exported == null) {
+        _appendLog('[${leg.label}] export FAILED: $exportFailure');
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('${leg.label} export failed (see log)'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
       }
 
-      if (!mounted) return;
-      _lastCompletedLeg = stashed != null ? leg.label : null;
-      _stashedCaptureJson = stashed;
-      if (stashed == null) {
-        final reason = Sleuth.lastCaptureExportFailure ?? '<unknown>';
-        _appendLog('[${leg.label}] export FAILED: $reason');
-      } else {
-        _appendLog('[${leg.label}] export OK');
+      // The at and above legs take `expectedMagnitude.observed` from
+      // the in-span detector records, reduced the way the audit reduces
+      // them, so the bracket check, the per-record cross-check and the
+      // role-band check all judge one value. Any failure here stops the
+      // stash.
+      var json = exported;
+      final CaptureRecordCount records;
+      final num observed;
+      try {
+        records = countCaptureRecords(json, bracket: bracket, role: leg.label);
+        if (leg.label == 'below') {
+          observed = observedDelta!;
+        } else {
+          final reduced = records.reduced;
+          if (reduced == null) {
+            throw StateError(
+              'no stamped in-span ${bracket.eventName} record to set '
+              'expectedMagnitude.observed from',
+            );
+          }
+          json = _replaceExpectedObserved(json, reduced);
+          observed = reduced;
+        }
+      } catch (e) {
+        _appendLog(
+          '[${leg.label}] post-process FAILED: $e. Nothing stashed; re-run '
+          'the leg.',
+        );
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('${leg.label} post-process failed (see log)'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
       }
+
+      final recordsRefusal = recordRefusal(
+        checkCaptureRecords(
+          records,
+          bracket: bracket,
+          role: leg.label,
+          observed: leg.label == 'below' ? null : observed,
+          unit: 'instances',
+        ),
+        role: leg.label,
+        bracket: bracket,
+      );
+      if (recordsRefusal != null) {
+        _refuseLeg(leg, recordsRefusal, messenger);
+        return;
+      }
+
+      _lastCompletedLeg = leg.label;
+      _stashedCaptureJson = json;
+      _appendLog('[${leg.label}] export OK (observed Δ $observed)');
       messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            stashed != null
-                ? '${leg.label} OK (Δ=${observedDelta ?? 0}). Tap Export.'
-                : '${leg.label} FAILED — see log',
-          ),
+          content: Text('${leg.label} OK (Δ=$observed). Tap Export.'),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -400,8 +501,11 @@ class _StreamResourceCaptureScreenState
       try {
         await Sleuth.resumeAllTimelineStreams();
       } catch (_) {}
-      _phaseStatus.value = 'idle';
-      _busy.value = false;
+      // The notifiers are disposed with the screen.
+      if (mounted) {
+        _phaseStatus.value = 'idle';
+        _busy.value = false;
+      }
     }
   }
 
@@ -443,34 +547,23 @@ class _StreamResourceCaptureScreenState
     }
   }
 
-  /// Returns max `topGrowthDelta` across detector emissions in the
-  /// span (mirrors schema default `observedAxisReduction: 'max'`), or
-  /// null when no emission landed (sub-threshold workload).
-  num? _extractTopGrowthDeltaMax(String json) {
-    final root = jsonDecode(json) as Map<String, dynamic>;
-    final events = root['traceEvents'];
-    if (events is! List) return null;
-    num? max;
-    for (final ev in events) {
-      if (ev is! Map) continue;
-      if (ev['name'] != 'sleuth.issue.stream_resource_growth.warning') continue;
-      final args = ev['args'];
-      if (args is! Map) continue;
-      Object? raw = args['topGrowthDelta'];
-      if (raw == null) {
-        final dartArgs = args['Dart Arguments'];
-        if (dartArgs is Map) raw = dartArgs['topGrowthDelta'];
-      }
-      num? parsed;
-      if (raw is String && raw.isNotEmpty) {
-        parsed = num.tryParse(raw);
-      } else if (raw is num) {
-        parsed = raw;
-      }
-      if (parsed == null) continue;
-      if (max == null || parsed > max) max = parsed;
-    }
-    return max;
+  /// Logs why [leg] stashes nothing (`[<leg>] UNMEASURED: ...` or
+  /// `[<leg>] OUT-OF-BAND: ...`) and says so in a snackbar.
+  void _refuseLeg(
+    _Leg leg,
+    LegRefusal refusal,
+    ScaffoldMessengerState messenger,
+  ) {
+    _appendLog(
+      '[${leg.label}] ${refusal.verdict}: ${refusal.reason}. Nothing '
+      'stashed; re-run the leg.',
+    );
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('${leg.label} ${refusal.verdict} (see log)'),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   /// Returns a copy of [json] with `expectedMagnitude.observed`
