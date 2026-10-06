@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:sleuth_mcp/sleuth_mcp.dart';
 import 'package:test/test.dart';
 
+import '../helpers/stubborn_process.dart';
+
 /// Long-lived fake iproxy process: stdout/stderr stay OPEN so the
 /// readiness window sees no early exit and the attach proceeds.
 class _FakeLiveProcess implements Process {
@@ -40,8 +42,7 @@ void main() {
     setUp(() => tmp = Directory.systemTemp.createTempSync('sleuth_attach_'));
     tearDown(() => tmp.deleteSync(recursive: true));
 
-    test(
-        'drops the excluded (dead) announcement and selects the live port — '
+    test('drops the excluded (dead) announcement and selects the live port — '
         'even though the dead port has the higher interface index', () async {
       // Dead port wins selectUsbAnnouncement's highest-interface-index
       // heuristic (iface 25 vs 24). Only the excludePorts filter can
@@ -51,8 +52,8 @@ void main() {
       const livePort = 50002;
       final attacher = IosAttacher(
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(1, 0, '', ''),
-        iproxyStart: (_, __) async => _FakeLiveProcess(),
+        run: (_, _) async => ProcessResult(1, 0, '', ''),
+        iproxyStart: (_, _) async => _FakeLiveProcess(),
         bonjourLines: (bundle, service) async* {
           yield _reachedAt(deadPort, 25);
           yield ' authCode=deadAuth=';
@@ -75,57 +76,61 @@ void main() {
       await result.teardown();
     });
 
-    test('exclusion that empties the probe falls through to the launch branch',
-        () async {
-      const deadPort = 50001;
-      const livePort = 50002;
-      var launched = false;
-      var resolveCall = 0;
-      final attacher = IosAttacher(
-        hasTool: (_) async => true,
-        run: (exec, args) async {
-          if (args.contains('launch')) launched = true;
-          return ProcessResult(1, 0, '', '');
-        },
-        iproxyStart: (_, __) async => _FakeLiveProcess(),
-        bonjourLines: (bundle, service) async* {
-          resolveCall++;
-          if (resolveCall == 1) {
-            // Probe: only the dead port is announced → excluded → empty.
-            yield _reachedAt(deadPort, 25);
-            yield ' authCode=deadAuth=';
-          } else {
-            // Post-launch: the fresh live service is now announced.
-            yield _reachedAt(livePort, 24);
-            yield ' authCode=liveAuth=';
-          }
-        },
-      );
-
-      final result = await attacher.attach(
-        udid: 'U',
-        bundle: 'b',
-        transportOverride: IosTransport.wired,
-        excludePorts: const {deadPort},
-        pidfileDirectory: tmp.path,
-        launchSettle: Duration.zero,
-        readinessWindow: const Duration(milliseconds: 50),
-      );
-
-      expect(launched, isTrue,
-          reason: 'empty-after-exclusion probe must trigger devicectl launch');
-      expect(result.selected.port, livePort);
-      await result.teardown();
-    });
-
     test(
-        'devicectl launch timeout throws launchFailed (bounds a wedged '
+      'exclusion that empties the probe falls through to the launch branch',
+      () async {
+        const deadPort = 50001;
+        const livePort = 50002;
+        var launched = false;
+        var resolveCall = 0;
+        final attacher = IosAttacher(
+          hasTool: (_) async => true,
+          run: (exec, args) async {
+            if (args.contains('launch')) launched = true;
+            return ProcessResult(1, 0, '', '');
+          },
+          iproxyStart: (_, _) async => _FakeLiveProcess(),
+          bonjourLines: (bundle, service) async* {
+            resolveCall++;
+            if (resolveCall == 1) {
+              // Probe: only the dead port is announced → excluded → empty.
+              yield _reachedAt(deadPort, 25);
+              yield ' authCode=deadAuth=';
+            } else {
+              // Post-launch: the fresh live service is now announced.
+              yield _reachedAt(livePort, 24);
+              yield ' authCode=liveAuth=';
+            }
+          },
+        );
+
+        final result = await attacher.attach(
+          udid: 'U',
+          bundle: 'b',
+          transportOverride: IosTransport.wired,
+          excludePorts: const {deadPort},
+          pidfileDirectory: tmp.path,
+          launchSettle: Duration.zero,
+          readinessWindow: const Duration(milliseconds: 50),
+        );
+
+        expect(
+          launched,
+          isTrue,
+          reason: 'empty-after-exclusion probe must trigger devicectl launch',
+        );
+        expect(result.selected.port, livePort);
+        await result.teardown();
+      },
+    );
+
+    test('devicectl launch timeout throws launchFailed (bounds a wedged '
         'devicectl so the attach mutex is released)', () async {
       final attacher = IosAttacher(
         hasTool: (_) async => true,
         // Never completes — models a wedged `xcrun devicectl`.
-        run: (_, __) => Completer<ProcessResult>().future,
-        iproxyStart: (_, __) async => _FakeLiveProcess(),
+        run: (_, _) => Completer<ProcessResult>().future,
+        iproxyStart: (_, _) async => _FakeLiveProcess(),
         bonjourLines: (bundle, service) async* {
           // Empty probe → launch branch → the hung run() above.
         },
@@ -139,38 +144,210 @@ void main() {
           pidfileDirectory: tmp.path,
           devicectlTimeout: const Duration(milliseconds: 80),
         ),
-        throwsA(isA<IosAttachException>()
-            .having((e) => e.kind, 'kind', IosAttachErrorKind.launchFailed)),
+        throwsA(
+          isA<IosAttachException>().having(
+            (e) => e.kind,
+            'kind',
+            IosAttachErrorKind.launchFailed,
+          ),
+        ),
       );
     });
 
-    test('ambiguousPairings exception lists distinctAuthCodes sorted',
-        () async {
+    test(
+      'ambiguousPairings exception lists distinctAuthCodes sorted',
+      () async {
+        final attacher = IosAttacher(
+          hasTool: (_) async => true,
+          run: (_, _) async => ProcessResult(1, 0, '', ''),
+          iproxyStart: (_, _) async => _FakeLiveProcess(),
+          bonjourLines: (bundle, service) async* {
+            yield _reachedAt(50001, 25);
+            yield ' authCode=zzz=';
+            yield _reachedAt(50002, 24);
+            yield ' authCode=aaa=';
+          },
+        );
+
+        try {
+          await attacher.attach(
+            udid: 'U',
+            bundle: 'b',
+            transportOverride: IosTransport.wired,
+            pidfileDirectory: tmp.path,
+            launchSettle: Duration.zero,
+          );
+          fail('expected ambiguousPairings');
+        } on IosAttachException catch (e) {
+          expect(e.kind, IosAttachErrorKind.ambiguousPairings);
+          expect(e.data?['distinctAuthCodes'], ['aaa', 'zzz']);
+        }
+      },
+    );
+  });
+
+  group('IosAttacher.attach cancellation and owned children', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('sleuth_attach_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('a cancel interrupts a wedged devicectl launch at once instead of '
+        'waiting for its timeout', () async {
+      final cancel = StreamController<void>();
+      final launching = Completer<void>();
       final attacher = IosAttacher(
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(1, 0, '', ''),
-        iproxyStart: (_, __) async => _FakeLiveProcess(),
-        bonjourLines: (bundle, service) async* {
-          yield _reachedAt(50001, 25);
-          yield ' authCode=zzz=';
-          yield _reachedAt(50002, 24);
-          yield ' authCode=aaa=';
+        run: (_, args) {
+          if (args.contains('launch') && !launching.isCompleted) {
+            launching.complete();
+          }
+          return Completer<ProcessResult>().future;
         },
+        iproxyStart: (_, _) async => _FakeLiveProcess(),
+        bonjourLines: (bundle, service) async* {},
       );
+      final attach = attacher.attach(
+        udid: 'U',
+        bundle: 'b',
+        transportOverride: IosTransport.wired,
+        pidfileDirectory: tmp.path,
+        cancelSignal: cancel.stream,
+      );
+      final outcome = expectLater(
+        attach.timeout(const Duration(seconds: 2)),
+        throwsA(
+          isA<IosAttachException>().having(
+            (e) => e.kind,
+            'kind',
+            IosAttachErrorKind.cancelled,
+          ),
+        ),
+      );
+      await launching.future;
+      cancel.add(null);
+      await outcome;
+      await cancel.close();
+    });
 
-      try {
-        await attacher.attach(
-          udid: 'U',
-          bundle: 'b',
-          transportOverride: IosTransport.wired,
-          pidfileDirectory: tmp.path,
-          launchSettle: Duration.zero,
+    group('owned children', () {
+      IosAttacher ownedAttacher(Future<Process> Function(String exe) start) =>
+          IosAttacher(
+            hasTool: (_) async => true,
+            start: (exe, _) => start(exe),
+            iproxyStart: (_, _) async => _FakeLiveProcess(),
+          );
+
+      test('a cancel during devicectl launch kills the child before the '
+          'attach ends', () async {
+        final devicectl = StubbornProcess();
+        final cancel = StreamController<void>();
+        final attach =
+            ownedAttacher((exe) async {
+              if (exe == 'dns-sd') return StubbornProcess();
+              return devicectl;
+            }).attach(
+              udid: 'U',
+              bundle: 'b',
+              transportOverride: IosTransport.wired,
+              forceRelaunch: true,
+              pidfileDirectory: tmp.path,
+              cancelSignal: cancel.stream,
+            );
+        final outcome = expectLater(
+          attach.timeout(const Duration(seconds: 3)),
+          throwsA(
+            isA<IosAttachException>().having(
+              (e) => e.kind,
+              'kind',
+              IosAttachErrorKind.cancelled,
+            ),
+          ),
         );
-        fail('expected ambiguousPairings');
-      } on IosAttachException catch (e) {
-        expect(e.kind, IosAttachErrorKind.ambiguousPairings);
-        expect(e.data?['distinctAuthCodes'], ['aaa', 'zzz']);
-      }
+        await devicectl.started;
+        cancel.add(null);
+        await outcome;
+        expect(devicectl.signals, [ProcessSignal.sigterm]);
+        expect(devicectl.exited, isTrue);
+        await cancel.close();
+      });
+
+      test('a devicectl launch that times out is killed, and the error says '
+          'it timed out', () async {
+        final devicectl = StubbornProcess(
+          exitsOn: const {ProcessSignal.sigkill},
+        );
+        await expectLater(
+          ownedAttacher((_) async => devicectl).attach(
+            udid: 'U',
+            bundle: 'b',
+            transportOverride: IosTransport.wired,
+            forceRelaunch: true,
+            pidfileDirectory: tmp.path,
+            devicectlTimeout: const Duration(milliseconds: 80),
+          ),
+          throwsA(
+            isA<IosAttachException>()
+                .having((e) => e.kind, 'kind', IosAttachErrorKind.launchFailed)
+                .having((e) => e.message, 'message', contains('timed out')),
+          ),
+        );
+        expect(devicectl.signals, [
+          ProcessSignal.sigterm,
+          ProcessSignal.sigkill,
+        ]);
+      });
+
+      test('a devicectl device list that times out is killed and reported '
+          'as launchFailed', () async {
+        final devicectl = StubbornProcess();
+        await expectLater(
+          ownedAttacher((_) async => devicectl).attach(
+            udid: 'U',
+            bundle: 'b',
+            pidfileDirectory: tmp.path,
+            devicectlTimeout: const Duration(milliseconds: 80),
+          ),
+          throwsA(
+            isA<IosAttachException>()
+                .having((e) => e.kind, 'kind', IosAttachErrorKind.launchFailed)
+                .having((e) => e.message, 'message', contains('list devices')),
+          ),
+        );
+        expect(devicectl.signals, [ProcessSignal.sigterm]);
+      });
+
+      test('a cancel during the Bonjour browse kills dns-sd before the attach '
+          'ends', () async {
+        final dnsSd = StubbornProcess();
+        final cancel = StreamController<void>();
+        final attach =
+            ownedAttacher((exe) async {
+              if (exe == 'dns-sd') return dnsSd;
+              throw StateError('$exe must not start after the cancel');
+            }).attach(
+              udid: 'U',
+              bundle: 'b',
+              transportOverride: IosTransport.wired,
+              pidfileDirectory: tmp.path,
+              cancelSignal: cancel.stream,
+            );
+        final outcome = expectLater(
+          attach.timeout(const Duration(seconds: 4)),
+          throwsA(
+            isA<IosAttachException>().having(
+              (e) => e.kind,
+              'kind',
+              IosAttachErrorKind.cancelled,
+            ),
+          ),
+        );
+        await dnsSd.started;
+        cancel.add(null);
+        await outcome;
+        expect(dnsSd.signals, [ProcessSignal.sigterm]);
+        expect(dnsSd.exited, isTrue);
+        await cancel.close();
+      });
     });
   });
 }

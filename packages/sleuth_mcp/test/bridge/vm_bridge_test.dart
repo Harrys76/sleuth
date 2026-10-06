@@ -79,35 +79,45 @@ void main() {
   });
 
   group('versionSkewValidator chokepoint', () {
-    test('refusal collapses the bridge in place + throws VmBridgeException',
-        () async {
-      // Validator returns a non-null refusal — bridge must disconnect
-      // before surfacing the exception so retry / reconnect paths cannot
-      // keep talking to the rejected app.
-      final bridge = FakeVmBridge(
-        envelopes: {
-          'ext.sleuth.diagnose': {
-            'connectionMode': 'basic',
-            'schemaVersion': 1,
-            'sessionUuid': 'uuid',
-            'data': {'packageVersion': '0.99.0'},
+    test(
+      'refusal collapses the bridge in place + throws VmBridgeException',
+      () async {
+        // Validator returns a non-null refusal — bridge must disconnect
+        // before surfacing the exception so retry / reconnect paths cannot
+        // keep talking to the rejected app.
+        final bridge = FakeVmBridge(
+          envelopes: {
+            'ext.sleuth.diagnose': {
+              'connectionMode': 'basic',
+              'schemaVersion': 1,
+              'sessionUuid': 'uuid',
+              'data': {'packageVersion': '0.99.0'},
+            },
           },
-        },
-        versionSkewValidator: (env) async {
-          final data = env['data'] as Map<String, Object?>?;
-          final v = data?['packageVersion'];
-          if (v != '0.33.0') return 'version_skew_major: synthetic refusal';
-          return null;
-        },
-      );
-      await expectLater(
-        () => bridge.connect(Uri.parse('ws://localhost/ws')),
-        throwsA(isA<VmBridgeException>()
-            .having((e) => e.message, 'message', contains('version_skew_'))),
-      );
-      expect(bridge.isConnected, isFalse,
-          reason: 'bridge must be torn down when validator refuses');
-    });
+          versionSkewValidator: (env) async {
+            final data = env['data'] as Map<String, Object?>?;
+            final v = data?['packageVersion'];
+            if (v != '0.33.0') return 'version_skew_major: synthetic refusal';
+            return null;
+          },
+        );
+        await expectLater(
+          () => bridge.connect(Uri.parse('ws://localhost/ws')),
+          throwsA(
+            isA<VmBridgeException>().having(
+              (e) => e.message,
+              'message',
+              contains('version_skew_'),
+            ),
+          ),
+        );
+        expect(
+          bridge.isConnected,
+          isFalse,
+          reason: 'bridge must be torn down when validator refuses',
+        );
+      },
+    );
 
     test('null return lets connect succeed normally', () async {
       final bridge = FakeVmBridge(
@@ -126,37 +136,47 @@ void main() {
       expect(bridge.isConnected, isTrue);
     });
 
-    test('defaultVersionSkewValidator refuses on missing packageVersion',
-        () async {
-      final refusal = await defaultVersionSkewValidator({
-        'sessionUuid': 'uuid',
-        'data': const <String, Object?>{},
-      });
-      expect(refusal, isNotNull);
-      expect(refusal, contains('version_skew_unknown'));
-    });
+    test(
+      'defaultVersionSkewValidator refuses on missing packageVersion',
+      () async {
+        final refusal = await defaultVersionSkewValidator({
+          'sessionUuid': 'uuid',
+          'data': const <String, Object?>{},
+        });
+        expect(refusal, isNotNull);
+        expect(refusal, contains('version_skew_unknown'));
+      },
+    );
 
-    test('defaultVersionSkewValidator passes on accepted prior lineage',
-        () async {
-      // `acceptedPriorLineages` contains the previous lineage — transition window.
-      final refusal = await defaultVersionSkewValidator({
-        'sessionUuid': 'uuid',
-        'data': {'packageVersion': '0.35.5'},
-      });
-      expect(refusal, isNull,
-          reason: 'cross-lineage tolerance must not surface as bridge-layer '
-              'refusal — sidecar handles it as a warning at the tool layer');
-    });
+    test(
+      'defaultVersionSkewValidator passes on accepted prior lineage',
+      () async {
+        // `acceptedPriorLineages` contains the previous lineage — transition window.
+        final refusal = await defaultVersionSkewValidator({
+          'sessionUuid': 'uuid',
+          'data': {'packageVersion': '0.36.5'},
+        });
+        expect(
+          refusal,
+          isNull,
+          reason:
+              'cross-lineage tolerance must not surface as bridge-layer '
+              'refusal — sidecar handles it as a warning at the tool layer',
+        );
+      },
+    );
 
-    test('defaultVersionSkewValidator refuses on cross-lineage drift',
-        () async {
-      final refusal = await defaultVersionSkewValidator({
-        'sessionUuid': 'uuid',
-        'data': {'packageVersion': '0.99.0'},
-      });
-      expect(refusal, isNotNull);
-      expect(refusal, contains('version_skew_major'));
-    });
+    test(
+      'defaultVersionSkewValidator refuses on cross-lineage drift',
+      () async {
+        final refusal = await defaultVersionSkewValidator({
+          'sessionUuid': 'uuid',
+          'data': {'packageVersion': '0.99.0'},
+        });
+        expect(refusal, isNotNull);
+        expect(refusal, contains('version_skew_major'));
+      },
+    );
 
     test(
       'isConnected stays false while validator is in flight (race guard)',
@@ -181,19 +201,27 @@ void main() {
         final connectFuture = bridge.connect(Uri.parse('ws://localhost/ws'));
         // Yield once to let `connect()` reach the awaited validator.
         await Future<void>.delayed(Duration.zero);
-        expect(bridge.isConnected, isFalse,
-            reason: 'bridge must not report connected while validator is '
-                'pending — concurrent callExtension would race past the gate');
+        expect(
+          bridge.isConnected,
+          isFalse,
+          reason:
+              'bridge must not report connected while validator is '
+              'pending — concurrent callExtension would race past the gate',
+        );
         await expectLater(
           () => bridge.callExtension('ext.sleuth.diagnose'),
           throwsA(isA<VmBridgeException>()),
-          reason: 'callExtension must refuse to dispatch against an '
+          reason:
+              'callExtension must refuse to dispatch against an '
               'unvalidated bridge',
         );
         hold.complete(null);
         await connectFuture;
-        expect(bridge.isConnected, isTrue,
-            reason: 'bridge flips to connected once validator clears');
+        expect(
+          bridge.isConnected,
+          isTrue,
+          reason: 'bridge flips to connected once validator clears',
+        );
         // After-validator dispatch succeeds.
         final env = await bridge.callExtension('ext.sleuth.diagnose');
         expect(env['sessionUuid'], 'uuid');
@@ -242,20 +270,37 @@ void main() {
 
     setUpAll(() {
       developer.registerExtension('ext.sleuth.diagnose', (method, args) async {
-        return developer.ServiceExtensionResponse.result(jsonEncode({
-          'connectionMode': 'basic',
-          'schemaVersion': 1,
-          'sessionUuid': fixture.diagnoseUuid,
-          'data': {'packageVersion': fixture.packageVersion},
-        }));
+        return developer.ServiceExtensionResponse.result(
+          jsonEncode({
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': fixture.diagnoseUuid,
+            'data': {'packageVersion': fixture.packageVersion},
+          }),
+        );
       });
       developer.registerExtension('ext.test.echo', (method, args) async {
-        return developer.ServiceExtensionResponse.result(jsonEncode({
-          'connectionMode': 'basic',
-          'schemaVersion': 1,
-          'sessionUuid': fixture.diagnoseUuid,
-          'data': const <String, Object?>{'echo': 'ok'},
-        }));
+        return developer.ServiceExtensionResponse.result(
+          jsonEncode({
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': fixture.diagnoseUuid,
+            'data': const <String, Object?>{'echo': 'ok'},
+          }),
+        );
+      });
+      // Answers only once the test completes `fixture.slowGate`, like an
+      // app whose main isolate is busy.
+      developer.registerExtension('ext.test.slow', (method, args) async {
+        await fixture.slowGate.future;
+        return developer.ServiceExtensionResponse.result(
+          jsonEncode({
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': fixture.diagnoseUuid,
+            'data': const <String, Object?>{'slow': 'ok'},
+          }),
+        );
       });
     });
 
@@ -263,6 +308,12 @@ void main() {
       // Reset between tests so each starts with predictable state.
       fixture.diagnoseUuid = 'shared-default-uuid';
       fixture.packageVersion = '0.33.0';
+      fixture.slowGate = Completer<void>();
+    });
+
+    tearDown(() {
+      // Let any slow call still pending answer before the next test.
+      if (!fixture.slowGate.isCompleted) fixture.slowGate.complete();
     });
 
     Future<Uri?> ensureWsUri() async {
@@ -273,135 +324,137 @@ void main() {
       return info.serverWebSocketUri;
     }
 
-    test(
-      'validator refusal leaves bridge fully disconnected; '
-      'subsequent callExtension surfaces "not connected"',
-      () async {
-        fixture.diagnoseUuid = 'refuse-uuid';
-        fixture.packageVersion = '0.99.0';
-        final wsUri = await ensureWsUri();
-        if (wsUri == null) {
-          markTestSkipped('VM service not available');
-          return;
-        }
-        final bridge = RealVmBridge(
-          callTimeout: const Duration(seconds: 5),
-          targetIsolateIdOverride: currentIsolateId,
-          versionSkewValidator: (env) async {
-            final data = env['data'] as Map<String, Object?>?;
-            if (data?['packageVersion'] != '0.33.0') {
-              return 'version_skew_major: synthetic';
-            }
-            return null;
-          },
-        );
-        await expectLater(
-          () => bridge.connect(wsUri),
-          throwsA(isA<VmBridgeException>().having(
+    test('validator refusal leaves bridge fully disconnected; '
+        'subsequent callExtension surfaces "not connected"', () async {
+      fixture.diagnoseUuid = 'refuse-uuid';
+      fixture.packageVersion = '0.99.0';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+        versionSkewValidator: (env) async {
+          final data = env['data'] as Map<String, Object?>?;
+          if (data?['packageVersion'] != '0.33.0') {
+            return 'version_skew_major: synthetic';
+          }
+          return null;
+        },
+      );
+      await expectLater(
+        () => bridge.connect(wsUri),
+        throwsA(
+          isA<VmBridgeException>().having(
             (e) => e.message,
             'message',
             contains('version_skew_'),
-          )),
-        );
-        expect(bridge.isConnected, isFalse);
-        // Post-refusal dispatch must hit the "not connected" branch,
-        // proving the try/catch in `_connectUnlocked` collapsed
-        // `_service` + `_mainIsolateId` before rethrowing. If the
-        // cleanup were skipped, the gate would still fire but the
-        // message would be the validated-gate one instead.
-        await expectLater(
-          () => bridge.callExtension('ext.sleuth.diagnose'),
-          throwsA(isA<VmBridgeException>().having(
+          ),
+        ),
+      );
+      expect(bridge.isConnected, isFalse);
+      // Post-refusal dispatch must hit the "not connected" branch,
+      // proving the try/catch in `_connectUnlocked` collapsed
+      // `_service` + `_mainIsolateId` before rethrowing. If the
+      // cleanup were skipped, the gate would still fire but the
+      // message would be the validated-gate one instead.
+      await expectLater(
+        () => bridge.callExtension('ext.sleuth.diagnose'),
+        throwsA(
+          isA<VmBridgeException>().having(
             (e) => e.message,
             'message',
             contains('not connected'),
-          )),
-        );
-      },
-      timeout: const Timeout(Duration(seconds: 30)),
-    );
+          ),
+        ),
+      );
+    }, timeout: const Timeout(Duration(seconds: 30)));
 
-    test(
-      'concurrent callExtension during validator window is blocked '
-      'by _validated gate',
-      () async {
-        fixture.diagnoseUuid = 'race-uuid';
-        final wsUri = await ensureWsUri();
-        if (wsUri == null) {
-          markTestSkipped('VM service not available');
-          return;
-        }
-        final hold = Completer<String?>();
-        final bridge = RealVmBridge(
-          callTimeout: const Duration(seconds: 5),
-          targetIsolateIdOverride: currentIsolateId,
-          versionSkewValidator: (_) => hold.future,
-        );
-        final connectFuture = bridge.connect(wsUri);
-        // Yield until `_service` + `_mainIsolateId` are published but
-        // `_validated` is still false (validator awaiting Completer).
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        expect(bridge.isConnected, isFalse,
-            reason: 'gate must keep isConnected false during validation');
-        await expectLater(
-          () => bridge.callExtension('ext.test.echo'),
-          throwsA(isA<VmBridgeException>().having(
+    test('concurrent callExtension during validator window is blocked '
+        'by _validated gate', () async {
+      fixture.diagnoseUuid = 'race-uuid';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final hold = Completer<String?>();
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+        versionSkewValidator: (_) => hold.future,
+      );
+      final connectFuture = bridge.connect(wsUri);
+      // Yield until `_service` + `_mainIsolateId` are published but
+      // `_validated` is still false (validator awaiting Completer).
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        bridge.isConnected,
+        isFalse,
+        reason: 'gate must keep isConnected false during validation',
+      );
+      await expectLater(
+        () => bridge.callExtension('ext.test.echo'),
+        throwsA(
+          isA<VmBridgeException>().having(
             (e) => e.message,
             'message',
             contains('not yet validated'),
-          )),
-          reason: 'public callExtension must not bypass the gate',
-        );
-        hold.complete(null);
-        await connectFuture;
-        expect(bridge.isConnected, isTrue);
-        // After-validator dispatch succeeds — confirms the bootstrap
-        // diagnose-fetch path uses `bypassValidatedGate: true` and the
-        // gate is satisfied for normal callers post-validation.
-        final env = await bridge.callExtension('ext.test.echo');
-        expect(env['sessionUuid'], 'race-uuid');
-        await bridge.disconnect();
-      },
-      timeout: const Timeout(Duration(seconds: 30)),
-    );
+          ),
+        ),
+        reason: 'public callExtension must not bypass the gate',
+      );
+      hold.complete(null);
+      await connectFuture;
+      expect(bridge.isConnected, isTrue);
+      // After-validator dispatch succeeds — confirms the bootstrap
+      // diagnose-fetch path uses `bypassValidatedGate: true` and the
+      // gate is satisfied for normal callers post-validation.
+      final env = await bridge.callExtension('ext.test.echo');
+      expect(env['sessionUuid'], 'race-uuid');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
 
     // Uses `debugSimulateReconnect()` rather than a mock because
     // `_ensureReconnected` is the production reconnect path; swapping
     // `_callExtensionRaw` with a mock would bypass the very
     // `_connectUnlocked` logic (priorBaseline capture + session-rotation
     // guard) under test.
-    test(
-      'reconnect with rotated sessionUuid throws '
-      'SessionChangedException and tears down the bridge',
-      () async {
-        fixture.diagnoseUuid = 'session-A';
-        final wsUri = await ensureWsUri();
-        if (wsUri == null) {
-          markTestSkipped('VM service not available');
-          return;
-        }
-        final bridge = RealVmBridge(
-          callTimeout: const Duration(seconds: 5),
-          targetIsolateIdOverride: currentIsolateId,
-        );
-        await bridge.connect(wsUri);
-        expect(bridge.baselineSessionUuid, 'session-A');
-        expect(bridge.isConnected, isTrue);
-        // Simulate hot-restart: target app now reports a new uuid.
-        fixture.diagnoseUuid = 'session-B';
-        await expectLater(
-          bridge.debugSimulateReconnect(),
-          throwsA(isA<SessionChangedException>()
+    test('reconnect with rotated sessionUuid throws '
+        'SessionChangedException and tears down the bridge', () async {
+      fixture.diagnoseUuid = 'session-A';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(wsUri);
+      expect(bridge.baselineSessionUuid, 'session-A');
+      expect(bridge.isConnected, isTrue);
+      // Simulate hot-restart: target app now reports a new uuid.
+      fixture.diagnoseUuid = 'session-B';
+      await expectLater(
+        bridge.debugSimulateReconnect(),
+        throwsA(
+          isA<SessionChangedException>()
               .having((e) => e.baseline, 'baseline', 'session-A')
-              .having((e) => e.current, 'current', 'session-B')),
-        );
-        // `_connectUnlocked`'s try/catch must collapse the bridge on
-        // rotation throws too — not just validator refusals.
-        expect(bridge.isConnected, isFalse,
-            reason: 'bridge must be torn down after rotation throw');
-      },
-      timeout: const Timeout(Duration(seconds: 30)),
-    );
+              .having((e) => e.current, 'current', 'session-B'),
+        ),
+      );
+      // `_connectUnlocked`'s try/catch must collapse the bridge on
+      // rotation throws too — not just validator refusals.
+      expect(
+        bridge.isConnected,
+        isFalse,
+        reason: 'bridge must be torn down after rotation throw',
+      );
+    }, timeout: const Timeout(Duration(seconds: 30)));
 
     test(
       'pre-dispose gate is already closed when prior service is '
@@ -425,8 +478,11 @@ void main() {
           targetIsolateIdOverride: currentIsolateId,
         );
         await bridge.connect(wsUri);
-        expect(bridge.isConnected, isTrue,
-            reason: 'initial connect should publish all baseline state');
+        expect(
+          bridge.isConnected,
+          isTrue,
+          reason: 'initial connect should publish all baseline state',
+        );
 
         // Snapshot what the bridge looked like at the pre-dispose
         // probe point. If the ordering regresses, `validated` here
@@ -452,7 +508,9 @@ void main() {
           // its (expected) rejection asynchronously.
           validatedAtProbe = b.isConnected;
           unawaited(
-            b.callExtension('ext.test.echo').then(
+            b
+                .callExtension('ext.test.echo')
+                .then(
                   (_) => raceCallError = 'unexpected success — gate failed',
                   onError: (Object e) => raceCallError = e,
                 ),
@@ -466,170 +524,200 @@ void main() {
         // Drain the concurrent callExtension scheduled inside the probe.
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        expect(isConnectedAtProbe, isFalse,
-            reason: 'bridge must report disconnected at the pre-dispose '
-                'probe point — gate was lowered + refs unpublished before '
-                'the dispose await opened a race window');
-        expect(validatedAtProbe, isFalse,
-            reason: '_validated must be false at probe point');
-        expect(raceCallError, isA<VmBridgeException>(),
-            reason: 'concurrent callExtension during the dispose window '
-                'must be rejected — never dispatched against the prior '
-                'service');
+        expect(
+          isConnectedAtProbe,
+          isFalse,
+          reason:
+              'bridge must report disconnected at the pre-dispose '
+              'probe point — gate was lowered + refs unpublished before '
+              'the dispose await opened a race window',
+        );
+        expect(
+          validatedAtProbe,
+          isFalse,
+          reason: '_validated must be false at probe point',
+        );
+        expect(
+          raceCallError,
+          isA<VmBridgeException>(),
+          reason:
+              'concurrent callExtension during the dispose window '
+              'must be rejected — never dispatched against the prior '
+              'service',
+        );
         // Reconnect should still succeed end-to-end.
-        expect(bridge.isConnected, isTrue,
-            reason: 'reconnect completes cleanly after the probe window');
+        expect(
+          bridge.isConnected,
+          isTrue,
+          reason: 'reconnect completes cleanly after the probe window',
+        );
         bridge.debugPreDisposeProbe = null;
         await bridge.disconnect();
       },
       timeout: const Timeout(Duration(seconds: 30)),
     );
 
-    test(
-      'refreshBaseline routes through validator — major skew on '
-      'refresh disconnects the bridge',
-      () async {
-        // Every baseline mutation re-runs the validator via
-        // `_applyBaseline`, so a hot-restart that produces a skewed
-        // envelope on refresh tears down the bridge just like a skewed
-        // connect does.
-        fixture.diagnoseUuid = 'refresh-refuse-uuid';
-        fixture.packageVersion = '0.33.0';
-        final wsUri = await ensureWsUri();
-        if (wsUri == null) {
-          markTestSkipped('VM service not available');
-          return;
-        }
-        final bridge = RealVmBridge(
-          callTimeout: const Duration(seconds: 5),
-          targetIsolateIdOverride: currentIsolateId,
-          versionSkewValidator: (env) async {
-            final data = env['data'] as Map<String, Object?>?;
-            if (data?['packageVersion'] != '0.33.0') {
-              return 'version_skew_major: synthetic refusal on refresh';
-            }
-            return null;
-          },
-        );
-        await bridge.connect(wsUri);
-        expect(bridge.isConnected, isTrue,
-            reason: 'initial connect at matching version must succeed');
+    test('refreshBaseline routes through validator — major skew on '
+        'refresh disconnects the bridge', () async {
+      // Every baseline mutation re-runs the validator via
+      // `_applyBaseline`, so a hot-restart that produces a skewed
+      // envelope on refresh tears down the bridge just like a skewed
+      // connect does.
+      fixture.diagnoseUuid = 'refresh-refuse-uuid';
+      fixture.packageVersion = '0.33.0';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+        versionSkewValidator: (env) async {
+          final data = env['data'] as Map<String, Object?>?;
+          if (data?['packageVersion'] != '0.33.0') {
+            return 'version_skew_major: synthetic refusal on refresh';
+          }
+          return null;
+        },
+      );
+      await bridge.connect(wsUri);
+      expect(
+        bridge.isConnected,
+        isTrue,
+        reason: 'initial connect at matching version must succeed',
+      );
 
-        // Hot-restart in place: target app now reports a skewed
-        // packageVersion. Refresh must re-validate and refuse.
-        fixture.packageVersion = '0.99.0';
-        await expectLater(
-          bridge.refreshBaseline(acceptSessionRotation: true),
-          throwsA(isA<VmBridgeException>().having(
+      // Hot-restart in place: target app now reports a skewed
+      // packageVersion. Refresh must re-validate and refuse.
+      fixture.packageVersion = '0.99.0';
+      await expectLater(
+        bridge.refreshBaseline(acceptSessionRotation: true),
+        throwsA(
+          isA<VmBridgeException>().having(
             (e) => e.message,
             'message',
             contains('version_skew_'),
-          )),
-        );
-        expect(bridge.isConnected, isFalse,
-            reason: 'refresh refusal must disconnect the bridge — same '
-                'semantics as connect refusal so subsequent callExtension '
-                'cannot dispatch against the skewed app');
-      },
-      timeout: const Timeout(Duration(seconds: 30)),
-    );
+          ),
+        ),
+      );
+      expect(
+        bridge.isConnected,
+        isFalse,
+        reason:
+            'refresh refusal must disconnect the bridge — same '
+            'semantics as connect refusal so subsequent callExtension '
+            'cannot dispatch against the skewed app',
+      );
+    }, timeout: const Timeout(Duration(seconds: 30)));
 
-    test(
-      'refreshBaseline session-rotation guard fires when '
-      'acceptSessionRotation is false (parity with reconnect)',
-      () async {
-        fixture.diagnoseUuid = 'session-A';
-        fixture.packageVersion = '0.33.0';
-        final wsUri = await ensureWsUri();
-        if (wsUri == null) {
-          markTestSkipped('VM service not available');
-          return;
-        }
-        final bridge = RealVmBridge(
-          callTimeout: const Duration(seconds: 5),
-          targetIsolateIdOverride: currentIsolateId,
-          versionSkewValidator: (_) async => null,
-        );
-        await bridge.connect(wsUri);
-        expect(bridge.baselineSessionUuid, 'session-A');
+    test('refreshBaseline session-rotation guard fires when '
+        'acceptSessionRotation is false (parity with reconnect)', () async {
+      fixture.diagnoseUuid = 'session-A';
+      fixture.packageVersion = '0.33.0';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+        versionSkewValidator: (_) async => null,
+      );
+      await bridge.connect(wsUri);
+      expect(bridge.baselineSessionUuid, 'session-A');
 
-        // Simulate hot-restart: same packageVersion (validator passes)
-        // but a different sessionUuid. Refresh without opt-in must
-        // surface SessionChangedException AND tear down the bridge.
-        fixture.diagnoseUuid = 'session-B';
-        await expectLater(
-          bridge.refreshBaseline(acceptSessionRotation: false),
-          throwsA(isA<SessionChangedException>()
+      // Simulate hot-restart: same packageVersion (validator passes)
+      // but a different sessionUuid. Refresh without opt-in must
+      // surface SessionChangedException AND tear down the bridge.
+      fixture.diagnoseUuid = 'session-B';
+      await expectLater(
+        bridge.refreshBaseline(acceptSessionRotation: false),
+        throwsA(
+          isA<SessionChangedException>()
               .having((e) => e.baseline, 'baseline', 'session-A')
-              .having((e) => e.current, 'current', 'session-B')),
-        );
-        expect(bridge.isConnected, isFalse,
-            reason: 'rotation throw on refresh must collapse the bridge — '
-                'parity with reconnect rotation handling');
-      },
-      timeout: const Timeout(Duration(seconds: 30)),
-    );
+              .having((e) => e.current, 'current', 'session-B'),
+        ),
+      );
+      expect(
+        bridge.isConnected,
+        isFalse,
+        reason:
+            'rotation throw on refresh must collapse the bridge — '
+            'parity with reconnect rotation handling',
+      );
+    }, timeout: const Timeout(Duration(seconds: 30)));
 
-    test(
-      'refreshBaseline lowers _validated gate while validator runs '
-      '(concurrent dispatcher blocked)',
-      () async {
-        fixture.diagnoseUuid = 'refresh-race-uuid';
-        fixture.packageVersion = '0.33.0';
-        final wsUri = await ensureWsUri();
-        if (wsUri == null) {
-          markTestSkipped('VM service not available');
-          return;
-        }
-        // First call: bootstrap validation passes. Second call (refresh):
-        // validator hangs on Completer so a concurrent dispatcher can
-        // observe the gate state mid-refresh.
-        final hold = Completer<String?>();
-        var validatorCalls = 0;
-        final bridge = RealVmBridge(
-          callTimeout: const Duration(seconds: 5),
-          targetIsolateIdOverride: currentIsolateId,
-          versionSkewValidator: (_) async {
-            validatorCalls++;
-            if (validatorCalls == 1) return null;
-            return hold.future;
-          },
-        );
-        await bridge.connect(wsUri);
-        expect(bridge.isConnected, isTrue,
-            reason: 'first validator call cleared connect');
+    test('refreshBaseline lowers _validated gate while validator runs '
+        '(concurrent dispatcher blocked)', () async {
+      fixture.diagnoseUuid = 'refresh-race-uuid';
+      fixture.packageVersion = '0.33.0';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      // First call: bootstrap validation passes. Second call (refresh):
+      // validator hangs on Completer so a concurrent dispatcher can
+      // observe the gate state mid-refresh.
+      final hold = Completer<String?>();
+      var validatorCalls = 0;
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+        versionSkewValidator: (_) async {
+          validatorCalls++;
+          if (validatorCalls == 1) return null;
+          return hold.future;
+        },
+      );
+      await bridge.connect(wsUri);
+      expect(
+        bridge.isConnected,
+        isTrue,
+        reason: 'first validator call cleared connect',
+      );
 
-        final refreshFuture =
-            bridge.refreshBaseline(acceptSessionRotation: true);
-        // Yield until refresh has fetched diagnose + entered the
-        // hanging validator. `_applyBaseline` lowers `_validated`
-        // BEFORE running the validator, so a lock-free dispatcher
-        // here must hit the validated-gate refusal.
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        expect(bridge.isConnected, isFalse,
-            reason: 'refresh must lower the gate before awaiting the '
-                'validator — without this, a concurrent dispatcher could '
-                'race past _validated against a not-yet-revalidated app');
-        await expectLater(
-          () => bridge.callExtension('ext.test.echo'),
-          throwsA(isA<VmBridgeException>().having(
+      final refreshFuture = bridge.refreshBaseline(acceptSessionRotation: true);
+      // Yield until refresh has fetched diagnose + entered the
+      // hanging validator. `_applyBaseline` lowers `_validated`
+      // BEFORE running the validator, so a lock-free dispatcher
+      // here must hit the validated-gate refusal.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        bridge.isConnected,
+        isFalse,
+        reason:
+            'refresh must lower the gate before awaiting the '
+            'validator — without this, a concurrent dispatcher could '
+            'race past _validated against a not-yet-revalidated app',
+      );
+      await expectLater(
+        () => bridge.callExtension('ext.test.echo'),
+        throwsA(
+          isA<VmBridgeException>().having(
             (e) => e.message,
             'message',
             contains('not yet validated'),
-          )),
-          reason: 'lock-free callExtension during refresh validator '
-              'window must be refused — same semantics as the connect '
-              'validator window',
-        );
-        hold.complete(null);
-        await refreshFuture;
-        expect(bridge.isConnected, isTrue,
-            reason: 'bridge flips back to connected once refresh validator '
-                'clears');
-        await bridge.disconnect();
-      },
-      timeout: const Timeout(Duration(seconds: 30)),
-    );
+          ),
+        ),
+        reason:
+            'lock-free callExtension during refresh validator '
+            'window must be refused — same semantics as the connect '
+            'validator window',
+      );
+      hold.complete(null);
+      await refreshFuture;
+      expect(
+        bridge.isConnected,
+        isTrue,
+        reason:
+            'bridge flips back to connected once refresh validator '
+            'clears',
+      );
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
 
     test(
       'refreshBaseline lowers _validated gate BEFORE awaiting '
@@ -686,8 +774,9 @@ void main() {
         // after kicking off refresh — this is BEFORE the diagnose
         // round-trip resolves and BEFORE `_applyBaseline` runs. Without
         // the pre-await lower the gate would still be true here.
-        final refreshFuture =
-            bridge.refreshBaseline(acceptSessionRotation: true);
+        final refreshFuture = bridge.refreshBaseline(
+          acceptSessionRotation: true,
+        );
         // No `await` here — sample synchronously after the call returns
         // its Future. Refresh has entered (`_validated = false` ran
         // synchronously inside `_refreshBaselineUnlocked` before the
@@ -697,28 +786,44 @@ void main() {
         // Now yield so the diagnose round-trip resolves and we land
         // inside the suspended validator.
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        expect(isConnectedRightAfterRefreshKickoff, isFalse,
-            reason: 'gate must be lowered synchronously at refresh entry '
-                '— before the diagnose round-trip suspends. Without the '
-                'pre-await lower isConnected would still be true here.');
-        expect(isConnectedAtValidatorEntry, isFalse,
-            reason: 'gate must remain lowered through to validator entry');
-        expect(bridge.isConnected, isFalse,
-            reason: 'gate remains lowered while validator awaits');
+        expect(
+          isConnectedRightAfterRefreshKickoff,
+          isFalse,
+          reason:
+              'gate must be lowered synchronously at refresh entry '
+              '— before the diagnose round-trip suspends. Without the '
+              'pre-await lower isConnected would still be true here.',
+        );
+        expect(
+          isConnectedAtValidatorEntry,
+          isFalse,
+          reason: 'gate must remain lowered through to validator entry',
+        );
+        expect(
+          bridge.isConnected,
+          isFalse,
+          reason: 'gate remains lowered while validator awaits',
+        );
         await expectLater(
           () => bridge.callExtension('ext.test.echo'),
-          throwsA(isA<VmBridgeException>().having(
-            (e) => e.message,
-            'message',
-            contains('not yet validated'),
-          )),
-          reason: 'lock-free dispatcher during refresh window must be '
+          throwsA(
+            isA<VmBridgeException>().having(
+              (e) => e.message,
+              'message',
+              contains('not yet validated'),
+            ),
+          ),
+          reason:
+              'lock-free dispatcher during refresh window must be '
               'refused with the validated-gate message',
         );
         validatorHold.complete(null);
         await refreshFuture;
-        expect(bridge.isConnected, isTrue,
-            reason: 'refresh flips back to connected once validator clears');
+        expect(
+          bridge.isConnected,
+          isTrue,
+          reason: 'refresh flips back to connected once validator clears',
+        );
         await bridge.disconnect();
       },
       timeout: const Timeout(Duration(seconds: 30)),
@@ -750,8 +855,11 @@ void main() {
           targetIsolateIdOverride: currentIsolateId,
         );
         await bridge.connect(wsUri);
-        expect(bridge.isConnected, isTrue,
-            reason: 'connect must publish baseline before the probe runs');
+        expect(
+          bridge.isConnected,
+          isTrue,
+          reason: 'connect must publish baseline before the probe runs',
+        );
 
         // Snapshot bridge state at the disconnect-path pre-dispose
         // probe point. If the ordering regresses, isConnectedAtProbe
@@ -765,7 +873,9 @@ void main() {
           // settles synchronously. The future resolves later with the
           // expected rejection.
           unawaited(
-            b.callExtension('ext.test.echo').then(
+            b
+                .callExtension('ext.test.echo')
+                .then(
                   (_) => raceCallError = 'unexpected success — gate failed',
                   onError: (Object e) => raceCallError = e,
                 ),
@@ -778,10 +888,10 @@ void main() {
           // VmBridgeException('no wsUri for reconnect').
           unawaited(
             b.debugSimulateReconnect().then(
-                  (_) => reconnectCallError =
-                      'unexpected reconnect success — wsUri not cleared',
-                  onError: (Object e) => reconnectCallError = e,
-                ),
+              (_) => reconnectCallError =
+                  'unexpected reconnect success — wsUri not cleared',
+              onError: (Object e) => reconnectCallError = e,
+            ),
           );
         };
 
@@ -789,40 +899,214 @@ void main() {
         // Drain the racing futures scheduled inside the probe.
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        expect(isConnectedAtProbe, isFalse,
-            reason: 'bridge must report disconnected at the pre-dispose '
-                'probe point — gate was lowered + every ref (including '
-                '_wsUri) was unpublished before the dispose await opened '
-                'a race window');
-        expect(raceCallError, isA<VmBridgeException>(),
-            reason: 'concurrent callExtension during the disconnect '
-                'window must be rejected — never dispatched against the '
-                'service being disposed');
-        expect(reconnectCallError, isA<VmBridgeException>(),
-            reason: '_ensureReconnected during the disconnect window '
-                'must surface no-wsUri — never republish the bridge '
-                'after an explicit disconnect');
+        expect(
+          isConnectedAtProbe,
+          isFalse,
+          reason:
+              'bridge must report disconnected at the pre-dispose '
+              'probe point — gate was lowered + every ref (including '
+              '_wsUri) was unpublished before the dispose await opened '
+              'a race window',
+        );
+        expect(
+          raceCallError,
+          isA<VmBridgeException>(),
+          reason:
+              'concurrent callExtension during the disconnect '
+              'window must be rejected — never dispatched against the '
+              'service being disposed',
+        );
+        expect(
+          reconnectCallError,
+          isA<VmBridgeException>(),
+          reason:
+              '_ensureReconnected during the disconnect window '
+              'must surface no-wsUri — never republish the bridge '
+              'after an explicit disconnect',
+        );
         // Bridge stays disconnected after the probe drains.
-        expect(bridge.isConnected, isFalse,
-            reason: 'no reconnect republish after explicit disconnect');
+        expect(
+          bridge.isConnected,
+          isFalse,
+          reason: 'no reconnect republish after explicit disconnect',
+        );
         await expectLater(
           () => bridge.callExtension('ext.test.echo'),
-          throwsA(isA<VmBridgeException>().having(
-            (e) => e.message,
-            'message',
-            anyOf(contains('not connected'), contains('not yet validated')),
-          )),
+          throwsA(
+            isA<VmBridgeException>().having(
+              (e) => e.message,
+              'message',
+              anyOf(contains('not connected'), contains('not yet validated')),
+            ),
+          ),
           reason: 'post-disconnect dispatch must surface a clean refusal',
         );
       },
       timeout: const Timeout(Duration(seconds: 30)),
     );
 
+    test('reconnect with same sessionUuid succeeds and bumps '
+        'baselineGeneration', () async {
+      fixture.diagnoseUuid = 'session-stable';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(wsUri);
+      final genBefore = bridge.baselineGeneration;
+      await bridge.debugSimulateReconnect();
+      expect(bridge.isConnected, isTrue);
+      expect(bridge.baselineSessionUuid, 'session-stable');
+      expect(
+        bridge.baselineGeneration,
+        greaterThan(genBefore),
+        reason:
+            'baseline generation should advance on every '
+            'successful reconnect',
+      );
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('connect accepts the http URI that flutter run prints', () async {
+      final info = await developer.Service.controlWebServer(
+        enable: true,
+        silenceOutput: true,
+      );
+      final httpUri = info.serverUri;
+      if (httpUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      expect(httpUri.scheme, 'http');
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(httpUri);
+      expect(bridge.isConnected, isTrue);
+      final echo = await bridge.callExtension('ext.test.echo');
+      expect((echo['data'] as Map)['echo'], 'ok');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a timed-out call keeps the connection, and unanswered calls are '
+        'capped', () async {
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(milliseconds: 200),
+        maxUnansweredCalls: 2,
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(wsUri);
+      for (var i = 1; i <= 2; i++) {
+        await expectLater(
+          bridge.callExtension('ext.test.slow'),
+          throwsA(
+            isA<VmBridgeException>()
+                .having((e) => e.kind, 'kind', VmBridgeErrorKind.timeout)
+                .having(
+                  (e) => e.timeout,
+                  'timeout',
+                  const Duration(milliseconds: 200),
+                ),
+          ),
+        );
+        expect(bridge.isConnected, isTrue);
+        expect(bridge.unansweredCalls, i);
+      }
+      // At the cap, nothing more is sent, not even a fast call.
+      await expectLater(
+        bridge.callExtension('ext.test.echo'),
+        throwsA(
+          isA<VmBridgeException>().having(
+            (e) => e.kind,
+            'kind',
+            VmBridgeErrorKind.busy,
+          ),
+        ),
+      );
+      expect(bridge.unansweredCalls, 2);
+      // The app answers the late calls; the count drains and calls work.
+      fixture.slowGate.complete();
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (bridge.unansweredCalls > 0 && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(bridge.unansweredCalls, 0);
+      final echo = await bridge.callExtension('ext.test.echo');
+      expect((echo['data'] as Map)['echo'], 'ok');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a new connect starts the unanswered count again', () async {
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(milliseconds: 200),
+        maxUnansweredCalls: 1,
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(wsUri);
+      await expectLater(
+        bridge.callExtension('ext.test.slow'),
+        throwsA(isA<VmBridgeException>()),
+      );
+      expect(bridge.unansweredCalls, 1);
+      await bridge.connect(wsUri);
+      expect(bridge.unansweredCalls, 0);
+      final echo = await bridge.callExtension('ext.test.echo');
+      expect((echo['data'] as Map)['echo'], 'ok');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a session change is reported once, then the bridge follows the '
+        'new session', () async {
+      fixture.diagnoseUuid = 'session-A';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(wsUri);
+      final generation = bridge.baselineGeneration;
+      fixture.diagnoseUuid = 'session-B';
+      await expectLater(
+        bridge.callExtension('ext.test.echo'),
+        throwsA(
+          isA<SessionChangedException>()
+              .having((e) => e.baseline, 'baseline', 'session-A')
+              .having((e) => e.current, 'current', 'session-B'),
+        ),
+      );
+      expect(bridge.isConnected, isTrue);
+      expect(bridge.baselineSessionUuid, 'session-B');
+      expect(bridge.lastDiagnoseEnvelope?['sessionUuid'], 'session-B');
+      expect(bridge.baselineGeneration, greaterThan(generation));
+      final echo = await bridge.callExtension('ext.test.echo');
+      expect(echo['sessionUuid'], 'session-B');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
     test(
-      'reconnect with same sessionUuid succeeds and bumps '
-      'baselineGeneration',
+      'a restart into a refused version disconnects with the refusal',
       () async {
-        fixture.diagnoseUuid = 'session-stable';
+        fixture.diagnoseUuid = 'session-ok';
         final wsUri = await ensureWsUri();
         if (wsUri == null) {
           markTestSkipped('VM service not available');
@@ -831,19 +1115,73 @@ void main() {
         final bridge = RealVmBridge(
           callTimeout: const Duration(seconds: 5),
           targetIsolateIdOverride: currentIsolateId,
+          versionSkewValidator: (env) async {
+            final data = env['data'] as Map<String, Object?>?;
+            return data?['packageVersion'] == '0.33.0'
+                ? null
+                : 'version_skew_major: synthetic';
+          },
         );
         await bridge.connect(wsUri);
-        final genBefore = bridge.baselineGeneration;
-        await bridge.debugSimulateReconnect();
-        expect(bridge.isConnected, isTrue);
-        expect(bridge.baselineSessionUuid, 'session-stable');
-        expect(bridge.baselineGeneration, greaterThan(genBefore),
-            reason: 'baseline generation should advance on every '
-                'successful reconnect');
-        await bridge.disconnect();
+        fixture.diagnoseUuid = 'session-new';
+        fixture.packageVersion = '0.99.0';
+        await expectLater(
+          bridge.callExtension('ext.test.echo'),
+          throwsA(
+            isA<VmBridgeException>()
+                .having((e) => e.kind, 'kind', VmBridgeErrorKind.refused)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  startsWith('version_skew_'),
+                ),
+          ),
+        );
+        expect(bridge.isConnected, isFalse);
       },
       timeout: const Timeout(Duration(seconds: 30)),
     );
+  });
+
+  group('normalizeVmServiceUri', () {
+    for (final (given, expected) in <(String, String)>[
+      ('http://127.0.0.1:50300/AbC-_d1=/', 'ws://127.0.0.1:50300/AbC-_d1=/ws'),
+      ('HTTP://127.0.0.1:50300/AbC=/', 'ws://127.0.0.1:50300/AbC=/ws'),
+      ('https://h:8443/t=/', 'wss://h:8443/t=/ws'),
+      ('ws://h:1/t=', 'ws://h:1/t=/ws'),
+      ('ws://h:1/t=/ws', 'ws://h:1/t=/ws'),
+      ('ws://h:1/t=/ws/', 'ws://h:1/t=/ws'),
+      ('wss://h:1/t=/ws', 'wss://h:1/t=/ws'),
+      ('http://h:1', 'ws://h:1/ws'),
+    ]) {
+      test('$given becomes $expected', () {
+        expect(normalizeVmServiceUri(Uri.parse(given)).toString(), expected);
+      });
+    }
+
+    for (final bad in ['ftp://h:1/t=/', 'h:1/t=/', 'file:///tmp/x']) {
+      test('$bad is rejected', () {
+        expect(
+          () => normalizeVmServiceUri(Uri.parse(bad)),
+          throwsFormatException,
+        );
+      });
+    }
+
+    test('RealVmBridge.connect reports a bad URI without connecting', () async {
+      final bridge = RealVmBridge();
+      await expectLater(
+        bridge.connect(Uri.parse('ftp://h:1/t=/')),
+        throwsA(
+          isA<VmBridgeException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('invalid VM service URI'),
+          ),
+        ),
+      );
+      expect(bridge.isConnected, isFalse);
+    });
   });
 }
 
@@ -854,4 +1192,5 @@ void main() {
 class _SharedDiagnoseFixture {
   String diagnoseUuid = 'shared-default-uuid';
   String packageVersion = '0.33.0';
+  Completer<void> slowGate = Completer<void>();
 }

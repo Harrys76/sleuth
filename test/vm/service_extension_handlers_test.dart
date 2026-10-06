@@ -6,6 +6,8 @@ import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
 import 'package:sleuth/src/vm/service_extension_handlers.dart';
+import 'package:sleuth/src/vm/vm_service_client.dart';
+import 'package:vm_service/vm_service.dart';
 
 const _config = SleuthConfig(
   treeScanInterval: Duration(seconds: 1),
@@ -20,27 +22,30 @@ SleuthController _newController() {
 
 PerformanceIssue _issue({
   String stableId = 'jank_detected',
+  String title = 'Test issue',
   String? routeName,
   String? sourceRoute,
   IssueSeverity severity = IssueSeverity.warning,
-}) =>
-    PerformanceIssue(
-      severity: severity,
-      category: IssueCategory.build,
-      confidence: IssueConfidence.likely,
-      title: 'Test issue',
-      detail: 'detail',
-      fixHint: 'fix',
-      stableId: stableId,
-      routeName: routeName,
-      sourceRoute: sourceRoute,
-    );
+}) => PerformanceIssue(
+  severity: severity,
+  category: IssueCategory.build,
+  confidence: IssueConfidence.likely,
+  title: title,
+  detail: 'detail',
+  fixHint: 'fix',
+  stableId: stableId,
+  routeName: routeName,
+  sourceRoute: sourceRoute,
+);
 
-const _envelopeKeys = {
-  'connectionMode',
-  'schemaVersion',
-  'sessionUuid',
-};
+const _envelopeKeys = {'connectionMode', 'schemaVersion', 'sessionUuid'};
+
+// Matches an unsubstituted `{placeholder}` token. Bare braces in code
+// examples (e.g. `Widget build(context) {`) are legitimate text.
+final _placeholder = RegExp(r'\{[a-zA-Z]+\}');
+
+Iterable<String> _stringValues(Map<String, Object?> explanation) =>
+    explanation.values.whereType<String>();
 
 void main() {
   group('envelope shape', () {
@@ -73,10 +78,7 @@ void main() {
       expect(sanitizeForJson('s'), 's');
       expect(sanitizeForJson(true), true);
       expect(sanitizeForJson([1, 'a', null]), [1, 'a', null]);
-      expect(
-        sanitizeForJson({'k': 'v', 'n': 2}),
-        {'k': 'v', 'n': 2},
-      );
+      expect(sanitizeForJson({'k': 'v', 'n': 2}), {'k': 'v', 'n': 2});
     });
 
     test('coerces non-string map keys to strings', () {
@@ -152,8 +154,7 @@ void main() {
       expect(list, [1, 2, 3]);
     });
 
-    test(
-        'Identity-based cycle detection — equal-but-distinct maps do '
+    test('Identity-based cycle detection — equal-but-distinct maps do '
         'not falsely cycle', () {
       // Two distinct map instances with identical contents. Default
       // Set<Object> would see them as equal; the sanitiser must use
@@ -168,8 +169,7 @@ void main() {
       expect((out['b'] as Map).containsKey('__cycle'), isFalse);
     });
 
-    test(
-        'Non-string Map keys colliding after stringify emit '
+    test('Non-string Map keys colliding after stringify emit '
         '__keyCollision envelope', () {
       final out =
           sanitizeForJson({1: 'first', '1': 'second'}) as Map<String, Object?>;
@@ -191,10 +191,10 @@ void main() {
 
     test('issues without route returns full list', () async {
       final c = _newController();
-      c.issuesNotifier.value = [
+      c.seedIssuesForTest([
         _issue(stableId: 'jank_detected', routeName: '/a'),
         _issue(stableId: 'heap_growing', routeName: '/b'),
-      ];
+      ]);
       final env = await extIssuesHandler(c, const {});
       final data = env['data'] as Map<String, Object?>;
       final issues = data['issues'] as List;
@@ -204,11 +204,11 @@ void main() {
 
     test('issues with route filters by routeName + sourceRoute', () async {
       final c = _newController();
-      c.issuesNotifier.value = [
+      c.seedIssuesForTest([
         _issue(stableId: 'jank_detected', routeName: '/a'),
         _issue(stableId: 'heap_growing', routeName: '/b'),
         _issue(stableId: 'gc_pressure', sourceRoute: '/a'),
-      ];
+      ]);
       final env = await extIssuesHandler(c, const {'route': '/a'});
       final data = env['data'] as Map<String, Object?>;
       final issues = data['issues'] as List;
@@ -216,13 +216,15 @@ void main() {
       expect(data['route'], '/a');
     });
 
-    test('routeHealth without arg returns empty list when no history',
-        () async {
-      final c = _newController();
-      final env = await extRouteHealthHandler(c, const {});
-      final data = env['data'] as Map<String, Object?>;
-      expect(data['routes'], isEmpty);
-    });
+    test(
+      'routeHealth without arg returns empty list when no history',
+      () async {
+        final c = _newController();
+        final env = await extRouteHealthHandler(c, const {});
+        final data = env['data'] as Map<String, Object?>;
+        expect(data['routes'], isEmpty);
+      },
+    );
 
     test('routeHealth with unknown route returns error envelope', () async {
       final c = _newController();
@@ -268,6 +270,117 @@ void main() {
       expect(data['entries'], isA<Map<String, Object?>>());
     });
 
+    test('explain without a live issue uses neutral placeholders', () async {
+      final c = _newController();
+      final env = await extExplainHandler(c, const {
+        'stableId': 'non_lazy_list',
+      });
+      final data = env['data'] as Map<String, Object?>;
+      final explanation = data['explanation'] as Map<String, Object?>;
+      expect(explanation['whatItIs'], contains('N children'));
+      for (final value in _stringValues(explanation)) {
+        expect(value, isNot(contains('{')));
+      }
+    });
+
+    test('explain fills placeholders from the matching live issue', () async {
+      final c = _newController();
+      c.seedIssuesForTest([
+        _issue(
+          stableId: 'non_lazy_listview',
+          title: 'ListView with 120 children',
+        ),
+      ]);
+      final env = await extExplainHandler(c, const {
+        'stableId': 'non_lazy_listview',
+      });
+      final data = env['data'] as Map<String, Object?>;
+      expect(data['canonical'], 'non_lazy_list');
+      final explanation = data['explanation'] as Map<String, Object?>;
+      expect(explanation['whatItIs'], contains('120'));
+    });
+
+    group('explain occurrence ids', () {
+      Future<String> whatItIs(SleuthController c, String stableId) async {
+        final env = await extExplainHandler(c, {'stableId': stableId});
+        final data = env['data'] as Map<String, Object?>;
+        return (data['explanation'] as Map<String, Object?>)['whatItIs']
+            as String;
+      }
+
+      SleuthController seeded(List<PerformanceIssue> issues) =>
+          _newController()..seedIssuesForTest(issues);
+
+      final feed = _issue(
+        stableId: 'excessive_keep_alive:PageView~k-feed',
+        title: 'Excessive Keep-Alive: 7 in PageView',
+      );
+      final home = _issue(
+        stableId: 'excessive_keep_alive:PageView~k-home',
+        title: 'Excessive Keep-Alive: 3 in PageView',
+      );
+
+      test('an occurrence id without an exact live match gets neutral '
+          'wording, not another occurrence of the family', () async {
+        final text = await whatItIs(
+          seeded([feed]),
+          'excessive_keep_alive:PageView~k-home',
+        );
+        expect(text, startsWith('N pages'));
+        expect(text, isNot(contains('7')));
+      });
+
+      test('an occurrence id with an exact live match uses that '
+          'occurrence', () async {
+        final text = await whatItIs(
+          seeded([feed, home]),
+          'excessive_keep_alive:PageView~k-home',
+        );
+        expect(text, startsWith('3 pages'));
+      });
+
+      test(
+        'the canonical id falls back to a live issue of its family',
+        () async {
+          final text = await whatItIs(seeded([feed]), 'excessive_keep_alive');
+          expect(text, startsWith('7 pages'));
+        },
+      );
+
+      test('an aliased id does not borrow a sibling alias', () async {
+        // non_lazy_listview and non_lazy_gridview share an entry but are
+        // different issues.
+        final text = await whatItIs(
+          seeded([
+            _issue(
+              stableId: 'non_lazy_gridview',
+              title: 'GridView with 90 children',
+            ),
+          ]),
+          'non_lazy_listview',
+        );
+        expect(text, contains('N children'));
+        expect(text, isNot(contains('90')));
+      });
+    });
+
+    test('encyclopedia entries carry no unsubstituted placeholders', () async {
+      final c = _newController();
+      final env = await extEncyclopediaHandler(c, const {});
+      final data = env['data'] as Map<String, Object?>;
+      final entries = data['entries'] as Map<String, Object?>;
+      for (final entry in entries.entries) {
+        final explanation = entry.value as Map<String, Object?>;
+        for (final value in _stringValues(explanation)) {
+          expect(
+            _placeholder.hasMatch(value),
+            isFalse,
+            reason: '${entry.key}: $value',
+          );
+        }
+      }
+    });
+
     test('causalGraph returns pre-serialised rules', () async {
       final c = _newController();
       final env = await extCausalGraphHandler(c, const {});
@@ -289,20 +402,78 @@ void main() {
       expect(data.containsKey('lastCaptureExportFailure'), isTrue);
       expect(env['sessionUuid'], c.sessionUuid);
     });
+
+    test('diagnose poll keys are null before the first poll and ints '
+        'after, except the unmatched response readings', () async {
+      const pollKeys = [
+        'lastPollRpcMicros',
+        'lastPollDecodeMicros',
+        'lastPollParseMicros',
+        'lastPollDispatchMicros',
+        'lastPollDispatchDetectorsMicros',
+        'lastPollDispatchCorrelateMicros',
+        'lastPollDispatchAggregateMicros',
+        'lastPollDispatchOtherMicros',
+        'lastPollTailMicros',
+        'lastPollTailMemoryMicros',
+        'lastPollTailCpuSamplesMicros',
+        'lastPollTailAllocationProfileMicros',
+        'lastPollEventCount',
+        'lastPollResponseChars',
+        'maxPollRpcMicros',
+        'maxPollDecodeMicros',
+        'maxPollParseMicros',
+        'maxPollDispatchMicros',
+        'pollDuplicatesDropped',
+        'pollWindowFallbacks',
+      ];
+      final c = _newController();
+      final client = VmServiceClient();
+      client.setServiceForTest(_TimelineOnlyService(), isolateId: 'i-1');
+      c.setVmClientForTest(client);
+
+      var data =
+          (await extDiagnoseHandler(c, const {}))['data']
+              as Map<String, Object?>;
+      for (final key in pollKeys) {
+        expect(data.containsKey(key), isTrue, reason: key);
+        expect(data[key], isNull, reason: key);
+      }
+
+      await client.pollTimelineSync();
+
+      data =
+          (await extDiagnoseHandler(c, const {}))['data']
+              as Map<String, Object?>;
+      // This double has no wire streams, so the response is unmatched:
+      // its size and decode time are unmeasured (null).
+      const unmeasured = {
+        'lastPollDecodeMicros',
+        'lastPollResponseChars',
+        'maxPollDecodeMicros',
+      };
+      for (final key in pollKeys) {
+        expect(
+          data[key],
+          unmeasured.contains(key) ? isNull : isA<int>(),
+          reason: key,
+        );
+      }
+      expect(data['lastPollEventCount'], 1);
+      expect(data['pollDuplicatesDropped'], 0);
+    });
   });
 
   group('handlers — JSON round-trip', () {
     test('every handler envelope is jsonEncode-able', () async {
       final c = _newController();
-      c.issuesNotifier.value = [_issue()];
+      c.seedIssuesForTest([_issue()]);
       final handlers = <Future<Map<String, Object?>> Function()>[
         () async => await extSnapshotHandler(c, const {}),
         () async => await extIssuesHandler(c, const {}),
         () async => await extRouteHealthHandler(c, const {}),
-        () async => await extExplainHandler(
-              c,
-              const {'stableId': 'jank_detected'},
-            ),
+        () async =>
+            await extExplainHandler(c, const {'stableId': 'jank_detected'}),
         () async => await extEncyclopediaHandler(c, const {}),
         () async => await extCausalGraphHandler(c, const {}),
         () async => await extDiagnoseHandler(c, const {}),
@@ -322,4 +493,38 @@ class _OversizedNonEncodable {
   final String payload;
   @override
   String toString() => payload;
+}
+
+/// Answers the timeline poll only; every other member is unimplemented.
+class _TimelineOnlyService implements VmService {
+  @override
+  Future<Timeline> getVMTimeline({
+    int? timeOriginMicros,
+    int? timeExtentMicros,
+  }) async => Timeline(
+    traceEvents: [
+      TimelineEvent.parse({
+        'name': 'Build',
+        'ph': 'X',
+        'dur': 100,
+        'ts': 1000,
+        'pid': 1,
+        'tid': 1,
+      })!,
+    ],
+    timeOriginMicros: 0,
+    timeExtentMicros: 0,
+  );
+
+  @override
+  Future<Success> clearVMTimeline() async => Success();
+
+  @override
+  Future<Timestamp> getVMTimelineMicros() async => Timestamp(timestamp: 5000);
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }

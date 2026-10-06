@@ -42,10 +42,12 @@ void main() {
       }
       detector.evaluateNowForTest();
       // chat_socket fires (>5); analytics does not (<=5).
-      final chats = detector.issues
-          .where((i) => i.extraTraceArgs!['resourceName'] == 'chat_socket');
-      final analytics = detector.issues
-          .where((i) => i.extraTraceArgs!['resourceName'] == 'analytics');
+      final chats = detector.issues.where(
+        (i) => i.extraTraceArgs!['resourceName'] == 'chat_socket',
+      );
+      final analytics = detector.issues.where(
+        (i) => i.extraTraceArgs!['resourceName'] == 'analytics',
+      );
       expect(chats, hasLength(1));
       expect(analytics, isEmpty);
     });
@@ -64,39 +66,49 @@ void main() {
       expect(ids, contains('tracked_resource_long_lived:chat_socket'));
     });
 
-    test('long-lived re-emits each sweep: monotone age + fresh dedup identity',
-        () {
-      // Single instance so only the long-lived path fires. Each sweep above
-      // threshold must emit fresh `dedupIdentityMicros` + current age so
-      // captures see an ascending-age series, not a frozen first-cross value.
-      final keep = _Service(1);
-      detector.track('socket', keep);
+    test(
+      'long-lived re-emits each sweep: monotone age + fresh dedup identity',
+      () {
+        // Single instance so only the long-lived path fires. Each sweep above
+        // threshold must emit fresh `dedupIdentityMicros` + current age so
+        // captures see an ascending-age series, not a frozen first-cross value.
+        final keep = _Service(1);
+        detector.track('socket', keep);
 
-      fakeNow = fakeNow.add(const Duration(seconds: 310));
-      detector.evaluateNowForTest();
-      final first = detector.issues.firstWhere(
-          (i) => i.stableId == 'tracked_resource_long_lived:socket');
-      final firstAge =
-          int.parse(first.extraTraceArgs!['oldestInstanceAgeSeconds']!);
-      final firstDedup = first.dedupIdentityMicros!;
+        fakeNow = fakeNow.add(const Duration(seconds: 310));
+        detector.evaluateNowForTest();
+        final first = detector.issues.firstWhere(
+          (i) => i.stableId == 'tracked_resource_long_lived:socket',
+        );
+        final firstAge = int.parse(
+          first.extraTraceArgs!['oldestInstanceAgeSeconds']!,
+        );
+        final firstDedup = first.dedupIdentityMicros!;
 
-      fakeNow = fakeNow.add(const Duration(seconds: 10));
-      detector.evaluateNowForTest();
-      final second = detector.issues.firstWhere(
-          (i) => i.stableId == 'tracked_resource_long_lived:socket');
-      final secondAge =
-          int.parse(second.extraTraceArgs!['oldestInstanceAgeSeconds']!);
-      final secondDedup = second.dedupIdentityMicros!;
+        fakeNow = fakeNow.add(const Duration(seconds: 10));
+        detector.evaluateNowForTest();
+        final second = detector.issues.firstWhere(
+          (i) => i.stableId == 'tracked_resource_long_lived:socket',
+        );
+        final secondAge = int.parse(
+          second.extraTraceArgs!['oldestInstanceAgeSeconds']!,
+        );
+        final secondDedup = second.dedupIdentityMicros!;
 
-      expect(secondAge, greaterThan(firstAge));
-      expect(secondDedup, greaterThan(firstDedup));
-      expect(first.captureTraceStableId,
-          equals(TrackedResourceDetector.longLivedStableId));
-      expect(second.captureTraceStableId,
-          equals(TrackedResourceDetector.longLivedStableId));
-      // Parametric stableId for UI keying; bare family for bracket match.
-      expect(second.stableId, equals('tracked_resource_long_lived:socket'));
-    });
+        expect(secondAge, greaterThan(firstAge));
+        expect(secondDedup, greaterThan(firstDedup));
+        expect(
+          first.captureTraceStableId,
+          equals(TrackedResourceDetector.longLivedStableId),
+        );
+        expect(
+          second.captureTraceStableId,
+          equals(TrackedResourceDetector.longLivedStableId),
+        );
+        // Parametric stableId for UI keying; bare family for bracket match.
+        expect(second.stableId, equals('tracked_resource_long_lived:socket'));
+      },
+    );
 
     test('dispose clears state + cancels sweep', () {
       detector.track('chat_socket', _Service(1));
@@ -179,23 +191,27 @@ void main() {
         detector.track('stress', s);
       }
       detector.evaluateNowForTest();
-      expect(detector.snapshotLiveCounts()['stress'], equals(n),
-          reason: 'identity-keyed dedup must count every distinct object');
+      expect(
+        detector.snapshotLiveCounts()['stress'],
+        equals(n),
+        reason: 'identity-keyed dedup must count every distinct object',
+      );
     });
 
     test(
-        'simulateFinalizerForTest releases only the matching ref under same name',
-        () {
-      final a = _Service(1);
-      final b = _Service(2);
-      detector.track('chat_socket', a);
-      detector.track('chat_socket', b);
-      expect(detector.snapshotLiveCounts()['chat_socket'], equals(2));
-      // Simulate GC of `a` only. `b` must remain live in the bucket.
-      detector.simulateFinalizerForTest('chat_socket', a);
-      detector.evaluateNowForTest();
-      expect(detector.snapshotLiveCounts()['chat_socket'], equals(1));
-    });
+      'simulateFinalizerForTest releases only the matching ref under same name',
+      () {
+        final a = _Service(1);
+        final b = _Service(2);
+        detector.track('chat_socket', a);
+        detector.track('chat_socket', b);
+        expect(detector.snapshotLiveCounts()['chat_socket'], equals(2));
+        // Simulate GC of `a` only. `b` must remain live in the bucket.
+        detector.simulateFinalizerForTest('chat_socket', a);
+        detector.evaluateNowForTest();
+        expect(detector.snapshotLiveCounts()['chat_socket'], equals(1));
+      },
+    );
   });
 
   group('TrackedResourceDetector per-name overrides', () {
@@ -234,8 +250,10 @@ void main() {
       }
       detector.evaluateNowForTest();
       expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.stableId,
-          equals('tracked_resource_concurrent:http_pool'));
+      expect(
+        detector.issues.first.stableId,
+        equals('tracked_resource_concurrent:http_pool'),
+      );
     });
 
     test('override applies live to existing bucket', () {
@@ -262,10 +280,12 @@ void main() {
       detector.evaluateNowForTest();
       // Age >= 200 (override) → long-lived fires.
       final longLived = detector.issues.where(
-          (i) => i.stableId == 'tracked_resource_long_lived:chat_socket');
+        (i) => i.stableId == 'tracked_resource_long_lived:chat_socket',
+      );
       expect(longLived, hasLength(1));
       final age = int.parse(
-          longLived.first.extraTraceArgs!['oldestInstanceAgeSeconds']!);
+        longLived.first.extraTraceArgs!['oldestInstanceAgeSeconds']!,
+      );
       expect(age, greaterThanOrEqualTo(350));
     });
 
@@ -277,7 +297,9 @@ void main() {
       detector.evaluateNowForTest();
       expect(detector.snapshotLiveCounts().containsKey('foo'), isFalse);
       expect(
-          detector.snapshotNameOverrides()['foo']!.maxConcurrent, equals(10));
+        detector.snapshotNameOverrides()['foo']!.maxConcurrent,
+        equals(10),
+      );
       // Later track picks up override.
       final keep = <_Service>[];
       for (var i = 0; i < 11; i++) {
@@ -287,8 +309,10 @@ void main() {
       }
       detector.evaluateNowForTest();
       expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.extraTraceArgs!['effectiveMaxConcurrent'],
-          equals('10'));
+      expect(
+        detector.issues.first.extraTraceArgs!['effectiveMaxConcurrent'],
+        equals('10'),
+      );
     });
 
     test('non-positive values silently drop + counter increments', () {
@@ -351,8 +375,10 @@ void main() {
       detector.isEnabled = false;
       detector.isEnabled = true;
       // Override still in map.
-      expect(detector.snapshotNameOverrides()['chat_socket']!.maxConcurrent,
-          equals(3));
+      expect(
+        detector.snapshotNameOverrides()['chat_socket']!.maxConcurrent,
+        equals(3),
+      );
       // Track 4 → fires at override 3 (not global 5).
       final keep = <_Service>[];
       for (var i = 0; i < 4; i++) {
@@ -362,8 +388,10 @@ void main() {
       }
       detector.evaluateNowForTest();
       expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.extraTraceArgs!['effectiveMaxConcurrent'],
-          equals('3'));
+      expect(
+        detector.issues.first.extraTraceArgs!['effectiveMaxConcurrent'],
+        equals('3'),
+      );
     });
 
     test('dispose() clears overrides', () {
@@ -374,35 +402,45 @@ void main() {
       expect(detector.snapshotNameOverrides(), isEmpty);
     });
 
-    test('partial override: maxConcurrent only, longLivedSeconds falls back',
-        () {
-      detector.registerNameOverride('foo', maxConcurrent: 3);
-      final h = _Service(1);
-      detector.track('foo', h);
-      // Add 3 more → liveCount 4 > override 3 → concurrent fires.
-      final keep = <_Service>[h];
-      for (var i = 0; i < 3; i++) {
-        final s = _Service(i + 10);
-        keep.add(s);
-        detector.track('foo', s);
-      }
-      // Advance past global long-lived (300s) → long-lived fires using
-      // global default since override only set maxConcurrent.
-      fakeNow = fakeNow.add(const Duration(seconds: 301));
-      detector.evaluateNowForTest();
-      final concurrent = detector.issues
-          .where((i) => i.stableId == 'tracked_resource_concurrent:foo');
-      final longLived = detector.issues
-          .where((i) => i.stableId == 'tracked_resource_long_lived:foo');
-      expect(concurrent, hasLength(1));
-      expect(concurrent.first.extraTraceArgs!['thresholdSource'],
-          equals('override'));
-      expect(longLived, hasLength(1));
-      expect(longLived.first.extraTraceArgs!['effectiveLongLivedSeconds'],
-          equals('300'));
-      expect(
-          longLived.first.extraTraceArgs!['thresholdSource'], equals('global'));
-    });
+    test(
+      'partial override: maxConcurrent only, longLivedSeconds falls back',
+      () {
+        detector.registerNameOverride('foo', maxConcurrent: 3);
+        final h = _Service(1);
+        detector.track('foo', h);
+        // Add 3 more → liveCount 4 > override 3 → concurrent fires.
+        final keep = <_Service>[h];
+        for (var i = 0; i < 3; i++) {
+          final s = _Service(i + 10);
+          keep.add(s);
+          detector.track('foo', s);
+        }
+        // Advance past global long-lived (300s) → long-lived fires using
+        // global default since override only set maxConcurrent.
+        fakeNow = fakeNow.add(const Duration(seconds: 301));
+        detector.evaluateNowForTest();
+        final concurrent = detector.issues.where(
+          (i) => i.stableId == 'tracked_resource_concurrent:foo',
+        );
+        final longLived = detector.issues.where(
+          (i) => i.stableId == 'tracked_resource_long_lived:foo',
+        );
+        expect(concurrent, hasLength(1));
+        expect(
+          concurrent.first.extraTraceArgs!['thresholdSource'],
+          equals('override'),
+        );
+        expect(longLived, hasLength(1));
+        expect(
+          longLived.first.extraTraceArgs!['effectiveLongLivedSeconds'],
+          equals('300'),
+        );
+        expect(
+          longLived.first.extraTraceArgs!['thresholdSource'],
+          equals('global'),
+        );
+      },
+    );
 
     test('override cap silently drops past 1000 distinct names', () {
       for (var i = 0; i < 1000; i++) {
@@ -417,34 +455,44 @@ void main() {
       // Existing key update still works at cap.
       detector.registerNameOverride('name-0', maxConcurrent: 7);
       expect(
-          detector.snapshotNameOverrides()['name-0']!.maxConcurrent, equals(7));
-    });
-
-    test('registerNameOverride while disabled lands; takes effect on re-enable',
-        () {
-      detector.isEnabled = false;
-      detector.registerNameOverride('chat_socket', maxConcurrent: 3);
-      expect(detector.snapshotNameOverrides()['chat_socket']!.maxConcurrent,
-          equals(3));
-      detector.isEnabled = true;
-      // Track 4 → fires at override 3.
-      final keep = <_Service>[];
-      for (var i = 0; i < 4; i++) {
-        final s = _Service(i);
-        keep.add(s);
-        detector.track('chat_socket', s);
-      }
-      detector.evaluateNowForTest();
-      expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.extraTraceArgs!['effectiveMaxConcurrent'],
-          equals('3'));
+        detector.snapshotNameOverrides()['name-0']!.maxConcurrent,
+        equals(7),
+      );
     });
 
     test(
-        'per-axis acceptance: invalid maxConcurrent drops, valid '
+      'registerNameOverride while disabled lands; takes effect on re-enable',
+      () {
+        detector.isEnabled = false;
+        detector.registerNameOverride('chat_socket', maxConcurrent: 3);
+        expect(
+          detector.snapshotNameOverrides()['chat_socket']!.maxConcurrent,
+          equals(3),
+        );
+        detector.isEnabled = true;
+        // Track 4 → fires at override 3.
+        final keep = <_Service>[];
+        for (var i = 0; i < 4; i++) {
+          final s = _Service(i);
+          keep.add(s);
+          detector.track('chat_socket', s);
+        }
+        detector.evaluateNowForTest();
+        expect(detector.issues, hasLength(1));
+        expect(
+          detector.issues.first.extraTraceArgs!['effectiveMaxConcurrent'],
+          equals('3'),
+        );
+      },
+    );
+
+    test('per-axis acceptance: invalid maxConcurrent drops, valid '
         'longLivedSeconds lands', () {
-      detector.registerNameOverride('foo',
-          maxConcurrent: -1, longLivedSeconds: 600);
+      detector.registerNameOverride(
+        'foo',
+        maxConcurrent: -1,
+        longLivedSeconds: 600,
+      );
       final ov = detector.snapshotNameOverrides()['foo']!;
       expect(ov.maxConcurrent, isNull);
       expect(ov.longLivedSeconds, equals(600));
@@ -453,16 +501,22 @@ void main() {
 
     test('per-axis acceptance: both invalid preserves prior override', () {
       detector.registerNameOverride('foo', maxConcurrent: 5);
-      detector.registerNameOverride('foo',
-          maxConcurrent: 0, longLivedSeconds: -1);
+      detector.registerNameOverride(
+        'foo',
+        maxConcurrent: 0,
+        longLivedSeconds: -1,
+      );
       // Both axes invalidated → preserve prior (no clear).
       expect(detector.snapshotNameOverrides()['foo']!.maxConcurrent, equals(5));
       expect(detector.droppedOverridesCount, equals(2));
     });
 
     test('single-axis typo preserves prior override (merge semantics)', () {
-      detector.registerNameOverride('http_pool',
-          maxConcurrent: 50, longLivedSeconds: 3600);
+      detector.registerNameOverride(
+        'http_pool',
+        maxConcurrent: 50,
+        longLivedSeconds: 3600,
+      );
       // Typo: invalid maxConcurrent, longLivedSeconds omitted.
       detector.registerNameOverride('http_pool', maxConcurrent: -1);
       final ov = detector.snapshotNameOverrides()['http_pool']!;
@@ -488,8 +542,11 @@ void main() {
     });
 
     test('explicit both-null clears override (intentional)', () {
-      detector.registerNameOverride('foo',
-          maxConcurrent: 5, longLivedSeconds: 600);
+      detector.registerNameOverride(
+        'foo',
+        maxConcurrent: 5,
+        longLivedSeconds: 600,
+      );
       detector.registerNameOverride('foo'); // both args literally absent
       expect(detector.snapshotNameOverrides().containsKey('foo'), isFalse);
       expect(detector.droppedOverridesCount, equals(0));
@@ -512,7 +569,9 @@ void main() {
       expect(smallDetector.evictedNamesCount, greaterThanOrEqualTo(1));
       // Override for 'A' still present.
       expect(
-          smallDetector.snapshotNameOverrides()['A']!.maxConcurrent, equals(3));
+        smallDetector.snapshotNameOverrides()['A']!.maxConcurrent,
+        equals(3),
+      );
       // Re-track 4 of 'A' → uses override (fires at 3, not global 5).
       final keep = <_Service>[];
       for (var i = 0; i < 4; i++) {
@@ -521,11 +580,14 @@ void main() {
         smallDetector.track('A', s);
       }
       smallDetector.evaluateNowForTest();
-      final fires = smallDetector.issues
-          .where((i) => i.stableId == 'tracked_resource_concurrent:A');
+      final fires = smallDetector.issues.where(
+        (i) => i.stableId == 'tracked_resource_concurrent:A',
+      );
       expect(fires, hasLength(1));
       expect(
-          fires.first.extraTraceArgs!['effectiveMaxConcurrent'], equals('3'));
+        fires.first.extraTraceArgs!['effectiveMaxConcurrent'],
+        equals('3'),
+      );
     });
   });
 }

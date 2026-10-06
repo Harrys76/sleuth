@@ -11,8 +11,10 @@ class CpuAttribution {
     required this.percentage,
     this.callChain,
     this.inclusivePercentage,
-  }) : assert(inclusivePercentage == null || inclusivePercentage >= percentage,
-            'Inclusive percentage must be >= exclusive percentage');
+  }) : assert(
+         inclusivePercentage == null || inclusivePercentage >= percentage,
+         'Inclusive percentage must be at least the exclusive percentage',
+       );
 
   /// The function name (e.g. "build", "jsonDecode").
   final String functionName;
@@ -49,27 +51,28 @@ class CpuAttribution {
   /// Includes [displayName] for convenience — consumers can display
   /// "ClassName.method" without recomputing from separate fields.
   Map<String, dynamic> toJson() => {
-        'functionName': functionName,
-        'className': className,
-        'libraryUri': libraryUri,
-        'percentage': double.parse(percentage.toStringAsFixed(1)),
-        'displayName': displayName,
-        if (callChain != null) 'callChain': callChain,
-        if (inclusivePercentage != null)
-          'inclusivePercentage':
-              double.parse(inclusivePercentage!.toStringAsFixed(1)),
-      };
+    'functionName': functionName,
+    'className': className,
+    'libraryUri': libraryUri,
+    'percentage': double.parse(percentage.toStringAsFixed(1)),
+    'displayName': displayName,
+    if (callChain != null) 'callChain': callChain,
+    if (inclusivePercentage != null)
+      'inclusivePercentage': double.parse(
+        inclusivePercentage!.toStringAsFixed(1),
+      ),
+  };
 
   factory CpuAttribution.fromJson(Map<String, dynamic> json) => CpuAttribution(
-        functionName: json['functionName'] as String,
-        className: json['className'] as String,
-        libraryUri: json['libraryUri'] as String,
-        percentage: (json['percentage'] as num).toDouble(),
-        callChain: (json['callChain'] as List<dynamic>?)
-            ?.map((e) => e as String)
-            .toList(),
-        inclusivePercentage: (json['inclusivePercentage'] as num?)?.toDouble(),
-      );
+    functionName: json['functionName'] as String,
+    className: json['className'] as String,
+    libraryUri: json['libraryUri'] as String,
+    percentage: (json['percentage'] as num).toDouble(),
+    callChain: (json['callChain'] as List<dynamic>?)
+        ?.map((e) => e as String)
+        .toList(),
+    inclusivePercentage: (json['inclusivePercentage'] as num?)?.toDouble(),
+  );
 
   @override
   String toString() {

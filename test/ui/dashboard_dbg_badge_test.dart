@@ -17,18 +17,16 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('DBG badge is absent when enableDebugCallbacks is false',
-        (tester) async {
+    testWidgets('DBG badge is absent when enableDebugCallbacks is false', (
+      tester,
+    ) async {
       // Default config has enableDebugCallbacks = false
       expect(controller.isDebugCallbacksActive, isFalse);
 
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: FloatingIssuesCard(
-              controller: controller,
-              onClose: () {},
-            ),
+            body: FloatingIssuesCard(controller: controller, onClose: () {}),
           ),
         ),
       );
@@ -41,10 +39,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: FloatingIssuesCard(
-              controller: controller,
-              onClose: () {},
-            ),
+            body: FloatingIssuesCard(controller: controller, onClose: () {}),
           ),
         ),
       );
@@ -53,8 +48,9 @@ void main() {
       expect(find.text('FRAME'), findsOneWidget);
     });
 
-    testWidgets('DBG badge is present when enableDebugCallbacks is true',
-        (tester) async {
+    testWidgets('DBG badge is present when enableDebugCallbacks is true', (
+      tester,
+    ) async {
       final dbgController = SleuthController(
         config: const SleuthConfig(enableDebugCallbacks: true),
       );
@@ -65,10 +61,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: FloatingIssuesCard(
-              controller: dbgController,
-              onClose: () {},
-            ),
+            body: FloatingIssuesCard(controller: dbgController, onClose: () {}),
           ),
         ),
       );

@@ -12,20 +12,30 @@ void main() {
   final script = File('tool/attach_ios.sh');
 
   test('exists and is executable', () {
-    expect(script.existsSync(), isTrue,
-        reason: 'tool/attach_ios.sh missing from package');
+    expect(
+      script.existsSync(),
+      isTrue,
+      reason: 'tool/attach_ios.sh missing from package',
+    );
     final stat = script.statSync();
     // Owner execute bit must be set so `dart pub global activate` users
     // can `bash tool/attach_ios.sh` directly without chmod-ing.
-    expect(stat.mode & 0x40, isNot(0),
-        reason: 'tool/attach_ios.sh missing owner-execute bit '
-            '(mode=${stat.modeString()})');
+    expect(
+      stat.mode & 0x40,
+      isNot(0),
+      reason:
+          'tool/attach_ios.sh missing owner-execute bit '
+          '(mode=${stat.modeString()})',
+    );
   });
 
   test('prints usage on missing UDID', () async {
     final r = await Process.run('bash', [script.absolute.path]);
-    expect(r.exitCode, 64,
-        reason: 'expected sysexits EX_USAGE (64); stderr=${r.stderr}');
+    expect(
+      r.exitCode,
+      64,
+      reason: 'expected sysexits EX_USAGE (64); stderr=${r.stderr}',
+    );
     expect(r.stderr.toString(), contains('usage:'));
   });
 

@@ -6,26 +6,31 @@ PerformanceIssue _issue({
   required String stableId,
   IssueSeverity severity = IssueSeverity.warning,
   int? rankingScore,
-}) =>
-    PerformanceIssue(
-      severity: severity,
-      category: IssueCategory.build,
-      confidence: IssueConfidence.possible,
-      title: stableId,
-      detail: '',
-      fixHint: '',
-      stableId: stableId,
-      rankingScore: rankingScore,
-    );
+}) => PerformanceIssue(
+  severity: severity,
+  category: IssueCategory.build,
+  confidence: IssueConfidence.possible,
+  title: stableId,
+  detail: '',
+  fixHint: '',
+  stableId: stableId,
+  rankingScore: rankingScore,
+);
 
 void main() {
   group('FixBaseline', () {
     test('captures current issues as snapshots', () {
       final issues = [
         _issue(
-            stableId: 'a', severity: IssueSeverity.warning, rankingScore: 200),
+          stableId: 'a',
+          severity: IssueSeverity.warning,
+          rankingScore: 200,
+        ),
         _issue(
-            stableId: 'b', severity: IssueSeverity.critical, rankingScore: 300),
+          stableId: 'b',
+          severity: IssueSeverity.critical,
+          rankingScore: 300,
+        ),
       ];
       final baseline = captureFixBaseline(issues);
 
@@ -52,9 +57,7 @@ void main() {
     });
 
     test('not resolved before cooldown (treated as unchanged)', () {
-      final baseline = captureFixBaseline([
-        _issue(stableId: 'a'),
-      ]);
+      final baseline = captureFixBaseline([_issue(stableId: 'a')]);
 
       // Only 2 absent cycles (< 5 cooldown)
       baseline.recordAbsence('a');
@@ -66,9 +69,7 @@ void main() {
     });
 
     test('intermittent issue: absent then returns resets cooldown', () {
-      final baseline = captureFixBaseline([
-        _issue(stableId: 'a'),
-      ]);
+      final baseline = captureFixBaseline([_issue(stableId: 'a')]);
 
       // 3 absent cycles, then issue returns
       baseline.recordAbsence('a');
@@ -81,20 +82,30 @@ void main() {
       baseline.recordAbsence('a');
 
       final result = baseline.compare([], cooldownCycles: 5);
-      expect(result.resolved, isEmpty,
-          reason: 'Issue returned after 3 cycles, '
-              'only 2 absent since — not resolved');
+      expect(
+        result.resolved,
+        isEmpty,
+        reason:
+            'Issue returned after 3 cycles, '
+            'only 2 absent since — not resolved',
+      );
     });
 
     test('improved: lower severity', () {
       final baseline = captureFixBaseline([
         _issue(
-            stableId: 'a', severity: IssueSeverity.critical, rankingScore: 300),
+          stableId: 'a',
+          severity: IssueSeverity.critical,
+          rankingScore: 300,
+        ),
       ]);
 
       final result = baseline.compare([
         _issue(
-            stableId: 'a', severity: IssueSeverity.warning, rankingScore: 200),
+          stableId: 'a',
+          severity: IssueSeverity.warning,
+          rankingScore: 200,
+        ),
       ]);
 
       expect(result.improved, hasLength(1));
@@ -105,12 +116,18 @@ void main() {
     test('worsened: higher severity', () {
       final baseline = captureFixBaseline([
         _issue(
-            stableId: 'a', severity: IssueSeverity.warning, rankingScore: 200),
+          stableId: 'a',
+          severity: IssueSeverity.warning,
+          rankingScore: 200,
+        ),
       ]);
 
       final result = baseline.compare([
         _issue(
-            stableId: 'a', severity: IssueSeverity.critical, rankingScore: 300),
+          stableId: 'a',
+          severity: IssueSeverity.critical,
+          rankingScore: 300,
+        ),
       ]);
 
       expect(result.worsened, hasLength(1));
@@ -119,21 +136,25 @@ void main() {
     test('unchanged: same severity and score', () {
       final baseline = captureFixBaseline([
         _issue(
-            stableId: 'a', severity: IssueSeverity.warning, rankingScore: 200),
+          stableId: 'a',
+          severity: IssueSeverity.warning,
+          rankingScore: 200,
+        ),
       ]);
 
       final result = baseline.compare([
         _issue(
-            stableId: 'a', severity: IssueSeverity.warning, rankingScore: 200),
+          stableId: 'a',
+          severity: IssueSeverity.warning,
+          rankingScore: 200,
+        ),
       ]);
 
       expect(result.unchanged, hasLength(1));
     });
 
     test('new issues not in baseline', () {
-      final baseline = captureFixBaseline([
-        _issue(stableId: 'a'),
-      ]);
+      final baseline = captureFixBaseline([_issue(stableId: 'a')]);
 
       final result = baseline.compare([
         _issue(stableId: 'a'),
@@ -148,9 +169,10 @@ void main() {
       final baseline = captureFixBaseline([
         _issue(stableId: 'resolved_one', severity: IssueSeverity.warning),
         _issue(
-            stableId: 'improved_one',
-            severity: IssueSeverity.critical,
-            rankingScore: 300),
+          stableId: 'improved_one',
+          severity: IssueSeverity.critical,
+          rankingScore: 300,
+        ),
       ]);
 
       // resolved_one absent for 5+ cycles
@@ -160,9 +182,10 @@ void main() {
 
       final result = baseline.compare([
         _issue(
-            stableId: 'improved_one',
-            severity: IssueSeverity.warning,
-            rankingScore: 200),
+          stableId: 'improved_one',
+          severity: IssueSeverity.warning,
+          rankingScore: 200,
+        ),
         _issue(stableId: 'new_one'),
       ]);
 
@@ -188,8 +211,11 @@ void main() {
       baseline.recordAbsence('a');
 
       final result = baseline.compare([], cooldownCycles: 5);
-      expect(result.resolved, isEmpty,
-          reason: 'Counter was reset — only 1 cycle since clear');
+      expect(
+        result.resolved,
+        isEmpty,
+        reason: 'Counter was reset — only 1 cycle since clear',
+      );
       expect(result.unchanged, hasLength(1));
     });
 

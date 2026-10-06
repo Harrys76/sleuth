@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 /// Capture helper for the `runtimeVerified` tier raises on
 /// `HeavyComputeDetector.heavy_compute`.
 ///
@@ -28,10 +30,11 @@ import 'package:sleuth/sleuth.dart';
 /// that satisfy `ProfileCaptureSchema.validateBracket(...
 /// requireDetectorTraceRecord: true, ...)` ONLY when SleuthController's
 /// VmServiceClient is connected — i.e. the run is in VM+ mode, not
-/// FRAME mode. USB-tethered iPhone profile-mode is FRAME mode (the
-/// VM service port is not routed to the host); use **wireless
-/// debugging** via Xcode → Window → Devices and Simulators →
-/// "Connect via network", or run on the iOS simulator.
+/// FRAME mode. Sleuth connects to the app's own VM service from inside
+/// the app, so USB and wireless both work. `flutter run` starts DDS by
+/// default, and DDS keeps the VM service as its only client, which
+/// leaves Sleuth in FRAME mode. Launch with `--no-dds` (step 1), or
+/// start the installed app from the home screen.
 ///
 /// In FRAME mode, the `HeavyComputeDetector` (vmOnly lifecycle) never
 /// observes BUILD events, so the detector never emits the required
@@ -52,13 +55,13 @@ import 'package:sleuth/sleuth.dart';
 ///   above: 12.1 ≤ ms ≤ 15.0 (above-ceiling 8 × 1.875 = 15;
 ///                            stays clear of 16 ms critical)
 ///
-/// Critical tier (threshold=16, atTolerance=0.50, aboveCeilingMultiplier=1.875):
+/// Critical tier (threshold=16, atTolerance=0.60, aboveCeilingMultiplier=1.875):
 ///   below: 8.0 ≤ ms ≤ 15.5  (warning fires; critical does NOT — the
 ///                            schema's name-scoped no-record check
 ///                            ignores warning events when validating
 ///                            the critical below leg)
-///   at:    16.0 ≤ ms ≤ 24.0 (atTolerance=0.50 → [16, 16 × 1.50])
-///   above: 24.1 ≤ ms ≤ 30.0 (above-ceiling 16 × 1.875 = 30;
+///   at:    16.0 ≤ ms ≤ 25.6 (atTolerance=0.60 → [16, 16 × 1.60])
+///   above: 25.7 ≤ ms ≤ 30.0 (above-ceiling 16 × 1.875 = 30;
 ///                            no super-critical tier above)
 ///
 /// **Required runtime gate**: this screen relies on
@@ -71,8 +74,9 @@ import 'package:sleuth/sleuth.dart';
 ///
 /// Protocol per leg:
 ///
-///  1. `cd example && fvm flutter run --profile -d DEVICE \
-///       --dart-define=SLEUTH_CAPTURE_MODE=true`.
+///  1. `cd example && fvm flutter run --profile --no-dds -d DEVICE \
+///       --dart-define=SLEUTH_CAPTURE_MODE=true \
+///       --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
 ///  2. Pick the active tier (Warning / Critical) from the dropdown.
 ///  3. Tap **Below**, wait for "ready to Export" log line.
 ///  4. Tap **Export last leg** — wrapped JSON is copied to clipboard
@@ -81,12 +85,13 @@ import 'package:sleuth/sleuth.dart';
 ///  6. Save each clipboard payload under
 ///     `test/validation/captures/heavy_compute/`.
 ///
-/// **Auto-calibration**: sin/cos iteration counts are calibrated on
-/// screen open by running a short warmup loop and dividing measured
-/// duration into the target ms for each preset. Recalibrate via the
-/// "Recalibrate" button if device thermal throttling or background
-/// load skews the first-pass measurement. Each in-band capture also
-/// refines the rate, so subsequent taps land closer to the target band.
+/// **Calibration**: on screen open a short warmup loop measures
+/// iterations per ms, and each leg runs that rate times its target ms.
+/// Recalibrate via the "Recalibrate" button if device thermal throttling
+/// or background load skews the first measurement. Each tap runs one
+/// workload, and the screen refines the rate from that run's measured
+/// throughput (in band or not), so the next tap lands closer to the
+/// target band.
 class HeavyComputeCaptureScreen extends StatefulWidget {
   const HeavyComputeCaptureScreen({super.key});
 
@@ -103,10 +108,10 @@ const _criticalThresholdMs = 16;
 // Calibration warmup. Big enough that the resulting iterations-per-ms
 // rate is stable, small enough that the screen open delay is invisible.
 // Empirically the cold warmup runs much faster than the in-build hot
-// loop on iPhone 12 (≈1.6× rate divergence on first capture), so we
-// also re-run a quick calibration pass *immediately before* every leg
-// (`_recalibratePerLeg`). This adapts iteration count to current
-// thermal state and keeps each leg inside its target band.
+// loop on iPhone 12 (≈1.6× rate divergence on first capture), so each
+// leg run also refines the rate from its own measured throughput (see
+// `build`). The next tap uses the refined rate, which follows the
+// device's current thermal state.
 const _calibrationIterations = 500000;
 
 /// Active tier-stack bracket the screen is recording.
@@ -243,7 +248,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       );
       if (!_captureModeOn) {
         _log.add(
-          '⚠ captureMode OFF — restart with --dart-define='
+          '⚠ captureMode OFF. Restart with --dart-define='
           'SLEUTH_CAPTURE_MODE=true to emit scenario markers.',
         );
       }
@@ -259,6 +264,13 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
   void _requestCapture(_Leg leg) {
     if (_busy || _iterationsPerMs == null) return;
     final tier = _activeTier;
+    // Provenance is a property of the build, so a leg that could never
+    // be exported is refused before its workload runs.
+    final refusal = provenanceRefusal('${tier.label}/${leg.label}');
+    if (refusal != null) {
+      setState(() => _log.add(refusal));
+      return;
+    }
     final spec = _legSpec(tier, leg);
     setState(() {
       _busy = true;
@@ -285,7 +297,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
   /// - No leg has completed in-band since screen open (or since the
   ///   last leg tap).
   /// - VM service is not connected — the procedure requires VM+
-  ///   mode (re-opened iOS profile build, or wireless debugging).
+  ///   mode (launched with `--no-dds`, or started from the home screen).
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
     final tier = _lastCompletedTier;
@@ -309,7 +321,10 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       );
     });
     String? json;
+    String? localFailure;
     try {
+      // Checked when the leg started; this is a safety net.
+      final provenance = requireCaptureProvenance();
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg.label, // 'below' | 'at' | 'above'
@@ -320,12 +335,10 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
         magnitudeObserved: measured,
         magnitudeMax: measured + 1.0,
         unit: 'ms',
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterVersion: '3.41.4',
-        captureCommand:
-            'fvm flutter run --profile -d "iPhone 12" '
-            '--dart-define=SLEUTH_CAPTURE_MODE=true',
+        device: provenance.device,
+        deviceOsVersion: provenance.deviceOsVersion,
+        flutterVersion: provenance.flutterVersion,
+        captureCommand: provenance.captureCommand,
         // Skip BUILD-derivation. The workload BUILD's `ph: 'B'` event
         // fires at frame-start (BEFORE markScenarioBegin emits inside
         // build()), so it gets filtered out of the wrapped capture
@@ -351,23 +364,28 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
         bracketSeverityLabel: tier.label,
       );
     } catch (e) {
+      // A failure before or inside the export call; its own text says
+      // why, and `lastCaptureExportFailure` does not describe it.
       json = null;
-      if (mounted) {
-        setState(() {
-          _log.add('[${tier.label}/${leg.label}] Export FAILED: $e');
-        });
-      }
+      localFailure = '$e';
     }
     if (!mounted) return;
+    if (localFailure != null) {
+      final failure = localFailure;
+      setState(() {
+        _busy = false;
+        _log.add('[${tier.label}/${leg.label}] Export FAILED: $failure');
+      });
+      return;
+    }
     if (json == null) {
+      final reason =
+          Sleuth.lastCaptureExportFailure ?? 'exportCaptureJson gave no reason';
       setState(() {
         _busy = false;
         _log.add(
           '[${tier.label}/${leg.label}] Export FAILED: returned null. '
-          'Common causes: VM service disconnected (FRAME mode — kill the '
-          'app from Xcode and re-open from the home screen so VM+ mode '
-          'activates), or scenario markers missing from the trace '
-          'buffer (re-tap the leg and Export within 30 s).',
+          'Reason: $reason',
         );
       });
       return;
@@ -379,12 +397,12 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       setState(() {
         _busy = false;
         _log.add(
-          '[${tier.label}/${leg.label}] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[${tier.label}/${leg.label}] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[${tier.label}/${leg.label}] Paste into Notes / Mail / AirDrop '
-          '→ send to Mac. Save the pasted JSON as $fileName under '
+          '[${tier.label}/${leg.label}] Paste it into Notes, Mail or AirDrop '
+          'and send it to the Mac. Save the pasted JSON as $fileName under '
           'test/validation/captures/heavy_compute/.',
         );
       });
@@ -470,8 +488,8 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       // `HeavyComputeDetector` observing the BUILD event via VM
       // Timeline → SleuthController → `_recordIssuesForCapture` →
       // `CaptureHelper.recordIssue`. That pipeline only runs when
-      // VM service is connected (wireless debugging or simulator).
-      // USB-tethered FRAME-mode runs WILL NOT produce a
+      // VM service is connected (launched with `--no-dds`, or from the
+      // home screen). FRAME-mode runs WILL NOT produce a
       // `sleuth.issue.heavy_compute.*` trace record, and the
       // resulting capture is NOT acceptable for `runtimeVerified`
       // — the schema audit will reject it as "Missing detector
@@ -490,10 +508,9 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       // build that disposes the screen mid-dwell doesn't leak a stale
       // context into ScaffoldMessenger.of.
       final messenger = ScaffoldMessenger.of(context);
-      // Validate measured ms against the leg's hard bracket band
-      // (NOT the auto-tune ±8 % target band — those are the ranges
-      // that satisfy `ProfileCaptureSchema.validateBracket` for the
-      // active tier).
+      // Validate measured ms against the leg's band (msMin to msMax,
+      // the range that satisfies `ProfileCaptureSchema.validateBracket`
+      // for the active tier), not against the target ms.
       final inBand = measuredMs >= spec.msMin && measuredMs <= spec.msMax;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
@@ -532,7 +549,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
           _lastCompletedTier = inBand ? pendingTier : null;
           _lastMeasuredMs = inBand ? measuredMs : null;
           _log.add(
-            '[${pendingTier.label}/${pending.label}] $marker — '
+            '[${pendingTier.label}/${pending.label}] $marker: '
             'measured ${measuredMs.toStringAsFixed(2)} ms '
             '(must be [${spec.msMin.toStringAsFixed(1)}, '
             '${spec.msMax.toStringAsFixed(1)}] ms; '
@@ -542,8 +559,9 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
           if (!inBand) {
             _log.add(
               '[${pendingTier.label}/${pending.label}] retry: tap '
-              '${pending.label} again — rate refined; next tap should '
-              'land closer to band. Do NOT export an out-of-band run.',
+              '${pending.label} again. The screen refined its rate, so the '
+              'next tap should land closer to the band. Do not export an '
+              'out-of-band run.',
             );
           }
         });
@@ -555,9 +573,9 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
           _busy = false;
           if (inBand) {
             _log.add(
-              '[${pendingTier.label}/${pending.label}] ready to Export — '
-              'tap "Export last leg" to copy the wrapped capture to '
-              'clipboard.',
+              '[${pendingTier.label}/${pending.label}] ready to Export. '
+              'Tap "Export last leg" to copy the wrapped capture to '
+              'the clipboard.',
             );
           }
         });
@@ -590,12 +608,12 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Records profile-mode captures bracketing the heavy_compute '
-                'thresholds. Pick the active tier — Warning (8 ms) or '
-                'Critical (16 ms = 2× warning) — and the screen tunes its '
-                'leg targets, scenario name, and capture file name to match. '
-                'See class docstring + doc/capture_procedure.md for the '
-                'full recording protocol.',
+                'Records profile-mode captures that bracket the heavy_compute '
+                'thresholds. Pick the active tier: Warning (8 ms) or '
+                'Critical (16 ms, 2× warning). The screen then tunes its '
+                'leg targets, scenario name and capture file name to match. '
+                'See the class doc comment and doc/capture_procedure.md for '
+                'the full recording protocol.',
                 style: TextStyle(fontSize: 13),
               ),
               const SizedBox(height: 16),
@@ -618,9 +636,9 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
                               _lastCompletedTier = null;
                               _lastMeasuredMs = null;
                               _log.add(
-                                'Switched active tier → ${next.label} '
+                                'Switched active tier to ${next.label} '
                                 '(threshold ${next.thresholdMs} ms). '
-                                'Leg targets retuned.',
+                                'Retuned the leg targets.',
                               );
                             });
                           },
@@ -642,12 +660,12 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
                 label:
                     'Below '
                     '(${activeSpecs[_Leg.below]!.targetMs.toStringAsFixed(1)} '
-                    'ms) — '
+                    'ms), '
                     '${_activeTier == _Tier.warning ? "silent" : "warning fires"}',
                 subtitle: _activeTier == _Tier.warning
                     ? 'Under $_warningThresholdMs ms threshold; detector silent'
                     : 'Between $_warningThresholdMs ms and $_criticalThresholdMs '
-                          'ms — fires .warning, NOT .critical',
+                          'ms, so .warning fires but not .critical',
                 enabled: ready,
                 onTap: () => _requestCapture(_Leg.below),
               ),
@@ -656,11 +674,11 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
                 label:
                     'At '
                     '(${activeSpecs[_Leg.at]!.targetMs.toStringAsFixed(1)} '
-                    'ms) — ${_activeTier.label}',
+                    'ms), ${_activeTier.label}',
                 subtitle:
                     'In [${activeSpecs[_Leg.at]!.msMin.toStringAsFixed(1)}, '
                     '${activeSpecs[_Leg.at]!.msMax.toStringAsFixed(1)}] '
-                    'at-band (±50% tolerance)',
+                    'at-band',
                 enabled: ready,
                 onTap: () => _requestCapture(_Leg.at),
               ),
@@ -669,7 +687,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
                 label:
                     'Above '
                     '(${activeSpecs[_Leg.above]!.targetMs.toStringAsFixed(1)} '
-                    'ms) — ${_activeTier.label}',
+                    'ms), ${_activeTier.label}',
                 subtitle:
                     'In [${activeSpecs[_Leg.above]!.msMin.toStringAsFixed(1)}, '
                     '${activeSpecs[_Leg.above]!.msMax.toStringAsFixed(1)}] '

@@ -25,6 +25,16 @@ class SseLineParser {
     }
     return lines;
   }
+
+  /// Returns the buffered text after the last newline, the stream's final
+  /// line when it ended without one, and empties the buffer. Null when
+  /// nothing is buffered.
+  String? flush() {
+    if (_buffer.isEmpty) return null;
+    final line = _buffer.trimRight();
+    _buffer = '';
+    return line;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -81,13 +91,289 @@ String extractGoogleToken(String jsonData) {
     final map = jsonDecode(jsonData) as Map<String, dynamic>;
     final candidates = map['candidates'] as List<dynamic>?;
     if (candidates == null || candidates.isEmpty) return '';
-    final content = (candidates[0] as Map<String, dynamic>)['content']
-        as Map<String, dynamic>?;
+    final content =
+        (candidates[0] as Map<String, dynamic>)['content']
+            as Map<String, dynamic>?;
     final parts = content?['parts'] as List<dynamic>?;
     if (parts == null || parts.isEmpty) return '';
     return ((parts[0] as Map<String, dynamic>)['text'] as String?) ?? '';
   } catch (_) {
     return '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stream errors
+// ---------------------------------------------------------------------------
+
+/// A failure reported by an AI provider: a non-200 response or an error
+/// frame inside the event stream.
+///
+/// [statusCode] is the HTTP status, or the status an error frame's type
+/// stands for (`rate_limit_error` is 429), or null when unknown.
+class AiProviderException implements Exception {
+  const AiProviderException(this.message, {this.statusCode});
+
+  /// The provider's message (for an HTTP failure, the response body).
+  final String message;
+
+  /// HTTP status, when known.
+  final int? statusCode;
+
+  @override
+  String toString() => statusCode == null
+      ? 'AiProviderException: $message'
+      : 'AiProviderException ($statusCode): $message';
+}
+
+/// HTTP status an error identifier stands for: Anthropic `error.type`
+/// values, OpenAI `error.code` and `error.type` values, and the Google
+/// RPC `error.status` names Gemini sends. Keys are lower case.
+const Map<String, int> _errorStatus = {
+  // Anthropic error types.
+  'invalid_request_error': 400,
+  'authentication_error': 401,
+  'permission_error': 403,
+  'not_found_error': 404,
+  'request_too_large': 413,
+  'rate_limit_error': 429,
+  'api_error': 500,
+  'overloaded_error': 529,
+  // OpenAI error codes and types.
+  'invalid_api_key': 401,
+  'insufficient_quota': 429,
+  'rate_limit_exceeded': 429,
+  'server_error': 500,
+  // Google RPC status names.
+  'invalid_argument': 400,
+  'unauthenticated': 401,
+  'permission_denied': 403,
+  'not_found': 404,
+  'resource_exhausted': 429,
+  'internal': 500,
+  'unavailable': 503,
+  'deadline_exceeded': 504,
+};
+
+/// [value] read as an HTTP status: a number from 100 to 599 (or a string
+/// holding one, as Azure sends), or an identifier listed in
+/// [_errorStatus]. Null otherwise.
+int? _statusOf(Object? value) {
+  final number = switch (value) {
+    final int n => n,
+    final String s => int.tryParse(s.trim()),
+    _ => null,
+  };
+  if (number != null) return number >= 100 && number < 600 ? number : null;
+  return value is String ? _errorStatus[value.trim().toLowerCase()] : null;
+}
+
+/// Returns the error carried by an SSE data payload, or null when the
+/// payload is not an error.
+///
+/// Anthropic sends `{"type":"error","error":{"type":...,"message":...}}`
+/// mid-stream; OpenAI-compatible servers send
+/// `{"error":{"message":...,"type":...,"code":...}}`, where `code` is a
+/// string such as `rate_limit_exceeded` or a status number; Gemini sends
+/// `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED",...}}`. A payload
+/// is an error when its `type` is `error`, or its `error` is a non-empty
+/// object or string; `"error": false`, `{}` or `""` is not.
+///
+/// The status is read from `error.code`, then `error.type`, then
+/// `error.status` ([_statusOf]).
+AiProviderException? extractStreamError(String jsonData) {
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(jsonData);
+  } catch (_) {
+    return null;
+  }
+  return _errorIn(decoded, jsonData);
+}
+
+/// [extractStreamError] for a payload already decoded to [decoded];
+/// [raw] is the payload text.
+AiProviderException? _errorIn(Object? decoded, String raw) {
+  if (decoded is! Map<String, dynamic>) return null;
+  final error = decoded['error'];
+  final carriesError =
+      (error is Map && error.isNotEmpty) ||
+      (error is String && error.isNotEmpty);
+  if (decoded['type'] != 'error' && !carriesError) return null;
+  if (error is String && error.isNotEmpty) return AiProviderException(error);
+  if (error is! Map<String, dynamic>) return AiProviderException(raw);
+  final message = error['message'];
+  final status =
+      _statusOf(error['code']) ??
+      _statusOf(error['type']) ??
+      _statusOf(error['status']);
+  return AiProviderException(
+    message is String ? message : raw,
+    statusCode: status,
+  );
+}
+
+/// One dispatched SSE event: its data, and that data decoded when it is
+/// JSON ([isJson]).
+typedef _SseEvent = ({String data, bool isJson, Object? json});
+
+({bool isJson, Object? json}) _decodeJson(String data) {
+  try {
+    return (isJson: true, json: jsonDecode(data));
+  } catch (_) {
+    return (isJson: false, json: null);
+  }
+}
+
+/// Groups SSE lines into events.
+///
+/// The `data` fields of one event are joined with a newline, and the
+/// event is dispatched at the blank line that ends it or at [finish].
+/// Data that is already a complete JSON value (or `[DONE]`) is dispatched
+/// at once: no later data line can extend it into valid JSON, so the
+/// result is the same, and a server that leaves out the blank line keeps
+/// streaming. Comments and the `event`, `id` and `retry` fields are
+/// skipped; any other line is kept as [otherText].
+class _SseEventReader {
+  /// Most text kept from lines that are not SSE fields.
+  static const int _maxOtherChars = 64 * 1024;
+
+  final List<String> _data = [];
+  final StringBuffer _other = StringBuffer();
+  bool _otherFull = false;
+
+  /// Whether any `data` field arrived.
+  bool sawData = false;
+
+  /// Lines that are not SSE fields, joined with newlines (the body of a
+  /// response that is not an event stream).
+  String get otherText => _other.toString();
+
+  /// Reads one line; returns the event it completes, if any.
+  _SseEvent? addLine(String line) {
+    if (line.isEmpty) return finish();
+    if (line.startsWith(':')) return null;
+    final colon = line.indexOf(':');
+    final name = colon < 0 ? line : line.substring(0, colon);
+    switch (name) {
+      case 'data':
+        sawData = true;
+        var value = colon < 0 ? '' : line.substring(colon + 1);
+        if (value.startsWith(' ')) value = value.substring(1);
+        _data.add(value);
+        final data = _data.join('\n');
+        if (data == '[DONE]') {
+          _data.clear();
+          return (data: data, isJson: false, json: null);
+        }
+        final decoded = _decodeJson(data);
+        if (!decoded.isJson) return null;
+        _data.clear();
+        return (data: data, isJson: true, json: decoded.json);
+      case 'event':
+      case 'id':
+      case 'retry':
+        return null;
+      default:
+        if (_otherFull) return null;
+        if (_other.length + line.length >= _maxOtherChars) {
+          _otherFull = true;
+          return null;
+        }
+        if (_other.isNotEmpty) _other.write('\n');
+        _other.write(line);
+        return null;
+    }
+  }
+
+  /// Dispatches the event being read, if it has data. Its data did not
+  /// decode as JSON when its last line arrived, else it would have been
+  /// dispatched then.
+  _SseEvent? finish() {
+    if (_data.isEmpty) return null;
+    final data = _data.join('\n');
+    _data.clear();
+    if (data.isEmpty) return null;
+    return (data: data, isJson: false, json: null);
+  }
+}
+
+/// The token an [event] carries: null when it ends the stream (`[DONE]`),
+/// otherwise [extractToken]'s result. An error payload is thrown.
+String? _tokenOf(_SseEvent event, String Function(String data) extractToken) {
+  if (event.data == '[DONE]') return null;
+  if (event.isJson) {
+    final error = _errorIn(event.json, event.data);
+    if (error != null) throw error;
+  }
+  return extractToken(event.data);
+}
+
+/// The failure a response with no `data` field stands for: the error its
+/// [body] carries (a bare JSON error sent with status 200), else a
+/// response that was not an event stream.
+AiProviderException _nonStreamFailure(String body) {
+  final error = extractStreamError(body);
+  if (error != null) return error;
+  const maxExcerpt = 300;
+  final excerpt = body.length > maxExcerpt
+      ? '${body.substring(0, maxExcerpt)}\u2026'
+      : body;
+  return AiProviderException(
+    'The provider did not send an event stream: $excerpt',
+  );
+}
+
+/// Turns decoded SSE text [chunks] into text tokens.
+///
+/// Lines are grouped into Server-Sent Events: an event's `data` lines are
+/// joined with a newline and read once the event ends (see
+/// [_SseEventReader]), including an event the stream ends in without a
+/// blank line or a final newline. A byte order mark at the start of the
+/// stream is dropped.
+///
+/// Per event, `[DONE]` ends the stream (the upstream subscription is
+/// cancelled, so the connection is not read to its end), data carrying an
+/// error ([extractStreamError]) raises it as a stream error, and other
+/// data goes to [extractToken]; empty tokens are skipped. A response
+/// without any `data` field but with other text, such as a bare JSON
+/// error body sent with status 200, raises an [AiProviderException] when
+/// it ends instead of ending as an empty reply.
+Stream<String> sseTokens(
+  Stream<String> chunks,
+  String Function(String data) extractToken,
+) async* {
+  final parser = SseLineParser();
+  final reader = _SseEventReader();
+  var first = true;
+  await for (var chunk in chunks) {
+    if (first && chunk.isNotEmpty) {
+      first = false;
+      // A UTF-8 byte order mark before the first field.
+      if (chunk.startsWith('\uFEFF')) chunk = chunk.substring(1);
+    }
+    for (final line in parser.addChunk(chunk)) {
+      final event = reader.addLine(line);
+      if (event == null) continue;
+      final token = _tokenOf(event, extractToken);
+      if (token == null) return;
+      if (token.isNotEmpty) yield token;
+    }
+  }
+  // The stream ended: read a last line without a newline, then an event
+  // without a closing blank line.
+  final tail = parser.flush();
+  final pending = [
+    if (tail != null) reader.addLine(tail),
+    reader.finish(),
+  ].nonNulls;
+  for (final event in pending) {
+    final token = _tokenOf(event, extractToken);
+    if (token == null) return;
+    if (token.isNotEmpty) yield token;
+  }
+  if (!reader.sawData && reader.otherText.trim().isNotEmpty) {
+    throw _nonStreamFailure(reader.otherText);
   }
 }
 
@@ -128,25 +414,18 @@ Stream<String> _streamSse({
 
       if (response.statusCode != 200) {
         final responseBody = await response.transform(utf8.decoder).join();
-        throw HttpException(
+        throw AiProviderException(
           'AI provider returned ${response.statusCode}: $responseBody',
-          uri: uri,
+          statusCode: response.statusCode,
         );
       }
 
-      final parser = SseLineParser();
-      await for (final chunk in response.transform(utf8.decoder)) {
+      await for (final token in sseTokens(
+        response.transform(utf8.decoder),
+        extractToken,
+      )) {
         if (controller.isClosed) break;
-        for (final line in parser.addChunk(chunk)) {
-          if (line.startsWith('data: ')) {
-            final data = line.substring(6);
-            if (data == '[DONE]') break;
-            final token = extractToken(data);
-            if (token.isNotEmpty) {
-              controller.add(token);
-            }
-          }
-        }
+        controller.add(token);
       }
       if (!controller.isClosed) await controller.close();
     } catch (e) {
@@ -245,7 +524,7 @@ Stream<String> Function(AiChatRequest) createGoogleStream({
       return {
         'role': m.role == AiChatRole.user ? 'user' : 'model',
         'parts': [
-          {'text': m.text}
+          {'text': m.text},
         ],
       };
     }).toList();
@@ -254,14 +533,11 @@ Stream<String> Function(AiChatRequest) createGoogleStream({
       uri: Uri.parse(
         'https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse',
       ),
-      headers: {
-        'x-goog-api-key': apiKey,
-        'content-type': 'application/json',
-      },
+      headers: {'x-goog-api-key': apiKey, 'content-type': 'application/json'},
       body: jsonEncode({
         'system_instruction': {
           'parts': [
-            {'text': request.systemPrompt}
+            {'text': request.systemPrompt},
           ],
         },
         'contents': contents,

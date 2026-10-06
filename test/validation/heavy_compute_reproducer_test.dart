@@ -85,8 +85,7 @@ void main() {
     });
 
     group('enriched emission path (PhaseEvent + dirtyList)', () {
-      test(
-          'parser extracts dirtyCount/dirtyList/scopeContext; detector '
+      test('parser extracts dirtyCount/dirtyList/scopeContext; detector '
           'surfaces them verbatim in issue.detail', () {
         final events = [
           buildEvent(
@@ -131,11 +130,17 @@ void main() {
         expect(detector.issues.first.title, contains('Heavy Build:'));
         expect(detector.issues.first.title, contains('MyWidget'));
         expect(
-            detector.issues.first.detail, contains('Dirty widget count: 2.'));
-        expect(detector.issues.first.detail,
-            contains('Dirty widgets: MyWidget, OtherWidget.'));
+          detector.issues.first.detail,
+          contains('Dirty widget count: 2.'),
+        );
         expect(
-            detector.issues.first.detail, contains('Scope context: HomePage.'));
+          detector.issues.first.detail,
+          contains('Dirty widgets: MyWidget, OtherWidget.'),
+        );
+        expect(
+          detector.issues.first.detail,
+          contains('Scope context: HomePage.'),
+        );
       });
 
       test('missing dirtyList still fires with non-enriched title', () {
@@ -182,8 +187,7 @@ void main() {
       });
     });
 
-    group(
-        'critical-tier band coverage (additionalBrackets) — '
+    group('critical-tier band coverage (additionalBrackets) — '
         'every magnitude in the bracket band must emit .critical', () {
       // Companion to the critical-tier `additionalBrackets` raise on
       // the detector. The schema validates per-leg observed magnitude
@@ -247,26 +251,27 @@ void main() {
       });
 
       test(
-          '24001µs (above prior 0.50 seam, inside 0.60 at-band) stays .critical',
-          () {
-        final events = [
-          buildEvent(name: 'BUILD', ph: 'X', dur: 24001, ts: 1000),
-        ];
-        final parsed = parseAndAssertShape(events, (
-          buildEventCount: 1,
-          buildScopeCount: 1,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 0,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: 1,
-        ));
-        detector.processTimelineData(parsed);
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.severity.name, 'critical');
-      });
+        '24001µs (above prior 0.50 seam, inside 0.60 at-band) stays .critical',
+        () {
+          final events = [
+            buildEvent(name: 'BUILD', ph: 'X', dur: 24001, ts: 1000),
+          ];
+          final parsed = parseAndAssertShape(events, (
+            buildEventCount: 1,
+            buildScopeCount: 1,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 0,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ));
+          detector.processTimelineData(parsed);
+          expect(detector.issues, hasLength(1));
+          expect(detector.issues.first.severity.name, 'critical');
+        },
+      );
 
       test('25600µs (schema 0.60 at-band upper edge) stays .critical', () {
         final events = [
@@ -360,9 +365,7 @@ void main() {
       // Reached in production when VM emits 'X' build events pre-2.x or
       // via tooling that omits timestamps.
       test('BUILD `X` event without `ts` fires via _createGenericIssue', () {
-        final events = [
-          buildEvent(name: 'BUILD', ph: 'X', dur: 12000),
-        ];
+        final events = [buildEvent(name: 'BUILD', ph: 'X', dur: 12000)];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 1,
           buildScopeCount: 1,

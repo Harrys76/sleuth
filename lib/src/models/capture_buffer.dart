@@ -36,14 +36,13 @@ class CaptureEntry {
   }
 
   factory CaptureEntry.fromJson(Map<String, dynamic> json) => CaptureEntry(
-        frameStats:
-            FrameStats.fromJson(json['frameStats'] as Map<String, dynamic>),
-        verdict: FrameVerdict.fromJson(json['verdict'] as Map<String, dynamic>),
-        relatedIssues: (json['relatedIssues'] as List<dynamic>)
-            .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        capturedAt: DateTime.parse(json['capturedAt'] as String),
-      );
+    frameStats: FrameStats.fromJson(json['frameStats'] as Map<String, dynamic>),
+    verdict: FrameVerdict.fromJson(json['verdict'] as Map<String, dynamic>),
+    relatedIssues: (json['relatedIssues'] as List<dynamic>)
+        .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    capturedAt: DateTime.parse(json['capturedAt'] as String),
+  );
 }
 
 /// Bounded rolling buffer of worst jank frames.
@@ -84,10 +83,12 @@ class JankCaptureBuffer {
 
   /// Update the verdict for a captured frame (used for async CPU attribution).
   ///
-  /// Replaces the entire [CaptureEntry] since it is immutable.
+  /// Replaces the entire [CaptureEntry] since it is immutable. A captured
+  /// correlated verdict is never replaced by a non-correlated one.
   void updateVerdict(int frameNumber, FrameVerdict verdict) {
     for (int i = 0; i < _entries.length; i++) {
       if (_entries[i].frameStats.frameNumber == frameNumber) {
+        if (_entries[i].verdict.isCorrelated && !verdict.isCorrelated) return;
         _entries[i] = CaptureEntry(
           frameStats: _entries[i].frameStats,
           verdict: verdict,

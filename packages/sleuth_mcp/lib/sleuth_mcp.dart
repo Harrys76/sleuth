@@ -39,32 +39,52 @@ export 'src/cli/ios_attach_pipeline.dart'
         IosAttachProgress,
         IosAttachResult,
         IosAttacher;
+export 'src/cli/check_command.dart'
+    show
+        runCheckCommand,
+        checkExitPass,
+        checkExitViolation,
+        checkExitNotRun,
+        checkExitUsage;
+export 'src/cli/serve_command.dart'
+    show serveUntilExit, shutdownSignals, defaultStartupConnectWait;
 export 'src/bridge/vm_bridge.dart'
     show
         VmBridge,
         RealVmBridge,
         FakeVmBridge,
         VmBridgeException,
+        VmBridgeErrorKind,
         SessionChangedException,
-        VersionSkewValidator;
+        VersionSkewValidator,
+        bridgeCallTimeoutWithin,
+        normalizeVmServiceUri;
 export 'src/tools/tools.dart'
     show defaultVersionSkewValidator, snapshotDiskHandoff;
 export 'src/tools/snapshot_disk_handoff.dart' show SnapshotDiskHandoff;
+export 'src/tools/snapshot_sections.dart'
+    show
+        snapshotSectionKeys,
+        heavySnapshotSections,
+        defaultSnapshotSections,
+        snapshotMetadataKeys;
 export 'src/flutter_daemon/app_status.dart'
-    show AppStatusPayload, AppSessionState;
+    show AppStatusPayload, AppSessionState, ConnectedVia;
 export 'src/flutter_daemon/daemon_events.dart';
 export 'src/flutter_daemon/daemon_parser.dart'
     show DaemonParser, minDaemonProtocolVersion, isAtLeastVersion;
 export 'src/flutter_daemon/daemon_rpc.dart'
     show DaemonRpc, DaemonRpcException, DaemonRpcTimeoutException;
 export 'src/flutter_daemon/daemon_session.dart'
-    show DaemonSession, DaemonSessionException;
+    show DaemonSession, DaemonSessionException, DetachBudget;
 export 'src/mcp/mcp_server.dart'
     show
         DaemonSessionLifecycle,
         McpServer,
         ToolHandler,
+        defaultExitDetachTimeout,
         mcpProtocolVersion,
+        mcpServerInstructions,
         supportedMcpProtocolVersions,
         sleuthMcpVersion,
         sleuthPackageVersionPin;

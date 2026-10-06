@@ -18,8 +18,9 @@ void main() {
     final bridge = defaultFakeBridge();
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['explain_issue']!.handler;
-    final result = await handler(bridge, {'stableId': 'jank_detected'})
-        as Map<String, Object?>;
+    final result =
+        await handler(bridge, {'stableId': 'jank_detected'})
+            as Map<String, Object?>;
     expect(result['data'], isA<Map<String, Object?>>());
   });
 

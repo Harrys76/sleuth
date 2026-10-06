@@ -67,12 +67,14 @@ void main() {
       controller.dispose();
 
       // _onHeapSample has a _disposed guard — should be a no-op.
-      controller.feedHeapSampleForTest(HeapSample(
-        heapUsage: 100 * 1024 * 1024,
-        heapCapacity: 200 * 1024 * 1024,
-        externalUsage: 0,
-        timestamp: DateTime(2026, 1, 1),
-      ));
+      controller.feedHeapSampleForTest(
+        HeapSample(
+          heapUsage: 100 * 1024 * 1024,
+          heapCapacity: 200 * 1024 * 1024,
+          externalUsage: 0,
+          timestamp: DateTime(2026, 1, 1),
+        ),
+      );
       // No crash = guard works.
     });
 
@@ -82,10 +84,10 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed data that triggers aggregation with recurrence tracking.
-      controller.feedTimelineDataForTest(highBuildActivityData());
+      controller.feedTimelineDataForTest(buildLoadData(buildTimeUs: 250000));
       controller.aggregateIssuesForTest();
       // Feed again to build up recurrence.
-      controller.feedTimelineDataForTest(highBuildActivityData());
+      controller.feedTimelineDataForTest(buildLoadData(buildTimeUs: 250000));
       controller.aggregateIssuesForTest();
 
       controller.dispose();
@@ -116,12 +118,14 @@ void main() {
 
       // Alternate between different data sources.
       for (int i = 0; i < 5; i++) {
-        controller.feedHeapSampleForTest(HeapSample(
-          heapUsage: (50 + i * 5) * 1024 * 1024,
-          heapCapacity: 500 * 1024 * 1024,
-          externalUsage: 0,
-          timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
-        ));
+        controller.feedHeapSampleForTest(
+          HeapSample(
+            heapUsage: (50 + i * 5) * 1024 * 1024,
+            heapCapacity: 500 * 1024 * 1024,
+            externalUsage: 0,
+            timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
+          ),
+        );
         controller.feedTimelineDataForTest(emptyTimelineData());
       }
 
@@ -131,9 +135,7 @@ void main() {
 
     test('suppression config applied at construction', () {
       final controller = SleuthController(
-        config: const SleuthConfig(
-          suppressedIssues: {'rebuild_*'},
-        ),
+        config: const SleuthConfig(suppressedIssues: {'rebuild_*'}),
       );
       controller.initializeDetectorsForTest();
       controller.aggregateIssuesForTest();

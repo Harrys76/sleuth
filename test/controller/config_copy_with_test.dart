@@ -58,6 +58,22 @@ void main() {
       expect(copy.triggerButtonOffset, original.triggerButtonOffset);
       expect(copy.routeIgnorePatterns, original.routeIgnorePatterns);
       expect(copy.routeHistoryCapacity, original.routeHistoryCapacity);
+      expect(copy.autoFrameBudget, original.autoFrameBudget);
+      expect(copy.profilePlatformChannels, original.profilePlatformChannels);
+      expect(copy.maxElementsPerScan, original.maxElementsPerScan);
+    });
+
+    test('overrides maxElementsPerScan and rejects negatives', () {
+      const original = SleuthConfig();
+      expect(original.maxElementsPerScan, 0);
+      expect(
+        original.copyWith(maxElementsPerScan: 5000).maxElementsPerScan,
+        5000,
+      );
+      expect(
+        () => original.copyWith(maxElementsPerScan: -1),
+        throwsA(isA<AssertionError>()),
+      );
     });
 
     test('overrides non-nullable int fields', () {
@@ -92,6 +108,22 @@ void main() {
       expect(copy.enableDeepDebugInstrumentation, isTrue);
       expect(copy.enableNetworkMonitoring, isFalse);
       expect(copy.showDebugModeBanner, isFalse);
+    });
+
+    test('overrides autoFrameBudget', () {
+      const original = SleuthConfig();
+      expect(original.autoFrameBudget, isTrue);
+      final copy = original.copyWith(autoFrameBudget: false);
+      expect(copy.autoFrameBudget, isFalse);
+      expect(copy.copyWith().autoFrameBudget, isFalse);
+    });
+
+    test('overrides profilePlatformChannels', () {
+      const original = SleuthConfig();
+      expect(original.profilePlatformChannels, isFalse);
+      final copy = original.copyWith(profilePlatformChannels: true);
+      expect(copy.profilePlatformChannels, isTrue);
+      expect(copy.copyWith().profilePlatformChannels, isTrue);
     });
 
     test('overrides Set and List fields', () {
@@ -225,30 +257,32 @@ void main() {
       );
     });
 
-    test('criticalSlowRequestThresholdMs must be strictly greater than slow',
-        () {
-      const original = SleuthConfig();
-      // Raising slow above default critical (3000) without also raising
-      // critical must fail — the critical tier would become unreachable.
-      expect(
-        () => original.copyWith(slowRequestThresholdMs: 5000),
-        throwsA(isA<AssertionError>()),
-      );
-      // Setting critical equal to slow must fail.
-      expect(
-        () => original.copyWith(
+    test(
+      'criticalSlowRequestThresholdMs must be strictly greater than slow',
+      () {
+        const original = SleuthConfig();
+        // Raising slow above default critical (3000) without also raising
+        // critical must fail — the critical tier would become unreachable.
+        expect(
+          () => original.copyWith(slowRequestThresholdMs: 5000),
+          throwsA(isA<AssertionError>()),
+        );
+        // Setting critical equal to slow must fail.
+        expect(
+          () => original.copyWith(
+            slowRequestThresholdMs: 2000,
+            criticalSlowRequestThresholdMs: 2000,
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+        // Raising both in order is fine.
+        final bumped = original.copyWith(
           slowRequestThresholdMs: 2000,
-          criticalSlowRequestThresholdMs: 2000,
-        ),
-        throwsA(isA<AssertionError>()),
-      );
-      // Raising both in order is fine.
-      final bumped = original.copyWith(
-        slowRequestThresholdMs: 2000,
-        criticalSlowRequestThresholdMs: 5000,
-      );
-      expect(bumped.slowRequestThresholdMs, 2000);
-      expect(bumped.criticalSlowRequestThresholdMs, 5000);
-    });
+          criticalSlowRequestThresholdMs: 5000,
+        );
+        expect(bumped.slowRequestThresholdMs, 2000);
+        expect(bumped.criticalSlowRequestThresholdMs, 5000);
+      },
+    );
   });
 }

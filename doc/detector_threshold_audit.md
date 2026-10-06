@@ -1,437 +1,298 @@
-# Detector Threshold Audit
+# Detector threshold audit
 
-**Date (pass 1):** 2026-04-14 — documentation cross-reference.
-**Date (pass 2):** 2026-04-15 — meta-investigation; pass 1 verdicts regraded against detector source. See §7 for the regrade and §1 for the inline verdict updates (`²` markers).
-**Against:** Sleuth v0.15.2 (23 detectors)
-**Scope:** Every numeric/duration/ratio threshold in `lib/src/detectors/`, cross-referenced against 2025–2026 Flutter performance, Android Vitals, Impeller, and mobile-API sources, then verified against the detector source.
+This audit covers every numeric, duration and ratio threshold in `lib/src/detectors/` of Sleuth v0.15.2, which had 23 detectors. On 2026-04-14 each threshold was compared with 2025 to 2026 sources on Flutter performance, Android Vitals, Impeller and mobile APIs. On 2026-04-15 the verdicts were checked against the detector source; section 7 lists what that check changed. The verdicts are the audit's. The threshold column and the status notes give the code as of v0.37.0.
 
-Context of the package: defaults target 60 FPS, warmup ≈ 3 s, release mode is fully gated off. The package is a diagnostic aid, not a production throttle — false positives cost reputation, false negatives miss real bugs. That asymmetry drives every verdict below.
+Five audited detectors were removed in v0.20.0: AnimatedBuilder, Opacity, ShallowRebuildRisk, NestedScroll and GlobalKey. StreamResource (v0.24.0) and TrackedResource (v0.27.0) came later and are not covered here; [`validation_ledger.md`](validation_ledger.md) holds their thresholds and evidence.
 
-**Pass 2 headline:** the three highest-leverage TUNE recommendations (FrameTiming warmup, NetworkMonitor slow threshold, Listview childThreshold) all survived source-reading. **But 4 of 5 `INVESTIGATE` verdicts collapsed to ✅ KEEP** when the detector source was actually read — the audit had deferred questions it could have answered with one file open. The biggest miss the audit made: it lumped Repaint and Rebuild detectors under "C4 missing animation filter" when only RepaintDetector lacks one (RebuildDetector has a 6-entry `_builderWidgetTypes` set with a 3× threshold). The most actionable single fix is now adding an animation-aware filter to RepaintDetector — see §7 M1.
+Context: the defaults target 60 FPS, the frame warmup is about 3 s, and release builds turn Sleuth off entirely. Sleuth is a diagnostic aid, not a production throttle. A false positive costs users' trust in every detector, while a false negative misses one bug, so the verdicts weigh false positives more heavily.
+
+Reading the source confirmed the three largest tuning recommendations: the FrameTiming warmup, the NetworkMonitor slow threshold and the ListView child threshold. It also settled four of the five open Investigate items as Keep. The audit's largest error was grouping RepaintDetector and RebuildDetector under one missing-animation-filter concern: only RepaintDetector lacked a filter, while RebuildDetector already used a 3× threshold for builder widgets. An animation filter for RepaintDetector became the most useful single fix and shipped in v0.15.3.
 
 ---
 
-## 1. Verdict summary — all 23 detectors
+## 1. Verdict summary
 
-Legend: ✅ Keep (survives scrutiny) · 🔧 Tune (specific change recommended) · 🔍 Investigate (unverified / needs falsification run) · ⚠ Stale (deserves architectural rethink for the 2026 Impeller era). Verdicts annotated `²` were regraded in pass 2 against detector source — see §7.
+Verdicts are Keep (survives scrutiny), Tune (a specific change recommended), Investigate (unverified, needs a falsification run) and Stale (needs a rethink for the Impeller era). "Was X" marks a verdict the source check changed.
 
 | # | Detector | Key threshold(s) | Verdict | One-line rationale |
 |---|---|---|---|---|
-| 1 | FrameTimingDetector | `1000/fpsTarget` ms warn, 2× crit, warmup = 180 **frames** | 🔧 ²✅held | Frame-count warmup breaks on 120 Hz (1.5 s vs intended 3 s); `severeCount ≥ 3 in 60` is undocumented magic. Confirmed at `frame_timing_detector.dart:49`. |
-| 2 | RepaintDetector | paintFreq > 30/s warn, 60/s crit; "likely" at 10/s | 🔧 ²⬆ | **Pass 2 upgraded from 🔍 → 🔧.** Source confirms zero animation/Ticker filter exists. `CircularProgressIndicator`-class widgets WILL fire excessive_repaint at 60 Hz. Now the highest-priority fix. |
-| 3 | RepaintBoundaryDetector | maxAncestorDepth = 5; excessive boundary = 20 per scrollable | 🔧 | Depth 5 has no cited rationale; "20 per scrollable" collides with normal `ListView.builder` idioms. (Pass 2 did not re-verify.) |
-| 4 | CustomPainterDetector | cpRate > 10 likely, > 30 critical | ✅ ²⬇ | **Pass 2 downgraded from 🔍 → ✅.** Primary check is structural (`painter.shouldRepaint(painter)` self-test, line 71); rate is only a confidence escalator, not a firing gate. Pass 1 hypothesis was inverted. |
-| 5 | ListviewDetector | childThreshold = **50**, 2× = 100, 3× = 150 | 🔧 ²✅held + scope | Flutter docs cite `20+ items → builder`. **Pass 2 caveat:** detector only catches eager `SliverChildListDelegate` (`children:[...]`), NOT `.builder()`. Most modern code is unaffected — false-positive risk lower than pass 1 implied. |
-| 6 | NestedScrollDetector | childThreshold = 50 (shared) | 🔧 | Same as #5. |
-| 7 | LayoutBottleneckDetector | wrap children > 30; 2× crit | ✅ | Conservative but defensible; the real risk (nested intrinsics) is handled structurally. |
-| 8 | ShallowRebuildRiskDetector | depth ≤ 3; build count > 20 | ✅ ²⬇ | **Pass 2 downgraded from 🔧 → ✅.** Framework filter exists at `shallow_rebuild_risk_detector.dart:91-105` (13 entries: Scaffold, Material, Navigator, Overlay, _ModalScope, Focus*, etc.). The audit's "MaterialApp → Navigator → Home false-positive" worry is mitigated. |
-| 9 | HeavyComputeDetector | 8 ms gap warn, 16 ms crit | 🔧 ²✅held + reasoning fix | Threshold scales with `fpsTarget` is still right, but **pass 1's stated reasoning was wrong**: source applies threshold to BUILD PHASE DURATION, not inter-frame gap. Corrected reasoning in §7. |
-| 10 | FontLoadingDetector | maxFamilies = 3 | ✅ | Exact match with Flutter 2025 guidance ("stick to 2–3 fonts"). |
-| 11 | KeepAliveDetector | pages > 5 warn, > 10 crit | ✅ | Aligns with "5 complex kept-alive pages ≈ 50–200 MB" rule-of-thumb. |
-| 12 | GpuPressureDetector | raster:UI ratio > 2.0; blur σ > 10 crit; subtree > 5 | 🔍 | 2.0 ratio was calibrated in the Skia era; Impeller's raster/UI shape differs. Needs re-baseline on Impeller-default traces. (Pass 2 did not re-verify.) |
-| 13 | ShaderJankDetector | compile > 100 ms, > 200 ms crit | ⚠ | Impeller is default on both platforms as of 2025; this detector is architecturally vestigial (threshold itself is fine). |
-| 14 | OpacityDetector | exact `== 0.0` | ✅ | Boolean structural rule; the engine's 0.0 short-circuit justifies narrow scope. |
-| 15 | MemoryPressureDetector | growth > 512 000 B/s; capacity > 80 %; GC > 60/min; native > 1 MB/s; warmup 3 s; sustained 10 s | ✅ ²🔧✓ **shipped v0.26.0** | **Tuned in v0.26.0**: `gcRateThresholdPerMin` default 30 → 60. Dart's `EventStreams.kGC` emits one event per young-gen scavenge so a moderately allocating UI sits at ~30/min at steady state (5 events / 10 s sliding window × 6 = per-min extrapolation); the prior default fired on routine animation rebuilds. Apps wanting the older sensitivity opt back in via `SleuthConfig(gcRateThresholdPerMin: 30)`. See §7 M3. |
-| 16 | NetworkMonitorDetector | slow = 1 000 ms, crit = 3 000 ms; 30 req/5 s; large = 1 MB; dup ≥ 3 / 500 ms | ✅ ²🔧✓ **shipped v0.15.4** | 2 000 ms "slow" was 2–10× more lenient than mobile-API industry guidance (300–1 000 ms). **Tuned in v0.15.4**: slow 2000 → 1000 ms, critical 5000 → 3000 ms, symmetric `criticalSlowThresholdMs` constructor parameter + `SleuthConfig.criticalSlowRequestThresholdMs` field with strictly-greater assert. See §7 M3. |
-| 17 | SetStateScopeDetector | dirty ratio > 0.5 of tree; min subtree 50 | ✅ ²⬇ | **Pass 2 downgraded from 🔍 → ✅.** Far more sophisticated than threshold-only review captured: framework filter, animation-scope filter, const-element discount, 5 s rebuild-evidence window, minSubtreeSize=50. The 0.5 ratio is well-defended in the gauntlet. |
-| 18 | PlatformChannelDetector | > 20 calls/s; > 8 ms cumulative/s | ✅ | The 8 ms = 60 FPS frame budget anchor is well-reasoned; 20/s is defensible. |
-| 19 | GlobalKeyDetector | > 20 keys in scrollable; churn ≥ 5 | ✅ | Conservative; matches "GlobalKey is expensive, use sparingly" guidance. |
-| 20 | RebuildDetector | > 10/s warn, 3× crit; builder ×3 multiplier | 🔧 ²✅held + correction | **Pass 2 confirmed builder filter exists** (`_builderWidgetTypes` set, line 45-56: 6 entries with 3× threshold). Gap remains: non-builder animation Stateful widgets (`CircularProgressIndicator`, `RotationTransition`) are not exempt and DO fire at 10/sec. |
-| 21 | ImageMemoryDetector | skip ≤ 50×50; count > 5 crit | 🔧 ²⬆ | **Pass 2 upgraded from 🔍 → 🔧.** Confirmed: detector measures presence-of-`ResizeImage`, not display-vs-source ratio. False positives on perfectly-sized network images. Measurement-semantics fix, not a threshold tune. |
-| 22 | StartupDetector | TTFF warn 1 500 ms, crit 3 000 ms | ✅ | Slightly stricter than Android Vitals TTID/TTFD (2 s / 4 s); defensible. |
-| 23 | AnimatedBuilderDetector | minSubtreeSize = 50; `abRate > 30/s` (confidence) | ✅ | Arbitrary-but-defensible "large subtree" floor. |
+| 1 | FrameTimingDetector | Budget `1e6 / fpsTarget` µs, or the measured cadence clamped to `[fpsTarget, display rate]` since v0.37.0; severe above 2× budget; warmup 3 s; `jank_detected` above 15 %; `sustained_jank` at 3 or more severe frames in the 240-frame buffer | Tune; shipped v0.16.0 | The warmup counted 180 frames (`frame_timing_detector.dart:49` at audit time), which is 1.5 s at 120 Hz instead of the intended 3 s. v0.16.0 made it a 3 s duration; the frame count now defaults to 0. The severe-frame rule, then 3 in the last 60 frames, had no inline rationale. |
+| 2 | RepaintDetector | VM: paint time above 10 % of UI-thread time warns, above 30 % is critical (`paintTimePercentThreshold`); debug per-widget 30/s or more warns, above 60/s is critical, held across scans | Tune (was Investigate); shipped v0.15.3 and v0.37.0 | The source had no animation or Ticker filter; the animation-owner filter shipped in v0.15.3. Since v0.37.0 the VM axis measures cost, the share of UI-thread time inside PAINT scopes per ~1 s window, instead of a paint count, so a 60 Hz spinner (well under 1 % of UI time) no longer reaches it. The debug per-widget gates keep the 30/s count. |
+| 3 | RepaintBoundaryDetector | `maxAncestorDepth` 5; more than 20 boundaries per scrollable | Tune; scope fix shipped v0.37.0 | Depth 5 has no cited rationale, and 20 per scrollable collides with normal `ListView.builder` use. The source check did not cover this detector. Since v0.37.0 default `SliverList` and `SliverGrid` delegates push a `-1` frame keyed by their owner element, so framework per-child boundaries never count, and framework painters (name plus owner within a measured hop budget) and Material's own transparency `ClipPath` are skipped. The thresholds are unchanged. |
+| 4 | CustomPainterDetector | `cpRate > 10` raises `always_repaint_painter` to likely; `cpRate > 30` fires `frequent_repaint_painter` (warning) | Keep (was Investigate) | The primary check is structural, the `painter.shouldRepaint(painter)` self-test, so the detector catches every always-true painter at any paint rate. The rate only raises confidence or drives the secondary branch; the audit's worry about missing low-rate painters was backwards. Since v0.37.0 framework painters (Material shape borders, TabBar indicator, progress indicators, ...) are skipped by class name plus owner widget within a measured hop budget. |
+| 5 | ListviewDetector | `childThreshold` 50, critical above 150 (3×); shrink-wrapped list in a Flex above 20 children, critical above 100 | Tune; not applied | Flutter docs recommend a builder from 20 items. The detector matches only eager `SliverChildListDelegate` lists (`children: [...]`), not `.builder()`, so most modern code is unaffected and the false-positive risk is lower than first thought. Since v0.37.0 `non_lazy_shrinkwrap` covers `ListView` and `GridView` with `shrinkWrap: true` inside a `Column` or `Row`, builders included. |
+| 6 | NestedScrollDetector | `childThreshold` 50 (shared) | Tune; removed in v0.20.0 | Same as #5. |
+| 7 | LayoutBottleneckDetector | Wrap above 30 children, critical above 60; one intrinsic warning, nested intrinsics critical | Keep | Conservative but defensible; the real risk, nested intrinsics, is handled structurally. |
+| 8 | ShallowRebuildRiskDetector | Depth 3 or less; build count above 20 | Keep (was Tune); removed in v0.20.0 | A 13-entry framework filter at `shallow_rebuild_risk_detector.dart:91-105` (Scaffold, Material, Navigator, Overlay, `_ModalScope`, the Focus widgets, ...) covered the MaterialApp, Navigator, Home case the audit worried about. |
+| 9 | HeavyComputeDetector | BUILD pass above 8 ms warns, above 16 ms is critical at the `fpsTarget` budget; half the resolved budget when the measured frame rate is higher (v0.37.0) | Tune; shipped v0.37.0 | Scaling with the frame rate was right, but the first reasoning was wrong: the threshold applies to the duration of a BUILD pass, not to the gap between frames (section 7). |
+| 10 | FontLoadingDetector | `maxFamilies` 3 | Keep | Matches the 2025 Flutter guidance to use 2 to 3 fonts. |
+| 11 | KeepAliveDetector | More than 5 pages warns, more than 10 is critical | Keep | Matches the rule of thumb that 5 complex kept-alive pages cost 50 to 200 MB. |
+| 12 | GpuPressureDetector | Raster above 2.0× UI per frame (3 frames in 1 s, FrameTiming) or worst raster frame against the UI total (VM, critical above 4.0×); blur sigma above 10 gives a critical highlight; subtree above 5 | Investigate | The 2.0 ratio was calibrated in the Skia era, and Impeller's raster and UI timings differ. The frame leg inherits the ratio and stays `likely`. It needs a re-baseline on Impeller traces. The source check did not cover this detector. |
+| 13 | ShaderJankDetector | Build 100 ms or more warns, 200 ms or more is critical | Stale; partly addressed in v0.37.0 | Impeller is the default on both platforms as of 2025, so the Skia shader-compile signal it was built for is rare; the threshold itself is fine. Since v0.37.0 it also detects Impeller Vulkan pipeline builds (`PipelineVK::Create`, `CreateComputePipeline`); Impeller Metal precompiles pipelines and stays silent. |
+| 14 | OpacityDetector | Exactly `0.0` | Keep; removed in v0.20.0 | A boolean structural rule; the engine's 0.0 short-circuit justifies the narrow scope. |
+| 15 | MemoryPressureDetector | Growth above 512 000 B/s; RSS at 80 % or more of the opt-in `memoryBudgetBytes` (off by default); GC above 180/min; native growth above 1 MB/s; warmup 3 s; sustained 10 s | Tune (was Keep); shipped v0.26.0 and v0.37.0 | v0.26.0 raised the GC default from 30 to 60 per minute. `EventStreams.kGC` emits one event per young-gen scavenge, a moderately allocating UI sat near 30 per minute (5 events in the 10 s window times 6), and the old default fired on routine animation rebuilds. v0.37.0 raised it to 180 per minute (an idle app with Sleuth's polling measured 66 to 138 per minute on an iPhone 12, while churn runs in the thousands) and stamps the scavenge and old-gen split. `heap_near_capacity` now compares RSS with an app-supplied budget instead of Dart's self-growing heap capacity, whose ratio sits at 0.85 to 0.97 at steady state. `SleuthConfig(gcRateThresholdPerMin: 30)` restores the oldest sensitivity. |
+| 16 | NetworkMonitorDetector | Slow 1000 ms, critical 3000 ms; more than 30 requests in 5 s; large 1 MiB; 3 or more duplicates in 500 ms | Tune; shipped v0.15.4 | The old 2000 ms "slow" was 2 to 10 times more lenient than mobile-API guidance (300 to 1000 ms). v0.15.4 changed slow from 2000 to 1000 ms and critical from 5000 to 3000 ms, added the `criticalSlowThresholdMs` constructor parameter and `SleuthConfig.criticalSlowRequestThresholdMs`, and asserts that critical is greater than slow. |
+| 17 | SetStateScopeDetector | Dirty ratio above 0.5 of the tree; minimum subtree 50 | Keep (was Investigate) | The detector does far more than a threshold check: a framework filter, an animation-scope filter, a const-element discount, a 5 s rebuild-evidence window and `minSubtreeSize` 50. The 0.5 ratio holds up. Since v0.37.0 it emits only on observed rebuilds. |
+| 18 | PlatformChannelDetector | More than 20 calls/s warns, more than 40 is critical | Keep | 20 per second is defensible. The audit also kept an 8 ms cumulative-duration trigger anchored on the 60 FPS budget; v0.37.0 removed that trigger, and per-call durations are now recorded on the issue without triggering it. |
+| 19 | GlobalKeyDetector | More than 20 keys in a scrollable; churn of 5 or more | Keep; removed in v0.20.0 | Conservative; matches the guidance that GlobalKey is expensive and should be used sparingly. |
+| 20 | RebuildDetector | VM: build time above 10 % of UI-thread time warns, above 30 % is critical (`buildTimePercentThreshold`); debug per-widget 10/s or more warns, above 30/s is critical, builders 3×, held across scans | Tune; shipped v0.37.0 | The source already had a builder filter: `_builderWidgetTypes`, 7 types with a 3× threshold. Since v0.37.0 `rebuild_activity` measures cost, the share of UI-thread time inside BUILD scopes per ~1 s window, instead of BUILD scopes per second, which fired on every 60 fps animated screen; a small animated subtree measures well under 1 %. The per-widget debug gates keep the 10/s count, so non-builder animation widgets still count on the debug path. |
+| 21 | ImageMemoryDetector | Decode at 1.5× or more of the needed pixels (smaller axis); total waste 1 MiB or more, critical at 16 MiB or more | Tune (was Investigate); shipped v0.37.0 | The detector checked for a `ResizeImage` wrapper, not the ratio of decoded to displayed size. Since v0.37.0 it compares the decoded `ui.Image` size from the paired `RawImage` with the render size times the device pixel ratio; the 50×50 skip and the `count > 5` critical are gone. |
+| 22 | StartupDetector | TTFF warning 1500 ms, critical 3000 ms | Keep | Slightly stricter than Android Vitals' TTID and TTFD targets (2 s and 4 s); defensible. |
+| 23 | AnimatedBuilderDetector | `minSubtreeSize` 50; `abRate > 30/s` (confidence) | Keep; removed in v0.20.0 | An arbitrary but defensible floor for a "large subtree". |
 
 ---
 
-## 2. Cross-cutting concerns (apply to multiple detectors)
+## 2. Cross-cutting concerns
 
-These themes recurred across detectors and deserve attention before any single-detector tune.
+These themes came up across several detectors and deserved attention before any single-detector tune.
 
-### C1. Frame-count warmup vs duration warmup
-**Affected:** FrameTimingDetector; indirectly any "wait N ticks before firing" detector.
-**Claim:** `frameTimingWarmupFrameCount = 180`, inline rationale "~3 s at 60 FPS."
-**Reality:** On a 120 Hz device (dominant on flagships per 2025–2026 research), 180 frames = **1.5 s**, not 3. That is BELOW Android Vitals' TTID target (<2 s). The package will evaluate frames that are still part of the startup warm-up and misattribute startup jank.
-**Evidence strength:** Strong. This is a straight unit-of-measure bug.
-**Recommendation:** Make warmup duration-based (`Duration(seconds: 3)`) or derive frames-per-warmup from `fpsTarget` live. `StartupDetector`'s TTFF thresholds are already duration-based — consistency argues for the same treatment here.
+### Frame-count warmup instead of a duration
 
-### C2. Thresholds hard-coded to 60 FPS assumption
-**Affected:** HeavyComputeDetector (8 ms), RepaintDetector (30/s), RebuildDetector (10/s), CustomPainterDetector (30/s), AnimatedBuilderDetector (30/s).
-**Reality:** On 120 Hz hardware the same widget painting "30/s" is now **one paint every 4 frames** — substantially quieter, relative to the budget, than at 60 Hz. Rate-based gates that don't scale with `fpsTarget` will either over-fire on 60 FPS apps OR under-fire on 120 Hz apps depending on which target the author calibrated against.
-**Recommendation:** Consider `rateThresholdForFps()` helper that expresses thresholds as a fraction of `fpsTarget` (e.g. "≥ 50 % of frames contain a paint for this type"). Will not immediately "fix" these detectors but removes the silent miscalibration.
+This affected FrameTimingDetector, and in principle any detector that waits a number of ticks before firing. The warmup was `frameTimingWarmupFrameCount = 180`, commented as about 3 s at 60 FPS. On a 120 Hz device, common on 2025 to 2026 flagships, 180 frames last 1.5 s, under Android Vitals' TTID target of 2 s, so the detector evaluated frames that still belonged to startup and blamed the app for startup jank. The evidence was strong: it is a unit error. The audit recommended a duration (`Duration(seconds: 3)`) or a frame count derived from `fpsTarget`, matching StartupDetector's duration-based TTFF thresholds. v0.16.0 shipped this: `warmupDuration` defaults to 3 s, measured on vsync timestamps, and the frame count defaults to 0.
 
-### C3. Impeller-era recalibration
-**Affected:** GpuPressureDetector (raster/UI ratio), ShaderJankDetector (whole detector), FrameTimingDetector (raster cache thrashing/growth windows).
-**Claim:** raster > 2× UI = GPU-bound.
-**Reality per 2026 sources:** Impeller's raster-thread profile is shaped very differently from Skia — faster in the common case, but spikes on some code paths (complex blurs, first paint). The 2.0× Skia-era ratio may be calibrated against the wrong renderer. CLAUDE.md already records one Impeller-related fix (`ShaderJankDetector Impeller notice removed`), so the package is aware of the shift, but the raster-ratio threshold was not re-validated.
-**Recommendation:** Collect raster/UI traces on Impeller-only devices before tuning; the number is unsafe to change without data, but unsafe to trust unchanged.
+### Thresholds tied to 60 FPS
 
-### C4. Rate-based detectors without "is this widget an intentional animation?" filter
-**Affected:** RepaintDetector, RebuildDetector, CustomPainterDetector, possibly AnimatedBuilderDetector.
-**Question:** A `CircularProgressIndicator` legitimately paints at `fpsTarget` frequency. A `Ticker`-driven game loop legitimately rebuilds every frame. Do these detectors exempt that case?
-**Evidence:** Grep for `Ticker`/`AnimationController`/`Animated*`/`TransitionBuilder` ancestor filters would answer this; I did not find such a filter in the threshold inventory. If a `CircularProgressIndicator` in the app's top bar is firing "repaint rate 60/s" every session, users will disable the detector or dismiss Sleuth entirely — that is the worst kind of false positive: the one that erodes trust in ALL detectors.
-**Recommendation:** Highest-priority "investigate before tune" item. If the ancestor filter exists, I missed it — confirm from source. If it doesn't, adding one is more valuable than any threshold change.
+This affected HeavyComputeDetector (8 ms), RepaintDetector (30/s), RebuildDetector (10/s), CustomPainterDetector (30/s) and AnimatedBuilderDetector (30/s). On 120 Hz hardware a widget that paints 30 times a second paints once every 4 frames, a smaller share of the frame budget than at 60 Hz. A rate gate that does not scale with `fpsTarget` over-fires on 60 FPS apps or under-fires on 120 Hz apps, depending on which target its author calibrated against. The audit suggested a `rateThresholdForFps()` helper that expresses thresholds as a fraction of `fpsTarget`, for example "50 % or more of frames contain a paint of this type". It would not fix these detectors at once but would remove the hidden miscalibration. Status: v0.37.0 scales HeavyCompute with the resolved frame budget and moved the Rebuild and Repaint VM axes to time shares, which do not depend on the frame rate. The debug per-widget gates (10/s and 30/s) and CustomPainter's 30/s are still fixed rates.
 
-### C5. "2× threshold = critical" as a universal pattern
-**Affected:** Nearly every detector uses `threshold`, `2 * threshold`, `3 * threshold` as the warning / critical / escalated-critical ladder.
-**Critique:** Severity should reflect cost and confidence, not arithmetic doubling. Jank at 17 ms (warning) vs 34 ms (critical) is physically different — a missed frame vs a visibly dropped one. But "1.5 MB/s native growth" vs "2 MB/s" is a factor-of-2 in count, not in user impact. The pattern is convenient, not justified.
-**Recommendation:** Low priority — the convention is fine for most cases — but flag in the spec as an area where individual detectors may deviate.
+### Impeller-era recalibration
+
+This affected GpuPressureDetector (the raster/UI ratio), ShaderJankDetector (the whole detector) and FrameTimingDetector (the raster-cache windows). The rule that raster above 2× UI means GPU-bound comes from Skia. Impeller's raster thread behaves differently: it is faster in the common case and spikes on some paths, such as complex blurs and first paint, so the 2.0 ratio may be calibrated for the wrong renderer. An earlier release had already removed ShaderJankDetector's Impeller notice, but the raster ratio was never re-validated. The audit recommended collecting raster and UI traces on Impeller-only devices before tuning: the number is unsafe to change without data and unsafe to trust as it is. Status: the 2.0 ratio is unchanged. FrameTiming suppresses the cache-family warnings when Impeller reports zero cache metrics, and ShaderJank detects Impeller Vulkan pipeline builds since v0.37.0.
+
+### Rate-based detectors without an animation filter
+
+This affected RepaintDetector, RebuildDetector, CustomPainterDetector and possibly AnimatedBuilderDetector. A `CircularProgressIndicator` paints at the `fpsTarget` rate by design, and a Ticker-driven game loop rebuilds every frame. The audit did not find an ancestor filter for `Ticker`, `AnimationController`, `Animated*` or `TransitionBuilder` in the threshold inventory. If a spinner in an app bar reported "repaint rate 60/s" every session, users would turn the detector off or drop Sleuth, and that kind of false positive erodes trust in every detector. The audit ranked confirming this from source as the first thing to do before any tune. The source check found the filter missing only in RepaintDetector; the fix shipped in v0.15.3 (section 7).
+
+### Critical at twice the threshold
+
+Most detectors use `threshold`, `2 × threshold` and `3 × threshold` as the warning, critical and escalated-critical ladder. Severity should follow cost and confidence, not doubling. Jank at 17 ms (a missed frame) and at 34 ms (a visibly dropped frame) differ physically, while native growth of 1.5 MB/s against 2 MB/s is a factor of the count, not of user impact. The convention is convenient rather than justified. The audit rated this low priority, since the convention works in most cases, and noted that individual detectors may deviate. Today the VM time-share axes, the per-widget rebuild rate, ListView and NetworkMonitor use 3× for critical.
 
 ---
 
-## 3. Per-detector analyses (detail)
+## 3. Per-detector analyses
 
-Below are the detectors whose thresholds survived less well on scrutiny, with the reasoning in full. Detectors not listed here earned a ✅ in §1.
+These detectors held up less well, and the full reasoning follows. Detectors not listed here earned a Keep in section 1.
 
-### FrameTimingDetector — 🔧 TUNE (warmup)
-**Current:** `warningThresholdMs = 1000/fpsTarget`, `criticalThresholdMs = 2 * warning`, `warmupFrameCount = 180`, `jankPercent > 15`, `severeCount >= 3 in last 60 frames`, `thrashingWindowFrames = 15`, `growthWindowFrames = 30`.
-**Leading hypothesis:** warmup must be duration, not frame count (C1). Other thresholds are defensible.
-**Evidence (strong):** Frame-count warmup at 120 Hz is 1.5 s, below TTID target.
-**Evidence (medium):** `jankPercent > 15` is stricter than Android Vitals "excessive slow frames" (typically 25 %); this is the conservative direction, so fine.
-**Evidence (weak):** `severeCount >= 3 in last 60 frames` has no citation; can fire on a single bad GC event surrounded by smooth frames.
-**Falsification test:** Run a synthetic 120 Hz profile trace with 2.5 s of startup jank, then a smooth section. Prediction: current detector suppresses the startup jank correctly; after tuning warmup to frame-count it fails to suppress. Haven't run — requires the test harness.
-**Verdict: TUNE** — switch warmup to Duration (or `fpsTarget`-derived), revisit `severeCount ≥ 3 in 60` with a rationale comment.
+### FrameTimingDetector: tune the warmup
 
-### ListviewDetector / NestedScrollDetector — 🔧 TUNE (child threshold)
-**Current:** `childThreshold = 50`, escalated at 100, 150.
-**Leading hypothesis:** Threshold is **2.5× more lenient than official Flutter guidance**.
-**Evidence (strong consistency):** Flutter docs + multiple 2025 performance guides all cite **20+ items** as the point where non-lazy lists stop being acceptable. 50 is well past that.
-**Evidence against:** Lowering the threshold will increase warning noise on legacy codebases. Some `Column` with 30 small text rows is not actually a performance bug.
-**Discriminating question:** Is the goal to surface "structural anti-pattern" (then 20 is right) or "observable scrolling jank risk" (then 50 might be defensible)? The detector's `fixHint` language will decide which semantics are correct.
-**Verdict: TUNE to ~25**, escalate to 50 / 100 — or split into a "soft warning" at 20 and "critical" at 50. Keeping at 50 is the silent-miscalibration option.
+At audit time the values were `warningThresholdMs = 1000/fpsTarget`, `criticalThresholdMs = 2 × warning`, `warmupFrameCount = 180`, `jankPercent > 15`, `severeCount >= 3` in the last 60 frames, `thrashingWindowFrames = 15` and `growthWindowFrames = 30`. The leading hypothesis was that the warmup must be a duration, not a frame count, and that the other thresholds are defensible. The strong evidence: a frame-count warmup lasts 1.5 s at 120 Hz, under the TTID target. Medium evidence: `jankPercent > 15` is stricter than Android Vitals' "excessive slow frames" (typically 25 %), which is the conservative direction. Weak evidence: `severeCount >= 3` in 60 frames has no citation and can fire on one bad GC event among smooth frames. A falsification test was proposed and not run: a synthetic 120 Hz trace with 2.5 s of startup jank followed by smooth frames. The verdict was Tune: switch the warmup to a duration or an `fpsTarget`-derived count, and document the severe-frame rule.
 
-### ShallowRebuildRiskDetector — 🔧 TUNE (depth)
-**Current:** `depthThreshold = 3`.
-**Leading hypothesis:** False-positive against `MaterialApp → Navigator → Home` stack.
-**Evidence (strong):** Flutter's standard root stack puts the first user-authored StatefulWidget at depth 3–5 after `MaterialApp`, `Overlay`, `Navigator`, `Focus`, `Semantics`, etc. Depth 3 is inside that framework shell.
-**Evidence against:** CLAUDE.md notes "stateful_density false positive from Sleuth overlay widgets (8 names added to `_frameworkWidgetNames`)" — so there IS a framework-name filter at play; this detector may already exempt them. Need to verify.
-**Falsification test:** Grep `shallow_rebuild_risk_detector.dart` for `_frameworkWidgetNames` or ancestor-name filters.
-**Verdict: INVESTIGATE** before tuning; if the framework filter already covers it, KEEP.
+Status: the duration warmup shipped in v0.16.0. The severe-frame rule now counts frames since the route epoch, within a 240-frame buffer.
 
-### HeavyComputeDetector — 🔧 TUNE (scale with fpsTarget)
-**Current:** `lagThresholdMs = 8`, critical = 16.
-**Leading hypothesis:** 8 ms is the 120 Hz frame budget, not a safe "you're blocking the thread" signal for 60 FPS apps.
-**Evidence (strong):** At 60 FPS, a single frame takes 16.67 ms; an 8 ms UI-thread gap is NORMAL behaviour (half a frame). Flagging it as "heavy compute" would fire on every frame.
-**Counter-evidence:** The detector may look for gaps BETWEEN frame work, not during. If the 8 ms is non-rendering dead time (Isolate stalls, synchronous I/O), the threshold is fine regardless of fpsTarget.
-**Falsification test:** Open `heavy_compute_detector.dart` and confirm whether `ms > lagThreshold` is applied to inter-frame gaps or intra-frame work.
-**Verdict: TUNE** to `max(8, 1000/fpsTarget / 2)` OR confirm the gap semantics and document the rationale inline. CLAUDE.md notes v0.8.1 shipped a "HeavyCompute two-tier fix" (v7.1), so the author is aware of the complexity.
+### ListviewDetector and NestedScrollDetector: tune the child threshold
 
-### NetworkMonitorDetector — 🔧 TUNE (slow threshold) — ✓ shipped v0.15.4
-**Current (v0.15.4+):** `slowThresholdMs = 1000`, `criticalSlowThresholdMs = 3000` (both configurable).
-**Pre-v0.15.4:** `slowThresholdMs = 2000`, `_criticalSlowThresholdMs = 5000` (hardcoded constant).
-**Leading hypothesis:** 2 s was **2–10× more lenient than current mobile-API guidance**.
-**Evidence (strong):** 2026 mobile API guidance:
-- Ideal: 100–300 ms
-- Acceptable: 500–800 ms for aggregated endpoints
-- Noticeable slowdown: 1 s
-- "Slow" by every cited source: >1 s
-- "Very slow" (what the old 2 s threshold was actually catching): >2 s
-- Business-impact citations: 100 ms latency = 1 % conversion drop
-**Counter-evidence:** Sleuth is a diagnostic tool for developers, not a UX alarm for users. 2 s may be intentionally tuned to "this is VERY clearly a bug" rather than "this could be faster." That's a legitimate stance.
-**Recommendation:** At minimum, relabel or split — "slow" at 1 s, "very slow" / critical at 2 s, keep 5 s as the critical-critical escalator.
-**Verdict: TUNE** — change warning to 1 000 ms, critical to 3 000 ms, and rename the 5 s gate to a new tier OR keep the old names but document the position on the slowness spectrum.
-**Shipped v0.15.4 (Option B, symmetric configurability):** slow 2000 → 1000 ms, critical 5000 → 3000 ms, both via constructor parameters and `SleuthConfig` fields. A debug-mode `assert(criticalSlowThresholdMs > slowThresholdMs)` fires from both constructors (including `copyWith`) so an unreachable critical tier is impossible. Non-breaking patch bump: both additions are optional parameters with defaults; the audit's counter-evidence stance ("2 s is intentional, this is VERY clearly a bug") is still expressible via `SleuthConfig(slowRequestThresholdMs: 2000, criticalSlowRequestThresholdMs: 5000)`. See CHANGELOG 0.15.4 and §7 M3.
+At audit time `childThreshold` was 50, escalated at 100 and 150. The hypothesis was that the threshold is 2.5 times more lenient than Flutter guidance: the Flutter docs and several 2025 performance guides cite 20 or more items as the point where a non-lazy list stops being acceptable. Against it, a lower threshold adds warnings on legacy code, and a Column of 30 small text rows is not a real performance bug. The deciding question is whether the detector reports a structural anti-pattern (then 20 is right) or observable scroll-jank risk (then 50 may be defensible); the wording of its fix hint decides. The verdict was Tune to about 25 with escalations at 50 and 100, or a soft warning at 20 and a critical at 50; keeping 50 leaves the miscalibration in place.
 
-### MemoryPressureDetector — ✓ resolved v0.26.0 (GC-rate semantics)
-**Current default:** `gcPerMinute > 60` fires an issue, `_gcWindowDuration = Duration(seconds: 10)`. Configurable via `SleuthConfig.gcRateThresholdPerMin` (escape valve to the pre-v0.26.0 30/min sensitivity).
-**v0.26.0 resolution:** `EventStreams.kGC` confirmed to emit one event per completed GC cycle (includes new-space scavenges AND old-space). Dart's young-gen scavenge baseline on a moderately-allocating UI sits at ~30/min at steady state — the prior 30/min default was firing on routine animation rebuilds and incremental scrolling. Threshold doubled to 60/min as the new default; legacy 30/min remains opt-in for apps that want the older sensitivity.
+Status: not applied. The threshold is still 50, critical is above 150 (3×), and the same threshold feeds four detection paths (section 7). NestedScrollDetector was removed in v0.20.0.
 
-### SetStateScopeDetector — 🔍 INVESTIGATE (dirty ratio)
-**Current:** `dirtyRatioThreshold = 0.5`.
-**Leading hypothesis:** 50 % of tree owned by one State is ENORMOUS — likely too lenient.
-**Evidence (strong against current value):** Flutter's own guidance: "ideally, a stateful widget would create a single widget, and that widget would be a RenderObjectWidget." The detector fires at 50× that ideal.
-**Counter-evidence:** A threshold of 30 % or 25 % will probably catch most real offenders — but also many legitimate layouts like a top-level `Scaffold` that owns the majority of the tree anyway.
-**Discriminating test:** Tab-shell case. In `IndexedStack` apps, the tab shell StatefulWidget genuinely owns ~100 % of visible tree. 50 % protects against that by the narrowest margin.
-**Verdict: INVESTIGATE** — does the detector already exempt the routeScaffold / tab-shell case (CLAUDE.md v0.14.1 adds per-tab session tracking, which suggests yes)? Confirm before dropping the ratio.
+### ShallowRebuildRiskDetector: tune the depth
 
-### ImageMemoryDetector — 🔍 INVESTIGATE (measurement semantics)
-**Current:** `_smallImageThreshold = 50.0`, `count > 5` critical.
-**Leading hypothesis:** The detector flags "no `cacheWidth`/`cacheHeight`" but that is only a PROXY for the real problem, which is **decode size vs display size ratio**.
-**Evidence (strong):** Flutter docs' canonical memory example — a 4K image rendered at 384×216 uses 100× more memory than with cacheWidth set. The waste ratio is what matters. A 500×500 image with no cacheWidth rendered at 500×500 is not a bug.
-**Counter-evidence:** Measuring the actual decode-vs-display ratio requires access to `ImageInfo`, which may not be available from the element tree alone.
-**Verdict: INVESTIGATE** — this is a correctness question, not a threshold tune. The current "no cacheWidth = bug" rule is too structural; the real signal is ratio-based.
+At audit time `depthThreshold` was 3. The hypothesis was a false positive on the MaterialApp, Navigator, Home stack: Flutter's standard root puts the first user-written StatefulWidget at depth 3 to 5, under `MaterialApp`, `Overlay`, `Navigator`, `Focus`, `Semantics` and others. Against it, a framework-name filter might already exempt those widgets. The verdict was Investigate before tuning, and Keep if the filter exists.
+
+Status: the source check found the filter and graded it Keep. The detector was removed in v0.20.0.
+
+### HeavyComputeDetector: scale with the frame rate
+
+At audit time `lagThresholdMs` was 8, with critical at 16. The first hypothesis was that 8 ms is the 120 Hz frame budget and normal half-frame work at 60 FPS, so the detector would fire on every frame, unless it measured gaps between frame work. The source check showed the threshold applies to BUILD pass durations, so that reasoning was wrong. The correct reasoning: at 60 Hz an 8 ms build uses half the frame budget, a defensible warning; at 120 Hz it uses the whole budget, so the warning comes too late. The verdict stayed Tune: scale with the frame rate.
+
+Status: shipped in v0.37.0. Without an explicit `heavyComputeGapMs`, the threshold is 8 ms at the `fpsTarget` budget and half the resolved frame budget when the measured rate is higher, 4.2 ms at 120 Hz.
+
+### NetworkMonitorDetector: tune the slow threshold (shipped v0.15.4)
+
+Before v0.15.4 the values were `slowThresholdMs = 2000` and a hard-coded `_criticalSlowThresholdMs = 5000`. The hypothesis was that 2 s was 2 to 10 times more lenient than current mobile-API guidance. The 2026 guidance the audit found: 100 to 300 ms is ideal; 500 to 800 ms is acceptable for aggregated endpoints; 1 s is a noticeable slowdown; every cited source calls more than 1 s slow; more than 2 s, what the old threshold caught, is very slow; and one source ties 100 ms of latency to a 1 % drop in conversion. Against it, Sleuth is a developer diagnostic, not a UX alarm, and 2 s may have been chosen to flag only clear bugs. The audit recommended a warning at 1000 ms and a critical at 3000 ms, or keeping the old values with their position on the scale documented.
+
+v0.15.4 shipped symmetric configuration: slow from 2000 to 1000 ms and critical from 5000 to 3000 ms, both as constructor parameters and `SleuthConfig` fields (`slowRequestThresholdMs`, `criticalSlowRequestThresholdMs`). A debug-mode `assert(criticalSlowThresholdMs > slowThresholdMs)` runs in both constructors, including `copyWith`, so the critical tier is always reachable. The change was a non-breaking patch: both parameters are optional with defaults, and `SleuthConfig(slowRequestThresholdMs: 2000, criticalSlowRequestThresholdMs: 5000)` restores the old stance. See CHANGELOG 0.15.4.
+
+### MemoryPressureDetector: GC-rate semantics (resolved v0.26.0, retuned v0.37.0)
+
+The current default fires `gc_pressure` above 180 cycles per minute, measured over a 10 s window (`_gcWindowDuration`) and configurable through `SleuthConfig.gcRateThresholdPerMin`.
+
+v0.26.0 confirmed that `EventStreams.kGC` emits one event per completed GC cycle, new-space scavenges and old-space collections alike. A moderately allocating UI scavenges about 30 times a minute at steady state, so the previous 30 per minute default fired on routine animation rebuilds and incremental scrolling. The default doubled to 60 per minute. Filtering `kGC` to old-space cycles was the alternative; a threshold change was chosen because apps can still opt into the old sensitivity.
+
+v0.37.0 raised the default from 60 to 180. With Sleuth attached, an idle app runs 1 to 2 scavenges a second from the VM-service poll traffic (66 to 138 per minute measured on an iPhone 12), while allocation churn and the stress demos measured 2,000 to 3,100 per minute. Each emission stamps `scavengeCount` and `oldGenCount`, read from the event's raw `gcType`, so a later tune can separate young-gen churn from old-gen collections without changing the rule.
+
+### SetStateScopeDetector: investigate the dirty ratio
+
+At audit time `dirtyRatioThreshold` was 0.5. The hypothesis was that 50 % of the tree owned by one State is far too lenient. Flutter's guidance says a stateful widget would ideally create a single widget, a RenderObjectWidget, and the detector fires at 50 times that. On the other side, 30 % or 25 % would catch most real offenders but also flag legitimate layouts, such as a top-level Scaffold that owns most of the tree, and in an `IndexedStack` app the tab shell owns about 100 % of the visible tree. The verdict was Investigate whether the detector exempts the route-scaffold or tab-shell case before lowering the ratio; the per-tab session tracking added in v0.14.1 suggested it did.
+
+Status: the source check graded it Keep (section 7). Since v0.37.0 it emits only when it observes rebuilds.
+
+### ImageMemoryDetector: measurement semantics (resolved v0.37.0)
+
+At audit time the detector used `_smallImageThreshold = 50.0` and called `count > 5` critical. The hypothesis was that a missing `cacheWidth` or `cacheHeight` is only a proxy for the real problem, the ratio of decoded size to displayed size. Flutter's own memory example shows a 4K image rendered at 384×216 using 100 times the memory it needs without `cacheWidth`; a 500×500 image shown at 500×500 without `cacheWidth` is not a bug. The audit expected the ratio to need `ImageInfo`, which the element tree might not expose. The verdict was Investigate, as a correctness question rather than a threshold tune.
+
+Status: v0.37.0 reaches the decoded image without `ImageInfo` listeners. Each `Image` builds a `RawImage` whose public `image` holds the decoded `ui.Image`. The detector pairs them during the walk, compares the decoded size with the render box times the device pixel ratio on the smaller axis (1.5× or more qualifies), and emits on total wasted bytes (1 MiB or more, critical at 16 MiB or more) as `likely`. `BoxFit.none`, `centerSlice`, `repeat` and `ResizeImage` are skipped.
 
 ---
 
-## 4. Detectors that survived scrutiny (why they're ✅)
+## 4. Detectors that held up
 
-- **StartupDetector (TTFF 1500/3000 ms):** Android Vitals TTID <2000 ms, TTFD <4000 ms. Detector is slightly stricter, fully defensible.
-- **FontLoadingDetector (3 families):** Exact match with Flutter 2025 guidance.
-- **KeepAliveDetector (5/10):** Aligns with memory-overhead rule-of-thumb; no source contradicts.
-- **LayoutBottleneckDetector (Wrap > 30, nested intrinsic escalation):** Correctly anchors on the O(N²) IntrinsicHeight guidance from Flutter's official API docs.
-- **PlatformChannelDetector (20 calls/s, 8 ms cum.):** 8 ms anchors on the 60 FPS frame budget with explicit purpose; 20/s is a reasonable high bar.
-- **GlobalKeyDetector (20, 60 crit):** GlobalKey is "use sparingly" per Flutter docs; numeric floors are defensible.
-- **OpacityDetector (exact 0.0):** Narrow structural rule; engine's 0.0 short-circuit justifies the narrow scope.
-- **AnimatedBuilderDetector (minSubtree 50):** Arbitrary floor but consistent with "large subtree" intent in Flutter docs.
-
----
-
-## 5. Top 5 action items (ranked by leverage) — pass-2 revised
-
-The pass-1 list ranked five thresholds. Pass 2 verified them against detector source and rewrote the order. Demoted: ListviewDetector child threshold (only catches eager construction, not `.builder()` — lower impact than thought). Promoted: RepaintDetector animation filter (the only finding with a concrete named false-positive case).
-
-1. **RepaintDetector: add animation/builder filter.** ✓ **Shipped v0.15.3.** Source confirmed `repaint_detector.dart` had zero animation-aware filter; any widget at ≥ 30 paints/sec fired `excessive_repaint`. A `CircularProgressIndicator` rotating at 60 Hz in an app's top bar triggered on every session. **Fix as shipped:** three-leg ownership check (chain-string regex → typed ancestor walk → typed descendant walk) against a canonical 21-entry owner set in `lib/src/utils/animation_owner_names.dart`, enforced via per-paint attribution at `_handleProfilePaint` so polymorphic-key collisions (`CustomPaint` inside `AnimatedBuilder` vs setState-driven) don't cause blanket suppression or blanket firing. See CHANGELOG 0.15.3. *(§7 M1)*
-2. **FrameTimingDetector warmup → Duration-based.** Silent miscalibration on every 120 Hz device — `frame_timing_detector.dart:49` hardcoded `180; // ~3s at 60fps` = 1.5 s on 120 Hz. Switch to `Duration(seconds: 3)` or derive frames-per-warmup from `fpsTarget` live. *(§2 C1)*
-3. **NetworkMonitorDetector slow → 1 000 ms / critical → 3 000 ms.** ✓ **Shipped v0.15.4.** Was confirmed at `network_monitor_detector.dart:24,49`. The 2 s value was wildly more lenient than every 2025–2026 source. **Fix as shipped:** Option B symmetric configurability — `slowThresholdMs` default 2000 → 1000, new `criticalSlowThresholdMs` constructor parameter (promoted from hardcoded `_criticalSlowThresholdMs = 5000`) default 3000, matching `SleuthConfig.slowRequestThresholdMs` and new `SleuthConfig.criticalSlowRequestThresholdMs` fields, with a debug-mode `assert(critical > slow)` on both constructors. Non-breaking patch bump. See CHANGELOG 0.15.4. *(Detector 16, §7 M3)*
-4. **ImageMemoryDetector: switch from "presence of ResizeImage" to "display-vs-source ratio".** Pass-2 source-read confirmed this is a measurement-semantics gap, not a threshold tune. Detector flags any `Image` not wrapped in `ResizeImage` and ≤ 50×50, which produces false positives on perfectly-sized network images. Requires `ImageStreamListener` to access `ImageInfo.image.width/height` and compare to render-object size. Higher implementation cost — defer if the false-positive rate isn't reported by users. *(Detector 21)*
-5. **HeavyComputeDetector → scale with `fpsTarget`** (right answer, corrected reasoning). The threshold gates **build phase duration**, not inter-frame gap. At 60 Hz an 8 ms build phase consumes half the budget (defensible warning); at 120 Hz it consumes the entire budget (under-fires as warning). Fix: `lagThresholdMs = max(8, (1000 ~/ fpsTarget) ~/ 2)` — 8 ms at 60 Hz, 4 ms at 120 Hz. *(Detector 9, §2 C2)*
-
-**Demoted from pass 1's top 5:**
-- *ListviewDetector child threshold → 25*: still defensible but lower-impact than originally claimed, because the detector only catches eager `children: [...]` construction, not `.builder()`. Modern code largely sidesteps it. Demote to "nice-to-have."
-- *Confirm rate-based detectors exempt animations*: split into the concrete RepaintDetector fix above (M1). RebuildDetector's filter already exists; CustomPainterDetector doesn't need one (its primary path is structural, not rate-based).
-
-**Newly added (from §7):**
-- **MemoryPressureDetector GC threshold**: ✓ **Shipped v0.26.0** — `gcRateThresholdPerMin` default raised from 30 → 60. Dart's young-gen scavenge baseline (~30/min on a moderately-allocating UI) was firing on routine animation rebuilds. Filtering kGC to old-space-only was the alternate fix; threshold tune chosen because it stays observable to apps that want the older sensitivity (`SleuthConfig(gcRateThresholdPerMin: 30)`).
-
-None of these are architectural. They can be bundled into a `v0.15.3` or `v0.16.x` tuning pass.
+- StartupDetector (TTFF 1500 and 3000 ms) is slightly stricter than Android Vitals' TTID under 2000 ms and TTFD under 4000 ms, which is defensible.
+- FontLoadingDetector (3 families) matches the 2025 Flutter guidance exactly.
+- KeepAliveDetector (5 and 10 pages) matches the memory-overhead rule of thumb, and no source contradicts it.
+- LayoutBottleneckDetector (Wrap above 30, nested intrinsics escalate) follows the O(N²) IntrinsicHeight warning in Flutter's API docs.
+- PlatformChannelDetector (20 calls per second) uses a reasonably high bar. Its 8 ms cumulative trigger, anchored on the 60 FPS budget, was removed in v0.37.0.
+- GlobalKeyDetector (20, critical at 60) followed the Flutter docs' advice to use GlobalKey sparingly. Removed in v0.20.0.
+- OpacityDetector (exactly 0.0) was a narrow structural rule justified by the engine's 0.0 short-circuit. Removed in v0.20.0.
+- AnimatedBuilderDetector (minimum subtree 50) used an arbitrary floor consistent with the "large subtree" intent in Flutter's docs. Removed in v0.20.0.
 
 ---
 
-## 6. Self-critique
+## 5. Top five action items
 
-- **Hypothesis completeness:** ✅ — three+ competing readings considered for every detector flagged 🔧/🔍.
-- **Evidence audit:** ⚠ partial — I classified "strong consistency" vs "weak" in the top items, but not all 23. The top-5 action items have the strongest evidence; the remaining ✅ verdicts are more "no evidence against" than "strong evidence for."
-- **Falsification discipline:** ⚠ weak — I named predictions for most tune recommendations but did not RUN them (no test harness invoked). Every "TUNE" recommendation is `Likely`, not `Confirmed`.
-- **Search bias:** I searched the open web, Flutter docs, and Android Vitals. I did not search internal Flutter engine benchmarks, Google Play internal data, or competing performance packages like `flutter_lints` / `dart_code_metrics`. Any of those might contradict an industry best-practice value.
-- **Layer coverage:** I walked from detector source → threshold → industry guidance. I did NOT verify what the detector actually DOES with each threshold — some thresholds are confidence gates, not firing gates, and my analysis may have mis-ranked the severity of a few items.
-- **Reproducer check:** None. No threshold recommendation below has been validated against a failing → passing reproduction. Every verdict is "likely correct based on documentation," not "measured."
-- **Report fidelity:** The user asked for "proper thresholds" per internet best practice. I interpreted that as "audit the current thresholds against documented best practices and flag the ones that appear miscalibrated." If the intent was "give me the single correct value for each threshold," that's a stricter goal this report does not fully satisfy — many detectors have no documented-canonical number (rebuilds/sec, subtree size, etc.) and the best I can say is "the current value is arbitrary but defensible."
+The document review first ranked five threshold changes; the source check reordered them. It demoted the ListView child threshold, which only catches eager construction, and promoted the RepaintDetector animation filter, the only finding with a concrete, named false-positive case.
 
-**Overall verdict confidence:** The top-5 action items are `Likely` (strong documentary evidence). The remaining 🔧/🔍 calls are `Unverified` (plausible but need source-reading or a reproducer to confirm). No 🔧 call is yet at `Confirmed`.
+1. RepaintDetector animation filter, shipped in v0.15.3. `repaint_detector.dart` had no animation-aware filter, so any widget at 30 or more paints per second fired `excessive_repaint`, and a `CircularProgressIndicator` spinning at 60 Hz in an app bar fired on every session. The fix checks ownership per paint against a shared owner set in `lib/src/utils/animation_owner_names.dart`, through three legs: the chain regex, a typed ancestor walk and a typed descendant walk. Checking per paint, in `_handleProfilePaint`, means two widgets with one type name (a `CustomPaint` inside an `AnimatedBuilder` and one driven by `setState`) are judged separately. See CHANGELOG 0.15.3 and section 7.
+2. FrameTimingDetector warmup as a duration, shipped in v0.16.0. `frame_timing_detector.dart:49` had `180; // ~3s at 60fps`, which is 1.5 s at 120 Hz.
+3. NetworkMonitorDetector slow threshold at 1000 ms and critical at 3000 ms, shipped in v0.15.4. The 2 s value (`network_monitor_detector.dart:24,49` at audit time) was far more lenient than every 2025 to 2026 source. See section 3 and CHANGELOG 0.15.4.
+4. ImageMemoryDetector ratio of displayed to decoded size instead of the presence of `ResizeImage`, shipped in v0.37.0. The source check confirmed a measurement gap, not a threshold to tune: the detector flagged any `Image` not wrapped in `ResizeImage` and not 50×50 or smaller, which produced false positives on correctly sized network images. The audit expected the fix to need an `ImageStreamListener`; v0.37.0 reads the decoded image from the paired `RawImage` instead.
+5. HeavyComputeDetector scaling with the frame rate, shipped in v0.37.0. The threshold gates BUILD pass duration, not an inter-frame gap. At 60 Hz an 8 ms build uses half the budget; at 120 Hz it uses all of it. The audit proposed `lagThresholdMs = max(8, (1000 ~/ fpsTarget) ~/ 2)`; the shipped rule uses half the resolved frame budget when the measured rate is above `fpsTarget`, 4.2 ms at 120 Hz.
+
+Demoted from the first list:
+
+- The ListView child threshold at 25 is still defensible but matters less than first claimed, because the detector only catches eager `children: [...]` construction, not `.builder()`, which modern code mostly uses.
+- "Confirm that rate-based detectors exempt animations" became the concrete RepaintDetector fix above. RebuildDetector's filter already existed, and CustomPainterDetector does not need one, because its primary check is structural.
+
+Added from the source check:
+
+- MemoryPressureDetector GC threshold, shipped in v0.26.0: the `gcRateThresholdPerMin` default went from 30 to 60, and to 180 in v0.37.0, above the idle rate Sleuth's own polling produces. Dart's young-gen scavenges, about 30 per minute on a moderately allocating UI, had fired the old default on routine animation rebuilds. Filtering `kGC` to old-space cycles was the alternative; a threshold change was chosen so apps can still opt into the older sensitivity with `SleuthConfig(gcRateThresholdPerMin: 30)`.
 
 ---
 
-## 7. Pass-2 source verification (2026-04-15 grill mode)
+## 6. Limits of this audit
 
-Pass 1 was a documentation cross-reference. Pass 2 read the detector source for every claim that could be verified, applying Tactic 12 (investigate before deferring) to the `INVESTIGATE` items pass 1 left open. Mode: grill — the audit was the hypothesis under test.
+- The document review searched the open web, the Flutter docs and Android Vitals. It did not search Flutter engine benchmarks, Google Play data, or other performance packages such as `flutter_lints` and `dart_code_metrics`, any of which could contradict a best-practice value.
+- Evidence strength was graded for the top items only. Most Keep verdicts mean "no evidence against", not "strong evidence for".
+- Falsification tests were named for most Tune recommendations and none were run, so each Tune verdict was likely, not confirmed. No recommendation was checked with a failing-then-passing reproduction.
+- The document review did not check what each threshold does; some are confidence gates rather than firing gates, so a few items may have been ranked too high.
+- The source check read 9 of the 23 detectors, chosen where audit errors were expected; the other 14 were not re-read. It read only `lib/src/detectors/`, not the controller, the suppression rules in `SleuthConfig`, the `IssueRanker`, or the overlay and AI chat that consume issues, any of which could weaken or strengthen a finding before the user sees it. It read the source but did not trigger any detector, for example by mounting a 100×100 network image in a 100×100 box, and it did not list alternative readings of each detector's purpose, such as an intentionally pessimistic `ResizeImage` rule.
+- The audit compared the current thresholds with documented practice. It does not give one correct value per threshold: many detectors have no published canonical number (rebuilds per second, subtree size), and the best verdict for them is "arbitrary but defensible".
 
-### 7.1 Verdict regrade summary
+---
 
-| Pass-1 verdict | Detector | Pass-2 regrade | Source evidence |
+## 7. Source verification (2026-04-15)
+
+The document review was then checked against the detector source, including the Investigate items it had left open. Line numbers refer to v0.15.2.
+
+### 7.1 Verdict changes
+
+| Document verdict | Detector | Source check | Source evidence |
 |---|---|---|---|
-| 🔧 TUNE warmup | FrameTimingDetector | ✅ holds | `frame_timing_detector.dart:49` — `_defaultWarmupFrameCount = 180; // ~3s at 60fps`. Unit-of-measure bug exactly as claimed. |
-| 🔍 INVESTIGATE | RepaintDetector | ⬆ **TUNE (stronger)** | `repaint_detector.dart:24-303` has zero animation/Ticker/builder filter. Whole gate is `paintsPerSecond >= 30`. The `_evaluateDebugDataPerWidget` path (line 266) iterates every type in `snapshot.paintCounts` with no exemption. Pass-1 worry confirmed without mitigation. |
-| 🔧 TUNE | RebuildDetector | 🔧 hold + correction | `rebuild_detector.dart:45-56` — `_builderWidgetTypes = {StreamBuilder, FutureBuilder, ValueListenableBuilder, AnimatedBuilder, ListenableBuilder, TweenAnimationBuilder, StreamBuilderBase}` with `_builderThresholdMultiplier = 3`. Pass 1 failed to credit this. Remaining gap: animation StatefulWidgets like `CircularProgressIndicator` and `RotationTransition` are NOT in the set and DO trigger at 10/sec. |
-| 🔧 TUNE child | ListviewDetector | 🔧 hold + scope | `listview_detector.dart:103-104,144` — confirmed `childThreshold = 50` and `>` comparison. **But:** detector only matches `SliverChildListDelegate` (the eager `children:[...]` form). `SliverChildBuilderDelegate` (the lazy `builder:` form) is exempt. Modern code largely sidesteps this detector. |
-| 🔧 TUNE depth | ShallowRebuildRiskDetector | ⬇ **KEEP (✅)** | `shallow_rebuild_risk_detector.dart:91-105` — framework filter with 13 entries: `Scaffold, CupertinoPageScaffold, ScaffoldMessenger, AppBar, Material, AnimatedTheme, ScrollConfiguration, ScrollNotificationObserver, _ModalScope, Navigator, Overlay, FocusScope, FocusTraversalGroup`. Pass 1 said "if framework filter exists, KEEP" — it does. |
-| 🔧 TUNE | HeavyComputeDetector | 🔧 hold + reasoning fix | `heavy_compute_detector.dart:38-61` — threshold is applied to `event.durationUs / 1000` of build phase events, NOT inter-frame gap. Pass-1 stated reasoning ("8 ms is normal half-frame at 60 FPS") is wrong. Right reasoning: at 60 Hz an 8 ms BUILD scope consumes half the frame budget (defensible warning); at 120 Hz it consumes 100% of budget (under-fires as warning). Recommendation survives, rationale fixed. |
-| 🔧 TUNE | NetworkMonitorDetector | ✅ holds → ✓ shipped v0.15.4 | `network_monitor_detector.dart:24,49` — was `slowThresholdMs = 2000`, `_criticalSlowThresholdMs = 5000`. Industry guidance unanimous. **Shipped as Option B** (symmetric configurability): new defaults 1000/3000, new `criticalSlowThresholdMs` constructor parameter + `SleuthConfig.criticalSlowRequestThresholdMs` field, strictly-greater assert on both constructors. |
-| 🔍 INVESTIGATE | MemoryPressureDetector GC rate | ✓ shipped v0.26.0 | `memory_pressure_detector.dart` — `gcPerMinute = (windowEvents / 10s) * 60`. `EventStreams.kGC` "exactly one event per completed GC cycle" (includes new-space scavenges AND old-space). **Shipped:** default `gcRateThresholdPerMin` raised 30 → 60. Apps wanting the older sensitivity opt back in via `SleuthConfig(gcRateThresholdPerMin: 30)`. Filtering kGC to old-space-only was the alternate fix; threshold tune chosen because it stays observable to apps. |
-| 🔍 INVESTIGATE | SetStateScopeDetector | ⬇ **KEEP (✅)** | `setstate_scope_detector.dart:152-319` — framework filter (`isFrameworkWidget`), animation-scope filter (`_containsAnimationScope`), const-element discount (`mutableSubtreeSize = subtreeSize − stableCount`), 5-second rebuild-evidence window (`_evidenceWindowSeconds = 5`), `minSubtreeSize = 50` floor, distinct paths for `hasRebuildEvidence` vs `!hasRebuildEvidence + !hasAnimScope`. The 0.5 ratio is well-defended in the gauntlet. |
-| 🔍 INVESTIGATE | CustomPainterDetector | ⬇ **KEEP (✅) + audit refuted** | `custom_painter_detector.dart:66-93` — primary check is **structural**: `painter.shouldRepaint(painter)` (self-test). Detector fires regardless of paint rate; the rate is only a confidence escalator (line 104-110: `cpRate > 10` upgrades possible→likely), not a firing gate. Pass 1's worry "may miss low-rate `shouldRepaint → true` painters" is **inverted** — the detector catches every self-true painter regardless of rate. The 30/sec rate is the gate for the SECONDARY heuristic catching painters that pass self-comparison but rebuild via different instances. |
-| 🔍 INVESTIGATE | ImageMemoryDetector | ⬆ **TUNE** | `image_memory_detector.dart:74-87` — confirmed: detector flags any `Image` not wrapped in `ResizeImage` (and not ≤ 50×50). Does NOT measure decode-size vs display-size ratio. **False positives**: a 100×100 NetworkImage displayed at 100×100; AssetImage of an icon ≤ 50×50 displayed at 60×60 (just over the suppress threshold). **True positives missed**: an Image wrapped in ResizeImage at the wrong size is silently OK. Measurement-semantics gap, not a threshold tune. |
+| Tune the warmup | FrameTimingDetector | Holds | `frame_timing_detector.dart:49`: `_defaultWarmupFrameCount = 180; // ~3s at 60fps`. A unit error, as claimed. Shipped in v0.16.0. |
+| Investigate | RepaintDetector | Tune, stronger | `repaint_detector.dart:24-303` had no animation, Ticker or builder filter; the whole gate was `paintsPerSecond >= 30`. `_evaluateDebugDataPerWidget` (line 266) iterated every type in `snapshot.paintCounts` with no exemption. Shipped in v0.15.3. |
+| Tune | RebuildDetector | Tune, with a correction | `rebuild_detector.dart:45-56`: `_builderWidgetTypes = {StreamBuilder, FutureBuilder, ValueListenableBuilder, AnimatedBuilder, ListenableBuilder, TweenAnimationBuilder, StreamBuilderBase}` with `_builderThresholdMultiplier = 3`, which the document review missed. The remaining gap: animation StatefulWidgets such as `CircularProgressIndicator` and `RotationTransition` were not in the set and fired at 10 per second. |
+| Tune the child threshold | ListviewDetector | Tune, narrower scope | `listview_detector.dart:103-104,144`: `childThreshold = 50` with a `>` comparison. The detector matches only `SliverChildListDelegate` (the eager `children: [...]` form); `SliverChildBuilderDelegate` (the lazy `builder:` form) is exempt, so modern code mostly avoids it. |
+| Tune the depth | ShallowRebuildRiskDetector | Keep | `shallow_rebuild_risk_detector.dart:91-105`: a 13-entry framework filter: `Scaffold, CupertinoPageScaffold, ScaffoldMessenger, AppBar, Material, AnimatedTheme, ScrollConfiguration, ScrollNotificationObserver, _ModalScope, Navigator, Overlay, FocusScope, FocusTraversalGroup`. The document review had said to keep it if such a filter existed. |
+| Tune | HeavyComputeDetector | Tune, with corrected reasoning | `heavy_compute_detector.dart:38-61`: the threshold applies to `event.durationUs / 1000` of BUILD phase events, not to an inter-frame gap. At 60 Hz an 8 ms BUILD uses half the frame budget, a defensible warning; at 120 Hz it uses all of it, so the warning fires too late. Shipped in v0.37.0. |
+| Tune | NetworkMonitorDetector | Holds | `network_monitor_detector.dart:24,49`: `slowThresholdMs = 2000`, `_criticalSlowThresholdMs = 5000`. Industry guidance agreed. Shipped in v0.15.4 with symmetric configuration: defaults 1000 and 3000 ms, a `criticalSlowThresholdMs` constructor parameter, `SleuthConfig.criticalSlowRequestThresholdMs`, and a strictly-greater assert in both constructors. |
+| Investigate | MemoryPressureDetector GC rate | Tune | `memory_pressure_detector.dart`: `gcPerMinute = (windowEvents / 10s) * 60`. `EventStreams.kGC` emits "exactly one event per completed GC cycle", new-space scavenges and old-space alike. Shipped in v0.26.0 (30 to 60 per minute) and v0.37.0 (180 per minute). |
+| Investigate | SetStateScopeDetector | Keep | `setstate_scope_detector.dart:152-319`: a framework filter (`isFrameworkWidget`), an animation-scope filter (`_containsAnimationScope`), a const-element discount (`mutableSubtreeSize = subtreeSize − stableCount`), a 5 s rebuild-evidence window (`_evidenceWindowSeconds = 5`), a `minSubtreeSize = 50` floor, and separate paths for `hasRebuildEvidence` and for `!hasRebuildEvidence && !hasAnimScope`. |
+| Investigate | CustomPainterDetector | Keep; the concern was backwards | `custom_painter_detector.dart:66-93`: the primary check is structural, `painter.shouldRepaint(painter)`. The detector fires at any paint rate, and the rate only raises confidence (lines 104-110: `cpRate > 10` turns possible into likely). The worry that it missed low-rate always-true painters was backwards. The 30 per second rate gates the secondary branch, which catches painters that pass the self-comparison but repaint through new instances. |
+| Investigate | ImageMemoryDetector | Tune | `image_memory_detector.dart:74-87`: the detector flagged any `Image` not wrapped in `ResizeImage` (and not 50×50 or smaller) and did not measure decoded against displayed size. False positives: a 100×100 network image shown at 100×100, or an icon asset of 50×50 or less shown at 60×60. Missed cases: an image wrapped in `ResizeImage` at the wrong size passed. A measurement gap, not a threshold to tune. Shipped in v0.37.0. |
 
-### 7.2 Findings pass 1 missed
+### 7.2 Findings the document review missed
 
-#### M1. Asymmetric animation filter — Repaint vs Rebuild ✅ **SHIPPED v0.15.3 (2026-04-15)**
+#### The animation filter differed between Repaint and Rebuild (shipped v0.15.3)
 
-Pass 1 grouped RepaintDetector and RebuildDetector under one "C4 missing animation filter" theme. The source shows they are not equivalent:
+The document review grouped RepaintDetector and RebuildDetector under one missing-animation-filter concern, but the source showed they differed. RebuildDetector had the `_builderWidgetTypes` set with a 3× threshold, so an `AnimatedBuilder` ticking at 60 per second fired only above 30 per second, not 10. RepaintDetector had no filter, so any widget type at 30 or more paints per second fired. The false positives were therefore much more common on the repaint side, which also had no cover for the widgets RebuildDetector partly exempted: a `CircularProgressIndicator` rotating at 60 Hz in an app bar raised `excessive_repaint` and `repaint_debug_CircularProgressIndicator` in every session, on every page that mounted it. The two options were to share the builder set between the detectors, a one-constant change, or to suppress widgets whose State is driven by a `Ticker` or `AnimationController` through an ancestor walk, which is more correct and costs more.
 
-- **RebuildDetector** has a `_builderWidgetTypes` set (6 entries) with a 3× threshold multiplier. So `AnimatedBuilder` ticking at 60/sec only fires above 30/sec, not 10/sec.
-- **RepaintDetector** has **zero filter**. Any widget type at 30+ paints/sec fires.
+v0.15.3 shipped a refined form of the second option. RepaintDetector got a 7-entry owner set (4 Material and Cupertino indicators and 3 generic builders) and an owner regex with `\b` word boundaries, smaller than RebuildDetector's set because `widget_location.dart` strips most transition widgets from the chain before the check sees it. Three gates used the filter: the per-widget gate skipped a type whose cached ancestor chain matched the regex, and fired when no chain was cached; the VM fallback was suppressed when every non-zero entry in `paintCounts` was animation-owned; and the debug aggregate subtracted owned paints from `totalPaintCount`, suppressed the issue when the residual rate fell under the threshold, and otherwise added "Excludes N animation-owned paints" to the detail.
 
-The practical false-positive surface is therefore much larger on the Repaint side, AND it's blind to the same widgets that RebuildDetector partially exempts. A `CircularProgressIndicator` rotating at 60 Hz in an app's top bar would trigger `excessive_repaint` (and `repaint_debug_CircularProgressIndicator`) on every session, on every page that mounts it.
+The difference from RebuildDetector is deliberate: a full exemption for repaints and a 3× multiplier for rebuilds. A `CircularProgressIndicator` is meant to paint at the device refresh rate, so no paint rate is too high for it. A high rebuild rate on the same widget is ambiguous, because a parent may be re-mounting it 60 times a second by mistake.
 
-**Fix:** Either share the `_builderWidgetTypes` set across both detectors, OR add an ancestor-walk filter that suppresses widgets whose State is driven by a `Ticker` / `AnimationController`. The former is one constant-set extraction; the latter is more correct but more expensive.
+A follow-up in the same release fixed five problems with one root cause: ownership was read from a cached chain string keyed on `runtimeType`, which is built to show source locations to people and is too shallow, too lossy and too collision-prone for an ownership filter. Ownership moved to a typed walk per paint, at paint-callback time, against the live `Element`.
 
-**Resolution (v0.15.3):** Chain-containment filter (the second option above, refined). `RepaintDetector` now owns a 7-entry `animationOwnerNames` set (4 Material/Cupertino indicators + 3 generic builder patterns) and a `_animationOwnerRegex` with `\b…\b` word boundaries. The set is intentionally smaller than RebuildDetector's `_builderWidgetTypes`: `widget_location.dart`'s framework strip removes most candidate transitions before they ever reach the chain, so adding them would be dead code (KDD-2). Three gates apply the filter:
+- The coordinator cached one chain per type name, so two `CustomPaint` widgets, one inside an `AnimatedBuilder` and one driven by `setState`, were suppressed together or fired together. `_handleProfilePaint` now calls `isAnimationOwnedPaint(element, chain)` on the live element, and `DebugSnapshot` carries `animationOwnedPaintCounts` and `totalAnimationOwnedPaintCount`, which the detector reads instead of judging the chain. Mixed ownership under one type name is now counted correctly.
+- The 7 owners missed the implicit `Animated*` widgets (12 at the time) as well as `Hero` and `RefreshIndicator`, each of which runs an `AnimationController` to tween between values; every implicit animation raised a false `repaint_debug_*`. The set grew to 21 entries (22 today) and moved to `lib/src/utils/animation_owner_names.dart`, shared by the coordinator and the detector.
+- A `CircularProgressIndicator` without its own `RepaintBoundary` marks the nearest layer-owning ancestor, often `Center` or `Stack`, for repaint. The chain walks up from that ancestor, so the indicator is a descendant of the painted element and the chain check misses it. `isAnimationOwnedPaint` added a bounded descendant walk (`hasAnimationOwnerDescendant`, at most 32 visits and 4 levels) with a typed runtime-type match.
+- `element.visitAncestorElements` can throw while a widget deactivates ("Looking up a deactivated widget's ancestor is unsafe"), and the exception crashed the instrumentation through `_handleProfilePaint`. Chain capture in `debug_instrumentation_coordinator.dart` is now wrapped in try/catch: the paint still counts, and only that event's chain is skipped.
+- Only `CircularProgressIndicator` had a real-widget test; the other owners and the two cases above relied on fixtures that mirrored the filter's own assumptions. `test/detectors/repaint_animation_owners_real_widget_test.dart` added 8 real-widget tests: LinearProgressIndicator, RefreshProgressIndicator, TweenAnimationBuilder, AnimatedBuilder, ValueListenableBuilder, AnimatedContainer, a mixed-ownership scene and a bare indicator without a RepaintBoundary. The TweenAnimationBuilder and ValueListenableBuilder tests found a bug at once: `hasAnimationOwnerDescendant` looked up `'TweenAnimationBuilder<double>'` in a set that holds `'TweenAnimationBuilder'`. The walk now strips the generic suffix with one `indexOf('<')` before the lookup, with no allocation for non-generic types.
 
-- **Gate A (per-widget debug, `_evaluateDebugDataPerWidget`):** skip when the cached ancestor chain for `typeName` matches `_animationOwnerRegex`. Default-fire when chain is missing — never silently mask a real bug.
-- **Gate B (VM aggregate fallback, `_evaluateVmData` wrapper):** suppress entirely when **every** non-zero entry in `paintCounts` is animation-owned. Empty `paintCounts` = no signal = let the gate fire normally.
-- **Gate C (debug aggregate, `_evaluateDebugData`):** subtract owned paint counts from `totalPaintCount`, recompute `residualRate` over `elapsed`, suppress when residual falls below threshold; surface "Excludes N animation-owned paints" suffix on the issue detail when residual still fires.
+`RefreshProgressIndicator` exposed one more gap. Its painted `CustomPaint` sits about 13 ancestors below the wrapping `AnimatedBuilder` because of Material's internal decoration stack, while `buildAncestorChain` stops at `maxDepth: 6` to keep the chain readable, and the owner is above the painted element, so the descendant walk misses it too. `isAnimationOwnedPaint` now has three legs, checked cheapest first: the chain regex, a typed ancestor walk (16 levels, independent of the chain's depth), and the typed descendant walk. The fixture tests for the gate logic in `test/detectors/repaint_detector_test.dart` and the real-widget `CircularProgressIndicator` test in `test/detectors/repaint_animation_filter_real_widget_test.dart` remain.
 
-**Asymmetry vs RebuildDetector (KDD-4) is deliberate**: full exemption (RepaintDetector) vs 3× multiplier (RebuildDetector). A `CircularProgressIndicator` is *supposed* to paint at the device refresh rate — there is no rate that's "too high" for it; the right answer is "don't fire at all." A high *rebuild* rate on the same widget is more ambiguous (could be a parent re-mounting it 60×/sec by mistake), so a multiplier rather than full exemption.
+The gates today, described in [`internals.md`](internals.md#debug-rebuild-and-paint-counts):
 
-**Test coverage:** 10 hand-rolled fixture tests in `test/detectors/repaint_detector_test.dart` exercise gate algebra against synthetic chains. ONE real-widget anti-tautology test in `test/detectors/repaint_animation_filter_real_widget_test.dart` pumps an actual `CircularProgressIndicator` through `DebugInstrumentationCoordinator`, asserts captured chains contain `'CircularProgressIndicator'`, then re-pins `elapsed: 100ms` to push per-widget rates to ~100/sec (well over the 30/sec threshold) so Gate A is exercised — not just Gate C suppression. The real-widget test exists specifically because hand-rolled fixtures would encode whatever chain format the test author *thinks* the coordinator produces, so they cannot catch a bug where the filter relies on a chain key/string format the coordinator never emits in practice.
+- `repaint_debug_<type>` compares the busiest instance's likely-origin rate with the threshold, and `RateHysteresis` holds the result across scans. The origin is the deepest render object marked as needing paint in its layer, mapped to the nearest widget the app creates, with animation-owned origins left out. Widgets that only repaint because they share the layer are not counted.
+- The VM share, `excessive_repaint`, is hidden while every paint in the window, framework paints included, was animation-owned.
+- `excessive_repaint_debug` subtracts owned paints from the total, stays silent when the residual rate is under the threshold, adds "Excludes N animation-owned paints" otherwise, and shows only without a VM connection.
+- The owners that animate by rebuilding (`AnimatedBuilder`, `ValueListenableBuilder`, `TweenAnimationBuilder`, and six implicit `Animated*` widgets) own paints only in frames where they rebuilt, so an idle one next to a repainting widget does not hide it.
 
-**Hardening pass against the v0.15.3 ship (C1–C5):** five
-critical findings landed against the original v0.15.3 ship. All five
-shared an architectural root cause: ownership decisions were made by
-inspecting a cached chain-string keyed on `runtimeType`, but the chain
-string is purpose-built for *human source-location display* and is too
-shallow, too lossy, and too key-collision-prone for a robust ownership
-filter. The fix moves ownership detection off the chain string entirely
-and onto a per-paint, typed walk that runs at paint-callback time
-against the live `Element`.
+The implementation spans `lib/src/detectors/repaint_detector.dart`, `lib/src/utils/animation_owner_names.dart`, `lib/src/debug/debug_instrumentation_coordinator.dart` and `lib/src/debug/debug_snapshot.dart`.
 
-- **C1 (polymorphic-key collision):** the coordinator caches the chain
-  on first occurrence per `typeName` key. Pre-fix, two `CustomPaint`
-  widgets sharing the key — one inside `AnimatedBuilder`, one driven
-  by external `setState` — were either both fully suppressed or both
-  fully fired. **Fix:** per-paint owned attribution at
-  `_handleProfilePaint` calls `isAnimationOwnedPaint(element, chain)`
-  against the live `Element`. Results are exposed via two new
-  `DebugSnapshot` fields (`animationOwnedPaintCounts`,
-  `totalAnimationOwnedPaintCount`) that the detector reads instead of
-  re-deriving ownership from the chain string. Mixed ownership for
-  the same `typeName` key is now represented honestly. KDD-6 is
-  superseded — polymorphic-key collision is no longer a known
-  limitation.
+#### RebuildDetector's framework filter covers only `stateful_density`
 
-- **C2 (insufficient owner set):** the original 7 entries missed the
-  entire `Animated*` family (12 widgets) plus `Hero` and
-  `RefreshIndicator`. Each runs an internal `AnimationController` to
-  tween between old and new property values; without these entries
-  every implicit animation triggers a false `repaint_debug_*`.
-  **Fix:** expanded to 21 entries and moved the canonical Set out of
-  `RepaintDetector` into shared
-  `lib/src/utils/animation_owner_names.dart` so the coordinator and
-  the detector reference the same source of truth.
+At audit time (`rebuild_detector.dart:456-501`) the `_frameworkWidgetNames` set had 49 entries, including the 9 Sleuth overlay widgets added in v0.13.1 and `TweenAnimationBuilder` added in v0.15.2. Only the structural fallback (`_evaluateStructuralOnly`, line 419) read it, not the per-type rebuild path, so with a debug snapshot a rebuild attributed to `Scaffold` could still surface as `rebuild_debug_Scaffold`.
 
-- **C3 (chain-walks-up gap):** when a `CircularProgressIndicator` is
-  mounted *without* a wrapping `RepaintBoundary`, the dirty mark
-  propagates UP to the nearest layer-owning ancestor (commonly
-  `Center` or `Stack`). The captured chain walks UP from the
-  ancestor, so `CircularProgressIndicator` is a *descendant* of the
-  leaf — chain-containment misses it entirely. **Fix:**
-  `isAnimationOwnedPaint` adds a bounded-depth descendant walk
-  (`hasAnimationOwnerDescendant`, `maxVisits=32`, `maxDepth=4`) over
-  the leaf's children with typed runtimeType match.
+Status: the set has 42 entries and still serves only `stateful_density`. The per-type path no longer needs it, because debug counts keep only widgets the app creates (`DebugInstrumentationConfig.userWidgetsOnly`) and a rebuild counts for the widget that started it.
 
-- **C4 (chain capture exception safety):** during widget deactivation,
-  `element.visitAncestorElements` can throw "Looking up a deactivated
-  widget's ancestor is unsafe." Pre-fix, the exception unwound
-  through `_handleProfilePaint` and crashed the entire instrumentation
-  pipeline. **Fix:** wrapped the chain capture in try/catch in
-  `debug_instrumentation_coordinator.dart`. Detected paint counting
-  continues; only the chain enrichment is skipped for that single
-  event.
+#### The severe-frame rule was undocumented but not arbitrary
 
-- **C5 (test fixture tautology):** the original v0.15.3 only had a
-  real-widget test for `CircularProgressIndicator`; the other 6 owners
-  + C1/C3 cases were covered only by hand-rolled fixtures that
-  mirrored the filter's own assumptions. **Fix:** new
-  `test/detectors/repaint_animation_owners_real_widget_test.dart`
-  adds 8 real-widget tests (LinearProgressIndicator,
-  RefreshProgressIndicator, TweenAnimationBuilder, AnimatedBuilder,
-  ValueListenableBuilder, AnimatedContainer, C1 mixed-ownership scene,
-  C3 bare-CPI-without-RepaintBoundary scene). The TweenAnimationBuilder
-  and ValueListenableBuilder tests immediately caught a real
-  generic-stripping bug in `hasAnimationOwnerDescendant` —
-  `'TweenAnimationBuilder<double>'` was being looked up against a Set
-  containing `'TweenAnimationBuilder'`, exactly the class of bug the
-  real-widget tests exist to catch.
+At audit time (`frame_timing_detector.dart:191-220`) `sustained_jank` checked whether 3 of the last 60 frames, 5 % of that buffer, were severe jank (above 33 ms at 60 Hz). That is a noise floor tied to the buffer size, not to the frame rate. The rule was defensible, but it had no inline rationale, which made this a low-priority documentation fix rather than a tune.
 
-**Architectural follow-ups discovered during C5:**
+Status: the rule now counts 3 severe frames among the frames since the route epoch, within a 240-frame buffer.
 
-- **Generic-stripping fix in `hasAnimationOwnerDescendant`:** the
-  walk now strips `Foo<X>` to `Foo` via a single `indexOf('<')`
-  before the Set membership test. Non-generic types pass through
-  unchanged with zero allocation.
+#### ListviewDetector reuses `childThreshold` across paths
 
-- **New `hasAnimationOwnerAncestor` walk:** `RefreshProgressIndicator`
-  exposed a third gap. Its painted leaf (`CustomPaint`) sits ~13
-  ancestors below the wrapping `AnimatedBuilder` owner because of
-  Material's internal `_buildMaterialIndicator` decoration stack
-  (`Padding > SizedBox > _SemanticsWrapper > NotificationListener >
-  Material > Padding > Opacity > Transform > CustomPaint`). The
-  chain-string check fails because `buildAncestorChain`'s
-  `maxDepth: 6` is deliberately too shallow to stay
-  human-readable. The descendant walk fails because the owner is
-  *upstream* of the leaf, not downstream. **Fix:**
-  `isAnimationOwnedPaint` now has three legs, checked
-  cheapest-first: (1) chain-string regex, (2) typed ancestor walk
-  (`maxDepth=16`, independent of the chain budget), (3) typed
-  descendant walk (`maxVisits=32`, `maxDepth=4`).
+At audit time (`listview_detector.dart:80,144` and `_checkForNonLazyList`) the same `childThreshold = 50` fed three detection paths: a non-lazy ListView or GridView, a non-lazy sliver, and a `SingleChildScrollView` with a `Column`. Lowering it to 25 changes all of them at once. That is probably still right, but one constant affects more than the document review implied.
 
-**Updated test coverage:** the 10 hand-rolled gate-algebra tests
-remain; the existing real-widget CPI test remains; the new
-`repaint_animation_owners_real_widget_test.dart` adds 8 owner-coverage
-tests; one gate-algebra extension covers the new owned-counts
-contract. Test count: 2,146 → 2,166.
+Status: it now feeds four paths; `sliver_to_box_adapter_large` also reads it.
 
-Plan: `doc/spec_v0_15_3_repaint_animation_filter.md`. Implementation
-spans `lib/src/detectors/repaint_detector.dart`,
-`lib/src/utils/animation_owner_names.dart` (new),
-`lib/src/debug/debug_instrumentation_coordinator.dart`,
-`lib/src/debug/debug_snapshot.dart`.
+### 7.3 Open questions and their answers
 
-#### M2. RebuildDetector's framework filter is for `stateful_density` only
-
-`rebuild_detector.dart:456-501` — the `_frameworkWidgetNames` set (49 entries including the 9 Sleuth overlay widgets from v0.13.1 + the v0.15.2 `TweenAnimationBuilder` addition) is consulted ONLY in the structural-only fallback path (`_evaluateStructuralOnly`, line 419), not in the rebuild-rate-attribution path. So at high build activity with a debug snapshot, a rebuild attributed to `Scaffold` would still surface as `rebuild_debug_Scaffold`. The framework filter does not protect the per-type debug-callback path.
-
-#### M3. The `severeCount >= 3 in 60` rule is undocumented but not arbitrary
-
-`frame_timing_detector.dart:191-220` — pass 1 flagged "no citation" for the rule. Reading the code, it's checking whether 5 % of the buffer (3/60) contains severe jank (>33 ms). That's a noise-floor anchored to the buffer size, not to FPS. The convention is defensible but pass 1 was right that there is no inline rationale. Low-priority documentation fix, not a tune.
-
-#### M4. Listview detector childThreshold is reused in three paths
-
-`listview_detector.dart:80, 144` and the `_checkForNonLazyList` helper — the same `childThreshold = 50` is consulted in three separate detection paths (non-lazy ListView/GridView, non-lazy Sliver, SingleChildScrollView+Column). Tuning to 25 affects all three at once. Probably the right move; just be aware that one constant change has a wider blast radius than pass 1 implied.
-
-### 7.3 Self-critique of the meta-investigation
-
-- **Hypothesis completeness:** Partial. I grilled pass-1 verdicts but did not enumerate alternative interpretations of each detector's purpose. For example, `ImageMemoryDetector`'s "no `ResizeImage` wrapper" could be intentionally pessimistic ("we can't measure the real ratio, so flag everything and let the user decide"). I treated the absence of ratio measurement as a bug; it could be a deliberate design constraint. Open question for the package author.
-- **Evidence audit:** I read source for 9 of 23 detectors. The other 14 (the audit's ✅ verdicts and items I had no specific reason to doubt) were not re-verified. **Selection bias**: I went where I expected to find audit errors. If a detector pass 1 ✅-confirmed actually has a bug, I would not have caught it.
-- **Falsification discipline:** I did not run any falsification tests against the package. All pass-2 regrades are static-source-reading, not "trigger the detector with a synthetic payload and observe." A test like "mount a 100×100 NetworkImage inside a 100×100 SizedBox and grep `_uncachedImages`" would either confirm or refute the ImageMemoryDetector finding. I did not run it.
-- **Search bias:** I searched only inside `lib/src/detectors/`. I did NOT check the controller's orchestration, the suppression rules in `SleuthConfig`, or the `IssueRanker` — any of which could weaken or strengthen detector findings before they reach the user. A noisy detector behind a strong suppressor is functionally fine.
-- **Layer coverage:** Symptom (audit verdict) → claim (audit reasoning) → ground truth (detector source). Three layers walked. I did NOT walk to the next layer down: how the detector output is consumed by `IssueRanker`, `FloatingIssuesCard`, or the AI chat surface.
-- **Reproducer check:** None. Every regrade is "what the source says happens," not "what actually happens at runtime." A device-profile run against a `CircularProgressIndicator` screen would confirm M1 in 30 seconds — I did not run it.
-- **Report fidelity:** Pass-1 audit is the symptom; pass-2 regrade is direct verification against cited line numbers. Fidelity is good — every regrade above ties to a specific file:line.
-
-### 7.4 Open questions (genuinely unresolvable from source alone)
-
-1. **Does the IssueRanker suppress `repaint_debug_CircularProgressIndicator` in practice?**
-   - **Recommended answer:** Probably not — confidence is `confirmed` from the debug-callback measurement, severity is `warning`. The ranker's weighted-composite score would not meaningfully discount it.
-   - **What would change the answer:** Reading `lib/src/ranking/issue_ranker.dart` to see whether widget-name-based suppression exists. Easy to check next pass — deferred to keep this report scoped.
-
-2. **Does the package author intend `ImageMemoryDetector` as a structural lint or a runtime cost gate?**
-   - **Recommended answer:** Structural lint, based on the `_smallImageThreshold = 50` suppression — that's a "skip the obviously cheap case" carve-out, not a cost-based decision.
-   - **What would change the answer:** Author confirmation, or a comment in the detector explaining intent. Otherwise unreviewable on this dimension.
-
-3. **Is `MemoryPressureDetector.recordGcCycle` actually fed by every kGC stream event, or only old-space cycles?**
-   - **Recommended answer:** Every kGC event, including new-space scavenges, per the comment on line 142 ("exactly one event per completed GC cycle"). Dart's `kGC` stream emits both.
-   - **What would change the answer:** Reading `controller/sleuth_controller.dart` `_onGcEvent` to see whether it filters by `event.kind` before forwarding. Did not chase in this pass.
+1. Does the IssueRanker suppress `repaint_debug_CircularProgressIndicator` in practice? The audit expected not: the debug callback measures it as `confirmed`, at warning severity, and the weighted score would not discount it. Answer: the ranker has no name-based suppression; it scores every issue as `tier × 100 + frameImpact × 8 + recurrence × 2`. The case no longer arises, because the indicator's paints are animation-owned and a framework widget has no per-widget count.
+2. Did the author intend `ImageMemoryDetector` as a structural lint or a runtime cost gate? The audit expected a structural lint, because the `_smallImageThreshold = 50` skip looks like a shortcut for obviously cheap images rather than a cost decision. Answer: v0.37.0 rebuilt it as a cost gate that measures decoded against needed pixels.
+3. Does `MemoryPressureDetector.recordGcCycle` receive every `kGC` stream event, or only old-space cycles? The audit expected every event, per the comment "exactly one event per completed GC cycle", but did not read `_onGcEvent`. Answer: `SleuthController._onGcEvent` forwards every `kGC` event without filtering and passes the raw `gcType`, which the detector uses to split scavenges from old-gen collections.
 
 ---
 
 ## 8. Sources
 
-Jank / frame budget / FPS:
+Jank, frame budget, FPS:
 - [Flutter performance profiling](https://docs.flutter.dev/perf/ui-performance)
 - [Flutter App Performance: Profiling, Fixing Jank, and Optimization Tips (2026)](https://startup-house.com/blog/flutter-app-performance)
 - [Flutter performance: how to diagnose jank and FPS drops (2026)](https://chdr.tech/en/2026/03/05/flutter-performance-diagnose-jank-fps/)
 - [Use the Performance view (DevTools)](https://docs.flutter.dev/tools/devtools/performance)
 
-Startup (TTFF / TTID / TTFD):
+Startup (TTFF, TTID, TTFD):
 - [App startup time | Android Developers](https://developer.android.com/topic/performance/vitals/launch-time)
 - [How to Reduce App Startup Time on Android, iOS & Flutter (2026 guide)](https://www.digia.tech/post/app-startup-time-performance-guide)
 - [Load sequence, performance, and memory (Flutter docs)](https://docs.flutter.dev/add-to-app/performance)
 
-Impeller / shaders / GPU pressure:
+Impeller, shaders, GPU pressure:
 - [How Impeller Is Transforming Flutter UI Rendering in 2026](https://dev.to/eira-wexford/how-impeller-is-transforming-flutter-ui-rendering-in-2026-3dpd)
 - [Impeller rendering engine (Flutter docs)](https://docs.flutter.dev/perf/impeller)
 - [Shader compilation jank (Flutter docs)](https://docs.flutter.dev/perf/shader)
 - [Mitigate OOM Crashes by Exposing Impeller GPU Memory Stats #178264](https://github.com/flutter/flutter/issues/178264)
 
-RepaintBoundary / rebuilds:
+RepaintBoundary, rebuilds:
 - [RepaintBoundary (Flutter API docs)](https://api.flutter.dev/flutter/widgets/RepaintBoundary-class.html)
 - [Flutter 2025 Performance Best Practices: What Has Changed & What Still Works](https://flutterexperts.com/flutter-2025-performance-best-practices-what-has-changed-what-still-works/)
 - [Stop Unnecessary Widget Rebuilds in Flutter (2026)](https://medium.com/@developer.hub/stop-unnecessary-widget-rebuilds-in-flutter-d75aef758bbe)
 
-Lists / layout:
+Lists, layout:
 - [Performance best practices (Flutter docs)](https://docs.flutter.dev/perf/best-practices)
 - [Why ListView Can Hurt Your App's Performance](https://dev.to/bestaoui_aymen/why-listview-can-hurt-your-apps-performance-and-what-to-use-instead-1dbc)
 - [IntrinsicHeight (Flutter API docs)](https://api.flutter.dev/flutter/widgets/IntrinsicHeight-class.html)
 - [Intrinsic Widget Alternatives for Enhancing Flutter Performance](https://www.logique.co.id/blog/en/2025/03/25/intrinsic-widget-alternatives/)
 
-AnimatedBuilder / Opacity / CustomPainter:
+AnimatedBuilder, Opacity, CustomPainter:
 - [AnimatedBuilder (Flutter API docs)](https://api.flutter.dev/flutter/widgets/AnimatedBuilder-class.html)
 - [Why do TweenAnimationBuilder and AnimatedBuilder have a child argument?](https://codewithandrea.com/articles/flutter-animated-builder-child-widget-argument/)
 - [Opacity (Flutter API docs)](https://api.flutter.dev/flutter/widgets/Opacity-class.html)
 - [Optimizing Flutter Apps: Avoid Opacity and Clipping](https://www.logique.co.id/blog/en/2025/04/23/optimizing-flutter-apps/)
 - [CustomPainter.shouldRepaint (Flutter API docs)](https://api.flutter.dev/flutter/rendering/CustomPainter/shouldRepaint.html)
 
-Memory / images / GC:
+Memory, images, GC:
 - [Use the Memory view (DevTools)](https://docs.flutter.dev/tools/devtools/memory)
 - [How We Reduced Flutter Memory Usage by 375mb: Image Optimization Strategies](https://saropa-contacts.medium.com/how-we-reduced-flutter-memory-usage-by-375mb-image-optimization-strategies-5a097246ee0c)
 - [How Dart's Garbage Collector Works](https://medium.com/@punithsuppar7795/how-darts-garbage-collector-works-and-when-it-fails-you-2e0c3c75928d)
 
-Network / API response time:
+Network, API response time:
 - [API Response Time Standards: What's Good, Bad, and Unacceptable](https://odown.com/blog/api-response-time-standards/)
 - [What's a good API response time? Benchmarks to beat in 2025](https://myfix.it.com/what-s-a-good-api-response-time-benchmarks-to-beat-in-2025/)
 - [How to Optimize API Response Times for Mobile Apps](https://technori.com/news/optimize-api-response-times-mobile-apps/)
 - [10 REST API Payload Size Best Practices](https://climbtheladder.com/10-rest-api-payload-size-best-practices/)
 
-Platform channels / isolates / GlobalKey / fonts / KeepAlive:
+Platform channels, isolates, GlobalKey, fonts, KeepAlive:
 - [Improving Platform Channel Performance in Flutter](https://medium.com/flutter/improving-platform-channel-performance-in-flutter-e5b4e5df04af)
 - [Concurrency and isolates (Flutter docs)](https://docs.flutter.dev/perf/isolates)
 - [Elements, Keys and Flutter's performance](https://medium.com/flutter-community/elements-keys-and-flutters-performance-3ef15c90f607)

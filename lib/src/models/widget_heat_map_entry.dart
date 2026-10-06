@@ -35,22 +35,23 @@ class WidgetHeatMapEntry implements Comparable<WidgetHeatMapEntry> {
       other.totalRankingScore.compareTo(totalRankingScore);
 
   Map<String, dynamic> toJson() => {
-        'widgetName': widgetName,
-        'issueCount': issueCount,
-        'totalRankingScore': totalRankingScore,
-        'detectorStableIds': detectorStableIds,
-        'worstSeverity': worstSeverity.name,
-      };
+    'widgetName': widgetName,
+    'issueCount': issueCount,
+    'totalRankingScore': totalRankingScore,
+    'detectorStableIds': detectorStableIds,
+    'worstSeverity': worstSeverity.name,
+  };
 
   factory WidgetHeatMapEntry.fromJson(Map<String, dynamic> json) =>
       WidgetHeatMapEntry(
         widgetName: json['widgetName'] as String,
         issueCount: json['issueCount'] as int,
         totalRankingScore: json['totalRankingScore'] as int,
-        detectorStableIds:
-            (json['detectorStableIds'] as List<dynamic>).cast<String>(),
-        worstSeverity:
-            IssueSeverity.values.byName(json['worstSeverity'] as String),
+        detectorStableIds: (json['detectorStableIds'] as List<dynamic>)
+            .cast<String>(),
+        worstSeverity: IssueSeverity.values.byName(
+          json['worstSeverity'] as String,
+        ),
       );
 }
 
@@ -163,10 +164,10 @@ class _Accumulator {
   int worstSeverityIndex = 0;
 
   WidgetHeatMapEntry toEntry() => WidgetHeatMapEntry(
-        widgetName: widgetName,
-        issueCount: issueCount,
-        totalRankingScore: totalScore,
-        detectorStableIds: List.unmodifiable(stableIds),
-        worstSeverity: IssueSeverity.values[worstSeverityIndex],
-      );
+    widgetName: widgetName,
+    issueCount: issueCount,
+    totalRankingScore: totalScore,
+    detectorStableIds: List.unmodifiable(stableIds),
+    worstSeverity: IssueSeverity.values[worstSeverityIndex],
+  );
 }

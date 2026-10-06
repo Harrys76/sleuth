@@ -18,12 +18,14 @@ void main() {
       controller.dispose();
 
       // Should not throw — _disposed guard returns early before any work.
-      controller.feedHeapSampleForTest(HeapSample(
-        heapUsage: 100 * 1024 * 1024,
-        heapCapacity: 200 * 1024 * 1024,
-        externalUsage: 0,
-        timestamp: DateTime(2026, 1, 1),
-      ));
+      controller.feedHeapSampleForTest(
+        HeapSample(
+          heapUsage: 100 * 1024 * 1024,
+          heapCapacity: 200 * 1024 * 1024,
+          externalUsage: 0,
+          timestamp: DateTime(2026, 1, 1),
+        ),
+      );
       // If we get here without an exception, the guard works.
     });
 
@@ -33,12 +35,14 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed a sample — should not throw.
-      controller.feedHeapSampleForTest(HeapSample(
-        heapUsage: 50 * 1024 * 1024,
-        heapCapacity: 200 * 1024 * 1024,
-        externalUsage: 0,
-        timestamp: DateTime(2026, 1, 1),
-      ));
+      controller.feedHeapSampleForTest(
+        HeapSample(
+          heapUsage: 50 * 1024 * 1024,
+          heapCapacity: 200 * 1024 * 1024,
+          externalUsage: 0,
+          timestamp: DateTime(2026, 1, 1),
+        ),
+      );
 
       // Controller still functional.
       expect(controller.issuesNotifier.value, isNotNull);
@@ -71,12 +75,14 @@ void main() {
       // Feed heap samples that would trigger heap growth.
       // Without VM, _enrichWithAllocationProfile returns immediately.
       for (int i = 0; i < 20; i++) {
-        controller.feedHeapSampleForTest(HeapSample(
-          heapUsage: (50 + i * 5) * 1024 * 1024,
-          heapCapacity: 500 * 1024 * 1024,
-          externalUsage: 0,
-          timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
-        ));
+        controller.feedHeapSampleForTest(
+          HeapSample(
+            heapUsage: (50 + i * 5) * 1024 * 1024,
+            heapCapacity: 500 * 1024 * 1024,
+            externalUsage: 0,
+            timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
+          ),
+        );
       }
 
       // No crash — enrichment was skipped because no VM client.
@@ -91,12 +97,14 @@ void main() {
       // Feed enough heap samples to trigger growth detection.
       // The detector needs multiple samples to detect a trend.
       for (int i = 0; i < 20; i++) {
-        controller.feedHeapSampleForTest(HeapSample(
-          heapUsage: (50 + i * 5) * 1024 * 1024,
-          heapCapacity: 500 * 1024 * 1024,
-          externalUsage: 0,
-          timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
-        ));
+        controller.feedHeapSampleForTest(
+          HeapSample(
+            heapUsage: (50 + i * 5) * 1024 * 1024,
+            heapCapacity: 500 * 1024 * 1024,
+            externalUsage: 0,
+            timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
+          ),
+        );
       }
 
       // Dispose immediately — if allocation enrichment was triggered,
@@ -130,12 +138,14 @@ void main() {
 
       // Feed heap samples without a real VM service.
       for (int i = 0; i < 20; i++) {
-        controller.feedHeapSampleForTest(HeapSample(
-          heapUsage: (50 + i * 5) * 1024 * 1024,
-          heapCapacity: 500 * 1024 * 1024,
-          externalUsage: 0,
-          timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
-        ));
+        controller.feedHeapSampleForTest(
+          HeapSample(
+            heapUsage: (50 + i * 5) * 1024 * 1024,
+            heapCapacity: 500 * 1024 * 1024,
+            externalUsage: 0,
+            timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
+          ),
+        );
       }
 
       // Allow any pending async operations.
@@ -147,8 +157,9 @@ void main() {
   });
 
   group('Dispose during active scan', () {
-    testWidgets('dispose immediately after tree scan does not crash',
-        (tester) async {
+    testWidgets('dispose immediately after tree scan does not crash', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,

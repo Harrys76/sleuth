@@ -18,10 +18,7 @@ void main() {
 
     test('throws VmBridgeException when not connected', () async {
       final bridge = defaultFakeBridge();
-      expect(
-        () => bridge.refreshBaseline(),
-        throwsA(isA<VmBridgeException>()),
-      );
+      expect(() => bridge.refreshBaseline(), throwsA(isA<VmBridgeException>()));
     });
   });
 }

@@ -30,7 +30,30 @@ Future<List<PerformanceIssue>> scanAndIssues(
   await tester.pumpWidget(
     Directionality(textDirection: TextDirection.ltr, child: body),
   );
-  final root = tester.element(find.byType(Directionality));
+  // The pumped root is the first Directionality; app widgets in [body]
+  // add their own below it.
+  final root = tester.element(find.byType(Directionality).first);
+  detector.prepareScan(root);
+  void visitor(Element element) {
+    detector.checkElement(element);
+    element.visitChildren(visitor);
+    detector.afterElement(element);
+  }
+
+  root.visitChildElements(visitor);
+  detector.notifyWalkCompleted();
+  detector.finalizeScan();
+  return detector.issues;
+}
+
+/// Re-runs the detector's unified walk on the currently mounted tree
+/// (after a prior [scanAndIssues]) without re-pumping. Used by detectors
+/// whose evidence spans two scans.
+List<PerformanceIssue> rescanIssues(
+  WidgetTester tester,
+  BaseDetector detector,
+) {
+  final root = tester.element(find.byType(Directionality).first);
   detector.prepareScan(root);
   void visitor(Element element) {
     detector.checkElement(element);
@@ -46,19 +69,19 @@ Future<List<PerformanceIssue>> scanAndIssues(
 
 /// Convenience assertion: issue with matching stableId is present.
 Matcher hasStableId(String stableId) => predicate<List<PerformanceIssue>>(
-      (issues) => issues.any((i) => i.stableId == stableId),
-      'contains stableId "$stableId"',
-    );
+  (issues) => issues.any((i) => i.stableId == stableId),
+  'contains stableId "$stableId"',
+);
 
 /// Convenience assertion: NO issue with matching stableId is present.
 Matcher lacksStableId(String stableId) => predicate<List<PerformanceIssue>>(
-      (issues) => !issues.any((i) => i.stableId == stableId),
-      'does not contain stableId "$stableId"',
-    );
+  (issues) => !issues.any((i) => i.stableId == stableId),
+  'does not contain stableId "$stableId"',
+);
 
 /// Convenience: issue with stableId starting with [prefix]. Used for
-/// parameterised families like `excessive_keep_alive:<i>`.
+/// parameterised families like `excessive_keep_alive:<Type>~<part>`.
 Matcher hasStableIdPrefix(String prefix) => predicate<List<PerformanceIssue>>(
-      (issues) => issues.any((i) => (i.stableId ?? '').startsWith(prefix)),
-      'contains stableId starting with "$prefix"',
-    );
+  (issues) => issues.any((i) => (i.stableId ?? '').startsWith(prefix)),
+  'contains stableId starting with "$prefix"',
+);

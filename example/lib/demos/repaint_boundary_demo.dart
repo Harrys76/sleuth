@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 23: Missing RepaintBoundary
+// Demo 8: Missing RepaintBoundary
 // Triggers: RepaintBoundary detector (structural)
 // ─────────────────────────────────────────
 
@@ -44,16 +44,18 @@ class _RepaintBoundaryDemoState extends State<RepaintBoundaryDemo>
     return DemoScaffold(
       title: 'Missing RepaintBoundary',
       description:
-          '❌ BAD: Opacity and CustomPaint widgets without a RepaintBoundary '
-          'ancestor — repaints propagate up the entire tree.\n'
-          '✅ FIX: Wrap expensive widgets in RepaintBoundary to isolate repaints.\n\n'
-          '▶ Scroll through the list — each card uses Opacity(0.7) (a value '
-          'the detector considers non-trivial, unlike 0.0 or 1.0). The animated '
-          'card continuously repaints, dragging the whole tree with it.\n'
-          '▶ Flip to Fixed Pattern — every expensive widget is wrapped in '
-          'RepaintBoundary. Detector should go quiet.\n\n'
-          'The detector flags Opacity, ClipPath, BackdropFilter, ShaderMask, '
-          'CustomPaint, and ColorFiltered widgets that do not have a '
+          'Bad: Opacity and CustomPaint widgets have no RepaintBoundary '
+          'ancestor, so their repaints spread up the entire tree.\n'
+          'Fix: Wrap expensive widgets in RepaintBoundary to isolate '
+          'repaints.\n\n'
+          'Scroll through the list. Each card uses Opacity(0.7), a value '
+          'the detector treats as non-trivial, unlike 0.0 or 1.0. The '
+          'animated card repaints continuously and drags the whole tree '
+          'with it.\n'
+          'Flip to Fixed Pattern. Every expensive widget sits inside a '
+          'RepaintBoundary, and the detector should go quiet.\n\n'
+          'The detector flags Opacity, ClipPath, BackdropFilter, '
+          'ShaderMask, CustomPaint and ColorFiltered widgets that have no '
           'RepaintBoundary ancestor within 5 levels.',
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -201,8 +203,8 @@ class _AnimatedPulseCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'CustomPaint without RepaintBoundary — '
-                      'drags entire scroll view into repaint',
+                      'CustomPaint without RepaintBoundary pulls the '
+                      'entire scroll view into its repaint',
                       style: TextStyle(
                         fontSize: 12,
                         color: Theme.of(context).colorScheme.outline,

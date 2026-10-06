@@ -1,35 +1,35 @@
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
 import 'sleuth_theme.dart';
 
 /// Full-screen drilldown page showing every widget type rebuilt during the
 /// active [RouteSession]'s lifetime, sorted descending by count.
 ///
-/// Opened by tapping the "See all N →" drilldown link inside the expanded
+/// Opened by tapping the "See all N" link inside the expanded
 /// `_RebuildStatsBanner` panel on the floating issues card. Mirrors the
 /// [Positioned.fill] overlay chrome used by
 /// [StartupMetricsPage] / [GuidePage] so it composes identically inside the
 /// floating card's overlay stack.
 ///
-/// **Snapshot semantics (spec v15 M10):** the counts map passed into the
+/// **Snapshot semantics:** the counts map passed into the
 /// constructor is copied at open time and never live-updates. If the user
 /// navigates to another route (or the underlying session is cleared) while
 /// the page is open, the displayed data reflects the moment of the tap.
 /// This is deliberate — live-updating a drilldown while the user reads it
-/// would shuffle rows underneath them, and profile-mode inflations (KDD-5)
-/// make per-scan churn noisy.
+/// would shuffle rows underneath them, and profile-mode counts include
+/// first builds (inflations), which make per-scan churn noisy.
 class RebuildStatsPage extends StatefulWidget {
   RebuildStatsPage({
     super.key,
     required this.routeDisplayName,
     required Map<String, int> countsByType,
     required this.onClose,
-  })  :
-        // Defensive copy + stable sort at construction time. Callers pass a
-        // live reference into [RouteSession.rebuildCountsByType]; mutating the
-        // session after open must not reorder rows or change totals.
-        _sortedEntries = _sortDescending(countsByType),
-        _totalRebuilds = countsByType.values.fold<int>(0, (sum, v) => sum + v);
+  }) : // Defensive copy + stable sort at construction time. Callers pass a
+       // live reference into [RouteSession.rebuildCountsByType]; mutating the
+       // session after open must not reorder rows or change totals.
+       _sortedEntries = _sortDescending(countsByType),
+       _totalRebuilds = countsByType.values.fold<int>(0, (sum, v) => sum + v);
 
   /// Human-facing route label shown in the header subtitle. May be null when
   /// the rollup fired for a route without a display name — rare but possible
@@ -62,13 +62,87 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 450),
       vsync: this,
-    )..forward();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
   }
 
   @override
   void dispose() {
     _entranceController.dispose();
     super.dispose();
+  }
+
+  /// The summary chips and the inflation disclaimer, first item of the
+  /// list.
+  ///
+  /// The disclaimer (counts include first builds, not only rebuilds) sits
+  /// immediately below the summary
+  /// chips so a user sees the caveat BEFORE forming a mental model from
+  /// the row labels. It is set in `fontSm` + `textSecondary` with an info
+  /// icon so it doesn't read like a footnote, and notes that Sleuth's own
+  /// overlay widgets are excluded, so the drilldown reflects the app only.
+  Widget _buildListLead(SleuthThemeData theme, int total, int types) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: theme.spacingLg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FadeTransition(
+            opacity: _entranceController,
+            // The chips wrap onto a second line at large text.
+            child: Wrap(
+              spacing: theme.spacingSm,
+              runSpacing: theme.spacingSm,
+              children: [
+                _SummaryChip(
+                  theme: theme,
+                  label: 'Total',
+                  value: total.toString(),
+                ),
+                _SummaryChip(
+                  theme: theme,
+                  label: 'Types',
+                  value: types.toString(),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: theme.spacingSm + theme.spacingXs),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.only(top: theme.spacingXxs),
+                child: Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: theme.textSecondary,
+                ),
+              ),
+              SizedBox(width: theme.spacingXs),
+              Expanded(
+                child: Text(
+                  'Profile-mode counts include initial widget '
+                  'inflations as well as rebuilds. Counts rise for a '
+                  'short time after a route change and fall as the tree '
+                  'settles. The drain excludes Sleuth\'s own overlay '
+                  'widgets.',
+                  style: TextStyle(
+                    color: theme.textSecondary,
+                    fontSize: theme.fontSm,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -78,11 +152,13 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
     final total = widget._totalRebuilds;
     final topCount = entries.isEmpty ? 0 : entries.first.value;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) widget.onClose();
-      },
+    // Route semantics: screen readers announce the page name. While a
+    // page is open, `SleuthOverlay` drops the app's nodes below it.
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      label: 'Rebuild stats',
       child: Material(
         color: theme.pageBackground,
         child: SafeArea(
@@ -105,29 +181,35 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
                             width: 48,
                             height: 48,
                             child: Center(
-                              child: Icon(Icons.arrow_back,
-                                  color: theme.textPrimary, size: 22),
+                              child: Icon(
+                                Icons.arrow_back,
+                                color: theme.textPrimary,
+                                size: 22,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                      Icon(Icons.loop_outlined,
-                          color: theme.categoryBuild, size: 18),
+                      Icon(
+                        Icons.loop_outlined,
+                        color: theme.categoryBuild,
+                        size: 18,
+                      ),
                       SizedBox(width: theme.spacingXs),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            // Title and route wrap at large text.
                             Text(
-                              'Rebuild Stats',
+                              'Rebuild stats',
+                              softWrap: true,
                               style: TextStyle(
                                 color: theme.textPrimary,
                                 fontSize: theme.fontXl,
                                 fontWeight: FontWeight.bold,
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                             ),
                             if (widget.routeDisplayName != null)
                               Text(
@@ -136,7 +218,7 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
                                   color: theme.textTertiary,
                                   fontSize: theme.fontSm,
                                 ),
-                                maxLines: 1,
+                                maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
                           ],
@@ -148,96 +230,29 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
               ),
               Divider(color: theme.border, height: 1),
 
-              // Summary strip
-              if (entries.isNotEmpty)
-                FadeTransition(
-                  opacity: _entranceController,
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      theme.spacingXl,
-                      theme.spacingLg,
-                      theme.spacingXl,
-                      theme.spacingSm,
-                    ),
-                    child: Row(
-                      children: [
-                        _SummaryChip(
-                          theme: theme,
-                          label: 'Total',
-                          value: total.toString(),
-                        ),
-                        SizedBox(width: theme.spacingSm),
-                        _SummaryChip(
-                          theme: theme,
-                          label: 'Types',
-                          value: entries.length.toString(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-              // Inflation disclaimer (KDD-5 + KDD-10) — positioned immediately
-              // below the summary chips so a user who scrolls a long hotspot
-              // list sees the caveat BEFORE forming a mental model from the
-              // row labels. (M14/H2: moved up from footer, upweighted from
-              // `fontXs + textQuaternary` to `fontSm + textSecondary`, and
-              // given an info icon so it doesn't read like a footnote.
-              // v0.15.1: added Sleuth-overlay exclusion note so users know
-              // the drilldown reflects their app only, not Sleuth's own UI.)
-              if (entries.isNotEmpty)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    theme.spacingXl,
-                    theme.spacingXs,
-                    theme.spacingXl,
-                    theme.spacingSm,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: EdgeInsets.only(top: theme.spacingXxs),
-                        child: Icon(
-                          Icons.info_outline,
-                          size: 14,
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                      SizedBox(width: theme.spacingXs),
-                      Expanded(
-                        child: Text(
-                          'Profile-mode counts include initial widget '
-                          'inflations as well as rebuilds — route entry '
-                          'shows transient elevated counts that decay as '
-                          'the tree stabilises. Sleuth\u2019s own overlay '
-                          'widgets are excluded from the drain.',
-                          style: TextStyle(
-                            color: theme.textSecondary,
-                            fontSize: theme.fontSm,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Content
+              // Content. The summary chips and the disclaimer lead the
+              // list and scroll with it, so large text on a short screen
+              // never pushes the rows off the page.
               Expanded(
                 child: entries.isEmpty
                     ? _EmptyState(theme: theme)
                     : ListView.builder(
                         padding: EdgeInsets.fromLTRB(
                           theme.spacingXl,
-                          theme.spacingSm,
+                          theme.spacingLg,
                           theme.spacingXl,
                           24,
                         ),
-                        itemCount: entries.length,
-                        itemBuilder: (context, i) {
+                        itemCount: entries.length + 1,
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            return _buildListLead(theme, total, entries.length);
+                          }
+                          final i = index - 1;
                           final entry = entries[i];
-                          final fraction =
-                              topCount == 0 ? 0.0 : entry.value / topCount;
+                          final fraction = topCount == 0
+                              ? 0.0
+                              : entry.value / topCount;
                           return _RebuildRow(
                             theme: theme,
                             rank: i + 1,
@@ -268,10 +283,7 @@ class _EmptyState extends StatelessWidget {
       child: Center(
         child: Text(
           'No rebuilds recorded for this session.',
-          style: TextStyle(
-            color: theme.textTertiary,
-            fontSize: theme.fontBase,
-          ),
+          style: TextStyle(color: theme.textTertiary, fontSize: theme.fontBase),
           textAlign: TextAlign.center,
         ),
       ),
@@ -317,7 +329,7 @@ class _SummaryChip extends StatelessWidget {
             Text(
               value,
               style: TextStyle(
-                color: theme.categoryBuild,
+                color: theme.textPrimary,
                 fontSize: theme.fontMd,
                 fontWeight: FontWeight.bold,
               ),
@@ -346,6 +358,8 @@ class _RebuildRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The rank column grows with the text, so `10.` keeps one line.
+    final rankWidth = MediaQuery.textScalerOf(context).scale(28);
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingSm),
       child: Column(
@@ -354,7 +368,7 @@ class _RebuildRow extends StatelessWidget {
           Row(
             children: [
               SizedBox(
-                width: 28,
+                width: rankWidth,
                 child: Text(
                   '$rank.',
                   style: TextStyle(
@@ -389,7 +403,7 @@ class _RebuildRow extends StatelessWidget {
           ),
           SizedBox(height: theme.spacingXxs),
           Padding(
-            padding: EdgeInsets.only(left: 28),
+            padding: EdgeInsets.only(left: rankWidth),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(2),
               child: SizedBox(
@@ -397,8 +411,9 @@ class _RebuildRow extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: barFraction.clamp(0.0, 1.0),
                   backgroundColor: theme.categoryBuild.withValues(alpha: 0.12),
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(theme.categoryBuild),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    theme.categoryBuild,
+                  ),
                 ),
               ),
             ),

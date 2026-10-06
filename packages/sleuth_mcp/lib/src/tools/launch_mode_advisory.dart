@@ -1,42 +1,63 @@
 /// Maps a Sleuth `connectionMode` to an advisory string for MCP clients.
 ///
-/// `connectionMode` reflects whether Sleuth's *in-app* VM self-connect
-/// succeeded, independent of the sidecar's own bridge transport — so it (not
-/// anything the sidecar infers from its connection) is the authoritative
-/// signal for whether VM-only detectors are live.
+/// `connectionMode` is the app's frame verdict tier, not the state of the
+/// sidecar's bridge. `basic` covers two states: Sleuth has no VM service link,
+/// or it has one and no frame has received a VM-tier verdict yet (verdicts
+/// are published for jank frames only, so a smooth session stays `basic`).
+/// The app's own `vmConnected` flag tells them apart, so the `basic` advisory
+/// needs it.
 library;
 
-/// Advisory for `connectionMode == 'basic'`: self-connect failed after the
-/// warmup window, so VM-only detectors stay silent.
+/// stableIds Sleuth reports only with a VM service link: every issue of the
+/// `vmOnly` detectors (memory, heavy compute, shader, platform channel,
+/// stream resource) plus the VM timeline paths of the hybrid rebuild and
+/// repaint detectors. `raster_dominance` is absent because its frame-timing
+/// leg runs without a VM link.
+const String vmOnlyStableIds =
+    'heap_growing, gc_pressure, heap_near_capacity, native_memory_growing, '
+    'heavy_compute, shader_compilation, platform_channel_traffic, '
+    'stream_resource_growth, rebuild_activity, excessive_repaint';
+
+/// Advisory for `connectionMode == 'basic'` when the app reports no VM
+/// service link after the warmup window, so VM-only detectors stay silent.
 const String launchAdvisoryBasic =
-    'Degraded session: Sleuth could not connect to the VM service, so its '
-    'VM-backed detectors are OFF (heap_growing, heavy_compute, '
-    'excessive_repaint, gc_pressure, stream_resource) — memory, CPU, and '
-    'repaint issues will not be reported and the issue list is incomplete. '
-    'First, kill and reopen the app: a profile build re-attempts the connect '
-    'on launch and usually recovers. If it stays basic AND the app was '
-    'started with `flutter run`, DDS is holding the VM service — relaunch '
-    'with `flutter run --profile --no-dds`.';
+    'The session is degraded. Sleuth has no VM service link, so its '
+    'VM-backed detectors ($vmOnlyStableIds) are off and it reports no '
+    'memory, CPU or repaint issues. Kill and reopen the app, because a '
+    'profile build connects again at launch. If the app was started with '
+    '`flutter run` and this advisory stays, one possible cause is DDS '
+    'holding the VM service. Relaunch with `flutter run --profile '
+    '--no-dds`.';
+
+/// Opening words of [launchAdvisoryWarmup], kept stable so a snapshot that
+/// carries the warmup advisory can be recognised.
+const String launchAdvisoryWarmupLead = 'Sleuth is still warming up';
 
 /// Advisory for `connectionMode == 'warmup'`: the mode is not yet final, so
 /// the issue list may be incomplete even on a healthy session.
 const String launchAdvisoryWarmup =
-    'Sleuth is still warming up (first few seconds), so the connection tier '
-    'is not final yet and the issue list may be incomplete. Re-run '
-    '`diagnose` shortly to confirm full mode before trusting it.';
+    '$launchAdvisoryWarmupLead during its first few seconds, so the issue '
+    'list may be incomplete. Run `diagnose` again in a few seconds. When it '
+    'returns no launchModeAdvisory, the session is ready.';
 
 /// Advisory for `connectionMode == 'disconnected'`: no live VM connection.
 const String launchAdvisoryDisconnected =
-    'Degraded session: no live VM connection, so only FrameTiming and '
-    'structural detectors run — memory/CPU/repaint issues are not reported. '
-    'Reach full coverage with `flutter run --profile --no-dds`.';
+    'The session is degraded. Sleuth has no live VM connection, so only '
+    'the FrameTiming and structural detectors run, and it reports no '
+    'memory, CPU or repaint issues. For full coverage, run the app with '
+    '`flutter run --profile --no-dds`.';
+
+/// Whether [advisory] is the warmup advisory, by its opening words.
+bool isWarmupAdvisory(Object? advisory) =>
+    advisory is String && advisory.startsWith(launchAdvisoryWarmupLead);
 
 /// Advisory for [connectionMode], or null when none is warranted (`full` /
 /// `correlated` / null / unrecognized).
 ///
-/// [vmConnected] disambiguates `basic`: it is also reported when the VM *is*
-/// connected but the verdict hasn't warmed, where detectors still fire and no
-/// relaunch helps — so the basic advisory is gated on `vmConnected != true`.
+/// [vmConnected] disambiguates `basic`, which a VM-connected session also
+/// reports until a frame gets a VM-tier verdict. Its detectors then run and
+/// no relaunch helps, so the basic advisory needs `vmConnected != true`; an
+/// unknown flag (null) still gets it.
 String? launchModeAdvisoryFor(String? connectionMode, {bool? vmConnected}) {
   switch (connectionMode) {
     case 'basic':
@@ -52,13 +73,14 @@ String? launchModeAdvisoryFor(String? connectionMode, {bool? vmConnected}) {
 
 /// Computes the advisory from a full `ext.sleuth.*` [envelope], tolerating a
 /// malformed or missing `connectionMode` / `data.vmConnected`. The advisory is
-/// best-effort metadata, so a degraded payload must never throw — non-String /
-/// non-bool values degrade to "no advisory" rather than a `CastError`.
+/// best-effort metadata, so a degraded payload must never throw: a
+/// non-String mode gives no advisory and a non-bool flag counts as unknown,
+/// rather than a `CastError`.
 String? launchModeAdvisoryForEnvelope(Map<String, Object?> envelope) {
   final connectionMode = envelope['connectionMode'];
   final data = envelope['data'];
-  // `diagnose` reports `data.vmConnected`; `snapshot` reports the same flag as
-  // `data.isVmConnected`. Accept either.
+  // `diagnose` and `issues` (sleuth 0.37 and later) report `data.vmConnected`;
+  // `snapshot` reports the same flag as `data.isVmConnected`. Accept either.
   final vmConnected = data is Map<String, Object?>
       ? (data['vmConnected'] ?? data['isVmConnected'])
       : null;

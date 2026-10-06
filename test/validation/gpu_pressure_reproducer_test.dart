@@ -1,11 +1,16 @@
 // Hermetic reproducer for `GpuPressureDetector`.
 //
-// Drives the detector at both legs:
+// Drives the detector at all three legs:
+//   Frame leg — feeds per-frame `FrameStats` through `processFrame`. Pins
+//     the sustained rule (`minRasterDominantFrames` = 3 dominant frames
+//     inside one second), the per-frame ratio (strict `> 2.0`) and floor,
+//     and critical when the qualifying frames also blew the frame budget.
+//     Emits `likely` with `ObservationSource.frameTiming`, VM or not.
 //   VM leg — feeds raster + UI events through `TimelineParser.parse()` into
 //     `processTimelineData`. Pins `raster_dominance` ratio gate (strict
 //     `> 2.0`), critical escalation (`> 4.0`), and the
 //     `hasRasterTiming` precondition (`vmConnected && _lastUiUs > 0 &&
-//     _lastRasterUs > 0`).
+//     _lastRasterUs > 0`). When it fires it wins (`confirmed`).
 //   Structural leg — pumps widget trees that produce the 5 RenderObject
 //     types the detector flags (`RenderOpacity`, `RenderClipPath`,
 //     `RenderBackdropFilter`, `RenderShaderMask`, `ColorFiltered` widget)
@@ -15,24 +20,26 @@
 //     warning; > 10.0 critical highlight severity).
 //
 // Confidence correlation: `expensive_gpu_nodes` confidence is `likely`
-// only when `hasRasterDominance` is true; `possible` in every other case
-// (vmConnected=false, or vmConnected=true but no raster events).
+// when either raster leg qualified; `possible` otherwise.
 //
-// VM disconnect: setter clears `_lastRasterUs`/`_lastUiUs`, removes any
-// `raster_dominance` issue, and downgrades surviving `expensive_gpu_nodes`
-// to `possible` confidence.
+// VM disconnect: setter clears `_lastRasterUs`/`_lastUiUs`, removes the
+// VM-sourced `raster_dominance`, leaves frame-sourced issues untouched, and
+// downgrades `expensive_gpu_nodes` to `possible` only when no frame-sourced
+// `raster_dominance` remains.
 //
 // `_vmConnected` defaults to false; setUp explicitly sets `true` so VM-
 // backed tests aren't silently routed into structural-only fallback.
 
+import 'dart:developer' show Timeline;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vm_service/vm_service.dart' hide Stack;
+import 'package:vm_service/vm_service.dart' hide Stack, Timeline;
 
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
 import '_helpers/structural_reproducer_harness.dart';
@@ -66,7 +73,11 @@ void main() {
         buildEvent(name: 'BUILD', ph: 'X', dur: perPhaseUi, ts: 1000),
         buildEvent(name: 'LAYOUT', ph: 'X', dur: perPhaseUi, ts: 2000),
         buildEvent(
-            name: 'PAINT', ph: 'X', dur: perPhaseUi + remainder, ts: 3000),
+          name: 'PAINT',
+          ph: 'X',
+          dur: perPhaseUi + remainder,
+          ts: 3000,
+        ),
         buildEvent(name: 'Raster', ph: 'X', dur: rasterUs, ts: 4000),
       ];
     }
@@ -114,13 +125,18 @@ void main() {
         buildEvent(name: 'BUILD', ph: 'X', dur: perPhaseUi, ts: 1000),
         buildEvent(name: 'LAYOUT', ph: 'X', dur: perPhaseUi, ts: 2000),
         buildEvent(
-            name: 'PAINT', ph: 'X', dur: perPhaseUi + remainder, ts: 3000),
+          name: 'PAINT',
+          ph: 'X',
+          dur: perPhaseUi + remainder,
+          ts: 3000,
+        ),
         for (var i = 0; i < rasterDurationsUs.length; i++)
           buildEvent(
-              name: 'Raster',
-              ph: 'X',
-              dur: rasterDurationsUs[i],
-              ts: 4000 + i * 100),
+            name: 'Raster',
+            ph: 'X',
+            dur: rasterDurationsUs[i],
+            ts: 4000 + i * 100,
+          ),
       ];
       final parsed = parseAndAssertShape(events, (
         buildEventCount: 1,
@@ -137,11 +153,90 @@ void main() {
       return scanAndIssues(tester, detector, body);
     }
 
+    /// Detector 60 s past Dart entry, outside the startup window.
+    GpuPressureDetector frameLegDetector() => GpuPressureDetector(
+      appStartMonotonicUsForTest: () => Timeline.now - 60000000,
+    );
+
+    /// Feeds one frame per entry of [rasterUs] (UI 1 ms, 60 Hz spacing,
+    /// 16667 us frame budget) through `processFrame`.
+    void feedFrames(List<int> rasterUs, {int uiUs = 1000}) {
+      for (var i = 0; i < rasterUs.length; i++) {
+        final vsync = i * 16667;
+        detector.processFrame(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: Duration(microseconds: uiUs),
+            rasterDuration: Duration(microseconds: rasterUs[i]),
+            timestamp: DateTime(2026),
+            frameBudgetUs: 16667,
+            vsyncStartUs: vsync,
+            rasterFinishUs: vsync + rasterUs[i],
+          ),
+        );
+      }
+    }
+
+    // -- Frame leg: raster_dominance per-frame triad ----------------------
+
+    group('raster_dominance frame-leg triad (3 frames in 1 s)', () {
+      setUp(() {
+        // Frame leg holds without a VM.
+        detector = frameLegDetector()..vmConnected = false;
+      });
+
+      testWidgets('below: 2 dominant frames do NOT emit', (tester) async {
+        feedFrames([12000, 12000]);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, lacksStableId('raster_dominance'));
+      });
+
+      testWidgets('at: 3 dominant frames emit likely warning', (tester) async {
+        feedFrames([12000, 12000, 12000]);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'raster_dominance',
+        );
+        expect(issue.severity, IssueSeverity.warning);
+        expect(issue.confidence, IssueConfidence.likely);
+        expect(issue.observationSource, ObservationSource.frameTiming);
+      });
+
+      testWidgets('above: 3 over-budget dominant frames emit critical', (
+        tester,
+      ) async {
+        feedFrames([20000, 20000, 20000]);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'raster_dominance',
+        );
+        expect(issue.severity, IssueSeverity.critical);
+        expect(issue.confidence, IssueConfidence.likely);
+      });
+
+      testWidgets('per-frame ratio is strict-greater (exact 2.0 skipped)', (
+        tester,
+      ) async {
+        feedFrames([12000, 12000, 12000], uiUs: 6000);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, lacksStableId('raster_dominance'));
+      });
+
+      testWidgets('per-frame floor is strict-greater (exact 8000us skipped)', (
+        tester,
+      ) async {
+        feedFrames([8000, 8000, 8000]);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, lacksStableId('raster_dominance'));
+      });
+    });
+
     // -- VM leg: raster_dominance ratio triad -----------------------------
 
     group('raster_dominance VM ratio triad (strict > 2.0)', () {
-      testWidgets('ratio = 1.99 does NOT emit raster_dominance',
-          (tester) async {
+      testWidgets('ratio = 1.99 does NOT emit raster_dominance', (
+        tester,
+      ) async {
         // raster=15920, ui=8000 → ratio 1.99 (single-frame raster passes
         // 8000us per-frame floor; ratio gate suppresses).
         final issues = await primeVmThenScan(
@@ -176,8 +271,9 @@ void main() {
         expect(issues, isNotNull);
       });
 
-      testWidgets('ratio just-above 2.0 emits raster_dominance (warning)',
-          (tester) async {
+      testWidgets('ratio just-above 2.0 emits raster_dominance (warning)', (
+        tester,
+      ) async {
         // raster=16080, ui=8000 → ratio 2.01 (single-frame raster
         // 16080us > 8000us floor; ratio fires).
         final issues = await primeVmThenScan(
@@ -187,14 +283,16 @@ void main() {
           uiUs: 8000,
         );
         expect(issues, hasStableId('raster_dominance'));
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'raster_dominance');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'raster_dominance',
+        );
         expect(issue.severity, IssueSeverity.warning);
         expect(issue.confidence, IssueConfidence.confirmed);
       });
 
-      testWidgets('ratio > 4.0 (2× threshold) escalates to critical',
-          (tester) async {
+      testWidgets('ratio > 4.0 (2× threshold) escalates to critical', (
+        tester,
+      ) async {
         // raster=32080, ui=8000 → ratio 4.01 → critical
         final issues = await primeVmThenScan(
           tester,
@@ -203,15 +301,16 @@ void main() {
           uiUs: 8000,
         );
         expect(issues, hasStableId('raster_dominance'));
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'raster_dominance');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'raster_dominance',
+        );
         expect(issue.severity, IssueSeverity.critical);
       });
 
-      testWidgets(
-          'idle batch (60×1ms vsync raster + trivial UI) does NOT emit '
-          '— per-frame floor suppresses despite huge aggregate ratio',
-          (tester) async {
+      testWidgets('idle batch (60×1ms vsync raster + trivial UI) does NOT emit '
+          '— per-frame floor suppresses despite huge aggregate ratio', (
+        tester,
+      ) async {
         // 60 vsync raster events × 1000us each = 60000us aggregate, UI
         // 500us → aggregate ratio 120. MAX-of-frame raster = 1000us <
         // 8000us floor → suppressed. Pins the idle-homepage bug class.
@@ -224,8 +323,7 @@ void main() {
         expect(issues, lacksStableId('raster_dominance'));
       });
 
-      testWidgets(
-          'per-frame floor strict-greater (just-below + exact + '
+      testWidgets('per-frame floor strict-greater (just-below + exact + '
           'just-above 8000us)', (tester) async {
         // Just-below: max=7999, ratio=10 (huge) → suppressed.
         final below = await primeMultiFrameThenScan(
@@ -260,13 +358,52 @@ void main() {
           uiUs: 8000,
         );
         expect(above, hasStableId('raster_dominance'));
-        final aboveIssue =
-            above.firstWhere((i) => i.stableId == 'raster_dominance');
+        final aboveIssue = above.firstWhere(
+          (i) => i.stableId == 'raster_dominance',
+        );
         expect(aboveIssue.severity, IssueSeverity.warning);
       });
 
-      testWidgets(
-          'one-spike + idle-tail does NOT inflate ratio '
+      testWidgets('per-frame floor follows updateFrameBudget', (tester) async {
+        Future<List<PerformanceIssue>> leg(
+          int maxRasterUs, {
+          int? budgetUs,
+          bool reset = false,
+        }) async {
+          detector.dispose();
+          detector = GpuPressureDetector();
+          detector.vmConnected = true;
+          if (budgetUs != null) detector.updateFrameBudget(budgetUs);
+          if (reset) detector.resetFrameBudget();
+          return primeMultiFrameThenScan(
+            tester,
+            const SizedBox(),
+            rasterDurationsUs: [maxRasterUs, 1000, 1000, 1000],
+            uiUs: 1100,
+          );
+        }
+
+        // Default floor 8000us.
+        expect(GpuPressureDetector().effectiveMaxFrameRasterFloorUs, 8000);
+        expect(await leg(8001), hasStableId('raster_dominance'));
+        expect(await leg(7999), lacksStableId('raster_dominance'));
+        // 120 Hz budget: floor 8333 ~/ 2 = 4166.
+        expect(
+          await leg(4167, budgetUs: 8333),
+          hasStableId('raster_dominance'),
+        );
+        expect(
+          await leg(4165, budgetUs: 8333),
+          lacksStableId('raster_dominance'),
+        );
+        // Reset restores the constructor floor.
+        expect(
+          await leg(4167, budgetUs: 8333, reset: true),
+          lacksStableId('raster_dominance'),
+        );
+      });
+
+      testWidgets('one-spike + idle-tail does NOT inflate ratio '
           '(MAX-of-frame numerator regression)', (tester) async {
         // [8001, 1000×59] + uiUs=8000. Aggregate raster = 67001us
         // would have produced ratio 8.375 (critical) under an
@@ -284,66 +421,77 @@ void main() {
         expect(issues, lacksStableId('raster_dominance'));
       });
 
-      testWidgets('realistic 12ms single-frame raster + 3ms UI fires critical',
-          (tester) async {
-        // MAX=12010us, uiUs=3000us → MAX/uiUs = 4.003 > 4.0 → critical.
-        // Restores realistic critical-tier coverage at 8-16ms per-frame
-        // raster magnitudes (the multi-frame floor passes; the bumped
-        // legacy fixture for critical sits at 32ms which is much higher
-        // than realistic device-side critical thresholds).
-        final issues = await primeMultiFrameThenScan(
-          tester,
-          const SizedBox(),
-          rasterDurationsUs: const [12010, 1000, 1000, 1000],
-          uiUs: 3000,
-        );
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'raster_dominance');
-        expect(issue.severity, IssueSeverity.critical);
-      });
+      testWidgets(
+        'realistic 12ms single-frame raster + 3ms UI fires critical',
+        (tester) async {
+          // MAX=12010us, uiUs=3000us → MAX/uiUs = 4.003 > 4.0 → critical.
+          // Restores realistic critical-tier coverage at 8-16ms per-frame
+          // raster magnitudes (the multi-frame floor passes; the bumped
+          // legacy fixture for critical sits at 32ms which is much higher
+          // than realistic device-side critical thresholds).
+          final issues = await primeMultiFrameThenScan(
+            tester,
+            const SizedBox(),
+            rasterDurationsUs: const [12010, 1000, 1000, 1000],
+            uiUs: 3000,
+          );
+          final issue = issues.firstWhere(
+            (i) => i.stableId == 'raster_dominance',
+          );
+          expect(issue.severity, IssueSeverity.critical);
+        },
+      );
 
       testWidgets(
-          'raster events with totalUi == 0 does NOT emit (hasRasterTiming gate)',
-          (tester) async {
-        // The detector's hasRasterTiming check requires _lastUiUs > 0
-        // independently of vmConnected and rasterUs. Feed only raster
-        // events; UI denominator zero blocks emission even though raster
-        // is large.
-        final events = [
-          buildEvent(name: 'Raster', ph: 'X', dur: 5000, ts: 1000),
-        ];
-        final parsed = parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 1,
-          shaderCount: 0,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: 1,
-        ));
-        detector.processTimelineData(parsed);
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, lacksStableId('raster_dominance'));
-      });
+        'raster events with totalUi == 0 does NOT emit (hasRasterTiming gate)',
+        (tester) async {
+          // The detector's hasRasterTiming check requires _lastUiUs > 0
+          // independently of vmConnected and rasterUs. Feed only raster
+          // events; UI denominator zero blocks emission even though raster
+          // is large.
+          final events = [
+            buildEvent(name: 'Raster', ph: 'X', dur: 5000, ts: 1000),
+          ];
+          final parsed = parseAndAssertShape(events, (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 1,
+            shaderCount: 0,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ));
+          detector.processTimelineData(parsed);
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, lacksStableId('raster_dominance'));
+        },
+      );
     });
 
     // -- Structural leg: RenderOpacity opacity-value × subtree matrix -----
 
     group('RenderOpacity opacity-value × subtree matrix', () {
-      testWidgets('opacity=0.0, subtree>>5: short-circuit suppresses (no fire)',
-          (tester) async {
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          _OpacityTree(opacity: 0.0, leafCount: 10),
-        );
-        expect(issues, lacksStableId('expensive_gpu_nodes'));
-      });
+      testWidgets(
+        'opacity=0.0, subtree>>5: short-circuit suppresses (no fire)',
+        (tester) async {
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            _OpacityTree(opacity: 0.0, leafCount: 10),
+          );
+          expect(issues, lacksStableId('expensive_gpu_nodes'));
+        },
+      );
 
-      testWidgets('opacity=1.0, subtree>>5: no-op suppresses (no fire)',
-          (tester) async {
+      testWidgets('opacity=1.0, subtree>>5: no-op suppresses (no fire)', (
+        tester,
+      ) async {
         final issues = await scanAndIssues(
           tester,
           detector,
@@ -352,18 +500,21 @@ void main() {
         expect(issues, lacksStableId('expensive_gpu_nodes'));
       });
 
-      testWidgets('opacity=0.5, subtree small (<= 5): subtree gate suppresses',
-          (tester) async {
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          _OpacityTree(opacity: 0.5, leafCount: 2),
-        );
-        expect(issues, lacksStableId('expensive_gpu_nodes'));
-      });
+      testWidgets(
+        'opacity=0.5, subtree small (<= 5): subtree gate suppresses',
+        (tester) async {
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            _OpacityTree(opacity: 0.5, leafCount: 2),
+          );
+          expect(issues, lacksStableId('expensive_gpu_nodes'));
+        },
+      );
 
-      testWidgets('opacity=0.5, subtree > 5: fires expensive_gpu_nodes',
-          (tester) async {
+      testWidgets('opacity=0.5, subtree > 5: fires expensive_gpu_nodes', (
+        tester,
+      ) async {
         final issues = await scanAndIssues(
           tester,
           detector,
@@ -377,54 +528,56 @@ void main() {
 
     group('BackdropFilter sigma 3-band (suppress / warning / critical)', () {
       testWidgets(
-          'sigma = 2.0 (low-sigma threshold): suppressed even with deep subtree',
-          (tester) async {
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          _BackdropFilterTree(sigma: 2.0, leafCount: 10),
-        );
-        // BackdropFilter is the only expense type in the fixture; with
-        // sigma=2.0 the detector early-returns at line 135 before
-        // adding to `_expensiveNodes`. No issue should fire at all.
-        expect(issues, lacksStableId('expensive_gpu_nodes'));
-      });
+        'sigma = 2.0 (low-sigma threshold): suppressed even with deep subtree',
+        (tester) async {
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            _BackdropFilterTree(sigma: 2.0, leafCount: 10),
+          );
+          // BackdropFilter is the only expense type in the fixture; with
+          // sigma=2.0 the detector early-returns at line 135 before
+          // adding to `_expensiveNodes`. No issue should fire at all.
+          expect(issues, lacksStableId('expensive_gpu_nodes'));
+        },
+      );
 
       testWidgets(
-          'sigma = 5.0 (mid-band) with subtree > 5: fires warning highlight',
-          (tester) async {
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          _BackdropFilterTree(sigma: 5.0, leafCount: 10),
-        );
-        expect(issues, hasStableId('expensive_gpu_nodes'));
-        // Detail string carries sigma annotation so a regression that
-        // drops sigma plumbing is visible.
-        expect(
-          issues.first.detail,
-          contains('σ=5.0'),
-        );
-        // Highlight severity follows sigma; warning at this sigma.
-        final highlight = detector.highlights
-            .firstWhere((h) => h.widgetName == 'RenderBackdropFilter');
-        expect(highlight.severity, IssueSeverity.warning);
-      });
+        'sigma = 5.0 (mid-band) with subtree > 5: fires warning highlight',
+        (tester) async {
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            _BackdropFilterTree(sigma: 5.0, leafCount: 10),
+          );
+          expect(issues, hasStableId('expensive_gpu_nodes'));
+          // Detail string carries sigma annotation so a regression that
+          // drops sigma plumbing is visible.
+          expect(issues.first.detail, contains('σ=5.0'));
+          // Highlight severity follows sigma; warning at this sigma.
+          final highlight = detector.highlights.firstWhere(
+            (h) => h.widgetName == 'RenderBackdropFilter',
+          );
+          expect(highlight.severity, IssueSeverity.warning);
+        },
+      );
 
       testWidgets(
-          'sigma > 10.0 (high-sigma threshold): highlight severity = critical',
-          (tester) async {
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          _BackdropFilterTree(sigma: 12.0, leafCount: 10),
-        );
-        expect(issues, hasStableId('expensive_gpu_nodes'));
-        expect(issues.first.detail, contains('σ=12.0'));
-        final highlight = detector.highlights
-            .firstWhere((h) => h.widgetName == 'RenderBackdropFilter');
-        expect(highlight.severity, IssueSeverity.critical);
-      });
+        'sigma > 10.0 (high-sigma threshold): highlight severity = critical',
+        (tester) async {
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            _BackdropFilterTree(sigma: 12.0, leafCount: 10),
+          );
+          expect(issues, hasStableId('expensive_gpu_nodes'));
+          expect(issues.first.detail, contains('σ=12.0'));
+          final highlight = detector.highlights.firstWhere(
+            (h) => h.widgetName == 'RenderBackdropFilter',
+          );
+          expect(highlight.severity, IssueSeverity.critical);
+        },
+      );
     });
 
     // -- Structural leg: ClipPath / ShaderMask / ColorFiltered ------------
@@ -451,180 +604,257 @@ void main() {
       });
 
       testWidgets(
-          'ColorFiltered (widget-level, no public RenderObject type) fires',
-          (tester) async {
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          _ColorFilteredTree(leafCount: 10),
-        );
-        expect(issues, hasStableId('expensive_gpu_nodes'));
-        expect(issues.first.detail, contains('RenderColorFiltered'));
-      });
+        'ColorFiltered (widget-level, no public RenderObject type) fires',
+        (tester) async {
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            _ColorFilteredTree(leafCount: 10),
+          );
+          expect(issues, hasStableId('expensive_gpu_nodes'));
+          expect(issues.first.detail, contains('RenderColorFiltered'));
+        },
+      );
     });
 
     // -- Structural leg: nested expense node accumulator ------------------
 
     group('nested expense nodes', () {
       testWidgets(
-          'Opacity wrapping Opacity emits TWO entries in expensive_gpu_nodes detail',
-          (tester) async {
-        // Outer subtree includes the inner Opacity + its 10 leaves; inner
-        // subtree has just its 10 leaves. Both qualify (> 5) so both
-        // appear in _expensiveNodes.
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          _NestedOpacityTree(),
-        );
-        expect(issues, hasStableId('expensive_gpu_nodes'));
-        // Both inner and outer Opacity contribute one node each. Detail
-        // joins them with newlines, so two `RenderOpacity` mentions.
-        final detail = issues.first.detail;
-        final occurrences = 'RenderOpacity'.allMatches(detail).length;
-        expect(occurrences, greaterThanOrEqualTo(2),
-            reason: 'detail should contain entries for both '
-                'inner and outer RenderOpacity');
-      });
+        'Opacity wrapping Opacity emits TWO entries in expensive_gpu_nodes detail',
+        (tester) async {
+          // Outer subtree includes the inner Opacity + its 10 leaves; inner
+          // subtree has just its 10 leaves. Both qualify (> 5) so both
+          // appear in _expensiveNodes.
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            _NestedOpacityTree(),
+          );
+          expect(issues, hasStableId('expensive_gpu_nodes'));
+          // Both inner and outer Opacity contribute one node each. Detail
+          // joins them with newlines, so two `RenderOpacity` mentions.
+          final detail = issues.first.detail;
+          final occurrences = 'RenderOpacity'.allMatches(detail).length;
+          expect(
+            occurrences,
+            greaterThanOrEqualTo(2),
+            reason:
+                'detail should contain entries for both '
+                'inner and outer RenderOpacity',
+          );
+        },
+      );
     });
 
     // -- Confidence correlation matrix (3 sub-cases for `possible`) -------
 
     group('expensive_gpu_nodes confidence correlation', () {
-      testWidgets('vmConnected=true + raster dominance + expense → likely',
-          (tester) async {
+      testWidgets('vmConnected=true + raster dominance + expense → likely', (
+        tester,
+      ) async {
         final issues = await primeVmThenScan(
           tester,
           _OpacityTree(opacity: 0.5, leafCount: 10),
           rasterUs: 24000, // ratio 3.0, max-frame 24000us > 8000us floor
           uiUs: 8000,
         );
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'expensive_gpu_nodes');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'expensive_gpu_nodes',
+        );
         expect(issue.confidence, IssueConfidence.likely);
         expect(
           issue.confidenceReason,
-          'Raster dominance timing + structural render node scan',
+          'Raster-dominant frames and a structural render node scan',
         );
       });
 
-      testWidgets('vmConnected=true + NO raster events + expense → possible',
-          (tester) async {
+      testWidgets('vmConnected=true + NO raster events + expense → possible', (
+        tester,
+      ) async {
         final issues = await scanAndIssues(
           tester,
           detector,
           _OpacityTree(opacity: 0.5, leafCount: 10),
         );
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'expensive_gpu_nodes');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'expensive_gpu_nodes',
+        );
         expect(issue.confidence, IssueConfidence.possible);
         expect(
           issue.confidenceReason,
-          'Structural pattern only — connect VM for higher confidence',
+          'Structural pattern only. Sleuth saw no raster-dominant frames',
         );
       });
 
-      testWidgets(
-          'vmConnected=false + expense → possible + detail "VM unavailable"',
-          (tester) async {
+      testWidgets('vmConnected=false + no frames + expense → possible + detail '
+          '"Sleuth has not observed raster timing yet."', (tester) async {
         detector.vmConnected = false;
         final issues = await scanAndIssues(
           tester,
           detector,
           _OpacityTree(opacity: 0.5, leafCount: 10),
         );
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'expensive_gpu_nodes');
-        expect(issue.confidence, IssueConfidence.possible);
-        expect(issue.detail, contains('VM unavailable'));
-      });
-
-      testWidgets(
-          'vmConnected=true + raster events present + ratio ≤ 2.0 + expense'
-          ' → possible (gate is hasRasterDominance, not hasRasterTiming)',
-          (tester) async {
-        // hasRasterTiming is true (vmConnected + ui>0 + raster>0) but
-        // hasRasterDominance is false (ratio 1.5 ≤ 2.0). Confidence
-        // must be `possible`, not `likely`. A regression that widens
-        // the gate from `hasRasterDominance` to mere `hasRasterTiming`
-        // would flip this case to `likely` — only this test catches it.
-        final issues = await primeVmThenScan(
-          tester,
-          _OpacityTree(opacity: 0.5, leafCount: 10),
-          rasterUs: 12000, // ratio 1.5 (below threshold), max > floor
-          uiUs: 8000,
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'expensive_gpu_nodes',
         );
-        expect(issues, lacksStableId('raster_dominance'));
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'expensive_gpu_nodes');
         expect(issue.confidence, IssueConfidence.possible);
         expect(
           issue.confidenceReason,
-          'Structural pattern only — connect VM for higher confidence',
+          'Structural pattern only. Sleuth saw no raster-dominant frames',
+        );
+        expect(
+          issue.detail,
+          contains('Sleuth has not observed raster timing yet.'),
         );
       });
+
+      testWidgets(
+        'vmConnected=false + dominant frames + expense → likely (frame leg '
+        'corroborates without a VM)',
+        (tester) async {
+          detector = frameLegDetector()..vmConnected = false;
+          feedFrames([12000, 12000, 12000]);
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            _OpacityTree(opacity: 0.5, leafCount: 10),
+          );
+          final issue = issues.firstWhere(
+            (i) => i.stableId == 'expensive_gpu_nodes',
+          );
+          expect(issue.confidence, IssueConfidence.likely);
+          expect(
+            issue.confidenceReason,
+            'Raster-dominant frames and a structural render node scan',
+          );
+          expect(
+            issue.detail,
+            isNot(contains('has not observed raster timing')),
+          );
+        },
+      );
+
+      testWidgets(
+        'vmConnected=true + raster events present + ratio ≤ 2.0 + expense'
+        ' → possible (gate is hasRasterDominance, not hasRasterTiming)',
+        (tester) async {
+          // hasRasterTiming is true (vmConnected + ui>0 + raster>0) but
+          // hasRasterDominance is false (ratio 1.5 ≤ 2.0). Confidence
+          // must be `possible`, not `likely`. A regression that widens
+          // the gate from `hasRasterDominance` to mere `hasRasterTiming`
+          // would flip this case to `likely` — only this test catches it.
+          final issues = await primeVmThenScan(
+            tester,
+            _OpacityTree(opacity: 0.5, leafCount: 10),
+            rasterUs: 12000, // ratio 1.5 (below threshold), max > floor
+            uiUs: 8000,
+          );
+          expect(issues, lacksStableId('raster_dominance'));
+          final issue = issues.firstWhere(
+            (i) => i.stableId == 'expensive_gpu_nodes',
+          );
+          expect(issue.confidence, IssueConfidence.possible);
+          expect(
+            issue.confidenceReason,
+            'Structural pattern only. Sleuth saw no raster-dominant frames',
+          );
+        },
+      );
     });
 
     // -- VM-disconnect downgrade ------------------------------------------
 
     group('VM-disconnect downgrade', () {
       testWidgets(
-          'setting vmConnected=false removes raster_dominance + downgrades expensive_gpu_nodes',
-          (tester) async {
-        // First scan: VM-backed, both issues fire at high confidence.
-        final firstIssues = await primeVmThenScan(
-          tester,
-          _OpacityTree(opacity: 0.5, leafCount: 10),
-          rasterUs: 24000, // ratio 3.0, max > 8000us floor
-          uiUs: 8000,
-        );
-        expect(firstIssues, hasStableId('raster_dominance'));
-        expect(firstIssues, hasStableId('expensive_gpu_nodes'));
-        final preDowngrade =
-            firstIssues.firstWhere((i) => i.stableId == 'expensive_gpu_nodes');
-        expect(preDowngrade.confidence, IssueConfidence.likely);
+        'VM-only evidence: vmConnected=false removes raster_dominance + '
+        'downgrades expensive_gpu_nodes',
+        (tester) async {
+          // First scan: VM-backed, both issues fire at high confidence.
+          final firstIssues = await primeVmThenScan(
+            tester,
+            _OpacityTree(opacity: 0.5, leafCount: 10),
+            rasterUs: 24000, // ratio 3.0, max > 8000us floor
+            uiUs: 8000,
+          );
+          expect(firstIssues, hasStableId('raster_dominance'));
+          expect(firstIssues, hasStableId('expensive_gpu_nodes'));
+          final preDowngrade = firstIssues.firstWhere(
+            (i) => i.stableId == 'expensive_gpu_nodes',
+          );
+          expect(preDowngrade.confidence, IssueConfidence.likely);
 
-        // Disconnect: setter mutates the issue list in-place.
-        detector.vmConnected = false;
-        expect(detector.issues, lacksStableId('raster_dominance'));
-        final postDowngrade = detector.issues
-            .firstWhere((i) => i.stableId == 'expensive_gpu_nodes');
-        expect(postDowngrade.confidence, IssueConfidence.possible);
-        expect(
-          postDowngrade.confidenceReason,
-          'Structural pattern only — connect VM for higher confidence',
-        );
-      });
+          // Disconnect: setter mutates the issue list in-place.
+          detector.vmConnected = false;
+          expect(detector.issues, lacksStableId('raster_dominance'));
+          final postDowngrade = detector.issues.firstWhere(
+            (i) => i.stableId == 'expensive_gpu_nodes',
+          );
+          expect(postDowngrade.confidence, IssueConfidence.possible);
+          expect(
+            postDowngrade.confidenceReason,
+            'Structural pattern only. Sleuth saw no raster-dominant frames',
+          );
+        },
+      );
+
+      testWidgets(
+        'frame evidence: vmConnected=false keeps a likely raster_dominance '
+        'and likely expensive_gpu_nodes',
+        (tester) async {
+          detector = frameLegDetector()..vmConnected = true;
+          feedFrames([12000, 12000, 12000]);
+          final firstIssues = await scanAndIssues(
+            tester,
+            detector,
+            _OpacityTree(opacity: 0.5, leafCount: 10),
+          );
+          final before = firstIssues.firstWhere(
+            (i) => i.stableId == 'raster_dominance',
+          );
+          expect(before.observationSource, ObservationSource.frameTiming);
+
+          detector.vmConnected = false;
+
+          final after = detector.issues.firstWhere(
+            (i) => i.stableId == 'raster_dominance',
+          );
+          expect(after.confidence, IssueConfidence.likely);
+          expect(after.observationSource, ObservationSource.frameTiming);
+          final nodes = detector.issues.firstWhere(
+            (i) => i.stableId == 'expensive_gpu_nodes',
+          );
+          expect(nodes.confidence, IssueConfidence.likely);
+        },
+      );
     });
 
     // -- Negative controls ------------------------------------------------
 
     group('negative controls', () {
       testWidgets(
-          'disabled detector ignores VM data — no raster_dominance even with'
-          ' large ratio', (tester) async {
-        // `isEnabled = false` early-returns from `processTimelineData`,
-        // so VM state stays zero and `raster_dominance` cannot fire.
-        // Structural emission has no isEnabled guard in the detector —
-        // the controller is responsible for skipping disabled detectors
-        // in the unified walk in production. Test pins the VM-side
-        // behaviour the detector controls directly.
-        detector.isEnabled = false;
-        final issues = await primeVmThenScan(
-          tester,
-          const SizedBox(),
-          rasterUs: 40000, // would fire if enabled (ratio 5.0, max > floor)
-          uiUs: 8000,
-        );
-        expect(issues, lacksStableId('raster_dominance'));
-      });
+        'disabled detector ignores VM data — no raster_dominance even with'
+        ' large ratio',
+        (tester) async {
+          // `isEnabled = false` early-returns from `processTimelineData`,
+          // so VM state stays zero and `raster_dominance` cannot fire.
+          // Structural emission has no isEnabled guard in the detector —
+          // the controller is responsible for skipping disabled detectors
+          // in the unified walk in production. Test pins the VM-side
+          // behaviour the detector controls directly.
+          detector.isEnabled = false;
+          final issues = await primeVmThenScan(
+            tester,
+            const SizedBox(),
+            rasterUs: 40000, // would fire if enabled (ratio 5.0, max > floor)
+            uiUs: 8000,
+          );
+          expect(issues, lacksStableId('raster_dominance'));
+        },
+      );
 
       testWidgets('empty events + plain tree emit nothing', (tester) async {
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          const SizedBox(),
-        );
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, isEmpty);
       });
     });

@@ -31,8 +31,8 @@ class DemoScaffold extends StatefulWidget {
   /// AppBar title text.
   final String title;
 
-  /// Instruction text shown in the collapsible banner.
-  /// Typically includes ❌ BAD / ✅ FIX markers and a ▶ action line.
+  /// Instruction text shown in the collapsible banner. It usually has a
+  /// `Bad:` line, a `Fix:` line and a sentence saying what to try.
   final String description;
 
   /// Main content area (the anti-pattern). Controls its own scrolling.
@@ -53,6 +53,11 @@ class DemoScaffold extends StatefulWidget {
   /// Optional FAB.
   final Widget? floatingActionButton;
 
+  /// Key of the header region above the body (toggle, instructions,
+  /// metrics bar). The device harness's `scroll` and `fling` skip
+  /// scrollables inside it.
+  static const headerKey = ValueKey<String>('DemoScaffold.header');
+
   @override
   State<DemoScaffold> createState() => _DemoScaffoldState();
 }
@@ -72,51 +77,62 @@ class _DemoScaffoldState extends State<DemoScaffold> {
     final colorScheme = Theme.of(context).colorScheme;
     final hasToggle = widget.fixedBody != null;
 
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
-      floatingActionButton: widget.floatingActionButton,
-      body: Column(
-        children: [
-          if (hasToggle)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Center(
-                child: SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment<bool>(
-                      value: false,
-                      label: Text('Bad Pattern'),
-                      icon: Icon(Icons.warning_amber, size: 16),
-                    ),
-                    ButtonSegment<bool>(
-                      value: true,
-                      label: Text('Fixed Pattern'),
-                      icon: Icon(Icons.check_circle_outline, size: 16),
-                    ),
-                  ],
-                  selected: {_isFixed},
-                  onSelectionChanged: _handleToggle,
-                  style: ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    textStyle: WidgetStateProperty.all(
-                      const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
+    final header = <Widget>[
+      if (hasToggle)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Center(
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment<bool>(
+                  value: false,
+                  label: Text('Bad Pattern'),
+                  icon: Icon(Icons.warning_amber, size: 16),
+                ),
+                ButtonSegment<bool>(
+                  value: true,
+                  label: Text('Fixed Pattern'),
+                  icon: Icon(Icons.check_circle_outline, size: 16),
+                ),
+              ],
+              selected: {_isFixed},
+              onSelectionChanged: _handleToggle,
+              style: ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                textStyle: WidgetStateProperty.all(
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
-          _CollapsibleBanner(
-            description: widget.description,
-            backgroundColor: colorScheme.surfaceContainerLow,
           ),
-          if (widget.metricsBar != null) widget.metricsBar!,
-          // Key design decision: ternary (not Stack/IndexedStack/AnimatedCrossFade).
-          // The hidden subtree is fully unmounted so timers/controllers stop firing.
-          Expanded(child: _isFixed ? widget.fixedBody! : widget.body),
-        ],
+        ),
+      _CollapsibleBanner(
+        description: widget.description,
+        backgroundColor: colorScheme.surfaceContainerLow,
+      ),
+      if (widget.metricsBar != null) widget.metricsBar!,
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.title)),
+      floatingActionButton: widget.floatingActionButton,
+      // On a short screen (a phone in landscape) the header takes at most
+      // half the height and scrolls, so the demo body stays on screen.
+      body: LayoutBuilder(
+        builder: (context, constraints) => Column(
+          children: [
+            ConstrainedBox(
+              key: DemoScaffold.headerKey,
+              constraints: BoxConstraints(maxHeight: constraints.maxHeight / 2),
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, children: header),
+              ),
+            ),
+            // Key design decision: ternary (not Stack/IndexedStack/AnimatedCrossFade).
+            // The hidden subtree is fully unmounted so timers/controllers stop firing.
+            Expanded(child: _isFixed ? widget.fixedBody! : widget.body),
+          ],
+        ),
       ),
     );
   }

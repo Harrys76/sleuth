@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 
+import '../util/owned_process.dart' show ProcessStarter, killAndReap;
+
 /// Result of [runAttachIosCommand]. Pure data — caller (the bin entry)
 /// is responsible for `exit`.
 class AttachIosResult {
@@ -45,24 +47,18 @@ class BonjourAnnouncement {
 
 /// Injection seams. Default to real `Process.run` / `Process.start`;
 /// tests override with hermetic stubs.
-typedef ProcessRunner = Future<ProcessResult> Function(
-  String executable,
-  List<String> arguments,
-);
-typedef ProcessSpawner = Future<Process> Function(
-  String executable,
-  List<String> arguments,
-);
+typedef ProcessRunner =
+    Future<ProcessResult> Function(String executable, List<String> arguments);
+typedef ProcessSpawner =
+    Future<Process> Function(String executable, List<String> arguments);
 
 /// Tool presence check seam (`which <tool>` by default).
 typedef ToolChecker = Future<bool> Function(String tool);
 
 /// Stream-of-lines emitted by `dns-sd -L`. Real impl spawns the process
 /// and pipes stdout; tests pass a `Stream.fromIterable([...])`.
-typedef BonjourLineStream = Stream<String> Function(
-  String bundleId,
-  String service,
-);
+typedef BonjourLineStream =
+    Stream<String> Function(String bundleId, String service);
 
 /// Optional probe — `true` ⇒ this announcement's authCode + port works
 /// through the local iproxy tunnel. Real impl issues a 1-second HTTP
@@ -95,39 +91,85 @@ Future<Process> _defaultIproxyStart(String exe, List<String> args) =>
     Process.start('nohup', [exe, ...args]);
 
 Future<bool> _defaultHasTool(String name) async {
-  final r = await _defaultRun('which', [name]);
-  return r.exitCode == 0;
+  // The tools come from Xcode and libimobiledevice, so only macOS has them.
+  // Elsewhere `which` itself may be missing.
+  if (!Platform.isMacOS) return false;
+  try {
+    final r = await _defaultRun('which', [name]);
+    return r.exitCode == 0;
+  } on ProcessException {
+    return false;
+  }
 }
 
-Stream<String> _defaultBonjourLines(String bundleId, String service) async* {
-  // dns-sd block-buffers on a pipe — output never reaches us until the
-  // process exits and flushes. Spawn it, set a kill timer that fires
-  // before the collector's timeout, then drain stdout via `.join()` —
-  // which completes only once the process exits + the buffer drains.
-  // This is the same pattern `timeout 8 dns-sd | grep ...` uses in
-  // shells, just hand-rolled because Dart's Process doesn't expose
-  // POSIX timeout semantics directly.
-  final proc = await _defaultStart('dns-sd', [
-    '-L',
-    bundleId,
-    service,
-    'local.',
-  ]);
-  // Kill BEFORE the collector's timeout — once dns-sd exits, its buffer
-  // flushes and `join()` resolves with the full batch. The collector's
-  // own timeout is the safety net for the case where the kill fails.
-  final killTimer = Timer(const Duration(seconds: 7), () {
-    proc.kill();
-  });
-  try {
-    final output = await proc.stdout.transform(systemEncoding.decoder).join();
-    for (final line in const LineSplitter().convert(output)) {
-      yield line;
+Stream<String> _defaultBonjourLines(String bundleId, String service) =>
+    ownedBonjourLines(bundleId, service);
+
+/// Lines of `dns-sd -L <bundleId> <service> local.`, from a child that the
+/// stream owns.
+///
+/// dns-sd block-buffers on a pipe, so its output reaches us only when it
+/// exits. The stream ends the child after [browseFor], which is shorter
+/// than the collector's own budget, then emits every line and closes; this
+/// is what `timeout 8 dns-sd | grep ...` does in a shell. Cancelling the
+/// subscription ends the child at once and waits, bounded, for it to exit,
+/// so a browse that the caller stopped listening to never keeps running.
+///
+/// [start] replaces `Process.start` in tests.
+Stream<String> ownedBonjourLines(
+  String bundleId,
+  String service, {
+  ProcessStarter? start,
+  Duration browseFor = const Duration(seconds: 7),
+}) {
+  final starter = start ?? _defaultStart;
+  Process? process;
+  Timer? stopTimer;
+  var cancelled = false;
+  late final StreamController<String> controller;
+  Future<void> browse() async {
+    final Process proc;
+    try {
+      proc = await starter('dns-sd', ['-L', bundleId, service, 'local.']);
+    } catch (e, st) {
+      if (!cancelled) {
+        controller.addError(e, st);
+        await controller.close();
+      }
+      return;
     }
-  } finally {
-    killTimer.cancel();
+    if (cancelled) {
+      await killAndReap(proc);
+      return;
+    }
+    process = proc;
+    stopTimer = Timer(browseFor, proc.kill);
+    unawaited(proc.stderr.drain<void>().catchError((Object _) {}));
+    final output = StringBuffer();
+    try {
+      await proc.stdout.transform(systemEncoding.decoder).forEach(output.write);
+    } catch (_) {
+      // A read error ends the output; emit what arrived.
+    }
+    stopTimer?.cancel();
+    if (cancelled) return;
     proc.kill();
+    for (final line in const LineSplitter().convert('$output')) {
+      controller.add(line);
+    }
+    await controller.close();
   }
+
+  controller = StreamController<String>(
+    onListen: () => unawaited(browse()),
+    onCancel: () async {
+      cancelled = true;
+      stopTimer?.cancel();
+      final proc = process;
+      if (proc != null) await killAndReap(proc);
+    },
+  );
+  return controller.stream;
 }
 
 /// Parse a single dns-sd reached-at line.
@@ -168,11 +210,16 @@ String? parseAuthCodeLine(String line) {
 /// Effect: fast-launch cases exit ~siblingWindow after first sighting;
 /// slow-launch cases get up to [collectFor] for the first sighting
 /// without padding the post-sighting wait.
+///
+/// When [stop] completes, collection ends early with what arrived so far
+/// and the subscription to [lines] is cancelled, which ends an owned
+/// dns-sd child.
 Future<List<BonjourAnnouncement>> collectBonjourAnnouncements({
   required Stream<String> lines,
   Duration collectFor = const Duration(seconds: 8),
   Duration siblingWindow = const Duration(milliseconds: 1500),
   int maxAnnouncements = 2,
+  Future<void>? stop,
 }) async {
   final out = <BonjourAnnouncement>[];
   ({String host, int port, int interfaceIndex})? pending;
@@ -188,12 +235,14 @@ Future<List<BonjourAnnouncement>> collectBonjourAnnouncements({
       }
       final code = parseAuthCodeLine(line);
       if (code != null && pending != null) {
-        out.add(BonjourAnnouncement(
-          interfaceIndex: pending!.interfaceIndex,
-          host: pending!.host,
-          port: pending!.port,
-          authCode: code,
-        ));
+        out.add(
+          BonjourAnnouncement(
+            interfaceIndex: pending!.interfaceIndex,
+            host: pending!.host,
+            port: pending!.port,
+            authCode: code,
+          ),
+        );
         pending = null;
         if (out.length >= maxAnnouncements && !completer.isCompleted) {
           completer.complete();
@@ -209,6 +258,14 @@ Future<List<BonjourAnnouncement>> collectBonjourAnnouncements({
       if (!completer.isCompleted) completer.complete();
     },
     onError: (_) {
+      if (!completer.isCompleted) completer.complete();
+    },
+  );
+  stop?.then<void>(
+    (_) {
+      if (!completer.isCompleted) completer.complete();
+    },
+    onError: (Object _) {
       if (!completer.isCompleted) completer.complete();
     },
   );
@@ -300,10 +357,15 @@ class PidfileLockGuard {
 /// On [TimeoutException], any [PidfileLockGuard]-registered child is
 /// SIGKILLed and the pidfile removed before rethrow, so a mid-body
 /// spawn doesn't leak as an unreapable orphan.
+///
+/// Waiting for the lock is bounded by [lockTimeout]: when another process
+/// holds it that long, this throws [TimeoutException] without running
+/// [body].
 Future<T> withPidfileLock<T>(
   File pidfile,
   Future<T> Function(PidfileLockGuard guard) body, {
   Duration timeout = const Duration(seconds: 15),
+  Duration lockTimeout = const Duration(seconds: 10),
 }) async {
   final lockFile = File('${pidfile.path}.lock');
   RandomAccessFile? raf;
@@ -311,7 +373,7 @@ Future<T> withPidfileLock<T>(
   final guard = PidfileLockGuard();
   try {
     raf = await lockFile.open(mode: FileMode.write);
-    await raf.lock(FileLock.blockingExclusive);
+    await _lockWithin(raf, lockTimeout, lockFile);
     locked = true;
     // 15s wall-clock: past readiness window + Bonjour collect ceiling.
     // Tripping it signals the iproxy spawn pipeline is wedged.
@@ -353,6 +415,31 @@ Future<T> withPidfileLock<T>(
       } on FileSystemException {
         // ignore
       }
+    }
+  }
+}
+
+/// Takes an exclusive lock on [raf], polling a non-blocking lock until
+/// [timeout] passes. A blocking lock cannot be abandoned: the pending call
+/// keeps the file busy, so it could neither time out nor be closed.
+Future<void> _lockWithin(
+  RandomAccessFile raf,
+  Duration timeout,
+  File lockFile,
+) async {
+  final waited = Stopwatch()..start();
+  while (true) {
+    try {
+      await raf.lock(FileLock.exclusive);
+      return;
+    } on FileSystemException {
+      if (waited.elapsed >= timeout) {
+        throw TimeoutException(
+          'another process held ${lockFile.path} for ${timeout.inSeconds}s',
+          timeout,
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
     }
   }
 }
@@ -414,8 +501,9 @@ Future<void> reclaimStaleIproxy({
   final expected = 'iproxy $hostPort $devicePort --udid $udid';
   if (!psOut.contains(expected)) {
     err.writeln(
-      'pidfile ${pidfile.path} points at pid $pid but argv does not '
-      'match expected iproxy invocation; leaving the process alone',
+      'pidfile ${pidfile.path} points at pid $pid, but its argv does not '
+      'match the expected iproxy invocation, so attach-ios leaves the '
+      'process alone',
     );
     try {
       pidfile.deleteSync();
@@ -426,7 +514,8 @@ Future<void> reclaimStaleIproxy({
   }
 
   err.writeln(
-    'removed stale iproxy from prior session (pid $pid, port $hostPort)',
+    'removed stale iproxy from an earlier session (pid $pid, port '
+    '$hostPort)',
   );
   await run('kill', ['-TERM', '$pid']);
   for (var i = 0; i < 10; i++) {
@@ -472,8 +561,13 @@ Future<IosTransport> detectIosTransport({
 }) async {
   final ProcessResult result;
   try {
-    result = await run(
-        'xcrun', ['devicectl', 'list', 'devices', '--json-output', '-']);
+    result = await run('xcrun', [
+      'devicectl',
+      'list',
+      'devices',
+      '--json-output',
+      '-',
+    ]);
   } catch (_) {
     return IosTransport.unknown;
   }
@@ -558,7 +652,7 @@ _ParsedArgs? _parseArgs(List<String> argv, StringSink err) {
       }
       final p = int.tryParse(argv[++i]);
       if (p == null || p <= 0 || p > 65535) {
-        err.writeln('--port must be an integer in 1..65535');
+        err.writeln('--port must be an integer from 1 to 65535');
         return null;
       }
       hostPort = p;
@@ -605,28 +699,29 @@ String _usage() => '''
 sleuth_mcp attach-ios <udid> [--bundle <bundle-id>] [--port <host-port>]
                              [--auth <code>] [--wireless | --usb]
 
-  Launches the app on the device, resolves the on-device VM service via
-  Bonjour, and (for USB-tethered devices) spawns `iproxy` to tunnel the
-  device port to 127.0.0.1. Prints the WebSocket URI for `attach_app`.
+  Launches the app on the device and finds its VM service over Bonjour.
+  For a USB device it also starts `iproxy` to tunnel the device port to
+  127.0.0.1. It prints the WebSocket URI to pass to `attach_app`.
 
-  Transport is auto-detected via `xcrun devicectl list devices`. Wireless
-  ("Connect via network" in Xcode) skips iproxy entirely and points the
-  wsUri at the device's `.local` hostname.
+  `xcrun devicectl list devices` decides the transport. A wireless device
+  ("Connect via network" in Xcode) needs no iproxy, and its wsUri points
+  at the device's `.local` hostname.
 
-  Requires `libimobiledevice` (brew install) for `iproxy` when USB.
-  macOS-only (uses xcrun devicectl + dns-sd).
+  A USB attach needs `iproxy` from `libimobiledevice` (brew install
+  libimobiledevice). The command runs on macOS only, because it uses
+  xcrun devicectl and dns-sd.
 
   Options:
     --bundle <id>     iOS bundle identifier (default: com.example.example)
-    --port <n>        Host-side port for iproxy (USB only; default: same as device)
-    --auth <code>     Pin the Bonjour authCode (required on USB when more
-                      than one pairing is announced).
-    --wireless        Force wireless mode (skip iproxy; wsUri uses .local host)
-    --usb             Force USB mode (always spawn iproxy)
+    --port <n>        Host port for iproxy (USB only; default: the device port)
+    --auth <code>     Pin the Bonjour authCode. Required on USB when more
+                      than one pairing is announced.
+    --wireless        Force wireless mode (no iproxy; the wsUri uses the .local host)
+    --usb             Force USB mode (always start iproxy)
 
-  Env overrides (for slow devices):
-    SLEUTH_MCP_BONJOUR_COLLECT=<n>   First-announcement budget seconds (default 8)
-    SLEUTH_MCP_LAUNCH_SETTLE=<n>     Post-launch settle seconds (default 1)
+  Environment overrides for slow devices:
+    SLEUTH_MCP_BONJOUR_COLLECT=<n>   Seconds to wait for the first announcement (default 8)
+    SLEUTH_MCP_LAUNCH_SETTLE=<n>     Seconds to wait after the launch (default 1)
 ''';
 
 /// Pure-function entry. The bin shim prints any [AttachIosResult.message]
@@ -708,8 +803,9 @@ Future<AttachIosResult> runAttachIosCommand({
     transport = parsed.transportMode!;
   } else {
     final detected = await detectIosTransport(udid: udid, run: run);
-    transport =
-        detected == IosTransport.unknown ? IosTransport.wired : detected;
+    transport = detected == IosTransport.unknown
+        ? IosTransport.wired
+        : detected;
   }
   final isWireless = transport == IosTransport.wireless;
 
@@ -722,9 +818,11 @@ Future<AttachIosResult> runAttachIosCommand({
     if (!await hasTool(tool)) {
       err.writeln('missing required tool: $tool');
       if (tool == 'iproxy') {
-        err.writeln('install via: brew install libimobiledevice');
+        err.writeln('Install it with brew install libimobiledevice.');
       } else if (tool == 'xcrun' || tool == 'dns-sd') {
-        err.writeln('attach-ios is macOS-only (requires Xcode CLI tools)');
+        err.writeln(
+          'attach-ios is macOS-only and needs the Xcode command line tools.',
+        );
       }
       return AttachIosResult(exitCode: 65);
     }
@@ -735,7 +833,7 @@ Future<AttachIosResult> runAttachIosCommand({
   // produces a VM service whose WebSocket gate refuses upgrades. Trying
   // the existing instance first avoids the broken relaunch path when
   // the app is already running (common after `flutter run --profile`).
-  out.writeln('Probing Bonjour for existing VM service...');
+  out.writeln('Looking for a running VM service over Bonjour...');
   const probeWindow = Duration(seconds: 3);
   final probeLines = bonjourLines(parsed.bundle, '_dartVmService._tcp');
   List<BonjourAnnouncement> announcements;
@@ -755,7 +853,9 @@ Future<AttachIosResult> runAttachIosCommand({
     // iOS 17.5. If the app is already running with no service
     // announcement (release build, stale state), launch will fail with
     // "already running"; user swipe-kills and retries.
-    out.writeln('No existing service — launching ${parsed.bundle} on $udid...');
+    out.writeln(
+      'No running VM service found. Launching ${parsed.bundle} on $udid...',
+    );
     final launch = await run('xcrun', [
       'devicectl',
       'device',
@@ -772,7 +872,7 @@ Future<AttachIosResult> runAttachIosCommand({
     }
     await Future<void>.delayed(effectiveLaunchSettle);
 
-    out.writeln('Resolving VM service via Bonjour...');
+    out.writeln('Looking up the VM service over Bonjour...');
     final lines = bonjourLines(parsed.bundle, '_dartVmService._tcp');
     try {
       announcements = await collectBonjourAnnouncements(
@@ -781,22 +881,22 @@ Future<AttachIosResult> runAttachIosCommand({
       ).timeout(bonjourTimeout);
     } on TimeoutException {
       err.writeln(
-        'timeout waiting for Bonjour announcement after '
-        '${bonjourTimeout.inSeconds}s — is the app actually running '
-        'with --enable-vm-service (profile/debug build)?',
+        'no Bonjour announcement arrived within '
+        '${bonjourTimeout.inSeconds}s. Is the app running with '
+        '--enable-vm-service, in a profile or debug build?',
       );
       return AttachIosResult(exitCode: 67);
     }
   } else {
-    out.writeln('Using existing VM service (no relaunch).');
+    out.writeln('Using the running VM service without a relaunch.');
   }
 
   if (announcements.isEmpty) {
     err.writeln(
-      'no Bonjour announcement seen — the app launched but did not '
+      'no Bonjour announcement seen. The app launched but did not '
       'register a VM service within ${bonjourCollectFor.inSeconds}s. '
-      'Check that the build is profile or debug (release builds strip '
-      'the service) and the app is actually running with '
+      'Check that the build is profile or debug, because a release build '
+      'strips the service, and that the app runs with '
       '--enable-vm-service.',
     );
     return AttachIosResult(exitCode: 67);
@@ -824,11 +924,11 @@ Future<AttachIosResult> runAttachIosCommand({
       parsed.authOverride == null &&
       probe == null) {
     err.writeln(
-      'ambiguous Bonjour pairings: ${distinctAuthCodes.length} distinct '
-      'authCodes were announced. The iproxy tunnel only accepts the '
-      'USB-bridged token, and interface-index ordering is not '
-      'contractual. Re-run with --auth <code> using one of: '
-      '${distinctAuthCodes.join(", ")}',
+      'ambiguous Bonjour pairings: the device announced '
+      '${distinctAuthCodes.length} distinct authCodes. The iproxy tunnel '
+      'accepts only the USB-bridged token, and the order of the interface '
+      'indexes is not guaranteed. Re-run with --auth <code>, using one of '
+      'these codes: ${distinctAuthCodes.join(", ")}',
     );
     return AttachIosResult(exitCode: 67);
   }
@@ -842,8 +942,8 @@ Future<AttachIosResult> runAttachIosCommand({
     if (parsed.authOverride != null) {
       err.writeln(
         'no announcement matched --auth ${parsed.authOverride}. '
-        'Bonjour returned ${announcements.length} pairing(s); pick one '
-        'of these authCodes and re-run with --auth <code>: '
+        'Bonjour returned ${announcements.length} pairing(s). Re-run with '
+        '--auth <code>, using one of these authCodes: '
         '${announcements.map((a) => a.authCode).join(", ")}',
       );
     } else {
@@ -878,8 +978,8 @@ Future<AttachIosResult> runAttachIosCommand({
       "Paste the wsUri above into your agent: attach_app(debugUrl: '$wsUri')",
     );
     out.writeln(
-      'Wireless attach — no iproxy tunnel needed. The on-device VM '
-      'service is reached directly over WiFi.',
+      'A wireless attach needs no iproxy tunnel. attach_app reaches the '
+      'on-device VM service directly over Wi-Fi.',
     );
     return AttachIosResult(exitCode: 0, wsUri: wsUri);
   }
@@ -898,7 +998,10 @@ Future<AttachIosResult> runAttachIosCommand({
 
   // Spawn iproxy detached. See [_defaultIproxyStart] for why detach
   // matters under launcher-isolate signal disposition.
-  out.writeln('Spawning iproxy $hostPort -> device:$devicePort...');
+  out.writeln(
+    'Starting iproxy from host port $hostPort to device port '
+    '$devicePort...',
+  );
   late Process iproxy;
   Object? spawnError;
   await withPidfileLock<void>(pidfile, (guard) async {
@@ -954,18 +1057,15 @@ Future<AttachIosResult> runAttachIosCommand({
     if (!exitCompleter.isCompleted) exitCompleter.complete();
   }
 
-  final stderrSub = iproxy.stderr.listen(
-    (chunk) {
-      final remaining = stderrCap - stderrBuf.length;
-      if (chunk.length <= remaining) {
-        stderrBuf.add(chunk);
-      } else {
-        if (remaining > 0) stderrBuf.add(chunk.sublist(0, remaining));
-        stderrTruncated = true;
-      }
-    },
-    onDone: markIproxyExit,
-  );
+  final stderrSub = iproxy.stderr.listen((chunk) {
+    final remaining = stderrCap - stderrBuf.length;
+    if (chunk.length <= remaining) {
+      stderrBuf.add(chunk);
+    } else {
+      if (remaining > 0) stderrBuf.add(chunk.sublist(0, remaining));
+      stderrTruncated = true;
+    }
+  }, onDone: markIproxyExit);
   unawaited(iproxy.stdout.drain<void>().then((_) => markIproxyExit()));
 
   // Readiness window: if iproxy exits inside the window the tunnel
@@ -979,8 +1079,8 @@ Future<AttachIosResult> runAttachIosCommand({
     await stderrSub.cancel();
     _removePidfile(pidfile);
     err.writeln(
-      'iproxy exited inside readiness window — '
-      'tunnel never came up; wsUri not printed.',
+      'iproxy exited inside the readiness window. The tunnel never came '
+      'up, so no wsUri was printed.',
     );
     final captured = utf8.decode(stderrBuf.takeBytes(), allowMalformed: true);
     if (captured.trim().isNotEmpty) {
@@ -1003,7 +1103,7 @@ Future<AttachIosResult> runAttachIosCommand({
     "Paste the wsUri above into your agent: attach_app(debugUrl: '$wsUri')",
   );
   out.writeln(
-    'iproxy running (pid ${iproxy.pid}). Press Ctrl-C to tear down.',
+    'iproxy is running (pid ${iproxy.pid}). Press Ctrl-C to stop it.',
   );
 
   if (!waitForSignal) {
@@ -1038,7 +1138,7 @@ Future<AttachIosResult> runAttachIosCommand({
       await s.cancel();
     }
     await stderrSub.cancel();
-    out.writeln('Tearing down iproxy...');
+    out.writeln('Stopping iproxy...');
     iproxy.kill();
     // Wait for stream-close (exit signal); cap at 3s, then SIGKILL
     // via the OS if still alive. `Process.exitCode` is unavailable on

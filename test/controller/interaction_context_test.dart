@@ -3,29 +3,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
+import '../helpers/timeline_test_helpers.dart';
+
 /// Minimal widget tree for getting a BuildContext that triggers a retained
 /// detector (`non_lazy_list` via SingleChildScrollView + Column with >50
 /// children).
 Widget _minimalApp() => Directionality(
-      textDirection: TextDirection.ltr,
-      child: SingleChildScrollView(
-        child: Column(
-          children: List.generate(
-            55,
-            (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
-          ),
-        ),
+  textDirection: TextDirection.ltr,
+  child: SingleChildScrollView(
+    child: Column(
+      children: List.generate(
+        55,
+        (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
       ),
-    );
+    ),
+  ),
+);
 
 FixedScrollMetrics _scrollMetrics() => FixedScrollMetrics(
-      minScrollExtent: 0,
-      maxScrollExtent: 1000,
-      pixels: 0,
-      viewportDimension: 600,
-      axisDirection: AxisDirection.down,
-      devicePixelRatio: 1.0,
-    );
+  minScrollExtent: 0,
+  maxScrollExtent: 1000,
+  pixels: 0,
+  viewportDimension: 600,
+  axisDirection: AxisDirection.down,
+  devicePixelRatio: 1.0,
+);
 
 ScrollStartNotification _scrollStart(BuildContext context) =>
     ScrollStartNotification(metrics: _scrollMetrics(), context: context);
@@ -47,38 +49,92 @@ void main() {
     });
 
     group('scroll state', () {
-      testWidgets('onScrollActivity sets scrolling on ScrollStartNotification',
-          (tester) async {
-        await tester.pumpWidget(_minimalApp());
-        final ctx = tester.element(find.byType(Directionality));
-
-        expect(controller.interactionStateForTest, InteractionContext.idle);
-        controller.onScrollActivity(_scrollStart(ctx));
+      // A page view re-fitting its pages after a resize or rotation
+      // starts a ballistic scroll inside performLayout.
+      testWidgets('a scroll that starts during layout publishes issues after '
+          'the frame', (tester) async {
+        var builds = 0;
+        BuildContext? scrollContext;
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(
+              children: [
+                ValueListenableBuilder<List<PerformanceIssue>>(
+                  valueListenable: controller.issuesNotifier,
+                  builder: (context, _, _) {
+                    builds++;
+                    scrollContext = context;
+                    return const SizedBox(height: 10);
+                  },
+                ),
+                _LayoutHook(
+                  onLayout: () {
+                    final ctx = scrollContext;
+                    if (ctx != null) {
+                      controller.onScrollActivity(_scrollStart(ctx));
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+        // The first layout already started a scroll; nothing rebuilt
+        // mid-frame.
+        expect(tester.takeException(), isNull);
         expect(
-            controller.interactionStateForTest, InteractionContext.scrolling);
+          controller.interactionStateForTest,
+          InteractionContext.scrolling,
+        );
+        final before = builds;
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(builds, greaterThan(before));
       });
 
       testWidgets(
-          'onScrollActivity sets idle after ScrollEndNotification debounce',
-          (tester) async {
-        await tester.pumpWidget(_minimalApp());
-        final ctx = tester.element(find.byType(Directionality));
+        'onScrollActivity sets scrolling on ScrollStartNotification',
+        (tester) async {
+          await tester.pumpWidget(_minimalApp());
+          final ctx = tester.element(find.byType(Directionality));
 
-        controller.onScrollActivity(_scrollStart(ctx));
-        expect(
-            controller.interactionStateForTest, InteractionContext.scrolling);
+          expect(controller.interactionStateForTest, InteractionContext.idle);
+          controller.onScrollActivity(_scrollStart(ctx));
+          expect(
+            controller.interactionStateForTest,
+            InteractionContext.scrolling,
+          );
+        },
+      );
 
-        controller.onScrollActivity(_scrollEnd(ctx));
-        // Still scrolling (debounce not elapsed)
-        expect(
-            controller.interactionStateForTest, InteractionContext.scrolling);
+      testWidgets(
+        'onScrollActivity sets idle after ScrollEndNotification debounce',
+        (tester) async {
+          await tester.pumpWidget(_minimalApp());
+          final ctx = tester.element(find.byType(Directionality));
 
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(controller.interactionStateForTest, InteractionContext.idle);
-      });
+          controller.onScrollActivity(_scrollStart(ctx));
+          expect(
+            controller.interactionStateForTest,
+            InteractionContext.scrolling,
+          );
 
-      testWidgets('rapid scroll start cancels idle debounce timer',
-          (tester) async {
+          controller.onScrollActivity(_scrollEnd(ctx));
+          // Still scrolling (debounce not elapsed)
+          expect(
+            controller.interactionStateForTest,
+            InteractionContext.scrolling,
+          );
+
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(controller.interactionStateForTest, InteractionContext.idle);
+        },
+      );
+
+      testWidgets('rapid scroll start cancels idle debounce timer', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
@@ -93,91 +149,105 @@ void main() {
         // Wait past the original debounce — should still be scrolling
         await tester.pump(const Duration(milliseconds: 300));
         expect(
-            controller.interactionStateForTest, InteractionContext.scrolling);
+          controller.interactionStateForTest,
+          InteractionContext.scrolling,
+        );
       });
 
-      testWidgets('scroll notifications ignored during navigating state',
-          (tester) async {
+      testWidgets('scroll notifications ignored during navigating state', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         controller.interactionStateForTest = InteractionContext.navigating;
         controller.onScrollActivity(_scrollStart(ctx));
         expect(
-            controller.interactionStateForTest, InteractionContext.navigating);
+          controller.interactionStateForTest,
+          InteractionContext.navigating,
+        );
       });
     });
 
     group('navigation state (real _scanTree path)', () {
       testWidgets(
-          '_scanTree sets navigating when two Scaffolds visible (route transition)',
-          (tester) async {
-        // Two visible Scaffolds → _findVisiblePageContext returns null
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Column(
-              children: [
-                Expanded(child: Scaffold(body: Container())),
-                Expanded(child: Scaffold(body: Container())),
-              ],
+        '_scanTree sets navigating when two Scaffolds visible (route transition)',
+        (tester) async {
+          // Two visible Scaffolds → _findVisiblePageContext returns null
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Column(
+                children: [
+                  Expanded(child: Scaffold(body: Container())),
+                  Expanded(child: Scaffold(body: Container())),
+                ],
+              ),
             ),
-          ),
-        );
+          );
 
-        final root = tester.element(find.byType(Directionality));
-        expect(controller.interactionStateForTest, InteractionContext.idle);
+          final root = tester.element(find.byType(Directionality));
+          expect(controller.interactionStateForTest, InteractionContext.idle);
 
-        controller.scanTreeFullPathForTest(root);
+          controller.scanTreeFullPathForTest(root);
 
-        expect(
-            controller.interactionStateForTest, InteractionContext.navigating);
-      });
+          expect(
+            controller.interactionStateForTest,
+            InteractionContext.navigating,
+          );
+        },
+      );
 
       testWidgets(
-          '_scanTree resets navigating to idle when single Scaffold resolves',
-          (tester) async {
-        // First: trigger navigating via two Scaffolds
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Column(
-              children: [
-                Expanded(child: Scaffold(body: Container())),
-                Expanded(child: Scaffold(body: Container())),
-              ],
+        '_scanTree resets navigating to idle when single Scaffold resolves',
+        (tester) async {
+          // First: trigger navigating via two Scaffolds
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Column(
+                children: [
+                  Expanded(child: Scaffold(body: Container())),
+                  Expanded(child: Scaffold(body: Container())),
+                ],
+              ),
             ),
-          ),
-        );
-        controller.scanTreeFullPathForTest(
-            tester.element(find.byType(Directionality)));
-        expect(
-            controller.interactionStateForTest, InteractionContext.navigating);
+          );
+          controller.scanTreeFullPathForTest(
+            tester.element(find.byType(Directionality)),
+          );
+          expect(
+            controller.interactionStateForTest,
+            InteractionContext.navigating,
+          );
 
-        // Now: single Scaffold (transition complete)
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Scaffold(
-              body: SingleChildScrollView(
-                child: Column(
-                  children: List.generate(
-                    55,
-                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+          // Now: single Scaffold (transition complete)
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Scaffold(
+                body: SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
-        controller.scanTreeFullPathForTest(
-            tester.element(find.byType(Directionality)));
+          );
+          controller.scanTreeFullPathForTest(
+            tester.element(find.byType(Directionality)),
+          );
 
-        expect(controller.interactionStateForTest, InteractionContext.idle);
-      });
+          expect(controller.interactionStateForTest, InteractionContext.idle);
+        },
+      );
 
-      testWidgets('_scanTree cancels scroll idle timer on navigation',
-          (tester) async {
+      testWidgets('_scanTree cancels scroll idle timer on navigation', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
@@ -185,7 +255,9 @@ void main() {
         controller.onScrollActivity(_scrollStart(ctx));
         controller.onScrollActivity(_scrollEnd(ctx));
         expect(
-            controller.interactionStateForTest, InteractionContext.scrolling);
+          controller.interactionStateForTest,
+          InteractionContext.scrolling,
+        );
 
         // Trigger navigation via two Scaffolds
         await tester.pumpWidget(
@@ -200,18 +272,24 @@ void main() {
           ),
         );
         controller.scanTreeFullPathForTest(
-            tester.element(find.byType(Directionality)));
+          tester.element(find.byType(Directionality)),
+        );
         expect(
-            controller.interactionStateForTest, InteractionContext.navigating);
+          controller.interactionStateForTest,
+          InteractionContext.navigating,
+        );
 
         // Wait past debounce — should still be navigating (timer was cancelled)
         await tester.pump(const Duration(milliseconds: 500));
         expect(
-            controller.interactionStateForTest, InteractionContext.navigating);
+          controller.interactionStateForTest,
+          InteractionContext.navigating,
+        );
       });
 
-      testWidgets('no issues aggregated during navigation (scan returns early)',
-          (tester) async {
+      testWidgets('no issues aggregated during navigation (scan returns early)', (
+        tester,
+      ) async {
         // First: produce issues via a single-Scaffold tree (Opacity(0.0) triggers detector).
         // _findVisiblePageContext requires exactly one Scaffold to return a valid context.
         await tester.pumpWidget(
@@ -230,7 +308,8 @@ void main() {
           ),
         );
         controller.scanTreeFullPathForTest(
-            tester.element(find.byType(Directionality)));
+          tester.element(find.byType(Directionality)),
+        );
         final beforeIssues = controller.issuesNotifier.value;
         expect(beforeIssues, isNotEmpty);
         expect(beforeIssues.first.interactionContext, InteractionContext.idle);
@@ -248,7 +327,8 @@ void main() {
           ),
         );
         controller.scanTreeFullPathForTest(
-            tester.element(find.byType(Directionality)));
+          tester.element(find.byType(Directionality)),
+        );
 
         // Issues are not re-aggregated during navigation — the notifier
         // still holds the old issues (from before navigation).
@@ -261,8 +341,9 @@ void main() {
     });
 
     group('stamping', () {
-      testWidgets('interactionContext stamped on aggregated issues',
-          (tester) async {
+      testWidgets('interactionContext stamped on aggregated issues', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
@@ -275,8 +356,9 @@ void main() {
         }
       });
 
-      testWidgets('scrolling context stamped when actively scrolling',
-          (tester) async {
+      testWidgets('scrolling context stamped when actively scrolling', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
@@ -299,8 +381,9 @@ void main() {
         expect(issues.first.interactionContext, InteractionContext.idle);
       });
 
-      testWidgets('timeline path stamps navigating during transition',
-          (tester) async {
+      testWidgets('timeline path stamps navigating during transition', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
@@ -319,34 +402,71 @@ void main() {
         expect(issues.first.interactionContext, InteractionContext.navigating);
       });
 
-      testWidgets('scrolling state change triggers immediate re-aggregation',
-          (tester) async {
+      test('heavy_compute keeps navigating after a later idle aggregate', () {
+        controller.interactionStateForTest = InteractionContext.navigating;
+        controller.feedTimelineDataForTest(
+          heavyComputeData(buildScopeDurationsUs: [20000]),
+        );
+        PerformanceIssue heavy() => controller.issuesNotifier.value.firstWhere(
+          (i) => i.stableId == 'heavy_compute',
+        );
+        expect(heavy().interactionContext, InteractionContext.navigating);
+
+        // Navigation ends; the retained issue re-aggregates under idle.
+        controller.interactionStateForTest = InteractionContext.idle;
+        controller.feedTimelineDataForTest(heavyComputeData());
+        controller.aggregateIssuesForTest();
+        expect(heavy().interactionContext, InteractionContext.navigating);
+      });
+
+      test('heavy_compute emitted while idle reads idle', () {
+        controller.feedTimelineDataForTest(
+          heavyComputeData(buildScopeDurationsUs: [20000]),
+        );
+        controller.interactionStateForTest = InteractionContext.scrolling;
+        controller.aggregateIssuesForTest();
+        final heavy = controller.issuesNotifier.value.firstWhere(
+          (i) => i.stableId == 'heavy_compute',
+        );
+        expect(heavy.interactionContext, InteractionContext.idle);
+      });
+
+      testWidgets('scrolling state change triggers immediate re-aggregation', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Produce issues with idle context
         controller.runTreeScanForTest(ctx);
-        expect(controller.issuesNotifier.value.first.interactionContext,
-            InteractionContext.idle);
+        expect(
+          controller.issuesNotifier.value.first.interactionContext,
+          InteractionContext.idle,
+        );
 
         // Scroll start should re-aggregate immediately
         controller.onScrollActivity(_scrollStart(ctx));
 
         // Issues should now have scrolling context (no scan needed)
-        expect(controller.issuesNotifier.value.first.interactionContext,
-            InteractionContext.scrolling);
+        expect(
+          controller.issuesNotifier.value.first.interactionContext,
+          InteractionContext.scrolling,
+        );
       });
 
-      testWidgets('idle debounce triggers immediate re-aggregation',
-          (tester) async {
+      testWidgets('idle debounce triggers immediate re-aggregation', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Produce issues, then scroll
         controller.runTreeScanForTest(ctx);
         controller.onScrollActivity(_scrollStart(ctx));
-        expect(controller.issuesNotifier.value.first.interactionContext,
-            InteractionContext.scrolling);
+        expect(
+          controller.issuesNotifier.value.first.interactionContext,
+          InteractionContext.scrolling,
+        );
 
         controller.onScrollActivity(_scrollEnd(ctx));
 
@@ -354,14 +474,17 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
 
         // Should be idle now — re-aggregated by the debounce timer
-        expect(controller.issuesNotifier.value.first.interactionContext,
-            InteractionContext.idle);
+        expect(
+          controller.issuesNotifier.value.first.interactionContext,
+          InteractionContext.idle,
+        );
       });
     });
 
     group('keyboard/typing state', () {
-      testWidgets('onKeyboardVisibilityChanged sets typing on keyboard show',
-          (tester) async {
+      testWidgets('onKeyboardVisibilityChanged sets typing on keyboard show', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         expect(controller.interactionStateForTest, InteractionContext.idle);
 
@@ -369,8 +492,9 @@ void main() {
         expect(controller.interactionStateForTest, InteractionContext.typing);
       });
 
-      testWidgets('typing returns to idle after keyboard hide debounce',
-          (tester) async {
+      testWidgets('typing returns to idle after keyboard hide debounce', (
+        tester,
+      ) async {
         await tester.pumpWidget(_minimalApp());
         controller.onKeyboardVisibilityChanged(visible: true);
         expect(controller.interactionStateForTest, InteractionContext.typing);
@@ -405,7 +529,9 @@ void main() {
         // Keyboard should NOT downgrade from navigating
         controller.onKeyboardVisibilityChanged(visible: true);
         expect(
-            controller.interactionStateForTest, InteractionContext.navigating);
+          controller.interactionStateForTest,
+          InteractionContext.navigating,
+        );
       });
 
       testWidgets('typing context stamped on issues', (tester) async {
@@ -424,20 +550,26 @@ void main() {
     group('app lifecycle state', () {
       test('onAppLifecycleChanged sets appLifecycle on pause', () {
         controller.onAppLifecycleChanged(AppLifecycleState.paused);
-        expect(controller.interactionStateForTest,
-            InteractionContext.appLifecycle);
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.appLifecycle,
+        );
       });
 
       test('onAppLifecycleChanged sets appLifecycle on inactive', () {
         controller.onAppLifecycleChanged(AppLifecycleState.inactive);
-        expect(controller.interactionStateForTest,
-            InteractionContext.appLifecycle);
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.appLifecycle,
+        );
       });
 
       test('onAppLifecycleChanged returns to idle on resume', () {
         controller.onAppLifecycleChanged(AppLifecycleState.paused);
-        expect(controller.interactionStateForTest,
-            InteractionContext.appLifecycle);
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.appLifecycle,
+        );
 
         controller.onAppLifecycleChanged(AppLifecycleState.resumed);
         expect(controller.interactionStateForTest, InteractionContext.idle);
@@ -456,13 +588,16 @@ void main() {
         final issues = controller.issuesNotifier.value;
         expect(issues, isNotEmpty);
         expect(
-            issues.first.interactionContext, InteractionContext.appLifecycle);
+          issues.first.interactionContext,
+          InteractionContext.appLifecycle,
+        );
       });
     });
 
     group('overlay isolation', () {
-      testWidgets('dashboard scroll does not trigger onScrollActivity',
-          (tester) async {
+      testWidgets('dashboard scroll does not trigger onScrollActivity', (
+        tester,
+      ) async {
         // Verify the NotificationListener scoping: SleuthOverlay wraps only
         // widget.child in a NotificationListener, not the entire Stack.
         // Scrollables outside that scope (like the dashboard ListView) must
@@ -503,9 +638,13 @@ void main() {
         await tester.pump();
 
         // Dashboard scroll should NOT reach the NotificationListener
-        expect(scrollCaptured, isFalse,
-            reason: 'NotificationListener scoped to app child should not '
-                'capture scroll events from sibling widgets');
+        expect(
+          scrollCaptured,
+          isFalse,
+          reason:
+              'NotificationListener scoped to app child should not '
+              'capture scroll events from sibling widgets',
+        );
       });
     });
 
@@ -534,4 +673,154 @@ void main() {
       });
     });
   });
+  group('scroll defer of periodic ticks', () {
+    late DateTime now;
+
+    setUp(() {
+      now = DateTime(2026, 1, 1);
+      SleuthController.clockOverrideForTest = () => now;
+    });
+
+    tearDown(() => SleuthController.clockOverrideForTest = null);
+
+    /// Starts the periodic chain on a one-Scaffold app; returns the
+    /// controller and a scan counter driven by the scan pulse.
+    Future<(SleuthController, int Function())> start(
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox())),
+      );
+      final c = SleuthController(
+        config: const SleuthConfig(adaptiveScanEnabled: false),
+      );
+      c.initializeDetectorsForTest();
+      c.markInitializedForTest();
+      var scans = 0;
+      c.scanTickNotifier.addListener(() => scans++);
+      c.startTreeScanning(tester.element(find.byType(MaterialApp)));
+      return (c, () => scans);
+    }
+
+    /// Advances fake time; scheduled ticks run in a post-frame callback.
+    Future<void> elapse(WidgetTester tester, int ms) async {
+      await tester.pump(Duration(milliseconds: ms));
+      tester.binding.scheduleFrame();
+      await tester.pump();
+    }
+
+    BuildContext scrollContext(WidgetTester tester) =>
+        tester.element(find.byType(SizedBox).first);
+
+    testWidgets('defers three times while scrolling, then scans', (
+      tester,
+    ) async {
+      final (c, scans) = await start(tester);
+      c.onScrollActivity(_scrollStart(scrollContext(tester)));
+
+      await elapse(tester, 1000);
+      expect(scans(), 0);
+      await elapse(tester, 250);
+      await elapse(tester, 250);
+      expect(scans(), 0);
+      await elapse(tester, 250);
+      expect(scans(), 1);
+      expect(c.interactionStateForTest, InteractionContext.scrolling);
+
+      // The count resets after a scan: the next tick defers again.
+      await elapse(tester, 1000);
+      expect(scans(), 1);
+      c.dispose();
+    });
+
+    testWidgets('a scroll with no activity for 2 s returns to idle', (
+      tester,
+    ) async {
+      final (c, scans) = await start(tester);
+      c.onScrollActivity(_scrollStart(scrollContext(tester)));
+
+      await elapse(tester, 1000);
+      expect(scans(), 0);
+
+      now = now.add(const Duration(milliseconds: 2001));
+      await elapse(tester, 250);
+      expect(scans(), 1);
+      expect(c.interactionStateForTest, InteractionContext.idle);
+      c.dispose();
+    });
+
+    testWidgets('scroll updates keep a long scroll from going stale', (
+      tester,
+    ) async {
+      final (c, scans) = await start(tester);
+      final ctx = scrollContext(tester);
+      c.onScrollActivity(_scrollStart(ctx));
+      await elapse(tester, 1000);
+
+      now = now.add(const Duration(milliseconds: 1900));
+      c.onScrollActivity(
+        ScrollUpdateNotification(
+          metrics: _scrollMetrics(),
+          context: ctx,
+          scrollDelta: 4,
+        ),
+      );
+      now = now.add(const Duration(milliseconds: 500));
+      await elapse(tester, 250);
+      expect(scans(), 0);
+      expect(c.interactionStateForTest, InteractionContext.scrolling);
+      c.dispose();
+    });
+
+    testWidgets('typing does not defer ticks', (tester) async {
+      final (c, scans) = await start(tester);
+      c.onKeyboardVisibilityChanged(visible: true);
+
+      await elapse(tester, 1000);
+      expect(scans(), 1);
+      expect(c.interactionStateForTest, InteractionContext.typing);
+      c.dispose();
+    });
+
+    testWidgets('direct scans ignore the defer', (tester) async {
+      final (c, scans) = await start(tester);
+      c.onScrollActivity(_scrollStart(scrollContext(tester)));
+
+      c.scanTreeFullPathForTest(tester.element(find.byType(MaterialApp)));
+      expect(scans(), 1);
+      c.dispose();
+    });
+  });
+}
+
+/// Calls [onLayout] from its render object's `performLayout`, the way a
+/// scrollable re-fitting its content starts a scroll mid-layout.
+class _LayoutHook extends SingleChildRenderObjectWidget {
+  const _LayoutHook({required this.onLayout});
+
+  final VoidCallback onLayout;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderLayoutHook(onLayout);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderLayoutHook renderObject,
+  ) {
+    renderObject.onLayout = onLayout;
+  }
+}
+
+class _RenderLayoutHook extends RenderBox {
+  _RenderLayoutHook(this.onLayout);
+
+  VoidCallback onLayout;
+
+  @override
+  void performLayout() {
+    onLayout();
+    size = constraints.constrain(const Size(10, 10));
+  }
 }

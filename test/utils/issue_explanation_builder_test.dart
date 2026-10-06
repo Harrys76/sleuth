@@ -22,7 +22,8 @@ void main() {
       expect(result!.whatItIs, contains('80%'));
       expect(result.readingTheData, isNotNull);
       expect(result.readingTheData, contains('80%'));
-      expect(result.whyItMatters, contains('GC'));
+      expect(result.whatItIs, contains('memoryBudgetBytes'));
+      expect(result.whyItMatters, contains('jetsam'));
       expect(result.howToFix, contains('cacheWidth'));
     });
 
@@ -39,8 +40,9 @@ void main() {
     });
 
     test('strips colon suffix for high_frequency_same_path', () {
-      final result =
-          IssueExplanationBuilder.explain('high_frequency_same_path:abcdef');
+      final result = IssueExplanationBuilder.explain(
+        'high_frequency_same_path:abcdef',
+      );
       expect(result, isNotNull);
       expect(result!.whatItIs, contains('same endpoint'));
     });
@@ -54,7 +56,7 @@ void main() {
     test('strips dynamic suffix for repaint_debug', () {
       final result = IssueExplanationBuilder.explain('repaint_debug_MyWidget');
       expect(result, isNotNull);
-      expect(result!.whatItIs, contains('specific widget type'));
+      expect(result!.whatItIs, contains('likely origin of frequent repaints'));
     });
 
     test('all explanations have non-empty fields', () {
@@ -103,6 +105,7 @@ void main() {
         'sliver_to_box_adapter_large',
         'sliver_fill_remaining_scrollable',
         'sliver_to_box_adapter_shrinkwrap',
+        'non_lazy_shrinkwrap',
         'global_key_recreation',
         'excessive_repaint_boundary',
         'runtime_font_loading',
@@ -112,8 +115,11 @@ void main() {
         final result = IssueExplanationBuilder.explain(id);
         expect(result, isNotNull, reason: 'Missing explanation for $id');
         expect(result!.whatItIs, isNotEmpty, reason: 'Empty whatItIs for $id');
-        expect(result.whyItMatters, isNotEmpty,
-            reason: 'Empty whyItMatters for $id');
+        expect(
+          result.whyItMatters,
+          isNotEmpty,
+          reason: 'Empty whyItMatters for $id',
+        );
         expect(result.howToFix, isNotEmpty, reason: 'Empty howToFix for $id');
       }
     });
@@ -123,37 +129,46 @@ void main() {
       final heavyCompute = IssueExplanationBuilder.explain('heavy_compute');
       expect(heavyCompute!.whenToIgnore, isNull);
 
-      final nestedSameAxis =
-          IssueExplanationBuilder.explain('nested_scroll_same_axis');
+      final nestedSameAxis = IssueExplanationBuilder.explain(
+        'nested_scroll_same_axis',
+      );
       expect(nestedSameAxis!.whenToIgnore, isNull);
     });
 
-    test('whenToIgnore is non-null for issues with false-positive guidance',
-        () {
-      final heapNear = IssueExplanationBuilder.explain('heap_near_capacity');
-      expect(heapNear!.whenToIgnore, isNotNull);
-      expect(heapNear.whenToIgnore, isNotEmpty);
+    test(
+      'whenToIgnore is non-null for issues with false-positive guidance',
+      () {
+        final heapNear = IssueExplanationBuilder.explain('heap_near_capacity');
+        expect(heapNear!.whenToIgnore, isNotNull);
+        expect(heapNear.whenToIgnore, isNotEmpty);
 
-      final nonLazy = IssueExplanationBuilder.explain('non_lazy_list');
-      expect(nonLazy!.whenToIgnore, isNotNull);
-    });
+        final nonLazy = IssueExplanationBuilder.explain('non_lazy_list');
+        expect(nonLazy!.whenToIgnore, isNotNull);
+      },
+    );
 
     test('displayName is non-empty for all entries', () {
       for (final entry in IssueExplanationBuilder.allExplanations.entries) {
-        expect(entry.value.displayName, isNotEmpty,
-            reason: 'Empty displayName for ${entry.key}');
+        expect(
+          entry.value.displayName,
+          isNotEmpty,
+          reason: 'Empty displayName for ${entry.key}',
+        );
       }
     });
 
     test('category is set for all entries', () {
       for (final entry in IssueExplanationBuilder.allExplanations.entries) {
-        expect(IssueCategory.values, contains(entry.value.category),
-            reason: 'Invalid category for ${entry.key}');
+        expect(
+          IssueCategory.values,
+          contains(entry.value.category),
+          reason: 'Invalid category for ${entry.key}',
+        );
       }
     });
 
-    test('allExplanations returns all 50 entries', () {
-      expect(IssueExplanationBuilder.allExplanations.length, 50);
+    test('allExplanations returns all 51 entries', () {
+      expect(IssueExplanationBuilder.allExplanations.length, 51);
     });
 
     test('groupedEntries returns 9 groups', () {
@@ -174,9 +189,11 @@ void main() {
 
     test('groupedEntries contains all entries', () {
       final groups = IssueExplanationBuilder.groupedEntries;
-      final totalEntries =
-          groups.fold<int>(0, (sum, g) => sum + g.entries.length);
-      expect(totalEntries, 50);
+      final totalEntries = groups.fold<int>(
+        0,
+        (sum, g) => sum + g.entries.length,
+      );
+      expect(totalEntries, 51);
     });
 
     test('readingTheData is non-null for runtime detector entries', () {
@@ -209,22 +226,37 @@ void main() {
       for (final id in runtimeIds) {
         final result = IssueExplanationBuilder.explain(id);
         expect(result, isNotNull, reason: 'Missing explanation for $id');
-        expect(result!.readingTheData, isNotNull,
-            reason: 'Missing readingTheData for $id');
-        expect(result.readingTheData, isNotEmpty,
-            reason: 'Empty readingTheData for $id');
+        expect(
+          result!.readingTheData,
+          isNotNull,
+          reason: 'Missing readingTheData for $id',
+        );
+        expect(
+          result.readingTheData,
+          isNotEmpty,
+          reason: 'Empty readingTheData for $id',
+        );
       }
     });
 
     test('readingTheData is non-null for ALL entries', () {
       for (final entry in IssueExplanationBuilder.allExplanations.entries) {
         final result = IssueExplanationBuilder.explain(entry.key);
-        expect(result, isNotNull,
-            reason: 'Missing explanation for ${entry.key}');
-        expect(result!.readingTheData, isNotNull,
-            reason: 'Missing readingTheData for ${entry.key}');
-        expect(result.readingTheData, isNotEmpty,
-            reason: 'Empty readingTheData for ${entry.key}');
+        expect(
+          result,
+          isNotNull,
+          reason: 'Missing explanation for ${entry.key}',
+        );
+        expect(
+          result!.readingTheData,
+          isNotNull,
+          reason: 'Missing readingTheData for ${entry.key}',
+        );
+        expect(
+          result.readingTheData,
+          isNotEmpty,
+          reason: 'Empty readingTheData for ${entry.key}',
+        );
       }
     });
 
@@ -240,8 +272,9 @@ void main() {
     });
 
     test('animated_builder_no_child howToFix explains child caching', () {
-      final result =
-          IssueExplanationBuilder.explain('animated_builder_no_child');
+      final result = IssueExplanationBuilder.explain(
+        'animated_builder_no_child',
+      );
       expect(result!.howToFix, contains('cached'));
     });
 
@@ -285,8 +318,9 @@ void main() {
     });
 
     test('platform_channel_traffic howToFix mentions Pigeon', () {
-      final result =
-          IssueExplanationBuilder.explain('platform_channel_traffic');
+      final result = IssueExplanationBuilder.explain(
+        'platform_channel_traffic',
+      );
       expect(result!.howToFix, contains('Pigeon'));
     });
 
@@ -333,10 +367,16 @@ void main() {
       for (final id in expectedNonNull) {
         final result = IssueExplanationBuilder.explain(id);
         expect(result, isNotNull, reason: 'Missing explanation for $id');
-        expect(result!.relatedIssues, isNotNull,
-            reason: 'Missing relatedIssues for $id');
-        expect(result.relatedIssues, isNotEmpty,
-            reason: 'Empty relatedIssues for $id');
+        expect(
+          result!.relatedIssues,
+          isNotNull,
+          reason: 'Missing relatedIssues for $id',
+        );
+        expect(
+          result.relatedIssues,
+          isNotEmpty,
+          reason: 'Empty relatedIssues for $id',
+        );
       }
     });
 
@@ -347,14 +387,23 @@ void main() {
         if (related == null) continue;
         for (final relatedId in related) {
           final other = all[relatedId];
-          expect(other, isNotNull,
-              reason: '${entry.key} references non-existent entry $relatedId');
-          expect(other!.relatedIssues, isNotNull,
-              reason:
-                  '$relatedId is referenced by ${entry.key} but has null relatedIssues');
-          expect(other.relatedIssues!, contains(entry.key),
-              reason:
-                  '${entry.key} lists $relatedId but $relatedId does not list ${entry.key}');
+          expect(
+            other,
+            isNotNull,
+            reason: '${entry.key} references non-existent entry $relatedId',
+          );
+          expect(
+            other!.relatedIssues,
+            isNotNull,
+            reason:
+                '$relatedId is referenced by ${entry.key} but has null relatedIssues',
+          );
+          expect(
+            other.relatedIssues!,
+            contains(entry.key),
+            reason:
+                '${entry.key} lists $relatedId but $relatedId does not list ${entry.key}',
+          );
         }
       }
     });
@@ -365,9 +414,12 @@ void main() {
         final related = entry.value.relatedIssues;
         if (related == null) continue;
         for (final relatedId in related) {
-          expect(all.containsKey(relatedId), isTrue,
-              reason:
-                  '${entry.key} references $relatedId which is not in _explanations');
+          expect(
+            all.containsKey(relatedId),
+            isTrue,
+            reason:
+                '${entry.key} references $relatedId which is not in _explanations',
+          );
         }
       }
     });
@@ -378,43 +430,58 @@ void main() {
       test('whatItIs has minimum word count (≥ 20 words) for all entries', () {
         for (final entry in IssueExplanationBuilder.allExplanations.entries) {
           final wordCount = entry.value.whatItIs.split(RegExp(r'\s+')).length;
-          expect(wordCount, greaterThanOrEqualTo(20),
-              reason:
-                  '${entry.key} whatItIs has only $wordCount words (min 20)');
+          expect(
+            wordCount,
+            greaterThanOrEqualTo(20),
+            reason: '${entry.key} whatItIs has only $wordCount words (min 20)',
+          );
         }
       });
 
-      test('whyItMatters has minimum word count (≥ 20 words) for all entries',
-          () {
-        for (final entry in IssueExplanationBuilder.allExplanations.entries) {
-          final wordCount =
-              entry.value.whyItMatters.split(RegExp(r'\s+')).length;
-          expect(wordCount, greaterThanOrEqualTo(20),
+      test(
+        'whyItMatters has minimum word count (≥ 20 words) for all entries',
+        () {
+          for (final entry in IssueExplanationBuilder.allExplanations.entries) {
+            final wordCount = entry.value.whyItMatters
+                .split(RegExp(r'\s+'))
+                .length;
+            expect(
+              wordCount,
+              greaterThanOrEqualTo(20),
               reason:
-                  '${entry.key} whyItMatters has only $wordCount words (min 20)');
-        }
-      });
+                  '${entry.key} whyItMatters has only $wordCount words (min 20)',
+            );
+          }
+        },
+      );
 
       test('howToFix has minimum word count (≥ 30 words) for all entries', () {
         for (final entry in IssueExplanationBuilder.allExplanations.entries) {
           final wordCount = entry.value.howToFix.split(RegExp(r'\s+')).length;
-          expect(wordCount, greaterThanOrEqualTo(30),
-              reason:
-                  '${entry.key} howToFix has only $wordCount words (min 30)');
+          expect(
+            wordCount,
+            greaterThanOrEqualTo(30),
+            reason: '${entry.key} howToFix has only $wordCount words (min 30)',
+          );
         }
       });
 
       test('at least 25 readingTheData entries contain metric threshold', () {
-        final metricPattern = RegExp(r'\d+\s*(ms|%|/sec|KB|MB|GB|/min|×|px)',
-            caseSensitive: false);
+        final metricPattern = RegExp(
+          r'\d+\s*(ms|%|/sec|KB|MB|GB|/min|×|px)',
+          caseSensitive: false,
+        );
         var matchCount = 0;
         for (final entry in IssueExplanationBuilder.allExplanations.entries) {
           final rtd = entry.value.readingTheData;
           expect(rtd, isNotNull, reason: '${entry.key} missing readingTheData');
           if (metricPattern.hasMatch(rtd!)) matchCount++;
         }
-        expect(matchCount, greaterThanOrEqualTo(25),
-            reason: 'Only $matchCount entries have metric thresholds (min 25)');
+        expect(
+          matchCount,
+          greaterThanOrEqualTo(25),
+          reason: 'Only $matchCount entries have metric thresholds (min 25)',
+        );
       });
 
       test('readingTheData contains an analogy (Like pattern)', () {
@@ -422,8 +489,11 @@ void main() {
         for (final entry in IssueExplanationBuilder.allExplanations.entries) {
           final rtd = entry.value.readingTheData;
           expect(rtd, isNotNull, reason: '${entry.key} missing readingTheData');
-          expect(analogyPattern.hasMatch(rtd!), isTrue,
-              reason: '${entry.key} readingTheData has no analogy');
+          expect(
+            analogyPattern.hasMatch(rtd!),
+            isTrue,
+            reason: '${entry.key} readingTheData has no analogy',
+          );
         }
       });
 
@@ -431,22 +501,26 @@ void main() {
         var codeExampleCount = 0;
         // Code examples contain indentation patterns or keywords
         final codePattern = RegExp(
-            r'(^\s{2,}[a-zA-Z]|Before.*:.*\n|After.*:.*\n|Widget build|ListView\.|Isolate\.run|RepaintBoundary\(|AnimatedBuilder\(|CustomScrollView\()',
-            multiLine: true);
+          r'(^\s{2,}[a-zA-Z]|Before.*:.*\n|After.*:.*\n|Widget build|ListView\.|Isolate\.run|RepaintBoundary\(|AnimatedBuilder\(|CustomScrollView\()',
+          multiLine: true,
+        );
         for (final entry in IssueExplanationBuilder.allExplanations.entries) {
           if (codePattern.hasMatch(entry.value.howToFix)) {
             codeExampleCount++;
           }
         }
-        expect(codeExampleCount, greaterThanOrEqualTo(10),
-            reason:
-                'Only $codeExampleCount entries have code examples (min 10)');
+        expect(
+          codeExampleCount,
+          greaterThanOrEqualTo(10),
+          reason: 'Only $codeExampleCount entries have code examples (min 10)',
+        );
       });
 
       test('at least 5 entries reference DevTools', () {
         var devToolsCount = 0;
         for (final entry in IssueExplanationBuilder.allExplanations.entries) {
-          final allText = '${entry.value.whatItIs} '
+          final allText =
+              '${entry.value.whatItIs} '
               '${entry.value.readingTheData ?? ''} '
               '${entry.value.whyItMatters} '
               '${entry.value.howToFix} '
@@ -455,8 +529,11 @@ void main() {
             devToolsCount++;
           }
         }
-        expect(devToolsCount, greaterThanOrEqualTo(5),
-            reason: 'Only $devToolsCount entries reference DevTools (min 5)');
+        expect(
+          devToolsCount,
+          greaterThanOrEqualTo(5),
+          reason: 'Only $devToolsCount entries reference DevTools (min 5)',
+        );
       });
 
       test('every detector stableId has an encyclopedia entry', () {
@@ -505,26 +582,104 @@ void main() {
           'sliver_to_box_adapter_large',
           'sliver_fill_remaining_scrollable',
           'sliver_to_box_adapter_shrinkwrap',
+          'non_lazy_shrinkwrap',
           'global_key_recreation',
           'excessive_repaint_boundary',
           'runtime_font_loading',
         ];
 
         for (final id in detectorStableIds) {
-          expect(IssueExplanationBuilder.explain(id), isNotNull,
-              reason: 'Detector stableId "$id" has no encyclopedia entry');
+          expect(
+            IssueExplanationBuilder.explain(id),
+            isNotNull,
+            reason: 'Detector stableId "$id" has no encyclopedia entry',
+          );
         }
       });
 
       test('no duplicate entries (each stableId appears once)', () {
         final all = IssueExplanationBuilder.allExplanations;
         // The map itself enforces uniqueness, but verify the count
-        expect(all.length, 50);
+        expect(all.length, 51);
         // Verify no two entries share the same displayName
         final names = all.values.map((e) => e.displayName).toList();
-        expect(names.toSet().length, names.length,
-            reason: 'Duplicate displayName found');
+        expect(
+          names.toSet().length,
+          names.length,
+          reason: 'Duplicate displayName found',
+        );
       });
+    });
+
+    group('canonicalId non-lazy family', () {
+      test('each emitted non_lazy_* id maps to non_lazy_list', () {
+        for (final id in const [
+          'non_lazy_listview',
+          'non_lazy_gridview',
+          'non_lazy_sliver_list',
+          'non_lazy_sliver_grid',
+        ]) {
+          expect(
+            IssueExplanationBuilder.canonicalId(id),
+            'non_lazy_list',
+            reason: id,
+          );
+        }
+      });
+
+      test('explain resolves non_lazy_sliver_grid', () {
+        expect(
+          IssueExplanationBuilder.explain('non_lazy_sliver_grid'),
+          isNotNull,
+        );
+      });
+
+      test('non_lazy_shrinkwrap keeps its own entry', () {
+        expect(
+          IssueExplanationBuilder.canonicalId('non_lazy_shrinkwrap'),
+          'non_lazy_shrinkwrap',
+        );
+        expect(
+          IssueExplanationBuilder.explain('non_lazy_shrinkwrap')?.displayName,
+          'ShrinkWrap list in Column',
+        );
+      });
+
+      test('non_lazy_list is unchanged', () {
+        expect(
+          IssueExplanationBuilder.canonicalId('non_lazy_list'),
+          'non_lazy_list',
+        );
+      });
+
+      test('unknown non_lazy_ id is not prefix-mapped', () {
+        expect(
+          IssueExplanationBuilder.canonicalId('non_lazy_other'),
+          'non_lazy_other',
+        );
+      });
+    });
+
+    test('substituteNeutral leaves no placeholder in any entry', () {
+      // Bare braces in code examples are legitimate; only `{word}` tokens
+      // are placeholders.
+      final placeholder = RegExp(r'\{[a-zA-Z]+\}');
+      for (final entry in IssueExplanationBuilder.allExplanations.entries) {
+        final e = IssueExplanationBuilder.substituteNeutral(entry.value);
+        for (final text in [
+          e.whatItIs,
+          e.readingTheData,
+          e.whyItMatters,
+          e.howToFix,
+          e.whenToIgnore,
+        ].whereType<String>()) {
+          expect(
+            placeholder.hasMatch(text),
+            isFalse,
+            reason: '${entry.key}: $text',
+          );
+        }
+      }
     });
   });
 }

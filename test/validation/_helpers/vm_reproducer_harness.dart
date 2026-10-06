@@ -42,9 +42,9 @@ TimelineEvent buildEvent({
     'name': name,
     'cat': cat,
     'ph': ph,
-    if (dur != null) 'dur': dur,
-    if (ts != null) 'ts': ts,
-    if (args != null) 'args': args,
+    'dur': ?dur,
+    'ts': ?ts,
+    'args': ?args,
     'pid': pid,
     'tid': tid,
   })!;
@@ -92,7 +92,8 @@ ParsedTimelineData parseAndAssertShape(
   expect(
     actual,
     expected,
-    reason: 'TimelineParser output does not match expected shape. '
+    reason:
+        'TimelineParser output does not match expected shape. '
         'Events were silently dropped or re-classified — check event '
         'name casing, phase code, and presence of `dur` on `ph:"X"`. '
         'Parser accepts name variants for BUILD/LAYOUT/PAINT (v2.x '

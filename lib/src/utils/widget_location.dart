@@ -73,11 +73,18 @@ const _frameworkNames = {
 /// Walks up the tree to find the nearest user page/screen widget,
 /// then shows the path down to the flagged element.
 ///
-/// Example output (debug mode with source locations):
+/// Example output (build tracks widget creation):
 ///   "NestedScrollDemo > Column > SingleChildScrollView (lib/screens/demo.dart:42)"
-/// Example output (profile mode or tracking unavailable):
+/// Example output (build does not track widget creation):
 ///   "NestedScrollDemo > Column > SingleChildScrollView"
-String buildAncestorChain(Element element, {int maxDepth = 6}) {
+///
+/// When [visitedAncestors] is given, every ancestor the walk reads is
+/// appended to it, nearest first.
+String buildAncestorChain(
+  Element element, {
+  int maxDepth = 6,
+  List<Element>? visitedAncestors,
+}) {
   // Leaf element: always include, with source location if available.
   final leafName = typeNameCache.lookup(element.widget);
   final leafLoc = sourceLocationCache.lookup(element);
@@ -85,6 +92,7 @@ String buildAncestorChain(Element element, {int maxDepth = 6}) {
   final chain = <String>[leafEntry];
 
   element.visitAncestorElements((ancestor) {
+    visitedAncestors?.add(ancestor);
     final name = typeNameCache.lookup(ancestor.widget);
     // Skip private and known framework widgets
     if (name.startsWith('_') || _frameworkNames.contains(name)) {
@@ -100,7 +108,7 @@ String buildAncestorChain(Element element, {int maxDepth = 6}) {
 }
 
 /// Extracts the package name from the leaf element's source location.
-/// Returns null in profile mode or when tracking is unavailable.
+/// Returns null when the build does not track widget creation.
 String? extractPackageNameFromElement(Element element) {
   final structured = sourceLocationCache.lookupStructured(element);
   return structured?.packageName;

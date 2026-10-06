@@ -80,9 +80,7 @@ class SuppressAnimatedBuilderRule extends CorrelationRule {
 
     // If any paint-category issues exist, AnimatedBuilder could be
     // contributing — don't suppress.
-    final hasPaintIssues = issues.any(
-      (i) => i.category == IssueCategory.paint,
-    );
+    final hasPaintIssues = issues.any((i) => i.category == IssueCategory.paint);
     if (hasPaintIssues) return issues;
 
     return [...issues]..removeAt(animBuilderIdx);
@@ -147,7 +145,8 @@ class MergeRebuildSetStateRule extends CorrelationRule {
 
     final merged = setState.copyWith(
       confidence: mergedConfidence,
-      detail: '${setState.detail}\n\n'
+      detail:
+          '${setState.detail}\n\n'
           '[Correlated] Rebuild evidence: ${matchedRebuild.title}',
     );
 
@@ -194,10 +193,12 @@ class EscalateGpuCustomPainterRule extends CorrelationRule {
     final escalated = painter.copyWith(
       confidence: IssueConfidence.likely,
       confidenceReason:
-          'Upgraded from possible: GPU raster pressure corroborates structural finding',
-      detail: '${painter.detail}\n\n'
-          '[Correlated] GPU raster pressure detected — '
-          'this painter is likely contributing to raster overhead.',
+          'Upgraded from possible because GPU raster pressure corroborates '
+          'the structural finding',
+      detail:
+          '${painter.detail}\n\n'
+          '[Correlated] Sleuth also detected GPU raster pressure. This '
+          'painter likely adds to the raster overhead.',
     );
 
     return [
@@ -211,8 +212,11 @@ class EscalateGpuCustomPainterRule extends CorrelationRule {
 // Rule 4: Escalate ImageMemory with Heap Growth (applied fourth)
 // ---------------------------------------------------------------------------
 
-/// When `heap_growing` and `uncached_images` co-occur, escalates
-/// ImageMemory confidence from `possible` to `likely`.
+/// When `uncached_images` co-occurs with `heap_growing` or
+/// `native_memory_growing`, escalates ImageMemory confidence from
+/// `possible` to `likely`. Decoded bitmaps live in native memory, so
+/// native growth is direct corroboration; Dart heap growth is kept as a
+/// trigger for the image objects and caches held on the Dart side.
 ///
 /// Does NOT escalate if already `likely` or `confirmed`.
 class EscalateMemoryImageRule extends CorrelationRule {
@@ -224,23 +228,27 @@ class EscalateMemoryImageRule extends CorrelationRule {
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
     final hasHeapGrowing = issues.any((i) => i.stableId == 'heap_growing');
-    if (!hasHeapGrowing) return issues;
-
-    final imageIdx = issues.indexWhere(
-      (i) => i.stableId == 'uncached_images',
+    final hasNativeGrowing = issues.any(
+      (i) => i.stableId == 'native_memory_growing',
     );
+    if (!hasHeapGrowing && !hasNativeGrowing) return issues;
+
+    final imageIdx = issues.indexWhere((i) => i.stableId == 'uncached_images');
     if (imageIdx == -1) return issues;
 
     final image = issues[imageIdx];
     if (image.confidence != IssueConfidence.possible) return issues;
 
+    final growth = hasHeapGrowing ? 'Heap growth' : 'Native memory growth';
     final escalated = image.copyWith(
       confidence: IssueConfidence.likely,
       confidenceReason:
-          'Upgraded from possible: heap growth corroborates structural finding',
-      detail: '${image.detail}\n\n'
-          '[Correlated] Heap growth detected — '
-          'uncached images are likely contributing to memory pressure.',
+          'Upgraded from possible because ${growth.toLowerCase()} '
+          'corroborates the structural finding',
+      detail:
+          '${image.detail}\n\n'
+          '[Correlated] Sleuth also detected ${growth.toLowerCase()}. '
+          'Uncached images likely add to the memory pressure.',
     );
 
     return [
@@ -265,11 +273,13 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
 
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
-    final hasHeapPressure = issues.any((i) =>
-        i.stableId == 'heap_growing' || i.stableId == 'heap_near_capacity');
+    final hasHeapPressure = issues.any(
+      (i) => i.stableId == 'heap_growing' || i.stableId == 'heap_near_capacity',
+    );
     if (!hasHeapPressure) return issues;
 
-    // Find keep-alive issues (prefix match — stableId is 'excessive_keep_alive:$route')
+    // Find keep-alive issues (prefix match: the stableId is
+    // 'excessive_keep_alive:<TypeName>~<part>').
     final keepAliveIndices = <int>[];
     for (var i = 0; i < issues.length; i++) {
       final id = issues[i].stableId;
@@ -287,10 +297,12 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
           issues[i].copyWith(
             confidence: IssueConfidence.likely,
             confidenceReason:
-                'Upgraded from possible: heap pressure corroborates structural finding',
-            detail: '${issues[i].detail}\n\n'
-                '[Correlated] Heap pressure detected — '
-                'kept-alive pages may be contributing to memory growth.',
+                'Upgraded from possible because heap pressure corroborates '
+                'the structural finding',
+            detail:
+                '${issues[i].detail}\n\n'
+                '[Correlated] Sleuth also detected heap pressure. Kept-alive '
+                'pages may add to the memory growth.',
           )
         else
           issues[i],
@@ -306,8 +318,13 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
 /// layout/list issues, escalates from `possible` to `likely`.
 ///
 /// Covers structural detectors that lack their own escalation rule:
-/// non_lazy_list, non_lazy_listview, non_lazy_gridview, layout_bottleneck,
-/// nested_scroll, nested_scroll_same_axis.
+/// the non_lazy_* family (including non_lazy_shrinkwrap), the sliver
+/// families, layout_bottleneck, wrap_layout_bottleneck, nested_scroll,
+/// nested_scroll_same_axis.
+///
+/// A single (non-nested) `layout_bottleneck` emits as `possible`, so jank on
+/// the same screen lifts it to `likely` by design; nested emits as `likely`
+/// already and is left alone.
 class EscalateStructuralWithJankRule extends CorrelationRule {
   const EscalateStructuralWithJankRule();
 
@@ -320,6 +337,7 @@ class EscalateStructuralWithJankRule extends CorrelationRule {
     'non_lazy_gridview',
     'non_lazy_sliver_list',
     'non_lazy_sliver_grid',
+    'non_lazy_shrinkwrap',
     'sliver_to_box_adapter_large',
     'sliver_fill_remaining_scrollable',
     'sliver_to_box_adapter_shrinkwrap',
@@ -332,7 +350,8 @@ class EscalateStructuralWithJankRule extends CorrelationRule {
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
     final hasJank = issues.any(
-        (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected');
+      (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected',
+    );
     if (!hasJank) return issues;
 
     var changed = false;
@@ -342,14 +361,18 @@ class EscalateStructuralWithJankRule extends CorrelationRule {
           issue.stableId != null &&
           _structuralIds.contains(issue.stableId)) {
         changed = true;
-        result.add(issue.copyWith(
-          confidence: IssueConfidence.likely,
-          confidenceReason:
-              'Upgraded from possible: frame jank corroborates structural finding',
-          detail: '${issue.detail}\n\n'
-              '[Correlated] Frame jank detected — '
-              'this structural pattern is likely contributing to jank.',
-        ));
+        result.add(
+          issue.copyWith(
+            confidence: IssueConfidence.likely,
+            confidenceReason:
+                'Upgraded from possible because frame jank corroborates the '
+                'structural finding',
+            detail:
+                '${issue.detail}\n\n'
+                '[Correlated] Sleuth also detected frame jank. This '
+                'structural pattern likely adds to the jank.',
+          ),
+        );
       } else {
         result.add(issue);
       }
@@ -373,9 +396,11 @@ class EscalateStructuralWithRebuildRule extends CorrelationRule {
 
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
-    final hasRebuildEvidence = issues.any((i) =>
-        i.stableId == 'rebuild_activity' ||
-        (i.stableId != null && i.stableId!.startsWith('rebuild_debug_')));
+    final hasRebuildEvidence = issues.any(
+      (i) =>
+          i.stableId == 'rebuild_activity' ||
+          (i.stableId != null && i.stableId!.startsWith('rebuild_debug_')),
+    );
     if (!hasRebuildEvidence) return issues;
 
     var changed = false;
@@ -385,14 +410,18 @@ class EscalateStructuralWithRebuildRule extends CorrelationRule {
           (issue.stableId == 'animated_builder_no_child' ||
               issue.stableId == 'setstate_scope')) {
         changed = true;
-        result.add(issue.copyWith(
-          confidence: IssueConfidence.likely,
-          confidenceReason:
-              'Upgraded from possible: rebuild evidence corroborates structural finding',
-          detail: '${issue.detail}\n\n'
-              '[Correlated] Rebuild activity detected — '
-              'this pattern is likely contributing to excessive rebuilds.',
-        ));
+        result.add(
+          issue.copyWith(
+            confidence: IssueConfidence.likely,
+            confidenceReason:
+                'Upgraded from possible because rebuild evidence '
+                'corroborates the structural finding',
+            detail:
+                '${issue.detail}\n\n'
+                '[Correlated] Sleuth also detected rebuild activity. This '
+                'pattern likely adds to the excessive rebuilds.',
+          ),
+        );
       } else {
         result.add(issue);
       }
@@ -416,8 +445,9 @@ class EnrichRebuildRepaintBoundaryRule extends CorrelationRule {
 
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
-    final hasMissingBoundary =
-        issues.any((i) => i.stableId == 'missing_repaint_boundary');
+    final hasMissingBoundary = issues.any(
+      (i) => i.stableId == 'missing_repaint_boundary',
+    );
     if (!hasMissingBoundary) return issues;
 
     // Find rebuild issues to annotate
@@ -435,9 +465,11 @@ class EnrichRebuildRepaintBoundaryRule extends CorrelationRule {
       for (var i = 0; i < issues.length; i++)
         if (rebuildIndices.contains(i))
           issues[i].copyWith(
-            detail: '${issues[i].detail}\n\n'
-                '[Correlated] Missing RepaintBoundary detected — '
-                'rebuilds may propagate unnecessary repaints.',
+            detail:
+                '${issues[i].detail}\n\n'
+                '[Correlated] Sleuth also detected a missing '
+                'RepaintBoundary. These rebuilds may spread unnecessary '
+                'repaints.',
           )
         else
           issues[i],
@@ -452,8 +484,9 @@ class EnrichRebuildRepaintBoundaryRule extends CorrelationRule {
 /// Deduplicates when the same widget has both `rebuild_debug_$TYPE` and
 /// `repaint_debug_$TYPE` issues.
 ///
-/// Keeps the higher-confidence issue. If equal confidence, keeps the
-/// rebuild issue (build issues are more actionable for developers).
+/// Keeps the more severe issue, then the higher-confidence one. If both
+/// tie, keeps the rebuild issue (build issues are more actionable for
+/// developers).
 class DeduplicateRebuildRepaintRule extends CorrelationRule {
   const DeduplicateRebuildRepaintRule();
 
@@ -491,8 +524,12 @@ class DeduplicateRebuildRepaintRule extends CorrelationRule {
 
       final rebuildRank = _confidenceRank(rebuild.confidence);
       final repaintRank = _confidenceRank(repaint.confidence);
+      final severityOrder = repaint.severity.index.compareTo(
+        rebuild.severity.index,
+      );
 
-      if (repaintRank > rebuildRank) {
+      if (severityOrder > 0 ||
+          (severityOrder == 0 && repaintRank > rebuildRank)) {
         indicesToRemove.add(rebuildIdx); // repaint wins
       } else {
         indicesToRemove.add(repaintIdx); // rebuild wins (higher or equal)
@@ -508,8 +545,8 @@ class DeduplicateRebuildRepaintRule extends CorrelationRule {
   }
 
   static int _confidenceRank(IssueConfidence c) => switch (c) {
-        IssueConfidence.confirmed => 3,
-        IssueConfidence.likely => 2,
-        IssueConfidence.possible => 1,
-      };
+    IssueConfidence.confirmed => 3,
+    IssueConfidence.likely => 2,
+    IssueConfidence.possible => 1,
+  };
 }

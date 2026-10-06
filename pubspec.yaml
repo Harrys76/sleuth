@@ -1,6 +1,6 @@
 name: sleuth
 description: "In-app performance diagnostics overlay for Flutter. Surfaces jank, memory leaks, slow networks, GPU pressure, and widget anti-patterns. Every issue ships with a fix hint."
-version: 0.36.0
+version: 0.37.0
 homepage: https://github.com/Harrys76/sleuth
 repository: https://github.com/Harrys76/sleuth
 issue_tracker: https://github.com/Harrys76/sleuth/issues
@@ -15,28 +15,28 @@ platforms:
   ios:
 
 screenshots:
-  - description: 'Sleuth — in-app performance diagnostics overlay for Flutter.'
+  - description: 'Sleuth, an in-app performance diagnostics overlay for Flutter.'
     path: doc/screenshots/cover.png
-  - description: 'Live issue list (dark theme): jank, rebuilds, memory, network, GPU, structural anti-patterns — each with a fix hint.'
+  - description: 'Live issue list in the dark theme, ranked by severity and confidence, with severity filter chips and recurrence badges.'
     path: doc/screenshots/overlay-dark.png
-  - description: 'Same overlay in light theme — auto-detects the host app theme.'
+  - description: 'The light theme, with one card expanded to show what was measured, where, and the two issues that caused it.'
     path: doc/screenshots/overlay-light.png
 
 environment:
-  sdk: '>=3.5.0 <4.0.0'
-  flutter: '>=3.24.0'
+  sdk: ^3.8.0
+  flutter: '>=3.32.0'
 
 dependencies:
   flutter:
     sdk: flutter
   meta: ^1.15.0
   path: ^1.9.0
-  vm_service: ^14.0.0
+  vm_service: '>=14.0.0 <16.0.0'
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   fake_async: any
   crypto: any
   # Audit-invariant helpers parse reproducer test files via `package:analyzer`

@@ -2,6 +2,8 @@
 // (fires only on subclassing). Remove when analyzer-server recognizes the
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
+import 'dart:ui' show FrameTiming;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
@@ -46,7 +48,7 @@ BuildContext _rootContext(WidgetTester tester) =>
     tester.element(find.byType(MaterialApp));
 
 void main() {
-  group('Route session lifecycle (M2)', () {
+  group('Route session lifecycle', () {
     late SleuthController controller;
 
     setUp(() {
@@ -75,8 +77,9 @@ void main() {
       expect(controller.routeHistoryNotifier.value.length, 1);
     });
 
-    testWidgets('increments scanCycleCount on repeated scans of same route',
-        (tester) async {
+    testWidgets('increments scanCycleCount on repeated scans of same route', (
+      tester,
+    ) async {
       await tester.pumpWidget(_namedRouteApp());
       await tester.pumpAndSettle();
       final context = _rootContext(tester);
@@ -90,8 +93,9 @@ void main() {
       expect(controller.routeHistoryNotifier.value.length, 1);
     });
 
-    testWidgets('same route name does not create duplicate sessions',
-        (tester) async {
+    testWidgets('same route name does not create duplicate sessions', (
+      tester,
+    ) async {
       await tester.pumpWidget(_namedRouteApp());
       await tester.pumpAndSettle();
       final context = _rootContext(tester);
@@ -104,8 +108,9 @@ void main() {
       expect(controller.routeHistoryNotifier.value.length, 1);
     });
 
-    testWidgets('route change closes old session and creates new one',
-        (tester) async {
+    testWidgets('route change closes old session and creates new one', (
+      tester,
+    ) async {
       await tester.pumpWidget(_multiRouteApp());
       await tester.pumpAndSettle();
 
@@ -139,8 +144,9 @@ void main() {
       expect(controller.routeHistoryNotifier.value.last.routeName, '/settings');
     });
 
-    testWidgets('consecutive clean scans reset to 0 on route change',
-        (tester) async {
+    testWidgets('consecutive clean scans reset to 0 on route change', (
+      tester,
+    ) async {
       await tester.pumpWidget(_multiRouteApp());
       await tester.pumpAndSettle();
 
@@ -163,8 +169,9 @@ void main() {
       expect(controller.consecutiveCleanScansForTest, lessThanOrEqualTo(1));
     });
 
-    testWidgets('unnamed routes get synthetic <unnamed-N> names',
-        (tester) async {
+    testWidgets('unnamed routes get synthetic <unnamed-N> names', (
+      tester,
+    ) async {
       // A Scaffold without MaterialApp/Navigator — no ModalRoute, so
       // _currentRouteName() returns null and the unnamed counter kicks in.
       await tester.pumpWidget(
@@ -184,37 +191,40 @@ void main() {
       expect(session.routeName, matches(RegExp(r'^<unnamed-\d+>$')));
     });
 
-    testWidgets('repeated scans on unnamed route reuse same session (no leak)',
-        (tester) async {
-      // Regression: the unnamed counter must NOT increment on every scan.
-      // Consecutive null route names should be treated as the same route.
-      await tester.pumpWidget(
-        const Directionality(
-          textDirection: TextDirection.ltr,
-          child: Scaffold(body: SizedBox(width: 100, height: 100)),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final context = tester.element(find.byType(Directionality));
+    testWidgets(
+      'repeated scans on unnamed route reuse same session (no leak)',
+      (tester) async {
+        // Regression: the unnamed counter must NOT increment on every scan.
+        // Consecutive null route names should be treated as the same route.
+        await tester.pumpWidget(
+          const Directionality(
+            textDirection: TextDirection.ltr,
+            child: Scaffold(body: SizedBox(width: 100, height: 100)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final context = tester.element(find.byType(Directionality));
 
-      controller.scanTreeFullPathForTest(context);
-      final firstSession = controller.activeRouteSessionForTest!;
-      final firstName = firstSession.routeName;
+        controller.scanTreeFullPathForTest(context);
+        final firstSession = controller.activeRouteSessionForTest!;
+        final firstName = firstSession.routeName;
 
-      // Second scan — same null route → must reuse same session.
-      controller.scanTreeFullPathForTest(context);
-      expect(controller.activeRouteSessionForTest, same(firstSession));
-      expect(controller.activeRouteSessionForTest!.routeName, firstName);
-      expect(controller.activeRouteSessionForTest!.scanCycleCount, 2);
+        // Second scan — same null route → must reuse same session.
+        controller.scanTreeFullPathForTest(context);
+        expect(controller.activeRouteSessionForTest, same(firstSession));
+        expect(controller.activeRouteSessionForTest!.routeName, firstName);
+        expect(controller.activeRouteSessionForTest!.scanCycleCount, 2);
 
-      // Third scan — still the same.
-      controller.scanTreeFullPathForTest(context);
-      expect(controller.routeHistoryNotifier.value.length, 1);
-      expect(controller.activeRouteSessionForTest!.scanCycleCount, 3);
-    });
+        // Third scan — still the same.
+        controller.scanTreeFullPathForTest(context);
+        expect(controller.routeHistoryNotifier.value.length, 1);
+        expect(controller.activeRouteSessionForTest!.scanCycleCount, 3);
+      },
+    );
 
-    testWidgets('per-route frame stats populated via addFrameForTest',
-        (tester) async {
+    testWidgets('per-route frame stats populated via addFrameForTest', (
+      tester,
+    ) async {
       await tester.pumpWidget(_namedRouteApp());
       await tester.pumpAndSettle();
       final context = _rootContext(tester);
@@ -224,19 +234,20 @@ void main() {
       // Add frames — these go through _onFrameStats which forwards to
       // the active route session.
       for (var i = 0; i < 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i + 1,
-          uiDuration: const Duration(milliseconds: 16),
-          rasterDuration: const Duration(milliseconds: 10),
-          timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i + 1,
+            uiDuration: const Duration(milliseconds: 16),
+            rasterDuration: const Duration(milliseconds: 10),
+            timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
+          ),
+        );
       }
 
       expect(controller.activeRouteSessionForTest!.frameStats.length, 5);
     });
 
-    testWidgets(
-        'route history honors SleuthConfig.routeHistoryCapacity '
+    testWidgets('route history honors SleuthConfig.routeHistoryCapacity '
         '(FIFO eviction when cap is exceeded)', (tester) async {
       // Use a small explicit cap so the test stays fast and the eviction
       // contract is exercised independently of the package default (which
@@ -266,10 +277,16 @@ void main() {
         ctrl.scanTreeFullPathForTest(_rootContext(tester));
       }
 
-      expect(ctrl.routeHistoryNotifier.value.length, 5,
-          reason: 'Cap is configured to 5.');
-      expect(ctrl.routeHistoryNotifier.value.first.routeName, '/r1',
-          reason: 'Oldest (/home) must be evicted FIFO when cap is hit.');
+      expect(
+        ctrl.routeHistoryNotifier.value.length,
+        5,
+        reason: 'Cap is configured to 5.',
+      );
+      expect(
+        ctrl.routeHistoryNotifier.value.first.routeName,
+        '/r1',
+        reason: 'Oldest (/home) must be evicted FIFO when cap is hit.',
+      );
       expect(ctrl.routeHistoryNotifier.value.last.routeName, '/r5');
     });
 
@@ -292,31 +309,36 @@ void main() {
     testWidgets('frames before first scan do not crash', (tester) async {
       // No scan yet — _activeRouteSession is null.
       // addFrameForTest should not throw (null-safe ?. guard).
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 16),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime(2026, 1, 1),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 16),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime(2026, 1, 1),
+        ),
+      );
 
       // No crash, and no active session to receive the frame.
       expect(controller.activeRouteSessionForTest, isNull);
     });
 
-    testWidgets('route session tracks frames from correct route only',
-        (tester) async {
+    testWidgets('route session tracks frames from correct route only', (
+      tester,
+    ) async {
       await tester.pumpWidget(_multiRouteApp());
       await tester.pumpAndSettle();
 
       // Scan /home and add 3 frames.
       controller.scanTreeFullPathForTest(_rootContext(tester));
       for (var i = 0; i < 3; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i + 1,
-          uiDuration: const Duration(milliseconds: 16),
-          rasterDuration: const Duration(milliseconds: 10),
-          timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i + 1,
+            uiDuration: const Duration(milliseconds: 16),
+            rasterDuration: const Duration(milliseconds: 10),
+            timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
+          ),
+        );
       }
 
       final homeSession = controller.activeRouteSessionForTest!;
@@ -332,13 +354,19 @@ void main() {
 
       // Add 2 frames — these should go to the /settings session.
       for (var i = 0; i < 2; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i + 10,
-          uiDuration: const Duration(milliseconds: 16),
-          rasterDuration: const Duration(milliseconds: 10),
-          timestamp:
-              DateTime(2026, 1, 1, 1).add(Duration(milliseconds: i * 16)),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i + 10,
+            uiDuration: const Duration(milliseconds: 16),
+            rasterDuration: const Duration(milliseconds: 10),
+            timestamp: DateTime(
+              2026,
+              1,
+              1,
+              1,
+            ).add(Duration(milliseconds: i * 16)),
+          ),
+        );
       }
 
       // /home still has 3 frames, /settings has 2.
@@ -346,10 +374,140 @@ void main() {
       expect(controller.activeRouteSessionForTest!.frameStats.length, 2);
     });
 
+    testWidgets('jank measured on one route is not carried to the next', (
+      tester,
+    ) async {
+      final ctrl = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+          frameTimingWarmupDuration: Duration.zero,
+        ),
+      );
+      ctrl.initializeDetectorsForTest();
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(_multiRouteApp());
+      await tester.pumpAndSettle();
+      ctrl.scanTreeFullPathForTest(_rootContext(tester));
+
+      // 60 real frames with a 40 ms build on /home.
+      const base = 1000000000;
+      ctrl.handleTimingsForTest([
+        for (var i = 0; i < 60; i++)
+          FrameTiming(
+            vsyncStart: base + i * 16667,
+            buildStart: base + i * 16667 + 100,
+            buildFinish: base + i * 16667 + 40100,
+            rasterStart: base + i * 16667 + 40200,
+            rasterFinish: base + i * 16667 + 42200,
+            rasterFinishWallTime: base + i * 16667 + 42200,
+            frameNumber: i + 1,
+          ),
+      ]);
+      ctrl.scanTreeFullPathForTest(_rootContext(tester));
+
+      const jankIds = {'sustained_jank', 'jank_detected'};
+      Set<String?> liveJank() => ctrl.latestIssues
+          .map((i) => i.stableId)
+          .where(jankIds.contains)
+          .toSet();
+      expect(liveJank(), jankIds);
+      final home = ctrl.activeRouteSessionForTest!;
+      expect(home.issueSnapshots.keys, containsAll(jankIds));
+      expect(
+        ctrl.latestIssues
+            .where((i) => jankIds.contains(i.stableId))
+            .map((i) => i.routeName),
+        everyElement('/home'),
+      );
+
+      tester.state<NavigatorState>(find.byType(Navigator)).pushNamed('/b');
+      await tester.pumpAndSettle();
+      ctrl.scanTreeFullPathForTest(_rootContext(tester));
+
+      final b = ctrl.activeRouteSessionForTest!;
+      expect(b.routeName, '/b');
+      expect(liveJank(), isEmpty);
+      expect(
+        b.issueSnapshots.keys.where(jankIds.contains),
+        isEmpty,
+        reason: 'The new route session must hold no jank issues.',
+      );
+      expect(
+        home.issueSnapshots.keys,
+        containsAll(jankIds),
+        reason: 'The previous route keeps the jank it was measured on.',
+      );
+    });
+
     test('dispose cleans up routeHistoryNotifier without throwing', () {
       final ctrl = SleuthController(config: _cleanConfig);
       ctrl.initializeDetectorsForTest();
       ctrl.dispose();
+    });
+  });
+  group('Unnamed-route ordinal cache', () {
+    /// No Navigator: the Scaffold sits above routing, so the route name is
+    /// null and every new Scaffold key mints a fresh unnamed session.
+    Widget unnamedApp(int key) => MaterialApp(
+      builder: (_, _) => Scaffold(key: ValueKey(key), body: const SizedBox()),
+    );
+
+    testWidgets('drops ordinals of sessions evicted from history', (
+      tester,
+    ) async {
+      final ctrl = SleuthController(
+        config: const SleuthConfig(
+          enabledDetectors: {DetectorType.frameTiming},
+          routeHistoryCapacity: 3,
+        ),
+      );
+      ctrl.initializeDetectorsForTest();
+      addTearDown(ctrl.dispose);
+
+      for (var i = 0; i < 12; i++) {
+        await tester.pumpWidget(unnamedApp(i));
+        ctrl.scanTreeFullPathForTest(_rootContext(tester));
+        expect(ctrl.routeHistoryForTest.length, lessThanOrEqualTo(3));
+        expect(ctrl.unnamedIdByHashLengthForTest, lessThanOrEqualTo(4));
+      }
+      expect(ctrl.activeRouteSessionForTest?.routeName, '<unnamed-12>');
+    });
+
+    testWidgets('keeps the ordinal while history still carries the hash', (
+      tester,
+    ) async {
+      final ctrl = SleuthController(
+        config: const SleuthConfig(
+          enabledDetectors: {DetectorType.frameTiming},
+          routeHistoryCapacity: 3,
+        ),
+      );
+      ctrl.initializeDetectorsForTest();
+      addTearDown(ctrl.dispose);
+
+      // Two IndexedStack tabs, each with its own unnamed Scaffold.
+      Widget tabs(int index) => MaterialApp(
+        builder: (_, _) => IndexedStack(
+          index: index,
+          children: const [
+            Scaffold(key: ValueKey('a'), body: SizedBox()),
+            Scaffold(key: ValueKey('b'), body: SizedBox()),
+          ],
+        ),
+      );
+
+      final names = <String>[];
+      for (var i = 0; i < 8; i++) {
+        await tester.pumpWidget(tabs(i % 2));
+        ctrl.scanTreeFullPathForTest(_rootContext(tester));
+        names.add(ctrl.activeRouteSessionForTest!.routeName);
+      }
+      // Evictions never orphan a hash a live session still carries, so
+      // each tab keeps its first ordinal.
+      expect(names.toSet(), hasLength(2));
+      expect(ctrl.unnamedIdByHashLengthForTest, 2);
     });
   });
 }

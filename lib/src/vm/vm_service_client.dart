@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:math' as math;
 import 'dart:io' show ProcessInfo;
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 import '../models/heap_sample.dart';
+import 'poll_timings.dart';
 import 'timeline_parser.dart';
 
 /// Read current process RSS in bytes. Returns null on platforms where
@@ -31,38 +33,71 @@ typedef StartupTimelineCallback = void Function(StartupTimelineEvents events);
 
 /// Connects to the app's own VM Service for exact performance data.
 ///
-/// Uses [dart:developer.Service.controlWebServer] to start/query the
-/// VM web server and connects via WebSocket. Works reliably on desktop
-/// and simulators. On real iOS devices launched via IDE (USB bridge) or
-/// Android with adb-forwarded ports, the reported URI may be unreachable
-/// from the device — in that case the controller falls back to BASIC mode
-/// (FrameTiming + structural analysis).
+/// Uses [dart:developer.Service.controlWebServer] to start or query the
+/// VM web server and connects to it over a WebSocket from inside the app,
+/// loopback first (see [candidateWebSocketUris]), so the link between the
+/// device and the host (USB or wireless) does not matter. `flutter run` and
+/// `flutter attach` start DDS by default, and DDS keeps the VM service as
+/// its only client, so this connection is refused and the controller falls
+/// back to BASIC mode (FrameTiming plus structural analysis). Launching with
+/// `--no-dds`, or starting the installed app from the home screen, leaves
+/// the service open to this client.
 class VmServiceClient {
   VmServiceClient({
     this.onTimelineData,
     this.onGcEvent,
+    this.idleHeartbeat = const Duration(seconds: 1),
     this.onHeapSample,
     this.onExtensionEvent,
     this.onConnectionChanged,
     this.onStartupTimelineEvents,
     this.retainTimeline = false,
+    this.readDispatchSegments,
+    this.cpuSamplesMinInterval = const Duration(seconds: 10),
   });
 
-  /// When true, the polling loop does NOT call `clearVMTimeline` after
-  /// each cycle, so raw events accumulate in the VM-side trace buffer
-  /// and remain available to [fetchRawTimelineEventsJson]. Used by
-  /// capture procedures so a later Export call can still see the
-  /// scenario-span events; production sessions leave this false to
-  /// keep the trace buffer bounded.
+  /// Shortest gap between the starts of two [getCpuSamples] requests.
   ///
-  /// The VM has its own ring-buffer cap (Dart trace buffer default
-  /// ~5 MB). Long capture sessions still risk silent drop of the
-  /// oldest events; capture screens should call Export within ~30 s
-  /// of `markScenarioEnd`.
+  /// The VM serves `getCpuSamples` on the target isolate's own thread:
+  /// it interrupts whatever Dart code is running there to build the
+  /// profile, and the response (several MB even for a one-frame window,
+  /// because it carries the function table) is decoded on the same
+  /// isolate. For the UI isolate that is a stall of tens of milliseconds
+  /// on desktop and hundreds on a phone, so requests are spaced by this
+  /// interval and never overlap.
+  final Duration cpuSamplesMinInterval;
+
+  /// Reads the split of the [onTimelineData] call that just returned, for
+  /// [PollTimings]. Null leaves the whole dispatch in
+  /// [PollTimings.dispatchOtherMicros].
+  final DispatchSegments Function()? readDispatchSegments;
+
+  /// Whether a later [fetchRawTimelineEventsJson] export relies on the
+  /// VM keeping already-polled events (capture mode).
+  ///
+  /// The poll loop never clears the VM timeline: after the first poll of
+  /// a session it fetches only a window that starts [fetchOverlapMicros]
+  /// before the newest event it has seen, so the retained buffer is not re-read and the VM's
+  /// bounded ring buffer costs no app memory. The flag therefore only
+  /// records the export expectation. The ring buffer still drops its
+  /// oldest events under load (Dart trace buffer default ~5 MB), so
+  /// capture screens should export within ~30 s of `markScenarioEnd`.
   final bool retainTimeline;
 
   final TimelineDataCallback? onTimelineData;
   final VmEventCallback? onGcEvent;
+
+  /// How often [onTimelineData] is still called while the timeline is
+  /// quiet. Detectors that evaluate on a wall-clock window (the platform
+  /// channel detector's 1 s window, persistence timers) only run inside
+  /// that callback; on a static screen with no frames and no GC the VM
+  /// returns empty batches, and without this tick a burst that landed in
+  /// the last batch would be judged only when the next unrelated event
+  /// arrived. The empty batch carries no events, so detectors see it as
+  /// an idle window.
+  final Duration idleHeartbeat;
+
+  DateTime? _lastTimelineDispatchAt;
   final HeapSampleCallback? onHeapSample;
   final VmEventCallback? onExtensionEvent;
   final void Function(bool connected)? onConnectionChanged;
@@ -72,6 +107,19 @@ class VmServiceClient {
   final StartupTimelineCallback? onStartupTimelineEvents;
 
   VmService? _service;
+
+  /// Failed polls in a row. A VM under GC pressure can fail one timeline
+  /// RPC without the socket being gone; declaring a disconnect on the
+  /// first failure cleared every detector's VM state (the memory
+  /// detector's windows took tens of seconds to refill) for a blip that
+  /// the next poll would have survived. The connection is reported lost
+  /// after [pollFailuresBeforeDisconnect] consecutive failures, or at
+  /// once when the socket's `onDone` completes.
+  int _consecutivePollFailures = 0;
+
+  /// Consecutive failed polls (500 ms apart) before the connection is
+  /// reported lost.
+  static const int pollFailuresBeforeDisconnect = 3;
   StreamSubscription<Event>? _timelineSub;
   StreamSubscription<Event>? _gcSub;
   StreamSubscription<Event>? _extensionSub;
@@ -105,6 +153,10 @@ class VmServiceClient {
   /// Whether the VM service is connected and streaming data.
   bool get isConnected => _connected;
 
+  /// Test-only view of the resolved main isolate id.
+  @visibleForTesting
+  String? get mainIsolateIdForTest => _mainIsolateId;
+
   /// Whether the client has been disposed.
   bool get isDisposed => _disposed;
 
@@ -112,6 +164,8 @@ class VmServiceClient {
   @visibleForTesting
   void setServiceForTest(VmService service, {String? isolateId}) {
     _service = service;
+    _watchSocket(service);
+    _attachWireListeners(service);
     _mainIsolateId = isolateId;
     _connected = true;
   }
@@ -151,9 +205,8 @@ class VmServiceClient {
         // Use controlWebServer(enable: true) rather than getInfo() so we
         // proactively *start* the VM web server if it's dormant. Service.getInfo()
         // only queries state — if the server hasn't bound its port yet (common
-        // on cold start, especially Android adb-forwarded ports) it returns
-        // a null serverUri and we'd have to poll-spin until the framework got
-        // around to starting it. controlWebServer forces the bind and returns
+        // on cold start) it returns a null serverUri and we'd have to
+        // poll-spin until the framework got around to starting it. controlWebServer forces the bind and returns
         // a fully-populated ServiceProtocolInfo in one shot.
         //
         // **Timeout**: on some cold-start scenarios (Android Studio first
@@ -219,28 +272,35 @@ class VmServiceClient {
         // to our hand-rolled helper only if the getter returns null.
         var wsUri = info.serverWebSocketUri ?? _toWebSocketUri(uri);
 
-        // controlWebServer reports 127.0.0.1 (IPv4-only literal). Using
-        // 'localhost' enables Dart's Happy Eyeballs dual-stack resolver so
-        // WebSocket.connect tries both IPv4 and IPv6 automatically.
-        if (wsUri.host == '127.0.0.1') {
-          wsUri = wsUri.replace(host: 'localhost');
+        // Loopback first, reported host second (see
+        // [candidateWebSocketUris]). Each attempt has its own timeout so an
+        // unreachable address (such as the LAN address a wirelessly launched
+        // iOS app reports) fails fast.
+        VmService? connected;
+        Object? lastError;
+        for (final candidate in candidateWebSocketUris(wsUri)) {
+          try {
+            connected = await vmServiceConnectUri(
+              candidate.toString(),
+            ).timeout(const Duration(seconds: 3));
+            break;
+          } catch (e) {
+            lastError = e;
+          }
         }
-
-        // Use a timeout to avoid hanging on unreachable addresses
-        // (common on Android where the URI is host-forwarded).
-        _service = await vmServiceConnectUri(wsUri.toString())
-            .timeout(const Duration(seconds: 3));
+        if (connected == null) {
+          throw lastError ?? StateError('no VM service address connected');
+        }
+        _service = connected;
+        _watchSocket(connected);
+        _attachWireListeners(connected);
         if (_disposed) {
           _cleanup();
           return false;
         }
 
         // Enable timeline streams for framework events
-        await _service!.setVMTimelineFlags([
-          'Dart',
-          'Embedder',
-          'GC',
-        ]);
+        await _service!.setVMTimelineFlags(['Dart', 'Embedder', 'GC']);
 
         // Resolve main isolate ID for getMemoryUsage() polling
         _mainIsolateId = await _resolveMainIsolateId();
@@ -276,9 +336,9 @@ class VmServiceClient {
   /// (cumulative ~31s before giving up).
   ///
   /// Pre-v0.16.0 this ladder stopped at 4s (7s cumulative), which was
-  /// shorter than the 30s window documented in CLAUDE.md and too
+  /// shorter than the documented 30s reconnect window and too
   /// impatient for cold-start scenarios on Android emulators where the
-  /// VM service socket can take ~10–20s to bind. C3 fix: extend the
+  /// VM service socket can take ~10–20s to bind. v0.16.0 extended the
   /// ladder to match the documented window.
   Future<bool> reconnect() async {
     if (_reconnecting || _disposed) return false;
@@ -353,8 +413,8 @@ class VmServiceClient {
   }
 
   /// Run one poll cycle synchronously without waiting for the periodic
-  /// timer. The returned Future completes after the timeline buffer has
-  /// been drained AND `onTimelineData` has fired, so awaiting this
+  /// timer. The returned Future completes after the new timeline events
+  /// have been read AND `onTimelineData` has fired, so awaiting this
   /// guarantees that any pending detector emissions have landed before
   /// the awaiter proceeds.
   ///
@@ -383,8 +443,7 @@ class VmServiceClient {
   /// suitable for direct emission into a `traceEvents` array.
   ///
   /// Caller is responsible for filtering to a scenario span — the
-  /// returned list contains every event the VM has buffered since the
-  /// last clear (or since service connection if [retainTimeline]).
+  /// returned list contains every event the VM ring buffer still holds.
   /// Narrow or restore the VM timeline stream allowlist at runtime. Used
   /// by capture procedures to suppress Embedder/GC stream churn during
   /// long allocation phases that would otherwise overflow the VM trace
@@ -406,9 +465,9 @@ class VmServiceClient {
       // would produce.
       debugPrint(
         'VmServiceClient.setTimelineStreams($streams): RPC failed: $e. '
-        'Capture procedures fall back to existing stream set; ring-'
-        'buffer overflow is likely if scenario duration > ~5 s with '
-        'Embedder/GC streams enabled.',
+        'Capture procedures keep the existing stream set. The ring '
+        'buffer will likely overflow if a scenario runs longer than '
+        'about 5 s with the Embedder or GC streams on.',
       );
     }
   }
@@ -435,8 +494,7 @@ class VmServiceClient {
   /// `pollTimelineSync` — barrier semantics).
   ///
   /// Periodic-timer overlap (the original v0.18.1 use case) returns
-  /// immediately to avoid wasted VM round-trips and `clearVMTimeline()`
-  /// races. Capture-flow flush MUST guarantee a fresh observation of
+  /// immediately to avoid wasted VM round-trips. Capture-flow flush MUST guarantee a fresh observation of
   /// any BUILD that finished after the in-flight snapshot — otherwise
   /// the issue trace event lands outside the scenario span.
   Completer<void>? _pollInFlightCompleter;
@@ -448,27 +506,32 @@ class VmServiceClient {
   /// `TimelineParser.parse()` reconstruct `dur = E.ts - B.ts` on the
   /// next call.
   ///
-  /// Survives `clearVMTimeline()` because the matching E for a B observed
-  /// in batch N is emitted by Flutter AFTER the clear and lands in
-  /// batch N+1's fresh buffer — it is not discarded by the VM along with
-  /// the cleared events. Without surviving the clear, every poll-boundary
-  /// BUILD on iOS profile mode would silently drop in the default
-  /// live-monitoring path. Cleared only on `dispose()`/`_cleanup()`. Stale
+  /// The matching E for a B observed in batch N is emitted after that
+  /// poll's fetch and arrives in batch N+1, so the stack must carry
+  /// across polls; without it every poll-boundary BUILD on iOS profile
+  /// mode would silently drop. Cleared only on `dispose()`/`_cleanup()`. Stale
   /// entries (B with no matching E within the idle window) are evicted by
   /// the age sweep in `_pollTimeline` using the events' own monotonic
   /// `ts` (microseconds since process boot) to avoid wall-clock drift.
   final Map<int, List<Map<String, dynamic>>> _pendingBuildBegins = {};
 
-  /// Per-tid stacks of unmatched LAYOUT / PAINT / raster `ph: 'B'`
-  /// events. iOS profile mode (Impeller backend) emits these phases
+  /// Per-tid stacks of unmatched LAYOUT / PAINT / raster / shader
+  /// `ph: 'B'` events. iOS profile mode (Impeller backend) emits these phases
   /// as nested B/E pairs with no `X`-form complete events; the parser
   /// reconstructs durations from matching pairs and credits only the
-  /// outermost scope per frame. Survive `clearVMTimeline()` for the
-  /// same cross-batch reasoning as `_pendingBuildBegins`. Cleared in
+  /// outermost scope per frame. Carried across polls for the same
+  /// cross-batch reasoning as `_pendingBuildBegins`. Cleared in
   /// `_cleanup()`; stale begins evicted by the age sweep.
   final Map<int, List<Map<String, dynamic>>> _pendingLayoutBegins = {};
   final Map<int, List<Map<String, dynamic>>> _pendingPaintBegins = {};
   final Map<int, List<Map<String, dynamic>>> _pendingRasterBegins = {};
+  final Map<int, List<Map<String, dynamic>>> _pendingShaderBegins = {};
+
+  /// In-flight async platform-channel calls, carried across polls so a
+  /// call whose `e` lands in the next batch still yields a duration.
+  /// Capped by the parser; stale entries evicted by the age sweep;
+  /// cleared in `_cleanup()`.
+  final PendingChannelBegins _pendingChannelBegins = PendingChannelBegins();
 
   /// Maximum age (in microseconds) for an unmatched BUILD `ph: 'B'` event
   /// to remain in [_pendingBuildBegins]. Beyond this, the entry is treated
@@ -478,26 +541,71 @@ class VmServiceClient {
   /// 30s is almost certainly never going to pair.
   ///
   /// Same cutoff applied to [_pendingLayoutBegins] / [_pendingPaintBegins]
-  /// / [_pendingRasterBegins] — those phases also complete in <16ms in
-  /// any healthy frame, so 30s is a safe orphan ceiling.
+  /// / [_pendingRasterBegins] / [_pendingShaderBegins] — those scopes
+  /// complete well under a second, so 30s is a safe orphan ceiling.
   static const int _pendingBuildBeginsMaxAgeMicros = 30 * 1000 * 1000;
 
   /// Maximum age (in microseconds) for a `_lastProcessedTsByTid` cursor
   /// to survive without observing fresh events. Beyond this idle
   /// window, the cursor is evicted by the post-parse sweep. Long-lived
   /// sessions with churning thread ids (worker isolates, GC helper
-  /// threads) would otherwise grow the map indefinitely.
+  /// threads) would otherwise grow the map indefinitely. Eviction is
+  /// safe because a windowed fetch never returns events older than
+  /// [fetchOverlapMicros] before the newest event seen, far inside this
+  /// age.
   ///
-  /// Sweep runs only on polls with at least one event (the anchor `ts`
-  /// is the max ts in the batch); fully idle polling sessions retain
+  /// Sweep runs only on polls with at least one accepted event (the
+  /// anchor `ts` is the batch max); fully idle polling sessions retain
   /// cursors until the next active poll. Worst case is bounded by the
   /// OS thread limit per process.
   static const int _cursorMaxIdleMicros = 30 * 1000 * 1000;
 
   /// Per-tid cross-call dedup cursors threaded into
-  /// `TimelineParser.parse()` so capture-mode buffer re-reads don't
-  /// inflate downstream counters. Cleared in `_cleanup()`.
+  /// `TimelineParser.parse()` so the overlap between consecutive fetch
+  /// windows doesn't inflate downstream counters. Cleared in
+  /// `_cleanup()`.
   final Map<int, TimelineCursor> _lastProcessedTsByTid = {};
+
+  /// Test-only view of the dedup cursors.
+  @visibleForTesting
+  Map<int, TimelineCursor> get cursorsForTest =>
+      Map.unmodifiable(_lastProcessedTsByTid);
+
+  /// Largest event `ts` accepted in this session; null until the first
+  /// poll that returned a timestamped event. Null makes the next poll a
+  /// full fetch (startup events, first session after a reconnect).
+  /// Reset in `_cleanup()`.
+  int? _lastMaxTs;
+
+  /// How far before the newest event seen a windowed fetch starts: one
+  /// poll interval.
+  ///
+  /// Covers events a thread appends with a timestamp older than another
+  /// thread's newest event. A begin/end pair that straddles a fetch is
+  /// joined by the pending-begin maps, not by re-fetching the begin, so
+  /// the overlap does not need to span
+  /// [TimelineParser.maxReconstructedPhaseUs]. The per-thread cursors drop
+  /// the events the overlap reads again.
+  static const int fetchOverlapMicros = 500000;
+
+  /// Margin added past the VM's current timeline clock reading so events
+  /// stamped between the clock read and the fetch are included.
+  static const int _windowExtentSlackUs = 1000000;
+
+  /// Polls in this session that fell back to a full fetch after the
+  /// timeline clock read failed or ran behind the newest event seen.
+  int _windowFallbacks = 0;
+
+  /// Window fallbacks in a row. At [_fallbacksBeforeFullRead] the newest
+  /// event seen is forgotten and the next poll reads the whole buffer
+  /// with no floor, so a bad newest timestamp cannot hold the window
+  /// shut for the rest of the session.
+  int _consecutiveWindowFallbacks = 0;
+  static const int _fallbacksBeforeFullRead = 3;
+
+  /// Set when [_consecutiveWindowFallbacks] forgot the newest event: the
+  /// next full read counts as a window fallback.
+  bool _fullReadAfterFallbacks = false;
 
   /// Bumped in `_cleanup()`. `_pollTimeline` captures this at start and
   /// re-checks after each await; a generation change means a reconnect
@@ -518,14 +626,96 @@ class VmServiceClient {
     final myGen = _sessionGeneration;
     final completer = Completer<void>();
     _pollInFlightCompleter = completer;
+    // Per-segment timings. Each stopwatch covers one segment only; a
+    // segment that did not run stays 0.
+    var rpcUs = 0;
+    int? decodeUs;
+    var parseUs = 0;
+    var dispatchUs = 0;
+    DispatchSegments? segments;
+    var tailUs = 0;
+    var memoryUs = 0;
+    final tailWindows = <(int, int)>[];
+    final pollStartUs = _rpcClockUs();
+    _cpuSpans.pruneBefore(pollStartUs);
+    _allocationSpans.pruneBefore(pollStartUs);
+    var eventCount = 0;
+    var duplicates = 0;
+    var windowFallback = false;
+    final watch = Stopwatch();
     try {
-      final timeline = await _service!.getVMTimeline();
+      // Fetch window: the whole buffer on the first poll of a session,
+      // otherwise from `fetchOverlapMicros` before the newest event seen
+      // up to the VM's current clock plus slack. The overlap picks up
+      // events a thread wrote late with an older `ts`; a begin/end pair
+      // split across fetches is joined by the pending-begin maps. The
+      // per-tid cursors drop what was already processed. Nothing is cleared, so events written between two
+      // fetches are never lost and DevTools keeps its timeline.
+      var lastMaxTs = _lastMaxTs;
+      int? originUs;
+      int? extentUs;
+      var floorUs = 0;
+      if (lastMaxTs == null && _fullReadAfterFallbacks) {
+        _fullReadAfterFallbacks = false;
+        windowFallback = true;
+        _windowFallbacks++;
+      }
+      if (lastMaxTs != null) {
+        originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
+        watch.start();
+        final clockReadStartUs = _rpcClockUs();
+        final nowUs = await _readTimelineClock();
+        tailUs += watch.elapsedMicroseconds;
+        tailWindows.add((clockReadStartUs, _rpcClockUs()));
+        if (myGen != _sessionGeneration || _disposed) return;
+        if (nowUs != null && _clampToClock(nowUs)) {
+          lastMaxTs = _lastMaxTs!;
+          originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
+        }
+        if (nowUs == null || nowUs < lastMaxTs) {
+          // The clock read failed or is not on the event clock: read the
+          // whole buffer and drop everything before the window client
+          // side, so evicted cursors cannot replay old events.
+          windowFallback = true;
+          _windowFallbacks++;
+          floorUs = originUs;
+          originUs = null;
+          if (++_consecutiveWindowFallbacks >= _fallbacksBeforeFullRead) {
+            _consecutiveWindowFallbacks = 0;
+            _lastMaxTs = null;
+            _fullReadAfterFallbacks = true;
+          }
+        } else {
+          _consecutiveWindowFallbacks = 0;
+          extentUs = nowUs - originUs + _windowExtentSlackUs;
+        }
+      }
+      final Timeline timeline;
+      watch
+        ..reset()
+        ..start();
+      try {
+        timeline = await _fetchTimeline(originUs, extentUs);
+        final receivedUs = _timelineResponseReceivedUs;
+        if (receivedUs >= 0) decodeUs = _rpcClockUs() - receivedUs;
+      } finally {
+        rpcUs = watch.elapsedMicroseconds;
+      }
+      // Both readings come from monotonic clocks started at different
+      // instants; the decode lies inside the await by construction.
+      if (decodeUs != null && decodeUs > rpcUs) decodeUs = rpcUs;
       // Drop stale poll if reconnect/dispose ran during the await.
       if (myGen != _sessionGeneration || _disposed) return;
+      _consecutivePollFailures = 0;
       final events = timeline.traceEvents;
+      eventCount = events?.length ?? 0;
+      ParsedTimelineData? parsed;
       if (events != null && events.isNotEmpty) {
-        // One-shot: extract engine startup events before clearing the buffer.
-        // Must happen before clearVMTimeline() or the events are lost.
+        watch
+          ..reset()
+          ..start();
+        // One-shot: extract engine startup events from the first full
+        // fetch, while the ring buffer still holds them.
         if (!_startupEventsExtracted && onStartupTimelineEvents != null) {
           _startupEventsExtracted = true;
           final startupEvents = TimelineParser.extractStartupEvents(events);
@@ -534,128 +724,409 @@ class VmServiceClient {
           }
         }
 
-        final parsed = TimelineParser.parse(
+        parsed = TimelineParser.parse(
           events,
           pendingBuildBegins: _pendingBuildBegins,
           pendingLayoutBegins: _pendingLayoutBegins,
           pendingPaintBegins: _pendingPaintBegins,
           pendingRasterBegins: _pendingRasterBegins,
+          pendingShaderBegins: _pendingShaderBegins,
+          pendingChannelBegins: _pendingChannelBegins,
           cursorsByTid: _lastProcessedTsByTid,
+          minTimestampUs: floorUs,
         );
-        if (parsed.hasData) {
-          onTimelineData?.call(parsed);
+        duplicates = parsed.duplicatesDropped;
+        final batchMaxTs = parsed.maxTimestampUs;
+        final currentMaxTs = _lastMaxTs;
+        if (batchMaxTs >= 0 &&
+            (currentMaxTs == null || batchMaxTs > currentMaxTs) &&
+            !(_fullReadAfterFallbacks && currentMaxTs == null)) {
+          _lastMaxTs = batchMaxTs;
         }
         // Evict orphan begins (B with no matching E within the idle
         // window). Compares event-relative monotonic `ts` so the sweep
         // is drift-free across wall-clock skews. Skipped when the batch
-        // has no anchor ts to measure against.
-        _sweepStalePendingBegins(events);
+        // accepted no timestamped event.
+        _sweepStalePendingBegins(batchMaxTs);
+        parseUs = watch.elapsedMicroseconds;
       }
-      // Clear the VM's timeline ring buffer to avoid re-processing the
-      // same events on the next poll — unless capture mode wants them
-      // retained for a later Export.
-      //
-      // `_pendingBuildBegins` deliberately survives this clear: the
-      // matching E for a B observed in this batch is emitted by Flutter
-      // AFTER the clear call and lands in the next batch's fresh buffer,
-      // so the carry-over is required for cross-batch reconstruction in
-      // the default live-monitoring path. The age sweep above bounds the
-      // map's growth; `_cleanup()` clears it on dispose.
-      if (!retainTimeline) {
-        await _service!.clearVMTimeline();
-        if (myGen != _sessionGeneration || _disposed) return;
+      // Dispatch every batch with data, and an empty batch once per
+      // [idleHeartbeat] so window-based detectors keep evaluating while
+      // the timeline is quiet.
+      final dispatchAt = DateTime.now();
+      final last = _lastTimelineDispatchAt;
+      final hasData = parsed != null && parsed.hasData;
+      if (hasData ||
+          last == null ||
+          dispatchAt.difference(last) >= idleHeartbeat) {
+        _lastTimelineDispatchAt = dispatchAt;
+        watch
+          ..reset()
+          ..start();
+        onTimelineData?.call(
+          parsed ?? TimelineParser.parse(const <TimelineEvent>[]),
+        );
+        dispatchUs = watch.elapsedMicroseconds;
+        segments = readDispatchSegments?.call();
       }
-
-      // Poll heap memory (piggybacked on timeline poll, near-zero cost)
-      if (_mainIsolateId != null && onHeapSample != null) {
-        try {
-          final mem = await _service!.getMemoryUsage(_mainIsolateId!);
-          if (myGen != _sessionGeneration || _disposed) return;
-          onHeapSample?.call(HeapSample(
-            heapUsage: mem.heapUsage ?? 0,
-            heapCapacity: mem.heapCapacity ?? 0,
-            externalUsage: mem.externalUsage ?? 0,
-            timestamp: DateTime.now(),
-            rssBytes: _readRssBytes(),
-          ));
-        } on SentinelException {
-          // Isolate ID stale (e.g., after hot restart) — re-fetch
-          _mainIsolateId = await _resolveMainIsolateId();
-        } catch (_) {
-          // Memory poll failed but timeline poll succeeded — don't reconnect.
-          // Will retry on next poll cycle.
-        }
+      watch
+        ..reset()
+        ..start();
+      final tailStartUs = _rpcClockUs();
+      try {
+        memoryUs = await _pollTail(myGen);
+      } finally {
+        tailUs += watch.elapsedMicroseconds;
+        tailWindows.add((tailStartUs, _rpcClockUs()));
       }
     } catch (e) {
-      // Connection may have been lost — cancel timer BEFORE callbacks
-      // to prevent 500ms error loops if onConnectionChanged throws.
-      if (!_disposed && !_reconnecting) {
-        _pollTimer?.cancel();
-        _pollTimer = null;
-        _connected = false;
-        onConnectionChanged?.call(false);
-        // Fire-and-forget is intentional — reconnect runs in background
-        unawaited(reconnect());
+      // One failed RPC retries on the next tick; a run of failures means
+      // the connection is gone (see [_consecutivePollFailures]). A poll
+      // that outlived its session leaves the new session alone.
+      if (myGen == _sessionGeneration && !_disposed) {
+        _consecutivePollFailures++;
+        if (_consecutivePollFailures >= pollFailuresBeforeDisconnect) {
+          _consecutivePollFailures = 0;
+          _handleConnectionLost();
+        }
       }
     } finally {
+      watch.stop();
+      final responseChars = _takeTimelineResponseChars();
+      if (myGen == _sessionGeneration && !_disposed) {
+        final detectorsUs = segments?.detectors ?? 0;
+        final correlateUs = segments?.correlate ?? 0;
+        final aggregateUs = segments?.aggregate ?? 0;
+        _recordPollTimings(
+          PollTimings(
+            rpcMicros: rpcUs,
+            decodeMicros: decodeUs,
+            parseMicros: parseUs,
+            dispatchMicros: dispatchUs,
+            dispatchDetectorsMicros: detectorsUs,
+            dispatchCorrelateMicros: correlateUs,
+            dispatchAggregateMicros: aggregateUs,
+            dispatchOtherMicros: math.max(
+              0,
+              dispatchUs - detectorsUs - correlateUs - aggregateUs,
+            ),
+            tailMicros: tailUs,
+            tailCpuSamplesMicros: math.min(
+              tailUs,
+              _cpuSpans.overlapWith(tailWindows),
+            ),
+            tailAllocationProfileMicros: math.min(
+              tailUs,
+              _allocationSpans.overlapWith(tailWindows),
+            ),
+            tailMemoryMicros: memoryUs,
+            eventCount: eventCount,
+            responseChars: responseChars,
+            duplicatesDropped: duplicates,
+            completedAt: DateTime.now(),
+            windowFallback: windowFallback,
+          ),
+        );
+      }
       _pollInFlightCompleter = null;
       completer.complete();
     }
   }
 
-  /// Evict orphan begins from [_pendingBuildBegins] and (in non-capture
-  /// polling mode only) stale cursors from [_lastProcessedTsByTid]. Uses
-  /// the events' own monotonic `ts` as the clock so the sweep is
-  /// independent of wall-clock skew. The anchor ts is the maximum `ts`
-  /// in this poll's batch.
+  /// Issues the poll's `getVMTimeline` request (windowed when [originUs]
+  /// is non-null) with the raw-response length capture armed (see
+  /// [_attachWireListeners]).
+  Future<Timeline> _fetchTimeline(int? originUs, int? extentUs) {
+    _timelineRequestId = null;
+    _timelineResponseChars = -1;
+    _timelineResponseReceivedUs = -1;
+    _armTimelineRequest = true;
+    try {
+      return originUs == null
+          ? _service!.getVMTimeline()
+          : _service!.getVMTimeline(
+              timeOriginMicros: originUs,
+              timeExtentMicros: extentUs,
+            );
+    } finally {
+      _armTimelineRequest = false;
+    }
+  }
+
+  /// Current reading of the VM timeline clock (the clock event `ts`
+  /// values use), or null when the RPC fails.
+  /// Bounds the session's timestamps by the timeline clock reading
+  /// [nowUs]. No window reaches past `nowUs + _windowExtentSlackUs`, so a
+  /// position beyond that bound came from an event stamped on another
+  /// clock.
+  ///
+  /// Thread cursors past the bound are rewound to the newest cursor
+  /// within it, so later events on those threads are not dropped as
+  /// already seen; when every cursor lies past the bound, the clock is
+  /// the outlier and the cursors stay. A newest event past the bound
+  /// becomes that newest cursor and the call returns true, so this poll
+  /// fetches a window; with no cursor within the bound it is pulled back
+  /// to the bound for later polls and this poll falls back to a full
+  /// read.
+  bool _clampToClock(int nowUs) {
+    final ceilingUs = nowUs + _windowExtentSlackUs;
+    final newest = TimelineParser.clampOutlierCursors(
+      _lastProcessedTsByTid,
+      ceilingUs: ceilingUs,
+    );
+    final lastMaxTs = _lastMaxTs;
+    if (lastMaxTs == null || lastMaxTs <= ceilingUs) return false;
+    if (newest != null) {
+      _lastMaxTs = newest;
+      return true;
+    }
+    _lastMaxTs = ceilingUs;
+    return false;
+  }
+
+  Future<int?> _readTimelineClock() async {
+    try {
+      final stamp = await _service!.getVMTimelineMicros();
+      return stamp.timestamp;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The heap memory sample that follows each poll. Returns the
+  /// microseconds spent awaiting `getMemoryUsage` (0 when it did not
+  /// run). Drops the sample when the session moved on.
+  Future<int> _pollTail(int myGen) async {
+    // Poll heap memory (piggybacked on timeline poll, near-zero cost)
+    if (_mainIsolateId == null || onHeapSample == null) return 0;
+    final watch = Stopwatch()..start();
+    try {
+      final mem = await _service!.getMemoryUsage(_mainIsolateId!);
+      watch.stop();
+      if (myGen != _sessionGeneration || _disposed) {
+        return watch.elapsedMicroseconds;
+      }
+      onHeapSample?.call(
+        HeapSample(
+          heapUsage: mem.heapUsage ?? 0,
+          heapCapacity: mem.heapCapacity ?? 0,
+          externalUsage: mem.externalUsage ?? 0,
+          timestamp: DateTime.now(),
+          rssBytes: _readRssBytes(),
+        ),
+      );
+    } on SentinelException {
+      watch.stop();
+      // Isolate ID stale (e.g., after hot restart) — re-fetch, unless
+      // a reconnect replaced the service during the await.
+      final isolateId = await _resolveMainIsolateId();
+      if (myGen != _sessionGeneration || _disposed) {
+        return watch.elapsedMicroseconds;
+      }
+      _mainIsolateId = isolateId;
+    } catch (_) {
+      watch.stop();
+      // Memory poll failed but timeline poll succeeded — don't reconnect.
+      // Will retry on next poll cycle.
+    }
+    return watch.elapsedMicroseconds;
+  }
+
+  /// Monotonic clock for [_cpuSpans], [_allocationSpans] and the decode
+  /// stamp.
+  final Stopwatch _rpcClock = Stopwatch()..start();
+  int _rpcClockUs() =>
+      _rpcClockOverride?.call() ?? _rpcClock.elapsedMicroseconds;
+
+  int Function()? _rpcClockOverride;
+
+  /// Test-only: replaces the monotonic RPC clock (microseconds).
+  @visibleForTesting
+  set rpcClockForTest(int Function() clock) => _rpcClockOverride = clock;
+
+  /// Age after which an unanswered `getCpuSamples` request no longer
+  /// blocks the next one. A VM that never answers while the socket stays
+  /// open would otherwise stop CPU attribution until a reconnect.
+  static const Duration cpuSamplesInFlightStaleAfter = Duration(seconds: 30);
+
+  /// Start of the last `getCpuSamples` request on [_rpcClock].
+  int? _lastCpuSamplesRequestUs;
+
+  /// In-flight `getCpuSamples` requests, for
+  /// [PollTimings.tailCpuSamplesMicros].
+  late final RpcSpanTracker _cpuSpans = RpcSpanTracker(_rpcClockUs);
+
+  /// In-flight `getAllocationProfile` requests, for
+  /// [PollTimings.tailAllocationProfileMicros].
+  late final RpcSpanTracker _allocationSpans = RpcSpanTracker(_rpcClockUs);
+
+  PollTimings? _lastPollTimings;
+  final PollTimingsWindow _timingsWindow = PollTimingsWindow();
+  int _duplicatesDroppedTotal = 0;
+
+  /// Timings of the most recent completed poll of this session; null
+  /// before the first poll.
+  PollTimings? get lastPollTimings => _lastPollTimings;
+
+  /// Largest RPC segment over the last 32 polls; null before the first.
+  int? get maxPollRpcMicros => _timingsWindow.maxRpcMicros;
+
+  /// Largest decode segment over the last 32 polls; null before the first
+  /// poll and when none of them matched its raw response.
+  int? get maxPollDecodeMicros => _timingsWindow.maxDecodeMicros;
+
+  /// Largest parse segment over the last 32 polls; null before the first.
+  int? get maxPollParseMicros => _timingsWindow.maxParseMicros;
+
+  /// Largest dispatch segment over the last 32 polls; null before the
+  /// first.
+  int? get maxPollDispatchMicros => _timingsWindow.maxDispatchMicros;
+
+  /// Events dropped as already processed, summed over this session's
+  /// polls; null before the first poll.
+  int? get pollDuplicatesDropped =>
+      _lastPollTimings == null ? null : _duplicatesDroppedTotal;
+
+  /// Polls in this session that read the whole timeline buffer because
+  /// the timeline clock could not bound a window; null before the first
+  /// poll.
+  int? get pollWindowFallbacks =>
+      _lastPollTimings == null ? null : _windowFallbacks;
+
+  void _recordPollTimings(PollTimings timings) {
+    _lastPollTimings = timings;
+    _timingsWindow.add(timings);
+    _duplicatesDroppedTotal += timings.duplicatesDropped;
+  }
+
+  StreamSubscription<String>? _sendSub;
+  StreamSubscription<String>? _receiveSub;
+
+  /// True only while [_fetchTimeline] is issuing its request, so the
+  /// export fetch and other RPCs are never mistaken for the poll's.
+  bool _armTimelineRequest = false;
+
+  /// Request id of the poll's in-flight `getVMTimeline` call.
+  String? _timelineRequestId;
+
+  /// Length of the matched raw response; −1 until matched.
+  int _timelineResponseChars = -1;
+
+  /// [_rpcClock] reading when the matched raw response arrived; −1 until
+  /// matched. package:vm_service decodes the response and builds the
+  /// `Timeline` on this isolate after `onReceive` fires, so the time
+  /// from here to the completed await is the decode.
+  int _timelineResponseReceivedUs = -1;
+
+  static final RegExp _requestIdPattern = RegExp(r'"id":"([^"]*)"');
+
+  /// Listens to the service's raw wire traffic to measure the size of
+  /// each poll's timeline response. Request ids are private to
+  /// package:vm_service; `onSend` fires synchronously with the encoded
+  /// request (which carries the id) before it is written, and
+  /// `onReceive` fires with each raw response before it is decoded. The
+  /// listeners only read lengths and short substrings, and stamp the
+  /// arrival time of the poll's response.
+  void _attachWireListeners(VmService service) {
+    _sendSub?.cancel();
+    _receiveSub?.cancel();
+    _sendSub = null;
+    _receiveSub = null;
+    try {
+      _sendSub = service.onSend.listen((message) {
+        if (!_armTimelineRequest ||
+            !message.contains('"method":"getVMTimeline"')) {
+          return;
+        }
+        _timelineRequestId = _requestIdPattern.firstMatch(message)?.group(1);
+      });
+      _receiveSub = service.onReceive.listen((message) {
+        final id = _timelineRequestId;
+        if (id == null) return;
+        if (!responseCarriesId(message, id)) return;
+        _timelineResponseReceivedUs = _rpcClockUs();
+        _timelineResponseChars = message.length;
+        _timelineRequestId = null;
+      });
+    } catch (_) {
+      // A test double without wire streams leaves every poll unmatched
+      // (null decode and response size).
+    }
+  }
+
+  /// Characters at each end of a raw response searched for its id.
+  static const int _idSearchChars = 64;
+
+  /// Whether the raw JSON-RPC [message] is the response to request [id].
+  ///
+  /// A response object carries its id at its start or its end, so only
+  /// the first and last [_idSearchChars] characters are searched; ids
+  /// nested in the payload (trace event ids in a timeline export,
+  /// extension event data) cannot match, and a multi-MB response costs
+  /// two short scans.
+  @visibleForTesting
+  static bool responseCarriesId(String message, String id) {
+    final needle = '"id":"$id"';
+    final length = message.length;
+    if (length <= 2 * _idSearchChars) return message.contains(needle);
+    return message.substring(0, _idSearchChars).contains(needle) ||
+        message.substring(length - _idSearchChars).contains(needle);
+  }
+
+  /// The matched response length of this poll, or null when the
+  /// response was not matched; resets the capture.
+  int? _takeTimelineResponseChars() {
+    final chars = _timelineResponseChars;
+    _timelineResponseChars = -1;
+    _timelineResponseReceivedUs = -1;
+    _timelineRequestId = null;
+    return chars >= 0 ? chars : null;
+  }
+
+  /// Evict orphan begins from the pending-begin maps and idle cursors
+  /// from [_lastProcessedTsByTid]. [anchorTs] is the largest `ts` the
+  /// parser accepted in this poll ([ParsedTimelineData.maxTimestampUs]);
+  /// using the events' own monotonic clock keeps the sweep independent
+  /// of wall-clock skew, and taking it from the parse keeps the sweep
+  /// O(pending) instead of another walk over the batch.
   ///
   /// Pending begins: any B older than anchor by
   /// [_pendingBuildBeginsMaxAgeMicros] is evicted (matching E was lost
   /// — VM buffer overflow, isolate crash, etc.). Stack is bottom-to-top
   /// in arrival order; once the front entry is fresh, every later one
-  /// is too — loop short-circuits. Runs in both modes because
-  /// pending-begins are only populated by un-deduped B events; with
-  /// cursor dedup intact, retained re-reads never reach the push
-  /// branch, so the sweep operates on legitimate orphans only.
+  /// is too — loop short-circuits.
   ///
   /// Cursors: any tid whose `lastTs` is older than anchor by
-  /// [_cursorMaxIdleMicros] is evicted — but ONLY when
-  /// `retainTimeline=false`. In capture mode the VM buffer is
-  /// intentionally re-read across polls and the cursor is the dedup
-  /// mechanism preventing replay of retained events. Evicting a cursor
-  /// for an idle tid would let its old events pass through the parser
-  /// on the next poll, inflating `buildEventCount` and other
-  /// accumulators. Idle sessions (no events this poll) skip the sweep
-  /// entirely.
-  void _sweepStalePendingBegins(List<TimelineEvent> events) {
+  /// [_cursorMaxIdleMicros] is evicted. The fetch window never reaches
+  /// that far back, so an evicted tid's old events are not read again.
+  /// Polls that accepted no timestamped event skip the sweep.
+  void _sweepStalePendingBegins(int anchorTs) {
+    if (anchorTs <= 0) return;
     if (_pendingBuildBegins.isEmpty &&
         _pendingLayoutBegins.isEmpty &&
         _pendingPaintBegins.isEmpty &&
         _pendingRasterBegins.isEmpty &&
+        _pendingShaderBegins.isEmpty &&
+        _pendingChannelBegins.isEmpty &&
         _lastProcessedTsByTid.isEmpty) {
       return;
     }
-    var anchorTs = 0;
-    for (final event in events) {
-      final ts = event.json?['ts'];
-      if (ts is int && ts > anchorTs) anchorTs = ts;
-    }
-    if (anchorTs == 0) return;
     final pendingCutoff = anchorTs - _pendingBuildBeginsMaxAgeMicros;
     _evictStaleBegins(_pendingBuildBegins, pendingCutoff);
     _evictStaleBegins(_pendingLayoutBegins, pendingCutoff);
     _evictStaleBegins(_pendingPaintBegins, pendingCutoff);
     _evictStaleBegins(_pendingRasterBegins, pendingCutoff);
-    if (!retainTimeline) {
-      final cursorCutoff = anchorTs - _cursorMaxIdleMicros;
-      _lastProcessedTsByTid
-          .removeWhere((_, cursor) => cursor.lastTs < cursorCutoff);
-    }
+    _evictStaleBegins(_pendingShaderBegins, pendingCutoff);
+    _pendingChannelBegins.evictBefore(pendingCutoff);
+    final cursorCutoff = anchorTs - _cursorMaxIdleMicros;
+    _lastProcessedTsByTid.removeWhere(
+      (_, cursor) => cursor.lastTs < cursorCutoff,
+    );
   }
 
   /// Drop entries older than [cutoffTs] from the head of each per-tid
   /// stack, then prune empty tid entries. Shared body for the BUILD /
-  /// LAYOUT / PAINT / raster pending-begins sweep.
+  /// LAYOUT / PAINT / raster / shader pending-begins sweep.
   static void _evictStaleBegins(
     Map<int, List<Map<String, dynamic>>> pending,
     int cutoffTs,
@@ -695,16 +1166,88 @@ class VmServiceClient {
     }
   }
 
+  /// WebSocket addresses to try for this process's own VM service, in
+  /// order.
+  ///
+  /// `controlWebServer` reports `127.0.0.1` for a loopback bind; `localhost`
+  /// lets Dart's dual-stack resolver try IPv4 and IPv6. A service bound to
+  /// the wildcard address reports an interface address instead (the Wi-Fi
+  /// address of a wirelessly launched iOS app). Connecting to that from
+  /// inside the app leaves through the LAN interface, which iOS
+  /// local-network privacy blocks without a prompt in profile mode. A
+  /// wildcard bind always serves loopback, so loopback goes first; the
+  /// reported address stays as the fallback for a service bound to one
+  /// specific interface.
+  @visibleForTesting
+  static List<Uri> candidateWebSocketUris(Uri wsUri) {
+    final loopback = wsUri.replace(host: 'localhost');
+    switch (wsUri.host) {
+      case 'localhost' || '127.0.0.1' || '::1' || '[::1]':
+        return [loopback];
+      default:
+        return [loopback, wsUri];
+    }
+  }
+
   Uri _toWebSocketUri(Uri httpUri) {
-    final path =
-        httpUri.path.endsWith('/') ? '${httpUri.path}ws' : '${httpUri.path}/ws';
+    final path = httpUri.path.endsWith('/')
+        ? '${httpUri.path}ws'
+        : '${httpUri.path}/ws';
     return httpUri.replace(
       scheme: httpUri.scheme == 'https' ? 'wss' : 'ws',
       path: path,
     );
   }
 
+  /// Reports the connection lost once and starts the reconnect ladder.
+  /// Cancels the poll timer BEFORE the callback so a throwing
+  /// [onConnectionChanged] cannot produce a 500 ms error loop.
+  void _handleConnectionLost() {
+    if (_disposed || _reconnecting || !_connected && _service == null) return;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _connected = false;
+    onConnectionChanged?.call(false);
+    // Fire-and-forget is intentional — reconnect runs in background.
+    unawaited(reconnect());
+  }
+
+  /// Reports a real socket closure as soon as the service's `onDone`
+  /// completes, independent of the poll cadence. Ignored once the
+  /// service has been replaced or cleaned up (a reconnect disposes the
+  /// old service, which also completes its `onDone`).
+  void _watchSocket(VmService service) {
+    try {
+      unawaited(
+        service.onDone.then((_) {
+          if (identical(_service, service)) _handleConnectionLost();
+        }),
+      );
+    } catch (_) {
+      // A test double without a socket has no `onDone`.
+    }
+  }
+
   void _cleanup() {
+    _consecutivePollFailures = 0;
+    _lastTimelineDispatchAt = null;
+    _lastPollTimings = null;
+    _timingsWindow.clear();
+    _duplicatesDroppedTotal = 0;
+    _windowFallbacks = 0;
+    _consecutiveWindowFallbacks = 0;
+    _fullReadAfterFallbacks = false;
+    _lastMaxTs = null;
+    _startupEventsExtracted = false;
+    _cpuSpans.clear();
+    _allocationSpans.clear();
+    _lastCpuSamplesRequestUs = null;
+    _sendSub?.cancel();
+    _sendSub = null;
+    _receiveSub?.cancel();
+    _receiveSub = null;
+    _timelineRequestId = null;
+    _timelineResponseChars = -1;
     // Bump generation before clearing so any in-flight `_pollTimeline`
     // detects the change at its next fence check and drops stale results.
     _sessionGeneration++;
@@ -712,6 +1255,8 @@ class VmServiceClient {
     _pendingLayoutBegins.clear();
     _pendingPaintBegins.clear();
     _pendingRasterBegins.clear();
+    _pendingShaderBegins.clear();
+    _pendingChannelBegins.clear();
     _lastProcessedTsByTid.clear();
     _pollTimer?.cancel();
     _pollTimer = null;
@@ -733,7 +1278,11 @@ class VmServiceClient {
     _service = null;
   }
 
-  /// Query CPU samples for a time window. Returns null on error or timeout.
+  /// Query CPU samples for a time window. Returns null on error or
+  /// timeout, and without issuing the RPC while an earlier request is
+  /// still in flight (a timed-out request stays in flight until the VM
+  /// answers or [cpuSamplesInFlightStaleAfter] passes) or within
+  /// [cpuSamplesMinInterval] of the previous request.
   ///
   /// Used by the controller to attribute jank frames to specific functions.
   /// Only called on-demand when a jank frame is detected — not continuous.
@@ -744,14 +1293,26 @@ class VmServiceClient {
     final service = _service;
     final isolateId = _mainIsolateId;
     if (service == null || isolateId == null) return null;
+    final nowUs = _rpcClockUs();
+    _cpuSpans.abandonOpenBefore(
+      nowUs - cpuSamplesInFlightStaleAfter.inMicroseconds,
+    );
+    if (_cpuSpans.openCount > 0) return null;
+    final lastUs = _lastCpuSamplesRequestUs;
+    if (lastUs != null &&
+        nowUs - lastUs < cpuSamplesMinInterval.inMicroseconds) {
+      return null;
+    }
+    _lastCpuSamplesRequestUs = nowUs;
 
+    final gen = _sessionGeneration;
     try {
-      return await service
-          .getCpuSamples(isolateId, timeOriginUs, timeExtentUs)
+      return await _cpuSpans
+          .track(service.getCpuSamples(isolateId, timeOriginUs, timeExtentUs))
           .timeout(const Duration(milliseconds: 500));
     } on SentinelException {
       // Isolate ID stale (e.g., after hot restart) — re-fetch
-      _mainIsolateId = await _resolveMainIsolateId();
+      await _refreshMainIsolateId(gen);
       return null;
     } catch (_) {
       // CPU sample query failed — non-fatal, don't trigger reconnect
@@ -772,17 +1333,36 @@ class VmServiceClient {
     final isolateId = _mainIsolateId;
     if (service == null || isolateId == null) return null;
 
+    final gen = _sessionGeneration;
     try {
-      return await service
-          .getAllocationProfile(isolateId, reset: reset)
+      return await _allocationSpans
+          .track(service.getAllocationProfile(isolateId, reset: reset))
           .timeout(timeout);
     } on SentinelException {
-      _mainIsolateId = await _resolveMainIsolateId();
+      await _refreshMainIsolateId(gen);
       return null;
     } catch (_) {
       return null;
     }
   }
+
+  /// Re-resolves the main isolate id after a stale-isolate error. The
+  /// answer is kept only while the session that saw the error is still
+  /// current.
+  Future<void> _refreshMainIsolateId(int gen) async {
+    if (gen != _sessionGeneration || _service == null) return;
+    final id = await _resolveMainIsolateId();
+    if (gen == _sessionGeneration && !_disposed) _mainIsolateId = id;
+  }
+
+  /// Test-only: ends the session as a reconnect does, so an in-flight
+  /// poll or request finishes against a newer generation.
+  @visibleForTesting
+  void endSessionForTest() => _cleanup();
+
+  /// Test-only view of the consecutive failed-poll counter.
+  @visibleForTesting
+  int get consecutivePollFailuresForTest => _consecutivePollFailures;
 
   /// Dispose all resources.
   void dispose() {

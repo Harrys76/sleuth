@@ -2,10 +2,20 @@
 // (fires only on subclassing). Remove when analyzer-server recognizes the
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show KeepAliveParentDataMixin;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/keep_alive_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/utils/issue_explanation_builder.dart';
+
+/// Number of KeepAlive elements whose child render object is actively
+/// kept alive (the authoritative parent-data flag).
+int _activeKeepAliveCount() =>
+    find.byType(KeepAlive, skipOffstage: false).evaluate().where((e) {
+      final pd = e.renderObject?.parentData;
+      return pd is KeepAliveParentDataMixin && pd.keepAlive;
+    }).length;
 
 void main() {
   group('KeepAliveDetector', () {
@@ -16,8 +26,9 @@ void main() {
     });
 
     // HARD GATE: fixture proof — verify KeepAlive nodes materialize
-    testWidgets('fixture proof: KeepAlive nodes appear after scrolling',
-        (tester) async {
+    testWidgets('fixture proof: KeepAlive nodes appear after scrolling', (
+      tester,
+    ) async {
       final controller = PageController();
       addTearDown(controller.dispose);
 
@@ -53,10 +64,15 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       // At least some KeepAlive nodes should exist from visited pages
-      expect(detector.issues, isNotEmpty,
-          reason: 'KeepAlive nodes should be in the tree after visiting pages');
-      expect(detector.issues.first.observationSource,
-          ObservationSource.structural);
+      expect(
+        detector.issues,
+        isNotEmpty,
+        reason: 'KeepAlive nodes should be in the tree after visiting pages',
+      );
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.structural,
+      );
     });
 
     testWidgets('no issues when disabled', (tester) async {
@@ -153,7 +169,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       final issue = detector.issues.first;
-      expect(issue.stableId, 'excessive_keep_alive:0');
+      expect(issue.stableId, 'excessive_keep_alive:PageView~1');
       expect(issue.confidence, IssueConfidence.possible);
       expect(issue.category, IssueCategory.memory);
     });
@@ -260,8 +276,7 @@ void main() {
       expect(detector.highlights.first.detectorName, 'KeepAlive');
     });
 
-    testWidgets(
-        'not flagged when pages wrap in AutomaticKeepAlive with '
+    testWidgets('not flagged when pages wrap in AutomaticKeepAlive with '
         'wantKeepAlive=false', (tester) async {
       // Regression: `AutomaticKeepAlive.build()` ALWAYS wraps children in a
       // `KeepAlive(keepAlive: _keepingAlive, ...)`, even when no descendant
@@ -302,52 +317,59 @@ void main() {
       await tester.pumpAndSettle();
 
       detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'inactive KeepAlive wrappers should not be counted');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'inactive KeepAlive wrappers should not be counted',
+      );
     });
 
     testWidgets(
-        'mixed wantKeepAlive: only opted-in pages counted toward threshold',
-        (tester) async {
-      // Mirrors the combined chat demo's "fixed" pattern: a small subset of
-      // tabs keep alive, the majority opt out. The detector must count only
-      // the opted-in subset, so a reasonable threshold keeps the fixed path
-      // silent.
-      detector = KeepAliveDetector(threshold: 5);
-      final controller = PageController();
-      addTearDown(controller.dispose);
+      'mixed wantKeepAlive: only opted-in pages counted toward threshold',
+      (tester) async {
+        // Mirrors the combined chat demo's "fixed" pattern: a small subset of
+        // tabs keep alive, the majority opt out. The detector must count only
+        // the opted-in subset, so a reasonable threshold keeps the fixed path
+        // silent.
+        detector = KeepAliveDetector(threshold: 5);
+        final controller = PageController();
+        addTearDown(controller.dispose);
 
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: SizedBox(
-            height: 400,
-            width: 400,
-            child: PageView(
-              controller: controller,
-              children: List.generate(
-                6,
-                (i) => _ConfigurableKeepAlivePage(
-                  key: ValueKey(i),
-                  label: 'P$i',
-                  keepAlive: i < 2, // only first two opt in
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SizedBox(
+              height: 400,
+              width: 400,
+              child: PageView(
+                controller: controller,
+                children: List.generate(
+                  6,
+                  (i) => _ConfigurableKeepAlivePage(
+                    key: ValueKey(i),
+                    label: 'P$i',
+                    keepAlive: i < 2, // only first two opt in
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      for (int i = 1; i < 6; i++) {
-        controller.jumpToPage(i);
+        );
+        for (int i = 1; i < 6; i++) {
+          controller.jumpToPage(i);
+          await tester.pumpAndSettle();
+        }
+        controller.jumpToPage(0);
         await tester.pumpAndSettle();
-      }
-      controller.jumpToPage(0);
-      await tester.pumpAndSettle();
 
-      detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'only 2 active keep-alives, below threshold of 5');
-    });
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'only 2 active keep-alives, below threshold of 5',
+        );
+      },
+    );
 
     testWidgets('not flagged in ListView', (tester) async {
       // KeepAlive in ListView is normal framework behavior — detector only
@@ -409,8 +431,9 @@ void main() {
     // Custom thresholds
     // -----------------------------------------------------------------
 
-    testWidgets('higher threshold allows more keep-alive pages',
-        (tester) async {
+    testWidgets('higher threshold allows more keep-alive pages', (
+      tester,
+    ) async {
       // threshold: 10 means up to 10 keep-alive pages are acceptable
       detector = KeepAliveDetector(threshold: 10);
       final controller = PageController();
@@ -485,8 +508,9 @@ void main() {
       expect(detector.issues.first.detail, contains('total in scrollable'));
     });
 
-    testWidgets('subtree cost increases with heavier page content',
-        (tester) async {
+    testWidgets('subtree cost increases with heavier page content', (
+      tester,
+    ) async {
       final controller = PageController();
       addTearDown(controller.dispose);
 
@@ -502,7 +526,10 @@ void main() {
               children: List.generate(
                 4,
                 (i) => _HeavyKeepAlivePage(
-                    key: ValueKey(i), label: 'Page $i', childCount: 20),
+                  key: ValueKey(i),
+                  label: 'Page $i',
+                  childCount: 20,
+                ),
               ),
             ),
           ),
@@ -521,8 +548,9 @@ void main() {
       expect(detector.issues, hasLength(1));
       // Heavy pages should report a larger total element count
       final detail = detector.issues.first.detail;
-      final totalMatch =
-          RegExp(r'\((\d+) total in scrollable\)').firstMatch(detail);
+      final totalMatch = RegExp(
+        r'\((\d+) total in scrollable\)',
+      ).firstMatch(detail);
       expect(totalMatch, isNotNull);
       final totalElements = int.parse(totalMatch!.group(1)!);
       // Each page has 20 SizedBox children + wrapper elements; total should
@@ -534,8 +562,9 @@ void main() {
     // v9.6: Per-scrollable accumulation
     // -----------------------------------------------------------------
 
-    testWidgets('two PageViews each above threshold produce two issues',
-        (tester) async {
+    testWidgets('two PageViews each above threshold produce two issues', (
+      tester,
+    ) async {
       final controller1 = PageController();
       final controller2 = PageController();
       addTearDown(controller1.dispose);
@@ -591,8 +620,360 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.issues, hasLength(2));
-      expect(detector.issues[0].stableId, 'excessive_keep_alive:0');
-      expect(detector.issues[1].stableId, 'excessive_keep_alive:1');
+      expect(detector.issues[0].stableId, 'excessive_keep_alive:PageView~1');
+      expect(detector.issues[1].stableId, 'excessive_keep_alive:PageView~2');
+    });
+
+    testWidgets('TabBarView with 6 kept-alive tabs emits exactly one issue', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DefaultTabController(
+            length: 6,
+            child: Builder(
+              builder: (context) => Scaffold(
+                body: TabBarView(
+                  children: List.generate(
+                    6,
+                    (i) => _KeepAlivePage(key: ValueKey(i), label: 'T$i'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final tabController = DefaultTabController.of(
+        tester.element(find.byType(TabBarView)),
+      );
+      for (int i = 1; i < 6; i++) {
+        tabController.index = i;
+        await tester.pumpAndSettle();
+      }
+      tabController.index = 0;
+      await tester.pumpAndSettle();
+
+      // TabBarView builds its own PageView: both used to count every tab.
+      expect(
+        find.descendant(
+          of: find.byType(TabBarView),
+          matching: find.byType(PageView),
+        ),
+        findsOneWidget,
+      );
+      expect(_activeKeepAliveCount(), 6);
+
+      detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+      final issue = detector.issues.single;
+      expect(issue.stableId, 'excessive_keep_alive:TabBarView~1');
+      expect(issue.title, contains('6 in TabBarView'));
+    });
+
+    testWidgets('kept-alive ListView items inside a PageView page are not '
+        'counted toward the PageView', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 400,
+            width: 400,
+            child: PageView(
+              children: [
+                ListView(
+                  children: List.generate(
+                    8,
+                    (i) => _KeepAlivePage(key: ValueKey(i), label: 'Item $i'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 8 list items, plus the page: KeepAliveNotification keeps bubbling
+      // past the item's AutomaticKeepAlive, so the page is kept alive too.
+      expect(_activeKeepAliveCount(), 9);
+
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'only the page counts toward the PageView (1, not > 1)',
+      );
+    });
+  });
+
+  group('KeepAliveDetector identity ids', () {
+    /// Two pagers side by side, each with [pages] kept-alive pages; only
+    /// pages that were visited are kept alive.
+    Widget pagers({
+      required PageController first,
+      required PageController second,
+      Key? firstKey,
+      Key? secondKey,
+    }) {
+      Widget pager(PageController c, Key? key, String tag) => SizedBox(
+        height: 200,
+        width: 400,
+        child: PageView(
+          key: key,
+          controller: c,
+          children: List.generate(
+            4,
+            (i) => _KeepAlivePage(key: ValueKey('$tag$i'), label: '$tag$i'),
+          ),
+        ),
+      );
+      return Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: [
+            pager(first, firstKey, 'a'),
+            pager(second, secondKey, 'b'),
+          ],
+        ),
+      );
+    }
+
+    Future<void> visitAll(WidgetTester tester, PageController c) async {
+      for (var i = 1; i < 4; i++) {
+        c.jumpToPage(i);
+        await tester.pumpAndSettle();
+      }
+      c.jumpToPage(0);
+      await tester.pumpAndSettle();
+    }
+
+    List<String?> ids(KeepAliveDetector detector, WidgetTester tester) {
+      detector.scanTree(tester.element(find.byType(Directionality).first));
+      return [for (final i in detector.issues) i.stableId];
+    }
+
+    testWidgets('an id holds when another scrollable starts keeping pages '
+        'alive', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(pagers(first: first, second: second));
+
+      await visitAll(tester, second);
+      expect(ids(detector, tester), ['excessive_keep_alive:PageView~2']);
+
+      await visitAll(tester, first);
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~1',
+        'excessive_keep_alive:PageView~2',
+      ]);
+    });
+
+    testWidgets('a string or number ValueKey names the scrollable, '
+        'sanitised', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(
+          first: first,
+          second: second,
+          firstKey: const ValueKey('feed.main/tab 1|x#y:z'),
+          secondKey: const ValueKey(2.5),
+        ),
+      );
+      await visitAll(tester, first);
+      await visitAll(tester, second);
+
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~k-feed_main_tab_1_x_y_z',
+        'excessive_keep_alive:PageView~k-2_5',
+      ]);
+    });
+
+    testWidgets('a long key is cut to 24 characters', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(first: first, second: second, firstKey: ValueKey('k' * 40)),
+      );
+      await visitAll(tester, first);
+
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~k-${'k' * 24}',
+      ]);
+    });
+
+    testWidgets('a keyed scrollable takes no ordinal', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(first: first, second: second, firstKey: const ValueKey('feed')),
+      );
+      await visitAll(tester, second);
+
+      expect(ids(detector, tester), ['excessive_keep_alive:PageView~1']);
+    });
+
+    testWidgets('a number key and the first unkeyed scrollable differ', (
+      tester,
+    ) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(first: first, second: second, firstKey: const ValueKey(1)),
+      );
+      await visitAll(tester, first);
+      await visitAll(tester, second);
+
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~k-1',
+        'excessive_keep_alive:PageView~1',
+      ]);
+    });
+
+    testWidgets('keys that sanitise alike get a numbered suffix', (
+      tester,
+    ) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final first = PageController();
+      final second = PageController();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(
+        pagers(
+          first: first,
+          second: second,
+          firstKey: const ValueKey('a.b'),
+          secondKey: const ValueKey('a_b'),
+        ),
+      );
+      await visitAll(tester, first);
+      await visitAll(tester, second);
+
+      expect(ids(detector, tester), [
+        'excessive_keep_alive:PageView~k-a_b',
+        'excessive_keep_alive:PageView~k-a_b-2',
+      ]);
+    });
+
+    testWidgets('two tab views with the same key get distinct ids', (
+      tester,
+    ) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      Widget tabs() => DefaultTabController(
+        length: 3,
+        child: SizedBox(
+          height: 200,
+          child: TabBarView(
+            key: const ValueKey('gallery'),
+            children: List.generate(
+              3,
+              (i) => _KeepAlivePage(key: ValueKey(i), label: 'G$i'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Column(
+            children: [
+              SizedBox(height: 200, child: tabs()),
+              SizedBox(height: 200, child: tabs()),
+            ],
+          ),
+        ),
+      );
+      for (final view in find.byType(TabBarView).evaluate().toList()) {
+        final controller = DefaultTabController.of(view);
+        for (var i = 1; i < 3; i++) {
+          controller.index = i;
+          await tester.pumpAndSettle();
+        }
+        controller.index = 0;
+        await tester.pumpAndSettle();
+      }
+
+      detector.scanTree(tester.element(find.byType(MaterialApp)));
+      expect(
+        [for (final i in detector.issues) i.stableId],
+        [
+          'excessive_keep_alive:TabBarView~k-gallery',
+          'excessive_keep_alive:TabBarView~k-gallery-2',
+        ],
+      );
+    });
+
+    testWidgets('an unkeyed outer pager keeps its id when its inner pagers '
+        'change', (tester) async {
+      final detector = KeepAliveDetector(threshold: 1);
+      final outer = PageController();
+      addTearDown(outer.dispose);
+      Widget nested(int inner) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          height: 400,
+          width: 400,
+          child: PageView(
+            controller: outer,
+            children: List.generate(
+              4,
+              (i) => _KeepAliveHost(
+                key: ValueKey('o$i'),
+                child: Column(
+                  children: [
+                    for (var j = 0; j < inner; j++)
+                      SizedBox(
+                        height: 50,
+                        child: PageView(children: [Text('o$i-$j')]),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      String? outerId() {
+        detector.scanTree(tester.element(find.byType(Directionality).first));
+        return detector.issues
+            .singleWhere((i) => i.title.contains('4 in PageView'))
+            .stableId;
+      }
+
+      await tester.pumpWidget(nested(1));
+      await visitAll(tester, outer);
+      expect(outerId(), 'excessive_keep_alive:PageView~1');
+
+      await tester.pumpWidget(nested(3));
+      await tester.pumpAndSettle();
+      expect(outerId(), 'excessive_keep_alive:PageView~1');
+    });
+
+    test('ids map to the encyclopedia entry', () {
+      for (final id in [
+        'excessive_keep_alive:PageView~1',
+        'excessive_keep_alive:TabBarView~k-feed_main',
+        'excessive_keep_alive:TabBarView~k-gallery-2',
+      ]) {
+        expect(IssueExplanationBuilder.canonicalId(id), 'excessive_keep_alive');
+        expect(IssueExplanationBuilder.explain(id), isNotNull);
+        expect(id, isNot(matches(RegExp(r'[.|#]'))));
+      }
     });
   });
 }
@@ -699,5 +1080,26 @@ class _ConfigurableKeepAlivePageState extends State<_ConfigurableKeepAlivePage>
   Widget build(BuildContext context) {
     super.build(context);
     return Center(child: Text(widget.label));
+  }
+}
+
+/// Keeps [child] alive as a page.
+class _KeepAliveHost extends StatefulWidget {
+  const _KeepAliveHost({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<_KeepAliveHost> createState() => _KeepAliveHostState();
+}
+
+class _KeepAliveHostState extends State<_KeepAliveHost>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

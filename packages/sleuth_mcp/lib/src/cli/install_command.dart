@@ -9,9 +9,9 @@ const String defaultMcpServerName = 'sleuth';
 /// Default executable resolution — when sleuth_mcp is installed via
 /// `dart pub global activate sleuth_mcp`, this is the canonical entry.
 Map<String, Object?> defaultMcpEntry() => <String, Object?>{
-      'command': 'sleuth_mcp',
-      'args': <String>[],
-    };
+  'command': 'sleuth_mcp',
+  'args': <String>[],
+};
 
 /// Resolve target config file. Default: `<home>/.claude.json` for
 /// Claude Code. Caller can override (project-local config, tests).
@@ -20,7 +20,9 @@ File defaultConfigFile() {
       Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
   if (home == null || home.isEmpty) {
     throw StateError(
-        'cannot resolve home directory — set HOME (or USERPROFILE on Windows)');
+      'cannot resolve the home directory. Set HOME, or USERPROFILE on '
+      'Windows.',
+    );
   }
   return File('$home/.claude.json');
 }
@@ -45,10 +47,7 @@ Future<InstallCommandResult> runInstallCommand({
     if (a == '--remove' || a == '--uninstall') {
       remove = true;
     } else if (a == '--help' || a == '-h') {
-      return InstallCommandResult(
-        exitCode: 0,
-        message: _usage(),
-      );
+      return InstallCommandResult(exitCode: 0, message: _usage());
     } else if (a.startsWith('-')) {
       return InstallCommandResult(
         exitCode: 64,
@@ -67,13 +66,15 @@ Future<InstallCommandResult> runInstallCommand({
         case ConfigWriteOutcome.removed:
           return InstallCommandResult(
             exitCode: 0,
-            message: 'removed mcpServers.$name from ${r.configPath} '
+            message:
+                'removed mcpServers.$name from ${r.configPath} '
                 '(backup: ${r.backupPath})',
           );
         case ConfigWriteOutcome.notFound:
           return InstallCommandResult(
             exitCode: 0,
-            message: 'mcpServers.$name not present in ${r.configPath} — '
+            message:
+                'mcpServers.$name is not in ${r.configPath}, so there is '
                 'nothing to remove',
           );
         default:
@@ -92,19 +93,21 @@ Future<InstallCommandResult> runInstallCommand({
       case ConfigWriteOutcome.added:
         return InstallCommandResult(
           exitCode: 0,
-          message: 'added mcpServers.$name to ${r.configPath} '
+          message:
+              'added mcpServers.$name to ${r.configPath} '
               '(backup: ${r.backupPath ?? "<new file>"})',
         );
       case ConfigWriteOutcome.updated:
         return InstallCommandResult(
           exitCode: 0,
-          message: 'updated mcpServers.$name in ${r.configPath} '
+          message:
+              'updated mcpServers.$name in ${r.configPath} '
               '(backup: ${r.backupPath})',
         );
       case ConfigWriteOutcome.alreadyPresent:
         return InstallCommandResult(
           exitCode: 0,
-          message: 'mcpServers.$name already up to date in ${r.configPath}',
+          message: 'mcpServers.$name is already up to date in ${r.configPath}',
         );
       default:
         return InstallCommandResult(

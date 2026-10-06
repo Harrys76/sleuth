@@ -11,9 +11,12 @@ class ParsedTimelineData {
     this.rasterDurations = const [],
     this.shaderCompileDurations = const [],
     this.platformChannelEvents = const [],
+    this.platformChannelCalls = const [],
     this.gcEvents = const [],
     this.buildEventCount = 0,
     this.phaseEvents = const [],
+    this.duplicatesDropped = 0,
+    this.maxTimestampUs = -1,
   });
 
   /// Exact buildScope durations in microseconds.
@@ -31,8 +34,15 @@ class ParsedTimelineData {
   /// Shader compilation durations in microseconds.
   final List<int> shaderCompileDurations;
 
-  /// Platform channel method call events.
+  /// Platform channel method call events, one per call (the async `b`
+  /// event, or the sync `X` event).
   final List<TimelineEvent> platformChannelEvents;
+
+  /// Completed platform channel calls with a measured duration: async
+  /// `b`/`e` pairs matched by `id`, plus sync `X` events. A call whose
+  /// begin arrived in an earlier batch completes here. Counting uses
+  /// [platformChannelEvents]; this list carries durations only.
+  final List<PlatformChannelCall> platformChannelCalls;
 
   /// GC-related events.
   final List<TimelineEvent> gcEvents;
@@ -45,6 +55,14 @@ class ParsedTimelineData {
   /// allowing `FrameEventCorrelator` to match events to specific frames.
   final List<PhaseEvent> phaseEvents;
 
+  /// Events skipped because an earlier parse call already processed them
+  /// (per-thread cursor rejects). Diagnostic only; not part of [hasData].
+  final int duplicatesDropped;
+
+  /// Largest `ts` among the events this call accepted (duplicates
+  /// excluded), or −1 when none carried a timestamp.
+  final int maxTimestampUs;
+
   bool get hasData =>
       buildScopeDurations.isNotEmpty ||
       flushLayoutDurations.isNotEmpty ||
@@ -52,6 +70,7 @@ class ParsedTimelineData {
       rasterDurations.isNotEmpty ||
       shaderCompileDurations.isNotEmpty ||
       platformChannelEvents.isNotEmpty ||
+      platformChannelCalls.isNotEmpty ||
       gcEvents.isNotEmpty ||
       buildEventCount > 0;
 
@@ -66,6 +85,28 @@ class ParsedTimelineData {
   int get totalFlushPaintUs => flushPaintDurations.fold(0, (sum, d) => sum + d);
 }
 
+/// A completed platform channel call.
+class PlatformChannelCall {
+  const PlatformChannelCall({
+    required this.name,
+    required this.beginTs,
+    required this.durationUs,
+    this.id,
+  });
+
+  /// Timeline event name (`Platform Channel send <channel>#<method>`).
+  final String name;
+
+  /// Monotonic timestamp of the call's begin, in microseconds.
+  final int beginTs;
+
+  /// Begin-to-end duration in microseconds.
+  final int durationUs;
+
+  /// Async event id for `b`/`e` pairs; null for sync `X` events.
+  final String? id;
+}
+
 /// Parses raw VM Timeline events into structured [ParsedTimelineData].
 ///
 /// Handles multiple naming conventions across Flutter versions:
@@ -75,18 +116,164 @@ class ParsedTimelineData {
 ///
 /// Falls back to thread ID classification when names don't match known patterns.
 
-/// Per-tid cross-call dedup cursor for [TimelineParser.parse]. `lastTs`
-/// is the max `ts` observed for the thread in a prior call;
-/// `seenSignatures` holds the `(ph, name, id)` signatures of events at
-/// that exact `lastTs`, so distinct events sharing a microsecond are
-/// not conflated.
-typedef TimelineCursor = ({int lastTs, Set<String> seenSignatures});
+/// Per-tid cross-call dedup cursor for [TimelineParser.parse].
+///
+/// [lastTs] is the largest `ts` processed for the thread. Distinct events
+/// can share a microsecond, so the cursor also remembers the events at
+/// exactly [lastTs] by their `(ph, name, id)` signature. The signature is
+/// built only when a second event arrives at [lastTs]; an event with a
+/// larger `ts` resets the set, so its size is bounded by the events
+/// sharing one timestamp, never by session length.
+class TimelineCursor {
+  TimelineCursor._(this._lastTs, this._firstAtLastTs);
+
+  int _lastTs;
+
+  /// First event accepted at [lastTs], kept unsigned until a tie.
+  Map<String, dynamic>? _firstAtLastTs;
+
+  /// Signatures of the events at [lastTs]; null until a tie.
+  Set<String>? _signatures;
+
+  /// Largest `ts` processed for the thread.
+  int get lastTs => _lastTs;
+
+  /// Signatures of the events processed at exactly [lastTs].
+  Set<String> get seenSignatures =>
+      _signatures ?? {TimelineParser._signatureOf(_firstAtLastTs!)};
+
+  void _advance(int ts, Map<String, dynamic> json) {
+    _lastTs = ts;
+    _firstAtLastTs = json;
+    _signatures = null;
+  }
+
+  /// Records an event at exactly [lastTs]; false when already seen.
+  bool _acceptTie(Map<String, dynamic> json) {
+    var signatures = _signatures;
+    if (signatures == null) {
+      signatures = {TimelineParser._signatureOf(_firstAtLastTs!)};
+      _signatures = signatures;
+      _firstAtLastTs = null;
+    }
+    return signatures.add(TimelineParser._signatureOf(json));
+  }
+
+  /// Moves the cursor back to [ts], forgetting the events seen at the
+  /// old position.
+  void _rewind(int ts) {
+    _lastTs = ts;
+    _firstAtLastTs = null;
+    _signatures = <String>{};
+  }
+}
+
+/// Async platform-channel calls whose `b` event was seen and whose `e`
+/// has not arrived yet, carried across parse calls.
+///
+/// Begins are kept per call `id` in arrival order. An `e` pairs with the
+/// earliest open begin of its `id` on the same thread, else the earliest
+/// open begin of that `id`, so an id reused before its first call ends
+/// still yields one duration per call. At most
+/// [TimelineParser.pendingChannelBeginsCap] begins are kept; beyond that
+/// the oldest is dropped.
+class PendingChannelBegins {
+  final Map<String, List<({int tid, int ts, int seq})>> _byId = {};
+  int _length = 0;
+  int _nextSeq = 0;
+
+  /// Open begins across every id.
+  int get length => _length;
+
+  /// Whether no begin is open.
+  bool get isEmpty => _length == 0;
+
+  /// Whether a begin for [id] is open.
+  bool containsId(String id) => _byId.containsKey(id);
+
+  /// Records the `b` of call [id] on thread [tid] at [ts].
+  void add(String id, {required int tid, required int ts}) {
+    (_byId[id] ??= []).add((tid: tid, ts: ts, seq: _nextSeq++));
+    _length++;
+    while (_length > TimelineParser.pendingChannelBeginsCap) {
+      _dropOldest();
+    }
+  }
+
+  /// Removes and returns the begin timestamp the `e` of call [id] on
+  /// thread [tid] pairs with, or null when none is open.
+  int? take(String id, {required int tid}) {
+    final begins = _byId[id];
+    if (begins == null) return null;
+    var index = begins.indexWhere((b) => b.tid == tid);
+    if (index == -1) index = 0;
+    final begin = begins.removeAt(index);
+    if (begins.isEmpty) _byId.remove(id);
+    _length--;
+    return begin.ts;
+  }
+
+  /// Drops every begin older than [cutoffTs].
+  void evictBefore(int cutoffTs) {
+    _byId.removeWhere((_, begins) {
+      final before = begins.length;
+      begins.removeWhere((b) => b.ts < cutoffTs);
+      _length -= before - begins.length;
+      return begins.isEmpty;
+    });
+  }
+
+  /// Drops every begin.
+  void clear() {
+    _byId.clear();
+    _length = 0;
+  }
+
+  void _dropOldest() {
+    String? oldestId;
+    var oldestSeq = -1;
+    for (final entry in _byId.entries) {
+      final seq = entry.value.first.seq;
+      if (oldestId == null || seq < oldestSeq) {
+        oldestId = entry.key;
+        oldestSeq = seq;
+      }
+    }
+    if (oldestId == null) return;
+    final begins = _byId[oldestId]!..removeAt(0);
+    if (begins.isEmpty) _byId.remove(oldestId);
+    _length--;
+  }
+}
 
 class TimelineParser {
   TimelineParser._();
 
+  /// Rewinds every cursor in [cursors] whose position lies past
+  /// [ceilingUs] to the newest position at or before it, and returns
+  /// that position. Returns null, moving nothing, when no cursor lies at
+  /// or before [ceilingUs].
+  ///
+  /// A thread whose cursor sits past the timeline clock would otherwise
+  /// drop every later event on that thread as already seen.
+  static int? clampOutlierCursors(
+    Map<int, TimelineCursor> cursors, {
+    required int ceilingUs,
+  }) {
+    int? newest;
+    for (final cursor in cursors.values) {
+      final ts = cursor._lastTs;
+      if (ts <= ceilingUs && (newest == null || ts > newest)) newest = ts;
+    }
+    if (newest == null) return null;
+    for (final cursor in cursors.values) {
+      if (cursor._lastTs > ceilingUs) cursor._rewind(newest);
+    }
+    return newest;
+  }
+
   // Known event name patterns — multi-case matching to avoid toLowerCase()
-  // allocation per event (Pillar 2a M3).
+  // allocation per event.
   // Flutter emits BUILD, LAYOUT, PAINT (v3+); LAYOUT (root) / PAINT (root) (v3.13+).
   // Older versions: Build, Layout, Paint (v2.x).
   static bool _isBuild(String name) =>
@@ -115,14 +302,32 @@ class TimelineParser {
     'Raster',
     'raster',
   };
-  static const _shaderNames = {
-    'ShaderCompilation',
-    'shadercompilation',
-    'Shader_Compilation',
-    'shader_compilation',
-    'Pipeline::Create',
-    'pipeline::create',
-  };
+
+  /// Whether a begin (`B`) or complete (`X`) event is a pipeline or
+  /// shader build. Impeller Vulkan emits `PipelineVK::Create` (render
+  /// pipelines, on worker threads) and `CreateComputePipeline`; Skia
+  /// tags shader-category events with `devtoolsTag: shaders`. Impeller
+  /// Metal emits nothing for pipelines. Exact names only: the frame
+  /// pipeline emits `PipelineItem` / `PipelineProduce`, and
+  /// `CreateShaderLibrary` is a one-shot library load, not a build.
+  static bool _isShaderEvent(String name, Map<String, dynamic>? args) =>
+      name == 'PipelineVK::Create' ||
+      name == 'CreateComputePipeline' ||
+      args?['devtoolsTag'] == 'shaders';
+
+  /// Whether an end (`E`) event closes a pending shader begin. Engine
+  /// end events carry no args, so a tagged Skia begin is closed by the
+  /// next `E` with the same name on the same thread.
+  static bool _isShaderEnd(
+    String name,
+    int tid,
+    Map<int, List<Map<String, dynamic>>> pending,
+  ) {
+    if (_isShaderEvent(name, null)) return true;
+    final stack = pending[tid];
+    return stack != null && stack.isNotEmpty && stack.last['name'] == name;
+  }
+
   static const _channelNames = {
     'PlatformChannel',
     'platformchannel',
@@ -187,6 +392,15 @@ class TimelineParser {
   /// >1.5 s of pending begins per thread under sustained 60 FPS.
   static const int _pendingPhaseBeginsCapPerTid = 100;
 
+  /// Cap for in-flight platform channel calls awaiting their `e` event.
+  /// Captures show at most 9 in flight; beyond the cap the oldest begin
+  /// is dropped.
+  static const int pendingChannelBeginsCap = 256;
+
+  /// Dedup signature `'$ph|$name|$id'` of an event.
+  static String _signatureOf(Map<String, dynamic> json) =>
+      '${json['ph'] ?? ''}|${json['name'] ?? ''}|${json['id'] ?? ''}';
+
   /// Push-or-pop a per-tid B/E begins stack for a phase event,
   /// invoking [onOutermost] only when the pop drains the stack EMPTY
   /// — i.e. the popped E closed the outermost scope on this thread.
@@ -196,21 +410,35 @@ class TimelineParser {
   /// so the outer scope's E is the only one that contributes to the
   /// duration list. Nesting is detected at the per-tid stack level so
   /// no name comparison is required.
+  /// Longest begin/end span the reconstruction accepts as one scope.
+  ///
+  /// Under heavy jank the VM timeline ring buffer drops events. A dropped
+  /// `B` leaves a later `E` to pop an older begin, and on a quiet screen
+  /// that span is the gap between two frames (seconds), which read as a
+  /// multi-second BUILD or raster scope. A real scope of that length would
+  /// freeze the UI thread, which `jank_detected` / `sustained_jank`
+  /// report from frame timing instead. Pairs longer than this are
+  /// discarded, and pending begins older than this are evicted when a new
+  /// begin arrives so the stale entry cannot keep every later outermost
+  /// pair from being credited.
+  static const int maxReconstructedPhaseUs = 2000000;
+
   static void _reconstructPhaseBE({
     required Map<String, dynamic> json,
     required String ph,
     required Map<int, List<Map<String, dynamic>>> pending,
-    required void Function(
-      Map<String, dynamic> beginJson,
-      int beginTs,
-      int dur,
-    ) onOutermost,
+    required void Function(Map<String, dynamic> beginJson, int beginTs, int dur)
+    onOutermost,
   }) {
     final ts = json['ts'] as int?;
     final tid = json['tid'] as int? ?? 0;
     if (ph == 'B') {
       if (ts == null) return;
       final stack = pending[tid] ??= <Map<String, dynamic>>[];
+      stack.removeWhere((b) {
+        final bTs = b['ts'] as int?;
+        return bTs != null && ts - bTs > maxReconstructedPhaseUs;
+      });
       stack.add(json);
       if (stack.length > _pendingPhaseBeginsCapPerTid) {
         stack.removeAt(0);
@@ -222,8 +450,10 @@ class TimelineParser {
       final beginJson = stack.removeLast();
       final beginTs = beginJson['ts'] as int?;
       if (beginTs == null || ts == null || ts < beginTs) return;
+      final dur = ts - beginTs;
+      if (dur > maxReconstructedPhaseUs) return; // mis-paired after a loss
       if (stack.isNotEmpty) return; // not outermost — skip emission
-      onOutermost(beginJson, beginTs, ts - beginTs);
+      onOutermost(beginJson, beginTs, dur);
     }
   }
 
@@ -233,9 +463,9 @@ class TimelineParser {
   /// across calls so iOS B/E pairs straddling poll boundaries
   /// reconstruct correctly. Null = fresh per call.
   ///
-  /// [pendingLayoutBegins], [pendingPaintBegins], [pendingRasterBegins]
-  /// extend the same cross-batch reconstruction to LAYOUT, PAINT, and
-  /// raster events. iOS profile mode (Impeller backend, observed on
+  /// [pendingLayoutBegins], [pendingPaintBegins], [pendingRasterBegins],
+  /// [pendingShaderBegins] extend the same cross-batch reconstruction to
+  /// LAYOUT, PAINT, raster, and pipeline/shader build events. iOS profile mode (Impeller backend, observed on
   /// Flutter 3.41.x / iOS 17.5) emits these phases as nested `B`/`E`
   /// pairs with no `X`-form complete events: `LAYOUT (root)` wraps
   /// `LAYOUT`, `PAINT (root)` wraps `PAINT`, and the raster trio
@@ -247,19 +477,32 @@ class TimelineParser {
   /// frame. Skia X-form emissions continue through the unchanged X
   /// branch above. Null = fresh per call.
   ///
+  /// [pendingChannelBegins] holds the open `b` events of async
+  /// platform-channel calls so the matching `e` (same or later batch)
+  /// yields a [PlatformChannelCall] with a duration (see
+  /// [PendingChannelBegins]). Null = fresh per call.
+  ///
   /// [cursorsByTid] is a per-thread cross-call dedup cursor; events
   /// with `ts < cursor.lastTs`, or with `ts == cursor.lastTs` and a
   /// signature already in `cursor.seenSignatures`, are skipped.
-  /// Signature is `'$ph|$name|${id ?? ""}'`. Skipped for events without
-  /// `ts` (metadata `M` events). Null = fresh per call. Caller clears
-  /// the map on session reset.
+  /// Signature is `'$ph|$name|${id ?? ""}'`, built only for events at
+  /// exactly `cursor.lastTs`. Skipped for events without `ts` (metadata
+  /// `M` events). Null = fresh per call. Caller clears the map on
+  /// session reset.
+  ///
+  /// [minTimestampUs] skips every event with a smaller `ts` (counted in
+  /// [ParsedTimelineData.duplicatesDropped]); the poll loop sets it when
+  /// it had to read the whole buffer instead of a window.
   static ParsedTimelineData parse(
     List<TimelineEvent> events, {
     Map<int, List<Map<String, dynamic>>>? pendingBuildBegins,
     Map<int, List<Map<String, dynamic>>>? pendingLayoutBegins,
     Map<int, List<Map<String, dynamic>>>? pendingPaintBegins,
     Map<int, List<Map<String, dynamic>>>? pendingRasterBegins,
+    Map<int, List<Map<String, dynamic>>>? pendingShaderBegins,
+    PendingChannelBegins? pendingChannelBegins,
     Map<int, TimelineCursor>? cursorsByTid,
+    int minTimestampUs = 0,
   }) {
     final buildScopes = <int>[];
     final layouts = <int>[];
@@ -280,20 +523,23 @@ class TimelineParser {
         pendingPaintBegins ?? <int, List<Map<String, dynamic>>>{};
     final pendingRasters =
         pendingRasterBegins ?? <int, List<Map<String, dynamic>>>{};
+    final pendingShaders =
+        pendingShaderBegins ?? <int, List<Map<String, dynamic>>>{};
+    final pendingChannels = pendingChannelBegins ?? PendingChannelBegins();
     final cursors = cursorsByTid ?? <int, TimelineCursor>{};
     final channels = <TimelineEvent>[];
+    final channelCalls = <PlatformChannelCall>[];
     final gcs = <TimelineEvent>[];
     final phaseEvents = <PhaseEvent>[];
     var buildCount = 0;
+    var duplicates = 0;
+    var maxTs = -1;
+    int? cachedTid;
+    TimelineCursor? cachedCursor;
 
     for (final event in events) {
       final json = event.json;
       if (json == null) continue;
-
-      final name = json['name'] as String? ?? '';
-      final ph = json['ph'] as String? ?? '';
-      final dur = json['dur'] as int?;
-      final cat = json['cat'] as String? ?? '';
 
       // Cross-call dedup: skip events already observed in a prior parse
       // call. Uses the event's own monotonic `ts` (microseconds since
@@ -303,29 +549,43 @@ class TimelineParser {
       // through every call but never accumulated into output buckets,
       // so re-processing is a no-op.
       //
-      // Signature uses `(ph, name, id)` so two distinct events sharing
-      // `(tid, ts)` (e.g. instant events with different names at the
-      // same microsecond, or async pairs with the same name but
-      // different `id`) are NOT conflated.
+      // The `ts` comparison runs before any other field is read, so a
+      // re-read event costs three map lookups and no allocation. The `(ph, name, id)`
+      // signature is built only for events at exactly `lastTs`, where
+      // two distinct events can share a microsecond (instant events with
+      // different names, async pairs with different `id`).
       final ts = json['ts'];
       if (ts is int) {
-        final tid = json['tid'] as int? ?? 0;
-        final id = json['id'];
-        final signature = '$ph|$name|${id ?? ''}';
-        final cursor = cursors[tid];
-        if (cursor != null) {
-          if (ts < cursor.lastTs) continue;
-          if (ts == cursor.lastTs &&
-              cursor.seenSignatures.contains(signature)) {
-            continue;
-          }
+        if (ts < minTimestampUs) {
+          duplicates++;
+          continue;
         }
-        if (cursor == null || ts > cursor.lastTs) {
-          cursors[tid] = (lastTs: ts, seenSignatures: {signature});
+        final rawTid = json['tid'];
+        final tid = rawTid is int ? rawTid : 0;
+        // Events arrive in per-thread blocks; reuse the previous lookup.
+        TimelineCursor? cursor;
+        if (tid == cachedTid) {
+          cursor = cachedCursor;
         } else {
-          cursor.seenSignatures.add(signature);
+          cursor = cursors[tid];
+          cachedTid = tid;
+          cachedCursor = cursor;
         }
+        if (cursor == null) {
+          cachedCursor = cursors[tid] = TimelineCursor._(ts, json);
+        } else if (ts > cursor._lastTs) {
+          cursor._advance(ts, json);
+        } else if (ts < cursor._lastTs || !cursor._acceptTie(json)) {
+          duplicates++;
+          continue;
+        }
+        if (ts > maxTs) maxTs = ts;
       }
+
+      final name = json['name'] as String? ?? '';
+      final ph = json['ph'] as String? ?? '';
+      final dur = json['dur'] as int?;
+      final cat = json['cat'] as String? ?? '';
 
       // Complete duration events (ph == 'X') have a 'dur' field
       if (ph == 'X' && dur != null) {
@@ -337,57 +597,72 @@ class TimelineParser {
           buildCount++;
           if (ts != null) {
             // Build scope uses prefixed keys: "build scope dirty count" etc.
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.build,
-              timestampUs: ts,
-              durationUs: dur,
-              dirtyCount: _parseIntArg(args?['build scope dirty count']),
-              dirtyList: _parseDirtyList(args?['build scope dirty list']),
-              scopeContext: args?['scope context']?.toString(),
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.build,
+                timestampUs: ts,
+                durationUs: dur,
+                dirtyCount: _parseIntArg(args?['build scope dirty count']),
+                dirtyList: _parseDirtyList(args?['build scope dirty list']),
+                scopeContext: args?['scope context']?.toString(),
+              ),
+            );
           }
         } else if (_isLayout(name)) {
           layouts.add(dur);
           if (ts != null) {
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.layout,
-              timestampUs: ts,
-              durationUs: dur,
-              dirtyCount: _parseIntArg(args?['dirty count']),
-              dirtyList: _parseDirtyList(args?['dirty list']),
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.layout,
+                timestampUs: ts,
+                durationUs: dur,
+                dirtyCount: _parseIntArg(args?['dirty count']),
+                dirtyList: _parseDirtyList(args?['dirty list']),
+              ),
+            );
           }
         } else if (_isPaint(name)) {
           paints.add(dur);
           if (ts != null) {
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.paint,
-              timestampUs: ts,
-              durationUs: dur,
-              dirtyCount: _parseIntArg(args?['dirty count']),
-              dirtyList: _parseDirtyList(args?['dirty list']),
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.paint,
+                timestampUs: ts,
+                durationUs: dur,
+                dirtyCount: _parseIntArg(args?['dirty count']),
+                dirtyList: _parseDirtyList(args?['dirty list']),
+              ),
+            );
           }
         } else if (_rasterNames.contains(name)) {
           rasters.add(dur);
           if (ts != null) {
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.raster,
-              timestampUs: ts,
-              durationUs: dur,
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.raster,
+                timestampUs: ts,
+                durationUs: dur,
+              ),
+            );
           }
-        } else if (_shaderNames.contains(name)) {
+        } else if (_isShaderEvent(name, args)) {
           shaders.add(dur);
           if (ts != null) {
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.shader,
-              timestampUs: ts,
-              durationUs: dur,
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.shader,
+                timestampUs: ts,
+                durationUs: dur,
+              ),
+            );
           }
         } else if (_channelNames.contains(name) || _isChannelEvent(name)) {
           channels.add(event);
+          if (ts != null) {
+            channelCalls.add(
+              PlatformChannelCall(name: name, beginTs: ts, durationUs: dur),
+            );
+          }
         } else if (_isGcCategory(cat)) {
           gcs.add(event);
         }
@@ -417,6 +692,12 @@ class TimelineParser {
             buildCount++;
             if (ts != null) {
               final stack = pendingBuilds[tid] ??= <Map<String, dynamic>>[];
+              // A begin older than the span cap lost its end; evict it so
+              // it cannot pair with a much later end.
+              stack.removeWhere((b) {
+                final bTs = b['ts'] as int?;
+                return bTs != null && ts - bTs > maxReconstructedPhaseUs;
+              });
               stack.add(json);
               // Drop oldest unmatched begin if cap exceeded — prevents
               // unbounded growth under sustained orphan-B emission.
@@ -430,18 +711,23 @@ class TimelineParser {
             if (stack != null && stack.isNotEmpty) {
               final beginJson = stack.removeLast();
               final beginTs = beginJson['ts'] as int?;
-              if (beginTs != null && ts != null && ts >= beginTs) {
+              if (beginTs != null &&
+                  ts != null &&
+                  ts >= beginTs &&
+                  ts - beginTs <= maxReconstructedPhaseUs) {
                 final dur = ts - beginTs;
                 buildScopes.add(dur);
                 final args = beginJson['args'] as Map<String, dynamic>?;
-                phaseEvents.add(PhaseEvent(
-                  phase: TimelinePhase.build,
-                  timestampUs: beginTs,
-                  durationUs: dur,
-                  dirtyCount: _parseIntArg(args?['build scope dirty count']),
-                  dirtyList: _parseDirtyList(args?['build scope dirty list']),
-                  scopeContext: args?['scope context']?.toString(),
-                ));
+                phaseEvents.add(
+                  PhaseEvent(
+                    phase: TimelinePhase.build,
+                    timestampUs: beginTs,
+                    durationUs: dur,
+                    dirtyCount: _parseIntArg(args?['build scope dirty count']),
+                    dirtyList: _parseDirtyList(args?['build scope dirty list']),
+                    scopeContext: args?['scope context']?.toString(),
+                  ),
+                );
               }
             }
           }
@@ -453,13 +739,15 @@ class TimelineParser {
             onOutermost: (beginJson, beginTs, dur) {
               layouts.add(dur);
               final args = beginJson['args'] as Map<String, dynamic>?;
-              phaseEvents.add(PhaseEvent(
-                phase: TimelinePhase.layout,
-                timestampUs: beginTs,
-                durationUs: dur,
-                dirtyCount: _parseIntArg(args?['dirty count']),
-                dirtyList: _parseDirtyList(args?['dirty list']),
-              ));
+              phaseEvents.add(
+                PhaseEvent(
+                  phase: TimelinePhase.layout,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                  dirtyCount: _parseIntArg(args?['dirty count']),
+                  dirtyList: _parseDirtyList(args?['dirty list']),
+                ),
+              );
             },
           );
         } else if (_isPaint(name)) {
@@ -470,13 +758,15 @@ class TimelineParser {
             onOutermost: (beginJson, beginTs, dur) {
               paints.add(dur);
               final args = beginJson['args'] as Map<String, dynamic>?;
-              phaseEvents.add(PhaseEvent(
-                phase: TimelinePhase.paint,
-                timestampUs: beginTs,
-                durationUs: dur,
-                dirtyCount: _parseIntArg(args?['dirty count']),
-                dirtyList: _parseDirtyList(args?['dirty list']),
-              ));
+              phaseEvents.add(
+                PhaseEvent(
+                  phase: TimelinePhase.paint,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                  dirtyCount: _parseIntArg(args?['dirty count']),
+                  dirtyList: _parseDirtyList(args?['dirty list']),
+                ),
+              );
             },
           );
         } else if (_rasterNames.contains(name)) {
@@ -486,11 +776,34 @@ class TimelineParser {
             pending: pendingRasters,
             onOutermost: (beginJson, beginTs, dur) {
               rasters.add(dur);
-              phaseEvents.add(PhaseEvent(
-                phase: TimelinePhase.raster,
-                timestampUs: beginTs,
-                durationUs: dur,
-              ));
+              phaseEvents.add(
+                PhaseEvent(
+                  phase: TimelinePhase.raster,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                ),
+              );
+            },
+          );
+        } else if (ph == 'B'
+            ? _isShaderEvent(name, json['args'] as Map<String, dynamic>?)
+            : _isShaderEnd(name, json['tid'] as int? ?? 0, pendingShaders)) {
+          // Pipeline/shader builds are `TRACE_EVENT` scopes: a begin
+          // plus an arg-less end, never an `X` event. Outermost scope
+          // per thread is credited.
+          _reconstructPhaseBE(
+            json: json,
+            ph: ph,
+            pending: pendingShaders,
+            onOutermost: (beginJson, beginTs, dur) {
+              shaders.add(dur);
+              phaseEvents.add(
+                PhaseEvent(
+                  phase: TimelinePhase.shader,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                ),
+              );
             },
           );
         }
@@ -501,11 +814,32 @@ class TimelineParser {
         // Async Begin/End events — emitted by TimelineTask.start/finish.
         // Flutter's `debugProfilePlatformChannels` wraps each platform-channel
         // send in a TimelineTask, so channel events arrive as 'b'/'e' pairs
-        // (lowercase, async). Capture only the 'b' event to count each call
-        // exactly once. 'dur' is null on async events, so duration tracking
-        // won't work — but the frequency threshold is what matters.
-        if (ph == 'b' && _isChannelEvent(name)) {
-          channels.add(event);
+        // (lowercase, async, no 'dur'). The 'b' event counts the call
+        // exactly once; the 'e' with the same `id` gives its duration.
+        if (_isChannelEvent(name)) {
+          final rawId = json['id'];
+          final id = rawId?.toString();
+          final ts = json['ts'] as int?;
+          final rawTid = json['tid'];
+          final tid = rawTid is int ? rawTid : 0;
+          if (ph == 'b') {
+            channels.add(event);
+            if (id != null && ts != null) {
+              pendingChannels.add(id, tid: tid, ts: ts);
+            }
+          } else if (id != null && ts != null) {
+            final beginTs = pendingChannels.take(id, tid: tid);
+            if (beginTs != null && ts >= beginTs) {
+              channelCalls.add(
+                PlatformChannelCall(
+                  name: name,
+                  beginTs: beginTs,
+                  durationUs: ts - beginTs,
+                  id: id,
+                ),
+              );
+            }
+          }
         }
       }
     }
@@ -522,9 +856,12 @@ class TimelineParser {
       rasterDurations: rasters,
       shaderCompileDurations: shaders,
       platformChannelEvents: channels,
+      platformChannelCalls: channelCalls,
       gcEvents: gcs,
       buildEventCount: buildCount,
       phaseEvents: phaseEvents,
+      duplicatesDropped: duplicates,
+      maxTimestampUs: maxTs,
     );
   }
 

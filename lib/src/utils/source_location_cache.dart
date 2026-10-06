@@ -1,38 +1,47 @@
 import 'package:flutter/widgets.dart';
 
-/// Bounded cache of widget type → abbreviated "file:line" source locations.
+/// Bounded cache of widget [Type] → abbreviated "file:line" source locations.
 ///
 /// Uses [InspectorSerializationDelegate.additionalNodeProperties] to access
-/// creation location data injected by `--track-widget-creation` (the default
-/// in debug mode). Returns null in profile mode or when tracking is disabled.
+/// creation location data injected by the track-widget-creation kernel
+/// transform. Flutter's tool applies it in every build mode except release,
+/// and `flutter run` (debug or profile) and `flutter build apk` / `appbundle`
+/// turn it on by default, so profile builds usually have locations. Returns
+/// null when the build does not track widget creation: release builds,
+/// `--no-track-widget-creation`, or an iOS build from `flutter build ios` /
+/// `ipa`, which writes `TRACK_WIDGET_CREATION=false` into the generated
+/// xcconfig (Xcode or fastlane archives that reuse it inherit the setting).
 ///
 /// Cache is bounded by [maxEntries] — when full, new types are not cached
 /// but existing lookups remain valid. Source locations are stable per widget
-/// type, so eviction is unnecessary.
+/// type, so eviction is unnecessary. Keyed by `widget.runtimeType` itself,
+/// so a lookup (hit or miss past the cap) allocates no type-name string.
 class SourceLocationCache {
   SourceLocationCache({this.maxEntries = 200});
 
   /// Maximum number of cached widget types.
   final int maxEntries;
-  final Map<String, String> _cache = {};
+  final Map<Type, String> _cache = {};
   bool? _trackingAvailable;
 
   /// Returns abbreviated "file:line" for the [element]'s widget, or null.
   ///
-  /// Results are cached by `widget.runtimeType`. Returns null when widget
-  /// creation tracking is unavailable (profile mode, `--no-track-widget-creation`).
+  /// Results are cached by `widget.runtimeType`. Returns null when the build
+  /// does not track widget creation (release, `--no-track-widget-creation`,
+  /// or an iOS build from `flutter build ios` / `ipa` without the setting).
   String? lookup(Element element) {
-    _trackingAvailable ??=
-        WidgetInspectorService.instance.isWidgetCreationTracked();
+    _trackingAvailable ??= WidgetInspectorService.instance
+        .isWidgetCreationTracked();
     if (!_trackingAvailable!) return null;
 
-    final typeName = element.widget.runtimeType.toString();
-    if (_cache.containsKey(typeName)) return _cache[typeName];
+    final type = element.widget.runtimeType;
+    final cached = _cache[type];
+    if (cached != null) return cached;
     if (_cache.length >= maxEntries) return null;
 
     final location = _resolve(element);
     if (location != null) {
-      _cache[typeName] = location;
+      _cache[type] = location;
     }
     return location;
   }
@@ -79,31 +88,31 @@ class SourceLocationCache {
   /// Unlike [lookup] which returns a formatted string, this returns the
   /// abbreviated path, line number, and extracted package name separately.
   ({String location, String? packageName})? lookupStructured(Element element) {
-    _trackingAvailable ??=
-        WidgetInspectorService.instance.isWidgetCreationTracked();
+    _trackingAvailable ??= WidgetInspectorService.instance
+        .isWidgetCreationTracked();
     if (!_trackingAvailable!) return null;
 
-    final typeName = element.widget.runtimeType.toString();
-    if (_structuredCache.containsKey(typeName)) {
-      return _structuredCache[typeName];
-    }
+    final type = element.widget.runtimeType;
+    final cached = _structuredCache[type];
+    if (cached != null) return cached;
     if (_cache.length >= maxEntries) return null;
 
     final location = _resolve(element);
     if (location == null) return null;
 
     // Also populate the string cache for backward compatibility.
-    _cache[typeName] = location;
+    _cache[type] = location;
 
     final result = _resolveStructured(element);
     if (result != null) {
-      _structuredCache[typeName] = result;
+      _structuredCache[type] = result;
     }
     return result;
   }
 
   ({String location, String? packageName})? _resolveStructured(
-      Element element) {
+    Element element,
+  ) {
     try {
       final node = element.toDiagnosticsNode();
       final delegate = InspectorSerializationDelegate(
@@ -126,7 +135,7 @@ class SourceLocationCache {
     }
   }
 
-  final Map<String, ({String location, String? packageName})> _structuredCache =
+  final Map<Type, ({String location, String? packageName})> _structuredCache =
       {};
 
   /// Extracts the package name from a source file path.
@@ -139,8 +148,9 @@ class SourceLocationCache {
     final packagesIdx = normalized.lastIndexOf('/packages/');
     if (packagesIdx == -1) return null;
 
-    final afterPackages =
-        normalized.substring(packagesIdx + '/packages/'.length);
+    final afterPackages = normalized.substring(
+      packagesIdx + '/packages/'.length,
+    );
     final libIdx = afterPackages.indexOf('/lib/');
     if (libIdx == -1) return null;
 

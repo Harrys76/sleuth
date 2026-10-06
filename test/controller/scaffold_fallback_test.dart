@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderIndexedStack;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
@@ -48,32 +49,36 @@ void main() {
       expect(controller.isScaffoldFreeScanForTest, isFalse);
     });
 
-    testWidgets('CupertinoPageScaffold + Scaffold = multi-scaffold transition',
-        (tester) async {
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Column(
-            children: [
-              Expanded(child: Scaffold(body: Container())),
-              Expanded(
-                child: CupertinoPageScaffold(child: Container()),
-              ),
-            ],
+    testWidgets(
+      'CupertinoPageScaffold + Scaffold = multi-scaffold transition',
+      (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(
+              children: [
+                Expanded(child: Scaffold(body: Container())),
+                Expanded(child: CupertinoPageScaffold(child: Container())),
+              ],
+            ),
           ),
-        ),
-      );
+        );
 
-      final root = tester.element(find.byType(Directionality));
-      controller.scanTreeFullPathForTest(root);
+        final root = tester.element(find.byType(Directionality));
+        controller.scanTreeFullPathForTest(root);
 
-      expect(controller.interactionStateForTest, InteractionContext.navigating);
-    });
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.navigating,
+        );
+      },
+    );
   });
 
   group('nested Scaffolds (bottom-nav shell pattern)', () {
-    testWidgets('nested Scaffold(body: Scaffold(...)) = idle, not transition',
-        (tester) async {
+    testWidgets('nested Scaffold(body: Scaffold(...)) = idle, not transition', (
+      tester,
+    ) async {
       // Pattern: outer app-shell Scaffold wraps an inner page Scaffold.
       // Common in apps with a persistent bottom-nav shell + per-tab Scaffolds.
       // Before the nested-vs-sibling fix, this tripped the multi-scaffold
@@ -102,14 +107,16 @@ void main() {
       expect(
         controller.interactionStateForTest,
         InteractionContext.idle,
-        reason: 'Nested Scaffolds lie on a single ancestor chain — treat as '
+        reason:
+            'Nested Scaffolds lie on a single ancestor chain — treat as '
             'one visible page, not a route transition.',
       );
       expect(controller.isScaffoldFreeScanForTest, isFalse);
     });
 
-    testWidgets('nested CupertinoPageScaffold inside Scaffold = idle',
-        (tester) async {
+    testWidgets('nested CupertinoPageScaffold inside Scaffold = idle', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -159,8 +166,7 @@ void main() {
       expect(controller.interactionStateForTest, InteractionContext.idle);
     });
 
-    testWidgets(
-        'nested Scaffold with BottomNavigationBar shell: scan runs and '
+    testWidgets('nested Scaffold with BottomNavigationBar shell: scan runs and '
         'detects issues in the inner page body', (tester) async {
       // Real-world pattern: outer Scaffold with a persistent
       // bottomNavigationBar, inner Scaffold per-tab with actual content.
@@ -198,123 +204,144 @@ void main() {
       expect(
         issues,
         isNotEmpty,
-        reason: 'Nested Scaffold pattern must allow tree-walking detectors '
+        reason:
+            'Nested Scaffold pattern must allow tree-walking detectors '
             'to run — the inner Opacity(0.0) should surface as an issue.',
       );
     });
 
     testWidgets(
-        'IndexedStack bottom nav: active tab scans, inactive tabs skipped '
-        'via Visibility(!visible)', (tester) async {
-      // Real-world pattern for bottom-nav apps that preserve per-tab state.
-      // IndexedStack wraps every child in Visibility(maintainSize: true, ...)
-      // which does NOT use Offstage/TickerMode — it uses a render proxy.
-      // Without a Visibility guard in the visitor, every tab's Scaffold
-      // would appear as a sibling → scan aborts every tick → HTTP records
-      // silently dropped (the exact symptom reported in the field).
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: IndexedStack(
-              index: 1,
-              children: [
-                const Scaffold(body: Text('home tab')),
-                Scaffold(
-                  body: SingleChildScrollView(
-                    child: Column(
-                      children: List.generate(
-                        55,
-                        (i) =>
-                            SizedBox(key: ValueKey(i), width: 10, height: 10),
+      'IndexedStack bottom nav: active tab scans, inactive tabs skipped '
+      'via onstage descent',
+      (tester) async {
+        // Real-world pattern for bottom-nav apps that preserve per-tab state.
+        // IndexedStack keeps every child mounted and marks none of them with
+        // Offstage/TickerMode. Unless the visitor descends only into the
+        // selected child (Visibility(!visible) on Flutter 3.44 and earlier,
+        // the RenderIndexedStack onstage visitor on 3.47+), every tab's
+        // Scaffold would appear as a sibling → scan aborts every tick → HTTP
+        // records silently dropped (the exact symptom reported in the field).
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: IndexedStack(
+                index: 1,
+                children: [
+                  const Scaffold(body: Text('home tab')),
+                  Scaffold(
+                    body: SingleChildScrollView(
+                      child: Column(
+                        children: List.generate(
+                          55,
+                          (i) =>
+                              SizedBox(key: ValueKey(i), width: 10, height: 10),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const Scaffold(body: Text('profile tab')),
-              ],
-            ),
-            bottomNavigationBar: BottomNavigationBar(
-              currentIndex: 1,
-              items: const [
-                BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-                BottomNavigationBarItem(
-                    icon: Icon(Icons.show_chart), label: 'Crypto'),
-                BottomNavigationBarItem(
-                    icon: Icon(Icons.person), label: 'Profile'),
-              ],
+                  const Scaffold(body: Text('profile tab')),
+                ],
+              ),
+              bottomNavigationBar: BottomNavigationBar(
+                currentIndex: 1,
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.home),
+                    label: 'Home',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.show_chart),
+                    label: 'Crypto',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.person),
+                    label: 'Profile',
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      final root = tester.element(find.byType(MaterialApp));
-      controller.scanTreeFullPathForTest(root);
+        final root = tester.element(find.byType(MaterialApp));
+        controller.scanTreeFullPathForTest(root);
 
-      expect(
-        controller.interactionStateForTest,
-        InteractionContext.idle,
-        reason: 'IndexedStack must not trip the multi-scaffold transition '
-            'guard — inactive tabs should be skipped via Visibility(!visible).',
-      );
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.idle,
+          reason:
+              'IndexedStack must not trip the multi-scaffold transition '
+              'guard — the visitor should descend only into the selected '
+              'child.',
+        );
 
-      // Active-tab Opacity(0.0) should surface; inactive tab content
-      // (plain Text) should not be scanned.
-      final issues = controller.issuesNotifier.value;
-      expect(
-        issues,
-        isNotEmpty,
-        reason: 'Active tab (index=1) Opacity(0.0) must surface as an issue — '
-            'proves the tree walk actually ran on the visible content.',
-      );
-    });
+        // Active-tab Opacity(0.0) should surface; inactive tab content
+        // (plain Text) should not be scanned.
+        final issues = controller.issuesNotifier.value;
+        expect(
+          issues,
+          isNotEmpty,
+          reason:
+              'Active tab (index=1) Opacity(0.0) must surface as an issue — '
+              'proves the tree walk actually ran on the visible content.',
+        );
+      },
+    );
 
     testWidgets(
-        'CupertinoTabScaffold: inactive tabs filtered via Offstage guard',
-        (tester) async {
-      // CupertinoTabScaffold wraps inactive tabs in Offstage + TickerMode
-      // (unlike IndexedStack). Existing Offstage/TickerMode guards already
-      // handle this; lock it in with a test.
-      await tester.pumpWidget(
-        CupertinoApp(
-          home: CupertinoTabScaffold(
-            tabBar: CupertinoTabBar(
-              items: const [
-                BottomNavigationBarItem(
-                    icon: Icon(CupertinoIcons.home), label: 'Home'),
-                BottomNavigationBarItem(
-                    icon: Icon(CupertinoIcons.person), label: 'Profile'),
-              ],
-            ),
-            tabBuilder: (context, index) {
-              if (index == 0) {
-                return CupertinoPageScaffold(
-                  child: Center(
-                    child: Opacity(
-                      opacity: 0.0,
-                      child: const SizedBox(width: 10, height: 10),
-                    ),
+      'CupertinoTabScaffold: inactive tabs filtered via Offstage guard',
+      (tester) async {
+        // CupertinoTabScaffold wraps inactive tabs in Offstage + TickerMode
+        // (unlike IndexedStack). Existing Offstage/TickerMode guards already
+        // handle this; lock it in with a test.
+        await tester.pumpWidget(
+          CupertinoApp(
+            home: CupertinoTabScaffold(
+              tabBar: CupertinoTabBar(
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Icon(CupertinoIcons.home),
+                    label: 'Home',
                   ),
-                );
-              }
-              return const CupertinoPageScaffold(child: Text('profile'));
-            },
+                  BottomNavigationBarItem(
+                    icon: Icon(CupertinoIcons.person),
+                    label: 'Profile',
+                  ),
+                ],
+              ),
+              tabBuilder: (context, index) {
+                if (index == 0) {
+                  return CupertinoPageScaffold(
+                    child: Center(
+                      child: Opacity(
+                        opacity: 0.0,
+                        child: const SizedBox(width: 10, height: 10),
+                      ),
+                    ),
+                  );
+                }
+                return const CupertinoPageScaffold(child: Text('profile'));
+              },
+            ),
           ),
-        ),
-      );
+        );
 
-      final root = tester.element(find.byType(CupertinoApp));
-      controller.scanTreeFullPathForTest(root);
+        final root = tester.element(find.byType(CupertinoApp));
+        controller.scanTreeFullPathForTest(root);
 
-      expect(
-        controller.interactionStateForTest,
-        InteractionContext.idle,
-        reason: 'CupertinoTabScaffold inactive tabs are Offstage-wrapped — '
-            'should resolve to the active tab cleanly.',
-      );
-    });
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.idle,
+          reason:
+              'CupertinoTabScaffold inactive tabs are Offstage-wrapped — '
+              'should resolve to the active tab cleanly.',
+        );
+      },
+    );
 
-    testWidgets('mixed nested + sibling Scaffolds = navigating',
-        (tester) async {
+    testWidgets('mixed nested + sibling Scaffolds = navigating', (
+      tester,
+    ) async {
       // Two Scaffolds that are NOT all on a single ancestor chain — a real
       // transition or unsafe multi-scaffold layout.
       await tester.pumpWidget(
@@ -337,7 +364,8 @@ void main() {
       expect(
         controller.interactionStateForTest,
         InteractionContext.navigating,
-        reason: 'Sibling Scaffolds (not all on one ancestor chain) are '
+        reason:
+            'Sibling Scaffolds (not all on one ancestor chain) are '
             'treated as a transition.',
       );
     });
@@ -348,16 +376,15 @@ void main() {
     // so it always lands AFTER any `_ignoreBeforeTimestamp` the detector
     // may stamp via a stray clearRecords() call during test setup.
     RequestRecord makeRecord(String suffix) => RequestRecord(
-          url: 'https://api.example.com/$suffix',
-          method: 'GET',
-          statusCode: 200,
-          durationMs: 100,
-          responseBytes: 1024,
-          startedAt: DateTime(2100),
-        );
+      url: 'https://api.example.com/$suffix',
+      method: 'GET',
+      statusCode: 200,
+      durationMs: 100,
+      responseBytes: 1024,
+      startedAt: DateTime(2100),
+    );
 
-    testWidgets(
-        'IndexedStack active-index swap clears the network buffer '
+    testWidgets('IndexedStack active-index swap clears the network buffer '
         '(same route, different visible Scaffold)', (tester) async {
       // Reproduces the reported symptom: bottom-nav app keeps state via
       // IndexedStack, all tabs share one Navigator route, so route-name
@@ -372,7 +399,7 @@ void main() {
           home: Scaffold(
             body: ValueListenableBuilder<int>(
               valueListenable: indexNotifier,
-              builder: (_, idx, __) => IndexedStack(
+              builder: (_, idx, _) => IndexedStack(
                 index: idx,
                 children: const [
                   Scaffold(body: Text('home tab')),
@@ -388,17 +415,25 @@ void main() {
 
       // Scan 1 on tab 0 — establishes the innermost-Scaffold baseline.
       controller.scanTreeFullPathForTest(root);
-      // H1 pin: assert we went down the happy path, not the navigating
-      // sentinel. If the Visibility(!visible) guard ever regresses and both
+      // Pin: assert we went down the happy path, not the navigating
+      // sentinel. If the IndexedStack onstage descent ever regresses and both
       // tabs' Scaffolds become siblings, the scan would return null, the
       // sentinel path would fire clearRecords(), and the post-switch
       // "records empty" assertion below would pass for the WRONG reason.
-      expect(controller.interactionStateForTest, InteractionContext.idle,
-          reason: 'Scan 1 must resolve a single visible Scaffold (happy '
-              'path), not trigger the navigating sentinel.');
-      expect(controller.lastScanContextForTest, isNotNull,
-          reason: 'Scan 1 must produce a non-null scan context — a null '
-              'context would indicate the sentinel path cleared records.');
+      expect(
+        controller.interactionStateForTest,
+        InteractionContext.idle,
+        reason:
+            'Scan 1 must resolve a single visible Scaffold (happy '
+            'path), not trigger the navigating sentinel.',
+      );
+      expect(
+        controller.lastScanContextForTest,
+        isNotNull,
+        reason:
+            'Scan 1 must produce a non-null scan context — a null '
+            'context would indicate the sentinel path cleared records.',
+      );
 
       // Inject a record representing tab 0's HTTP traffic.
       controller.networkMonitorForTest.processRecord(makeRecord('home'));
@@ -411,129 +446,158 @@ void main() {
       // Scan 2 — innermost Scaffold Element identity changed → clear fires.
       controller.scanTreeFullPathForTest(root);
 
-      // H1 pin: scan 2 must ALSO go down the happy path. The clear below
+      // Pin: scan 2 must ALSO go down the happy path. The clear below
       // must come from the Scaffold-hash signal, not the sentinel path.
-      expect(controller.interactionStateForTest, InteractionContext.idle,
-          reason: 'Scan 2 must resolve the new tab\'s Scaffold cleanly — '
-              'the buffer clear must originate from the Scaffold-hash '
-              'signal, not from a sentinel-path regression.');
-      expect(controller.lastScanContextForTest, isNotNull,
-          reason: 'Scan 2 must produce a non-null scan context.');
+      expect(
+        controller.interactionStateForTest,
+        InteractionContext.idle,
+        reason:
+            'Scan 2 must resolve the new tab\'s Scaffold cleanly — '
+            'the buffer clear must originate from the Scaffold-hash '
+            'signal, not from a sentinel-path regression.',
+      );
+      expect(
+        controller.lastScanContextForTest,
+        isNotNull,
+        reason: 'Scan 2 must produce a non-null scan context.',
+      );
 
       expect(
         controller.networkMonitorForTest.records,
         isEmpty,
-        reason: 'Tab switch under IndexedStack must flush the network buffer '
+        reason:
+            'Tab switch under IndexedStack must flush the network buffer '
             'so the previous tab\'s requests do not count toward the new '
             'tab\'s frequency-spike threshold.',
       );
     });
 
     testWidgets(
-        'tab-switch clear stamps _ignoreBeforeTimestamp: in-flight responses '
-        'from the previous tab are dropped on arrival (cutoff contract)',
-        (tester) async {
-      // H2: the fixture-tautology fix. The other tests in this group stamp
-      // records at DateTime(2100) so they always land after any
-      // _ignoreBeforeTimestamp the detector might set — convenient for
-      // isolation but it hides whether the cutoff actually works.
-      //
-      // Strategy (no fake-async time needed): use timestamps that
-      // deterministically bracket the detector's wall-clock `_clock()` at
-      // clear time. `preClear = DateTime(2000)` is guaranteed to be BEFORE
-      // any realistic clock(); `postClear = DateTime(2100)` is guaranteed
-      // to be AFTER. This exercises:
-      //   1. Pre-clear records added when cutoff is null → accepted.
-      //   2. Tab-switch clear stamps cutoff = now (~2026).
-      //   3. Post-clear injection of a preClear-stamped record → dropped.
-      //   4. Post-clear injection of a postClear-stamped record → accepted.
-      final preClear = DateTime(2000);
-      final postClear = DateTime(2100);
+      'tab-switch clear stamps _ignoreBeforeTimestamp: in-flight responses '
+      'from the previous tab are dropped on arrival (cutoff contract)',
+      (tester) async {
+        // This test avoids a fixture tautology. The other tests in this
+        // group stamp records at DateTime(2100) so they always land after any
+        // _ignoreBeforeTimestamp the detector might set — convenient for
+        // isolation but it hides whether the cutoff actually works.
+        //
+        // Strategy (no fake-async time needed): use timestamps that
+        // deterministically bracket the detector's wall-clock `_clock()` at
+        // clear time. `preClear = DateTime(2000)` is guaranteed to be BEFORE
+        // any realistic clock(); `postClear = DateTime(2100)` is guaranteed
+        // to be AFTER. This exercises:
+        //   1. Pre-clear records added when cutoff is null → accepted.
+        //   2. Tab-switch clear stamps cutoff = now (~2026).
+        //   3. Post-clear injection of a preClear-stamped record → dropped.
+        //   4. Post-clear injection of a postClear-stamped record → accepted.
+        final preClear = DateTime(2000);
+        final postClear = DateTime(2100);
 
-      final indexNotifier = ValueNotifier<int>(0);
-      addTearDown(indexNotifier.dispose);
+        final indexNotifier = ValueNotifier<int>(0);
+        addTearDown(indexNotifier.dispose);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ValueListenableBuilder<int>(
-              valueListenable: indexNotifier,
-              builder: (_, idx, __) => IndexedStack(
-                index: idx,
-                children: const [
-                  Scaffold(body: Text('home tab')),
-                  Scaffold(body: Text('crypto tab')),
-                ],
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ValueListenableBuilder<int>(
+                valueListenable: indexNotifier,
+                builder: (_, idx, _) => IndexedStack(
+                  index: idx,
+                  children: const [
+                    Scaffold(body: Text('home tab')),
+                    Scaffold(body: Text('crypto tab')),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      final root = tester.element(find.byType(MaterialApp));
+        final root = tester.element(find.byType(MaterialApp));
 
-      controller.scanTreeFullPathForTest(root);
-      expect(controller.interactionStateForTest, InteractionContext.idle);
+        controller.scanTreeFullPathForTest(root);
+        expect(controller.interactionStateForTest, InteractionContext.idle);
 
-      // Step 1: before any clear, the cutoff is null → preClear is accepted.
-      controller.networkMonitorForTest.processRecord(RequestRecord(
-        url: 'https://api.example.com/tab0-completed',
-        method: 'GET',
-        statusCode: 200,
-        durationMs: 120,
-        responseBytes: 512,
-        startedAt: preClear,
-      ));
-      expect(controller.networkMonitorForTest.records, hasLength(1),
-          reason: 'With no cutoff stamped yet, any record (even one at '
-              'DateTime(2000)) must be accepted.');
+        // Step 1: before any clear, the cutoff is null → preClear is accepted.
+        controller.networkMonitorForTest.processRecord(
+          RequestRecord(
+            url: 'https://api.example.com/tab0-completed',
+            method: 'GET',
+            statusCode: 200,
+            durationMs: 120,
+            responseBytes: 512,
+            startedAt: preClear,
+          ),
+        );
+        expect(
+          controller.networkMonitorForTest.records,
+          hasLength(1),
+          reason:
+              'With no cutoff stamped yet, any record (even one at '
+              'DateTime(2000)) must be accepted.',
+        );
 
-      // Step 2: tab switch triggers Scaffold-hash clear, which stamps
-      // cutoff = DateTime.now().
-      indexNotifier.value = 1;
-      await tester.pump();
-      controller.scanTreeFullPathForTest(root);
+        // Step 2: tab switch triggers Scaffold-hash clear, which stamps
+        // cutoff = DateTime.now().
+        indexNotifier.value = 1;
+        await tester.pump();
+        controller.scanTreeFullPathForTest(root);
 
-      expect(controller.networkMonitorForTest.records, isEmpty,
-          reason: 'Tab-switch clear must empty the buffer.');
+        expect(
+          controller.networkMonitorForTest.records,
+          isEmpty,
+          reason: 'Tab-switch clear must empty the buffer.',
+        );
 
-      // Step 3: a tab-0 in-flight response arrives after the clear. Its
-      // startedAt is preClear (DateTime(2000)), which is strictly before
-      // the cutoff (≈ now) — the detector must drop it.
-      controller.networkMonitorForTest.processRecord(RequestRecord(
-        url: 'https://api.example.com/tab0-inflight',
-        method: 'GET',
-        statusCode: 200,
-        durationMs: 3000,
-        responseBytes: 1024,
-        startedAt: preClear,
-      ));
-      expect(controller.networkMonitorForTest.records, isEmpty,
-          reason: '_ignoreBeforeTimestamp must drop in-flight responses '
+        // Step 3: a tab-0 in-flight response arrives after the clear. Its
+        // startedAt is preClear (DateTime(2000)), which is strictly before
+        // the cutoff (≈ now) — the detector must drop it.
+        controller.networkMonitorForTest.processRecord(
+          RequestRecord(
+            url: 'https://api.example.com/tab0-inflight',
+            method: 'GET',
+            statusCode: 200,
+            durationMs: 3000,
+            responseBytes: 1024,
+            startedAt: preClear,
+          ),
+        );
+        expect(
+          controller.networkMonitorForTest.records,
+          isEmpty,
+          reason:
+              '_ignoreBeforeTimestamp must drop in-flight responses '
               'from the previous tab. If this test fails, the new tab\'s '
               'frequency-spike threshold would see stale traffic as real '
-              'activity and misattribute issues.');
+              'activity and misattribute issues.',
+        );
 
-      // Step 4: a fresh tab-1 request started after the clear must pass
-      // the cutoff.
-      controller.networkMonitorForTest.processRecord(RequestRecord(
-        url: 'https://api.example.com/tab1-fresh',
-        method: 'GET',
-        statusCode: 200,
-        durationMs: 80,
-        responseBytes: 256,
-        startedAt: postClear,
-      ));
-      expect(controller.networkMonitorForTest.records, hasLength(1),
-          reason: 'Requests started after the clear must be accepted '
-              'normally.');
+        // Step 4: a fresh tab-1 request started after the clear must pass
+        // the cutoff.
+        controller.networkMonitorForTest.processRecord(
+          RequestRecord(
+            url: 'https://api.example.com/tab1-fresh',
+            method: 'GET',
+            statusCode: 200,
+            durationMs: 80,
+            responseBytes: 256,
+            startedAt: postClear,
+          ),
+        );
+        expect(
+          controller.networkMonitorForTest.records,
+          hasLength(1),
+          reason:
+              'Requests started after the clear must be accepted '
+              'normally.',
+        );
 
-      // Drain the timer before tearDown runs.
-      controller.networkMonitorForTest.clearRecords();
-    });
+        // Drain the timer before tearDown runs.
+        controller.networkMonitorForTest.clearRecords();
+      },
+    );
 
-    testWidgets(
-        'repeat scans on the same active tab do NOT clear the buffer '
+    testWidgets('repeat scans on the same active tab do NOT clear the buffer '
         '(Element identity stable across rebuilds)', (tester) async {
       // Negative case: the tab-switch detector must not false-fire on normal
       // setState rebuilds of the same tab. Element identity is stable across
@@ -565,7 +629,8 @@ void main() {
       expect(
         controller.networkMonitorForTest.records,
         hasLength(1),
-        reason: 'Re-scanning the same tab must not clear the buffer — '
+        reason:
+            'Re-scanning the same tab must not clear the buffer — '
             'identityHashCode of the innermost Scaffold Element is stable '
             'across rebuilds.',
       );
@@ -579,36 +644,178 @@ void main() {
     });
   });
 
-  group('scaffold-free Navigator path', () {
-    testWidgets('scaffold-free page resolves via overlay entry after stability',
-        (tester) async {
-      // MaterialApp without Scaffold — page is a bare Center widget
+  group('IndexedStack without Visibility wrappers (Flutter 3.47 shape)', () {
+    // Flutter 3.47 IndexedStack no longer wraps children in Visibility; the
+    // only signal for which child is onstage is the element's
+    // debugVisitOnstageChildren override. _RawIndexedStackLike reproduces
+    // that shape on any SDK so the RenderIndexedStack branch is exercised
+    // regardless of which Flutter version runs the suite.
+    // Nearest Scaffold above [label]; skipOffstage: false so the inactive
+    // tab is reachable too.
+    Element scaffoldOf(WidgetTester tester, String label) => tester.element(
+      find
+          .ancestor(
+            of: find.text(label, skipOffstage: false),
+            matching: find.byType(Scaffold, skipOffstage: false),
+          )
+          .first,
+    );
+
+    bool isSelfOrDescendant(Element node, Element ancestor) {
+      if (identical(node, ancestor)) return true;
+      var found = false;
+      node.visitAncestorElements((a) {
+        if (identical(a, ancestor)) {
+          found = true;
+          return false;
+        }
+        return true;
+      });
+      return found;
+    }
+
+    Widget shell(ValueNotifier<int?> index) => MaterialApp(
+      home: Scaffold(
+        body: ValueListenableBuilder<int?>(
+          valueListenable: index,
+          builder: (_, idx, _) => _RawIndexedStackLike(
+            index: idx,
+            children: const [
+              _TabPage(label: 'tab 0 content'),
+              _TabPage(label: 'tab 1 content'),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('selected child only: one Scaffold collected, scan root in '
+        'tab 0', (tester) async {
+      final index = ValueNotifier<int?>(0);
+      addTearDown(index.dispose);
+      await tester.pumpWidget(shell(index));
+
+      final root = tester.element(find.byType(MaterialApp));
+      controller.scanTreeFullPathForTest(root);
+
+      expect(
+        controller.interactionStateForTest,
+        InteractionContext.idle,
+        reason:
+            'Unwrapped IndexedStack children must not surface as sibling '
+            'Scaffolds — the visitor should descend only into the selected '
+            'child.',
+      );
+      final tab0 = scaffoldOf(tester, 'tab 0 content');
+      final tab1 = scaffoldOf(tester, 'tab 1 content');
+      expect(
+        controller.activeRouteSessionForTest?.scaffoldHashKey,
+        identityHashCode(tab0),
+        reason: 'Exactly one Scaffold (tab 0) must be the visible page.',
+      );
+      final scanRoot = controller.lastScanContextForTest! as Element;
+      expect(isSelfOrDescendant(tab0, scanRoot), isTrue);
+      expect(
+        isSelfOrDescendant(tab1, scanRoot),
+        isFalse,
+        reason: 'Scan root must sit inside tab 0, not above the stack.',
+      );
+    });
+
+    testWidgets('index swap moves the visible Scaffold and stays idle', (
+      tester,
+    ) async {
+      final index = ValueNotifier<int?>(0);
+      addTearDown(index.dispose);
+      await tester.pumpWidget(shell(index));
+
+      final root = tester.element(find.byType(MaterialApp));
+      controller.scanTreeFullPathForTest(root);
+      final firstHash = controller.activeRouteSessionForTest?.scaffoldHashKey;
+      expect(firstHash, identityHashCode(scaffoldOf(tester, 'tab 0 content')));
+
+      index.value = 1;
+      await tester.pump();
+      controller.scanTreeFullPathForTest(root);
+
+      expect(controller.interactionStateForTest, InteractionContext.idle);
+      final secondHash = controller.activeRouteSessionForTest?.scaffoldHashKey;
+      expect(secondHash, isNot(firstHash));
+      expect(secondHash, identityHashCode(scaffoldOf(tester, 'tab 1 content')));
+    });
+
+    testWidgets('null index: no Scaffold collected, scaffold-free fallback '
+        'runs', (tester) async {
+      final index = ValueNotifier<int?>(null);
+      addTearDown(index.dispose);
       await tester.pumpWidget(
         MaterialApp(
-          home: Center(
-            child: SingleChildScrollView(
-              child: Column(
-                children: List.generate(
-                  55,
-                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
-                ),
-              ),
+          home: ValueListenableBuilder<int?>(
+            valueListenable: index,
+            builder: (_, idx, _) => _RawIndexedStackLike(
+              index: idx,
+              children: const [
+                _TabPage(label: 'tab 0 content'),
+                _TabPage(label: 'tab 1 content'),
+              ],
             ),
           ),
         ),
       );
 
       final root = tester.element(find.byType(MaterialApp));
-
-      // First scan: hash-change → navigating
+      // Two scans: the scaffold-free path needs one to record the route
+      // hash before it accepts the scan root.
       controller.scanTreeFullPathForTest(root);
-      expect(controller.interactionStateForTest, InteractionContext.navigating);
-
-      // Second scan: same route, hash stable → scan proceeds
       controller.scanTreeFullPathForTest(root);
+
+      expect(tester.takeException(), isNull);
       expect(controller.interactionStateForTest, InteractionContext.idle);
-      expect(controller.isScaffoldFreeScanForTest, isTrue);
+      expect(
+        controller.isScaffoldFreeScanForTest,
+        isTrue,
+        reason:
+            'With no onstage child, no Scaffold from the stack may be '
+            'collected — the scaffold-free fallback must resolve the root.',
+      );
     });
+  });
+
+  group('scaffold-free Navigator path', () {
+    testWidgets(
+      'scaffold-free page resolves via overlay entry after stability',
+      (tester) async {
+        // MaterialApp without Scaffold — page is a bare Center widget
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Center(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    55,
+                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        final root = tester.element(find.byType(MaterialApp));
+
+        // First scan: hash-change → navigating
+        controller.scanTreeFullPathForTest(root);
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.navigating,
+        );
+
+        // Second scan: same route, hash stable → scan proceeds
+        controller.scanTreeFullPathForTest(root);
+        expect(controller.interactionStateForTest, InteractionContext.idle);
+        expect(controller.isScaffoldFreeScanForTest, isTrue);
+      },
+    );
 
     testWidgets('scaffold-free path detects structural issues', (tester) async {
       await tester.pumpWidget(
@@ -633,8 +840,11 @@ void main() {
       controller.scanTreeFullPathForTest(root);
 
       final issues = controller.issuesNotifier.value;
-      expect(issues, isNotEmpty,
-          reason: 'Opacity(0.0) should produce an issue on scaffold-free path');
+      expect(
+        issues,
+        isNotEmpty,
+        reason: 'Opacity(0.0) should produce an issue on scaffold-free path',
+      );
     });
 
     testWidgets('route transition detected by hash change', (tester) async {
@@ -671,23 +881,23 @@ void main() {
   });
 
   group('route name resolution', () {
-    testWidgets('route name resolved for scaffold-free named route',
-        (tester) async {
+    testWidgets('route name resolved for scaffold-free named route', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           initialRoute: '/home',
           routes: {
             '/home': (_) => Center(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: List.generate(
-                        55,
-                        (i) =>
-                            SizedBox(key: ValueKey(i), width: 10, height: 10),
-                      ),
-                    ),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    55,
+                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
                   ),
                 ),
+              ),
+            ),
           },
         ),
       );
@@ -703,15 +913,17 @@ void main() {
       expect(
         issues.any((i) => i.routeName == '/home'),
         isTrue,
-        reason: 'Issues should be stamped with route name from scaffold-free '
+        reason:
+            'Issues should be stamped with route name from scaffold-free '
             'path via _ModalScopeStatus',
       );
     });
   });
 
   group('nested Navigator guard', () {
-    testWidgets('nested Navigator in scan root → navigating sentinel',
-        (tester) async {
+    testWidgets('nested Navigator in scan root → navigating sentinel', (
+      tester,
+    ) async {
       // Page with a nested Navigator (tab pattern)
       await tester.pumpWidget(
         MaterialApp(
@@ -741,8 +953,9 @@ void main() {
   });
 
   group('static app fallback (no Navigator)', () {
-    testWidgets('static app without Navigator uses app child fallback',
-        (tester) async {
+    testWidgets('static app without Navigator uses app child fallback', (
+      tester,
+    ) async {
       // Wrap in NotificationListener to simulate the overlay structure.
       // In production, the overlay wraps widget.child in a
       // NotificationListener — tests need one for _resolveAppChildContext.
@@ -772,18 +985,25 @@ void main() {
 
       // Static app resolves immediately (no hash stability needed)
       expect(controller.interactionStateForTest, InteractionContext.idle);
-      expect(controller.isScaffoldFreeScanForTest, isFalse,
-          reason: 'Static app fallback should NOT set scaffold-free flag');
+      expect(
+        controller.isScaffoldFreeScanForTest,
+        isFalse,
+        reason: 'Static app fallback should NOT set scaffold-free flag',
+      );
       expect(controller.navigatorFoundForTest, isFalse);
 
       // Issues should be detected
       final issues = controller.issuesNotifier.value;
-      expect(issues, isNotEmpty,
-          reason: 'Opacity(0.0) should produce issue on static app path');
+      expect(
+        issues,
+        isNotEmpty,
+        reason: 'Opacity(0.0) should produce issue on static app path',
+      );
     });
 
-    testWidgets('static app runs all 16 detectors (no exemption)',
-        (tester) async {
+    testWidgets('static app runs all 16 detectors (no exemption)', (
+      tester,
+    ) async {
       // Build a tree that triggers both exempted and non-exempted detectors
       await tester.pumpWidget(
         Directionality(
@@ -815,8 +1035,9 @@ void main() {
   });
 
   group('detector exemption', () {
-    testWidgets('scaffold-free path sets isScaffoldFreeScan flag',
-        (tester) async {
+    testWidgets('scaffold-free path sets isScaffoldFreeScan flag', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Center(
@@ -841,8 +1062,9 @@ void main() {
       expect(controller.isScaffoldFreeScanForTest, isTrue);
     });
 
-    testWidgets('scaffold path does not set isScaffoldFreeScan',
-        (tester) async {
+    testWidgets('scaffold path does not set isScaffoldFreeScan', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -866,8 +1088,9 @@ void main() {
   });
 
   group('stale state prevention', () {
-    testWidgets('scaffold-free state cleared on scaffold-path scan',
-        (tester) async {
+    testWidgets('scaffold-free state cleared on scaffold-path scan', (
+      tester,
+    ) async {
       // First: scaffold-free scan
       await tester.pumpWidget(
         MaterialApp(
@@ -908,89 +1131,98 @@ void main() {
       final root2 = tester.element(find.byType(MaterialApp));
       controller.scanTreeFullPathForTest(root2);
 
-      expect(controller.isScaffoldFreeScanForTest, isFalse,
-          reason: 'Flag should be cleared at start of each scan');
+      expect(
+        controller.isScaffoldFreeScanForTest,
+        isFalse,
+        reason: 'Flag should be cleared at start of each scan',
+      );
     });
 
-    testWidgets('stale issues cleared after scaffold→scaffold-free transition',
-        (tester) async {
-      // First: scaffold-path scan produces issues
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Column(
-              children: [
-                SingleChildScrollView(
-                  child: Column(
-                    children: List.generate(
-                      55,
-                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+    testWidgets(
+      'stale issues cleared after scaffold→scaffold-free transition',
+      (tester) async {
+        // First: scaffold-path scan produces issues
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: [
+                  SingleChildScrollView(
+                    child: Column(
+                      children: List.generate(
+                        55,
+                        (i) =>
+                            SizedBox(key: ValueKey(i), width: 10, height: 10),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      final root1 = tester.element(find.byType(MaterialApp));
-      controller.scanTreeFullPathForTest(root1);
-      final scaffoldIssues = controller.issuesNotifier.value;
-      expect(scaffoldIssues, isNotEmpty);
+        final root1 = tester.element(find.byType(MaterialApp));
+        controller.scanTreeFullPathForTest(root1);
+        final scaffoldIssues = controller.issuesNotifier.value;
+        expect(scaffoldIssues, isNotEmpty);
 
-      // Now: scaffold-free scan — exempted detectors should clear their state
-      await tester.pumpWidget(
-        MaterialApp(
-          home: const Center(child: SizedBox(width: 10, height: 10)),
-        ),
-      );
+        // Now: scaffold-free scan — exempted detectors should clear their state
+        await tester.pumpWidget(
+          MaterialApp(
+            home: const Center(child: SizedBox(width: 10, height: 10)),
+          ),
+        );
 
-      final root2 = tester.element(find.byType(MaterialApp));
-      // Two scans to stabilize
-      controller.scanTreeFullPathForTest(root2);
-      controller.scanTreeFullPathForTest(root2);
+        final root2 = tester.element(find.byType(MaterialApp));
+        // Two scans to stabilize
+        controller.scanTreeFullPathForTest(root2);
+        controller.scanTreeFullPathForTest(root2);
 
-      // Should not carry stale issues from exempted detectors —
-      // prepareScan+finalizeScan clears them
-      expect(controller.isScaffoldFreeScanForTest, isTrue);
-    });
+        // Should not carry stale issues from exempted detectors —
+        // prepareScan+finalizeScan clears them
+        expect(controller.isScaffoldFreeScanForTest, isTrue);
+      },
+    );
   });
 
   group('refreshHighlights isolation', () {
-    testWidgets('refreshHighlights uses _lastScanContext without side effects',
-        (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: Column(
-                children: List.generate(
-                  55,
-                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+    testWidgets(
+      'refreshHighlights uses _lastScanContext without side effects',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    55,
+                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      final root = tester.element(find.byType(MaterialApp));
-      controller.scanTreeFullPathForTest(root);
-      expect(controller.interactionStateForTest, InteractionContext.idle);
+        final root = tester.element(find.byType(MaterialApp));
+        controller.scanTreeFullPathForTest(root);
+        expect(controller.interactionStateForTest, InteractionContext.idle);
 
-      // Enable highlights then refresh
-      controller.highlightEnabledNotifier.value = true;
-      controller.refreshHighlights();
+        // Enable highlights then refresh
+        controller.highlightEnabledNotifier.value = true;
+        controller.refreshHighlights();
 
-      // Should not change interaction state
-      expect(controller.interactionStateForTest, InteractionContext.idle);
-    });
+        // Should not change interaction state
+        expect(controller.interactionStateForTest, InteractionContext.idle);
+      },
+    );
   });
 
   group('framework skip list coverage', () {
-    testWidgets('CupertinoPageScaffold not flagged by SetStateScopeDetector',
-        (tester) async {
+    testWidgets('CupertinoPageScaffold not flagged by SetStateScopeDetector', (
+      tester,
+    ) async {
       // Build a large subtree under CupertinoPageScaffold
       await tester.pumpWidget(
         CupertinoApp(
@@ -998,11 +1230,7 @@ void main() {
             child: Column(
               children: List.generate(
                 50,
-                (i) => SizedBox(
-                  key: ValueKey(i),
-                  width: 10,
-                  height: 10,
-                ),
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
               ),
             ),
           ),
@@ -1018,43 +1246,48 @@ void main() {
       final setStateIssues = issues
           .where((i) => i.stableId?.contains('setstate_scope') == true)
           .where((i) => i.detail.contains('CupertinoPageScaffold'));
-      expect(setStateIssues, isEmpty,
-          reason: 'CupertinoPageScaffold is a framework widget — '
-              'should not be flagged');
+      expect(
+        setStateIssues,
+        isEmpty,
+        reason:
+            'CupertinoPageScaffold is a framework widget — '
+            'should not be flagged',
+      );
     });
 
     testWidgets(
-        'CupertinoPageScaffold not flagged by ShallowRebuildRiskDetector',
-        (tester) async {
-      await tester.pumpWidget(
-        CupertinoApp(
-          home: CupertinoPageScaffold(
-            child: Column(
-              children: List.generate(
-                50,
-                (i) => SizedBox(
-                  key: ValueKey(i),
-                  width: 10,
-                  height: 10,
+      'CupertinoPageScaffold not flagged by ShallowRebuildRiskDetector',
+      (tester) async {
+        await tester.pumpWidget(
+          CupertinoApp(
+            home: CupertinoPageScaffold(
+              child: Column(
+                children: List.generate(
+                  50,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
                 ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      // Scan from above the scaffold so it's at a shallow depth
-      final app = tester.element(find.byType(CupertinoApp));
-      controller.runTreeScanForTest(app);
+        // Scan from above the scaffold so it's at a shallow depth
+        final app = tester.element(find.byType(CupertinoApp));
+        controller.runTreeScanForTest(app);
 
-      final issues = controller.issuesNotifier.value;
-      final shallowIssues = issues
-          .where((i) => i.stableId?.contains('shallow_rebuild_risk') == true)
-          .where((i) => i.detail.contains('CupertinoPageScaffold'));
-      expect(shallowIssues, isEmpty,
-          reason: 'CupertinoPageScaffold is a framework widget — '
-              'should not be flagged');
-    });
+        final issues = controller.issuesNotifier.value;
+        final shallowIssues = issues
+            .where((i) => i.stableId?.contains('shallow_rebuild_risk') == true)
+            .where((i) => i.detail.contains('CupertinoPageScaffold'));
+        expect(
+          shallowIssues,
+          isEmpty,
+          reason:
+              'CupertinoPageScaffold is a framework widget — '
+              'should not be flagged',
+        );
+      },
+    );
   });
 
   group('TabBarView / PageView filter (inline tabs stay in one session)', () {
@@ -1066,47 +1299,63 @@ void main() {
     // swipes stay inside the outer route's RouteSession, no spurious
     // session churn, scan still runs.
     testWidgets(
-        'TabBarView with per-sub-tab Scaffolds inside a route: scan runs '
-        '(idle, not sentinel) and outer Scaffold is captured as innermost',
-        (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: DefaultTabController(
-            length: 2,
-            child: Scaffold(
-              appBar: AppBar(
-                bottom: const TabBar(tabs: [Tab(text: 'A'), Tab(text: 'B')]),
-              ),
-              body: const TabBarView(
-                children: [
-                  Scaffold(body: Text('sub-tab A')),
-                  Scaffold(body: Text('sub-tab B')),
-                ],
+      'TabBarView with per-sub-tab Scaffolds inside a route: scan runs '
+      '(idle, not sentinel) and outer Scaffold is captured as innermost',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DefaultTabController(
+              length: 2,
+              child: Scaffold(
+                appBar: AppBar(
+                  bottom: const TabBar(
+                    tabs: [
+                      Tab(text: 'A'),
+                      Tab(text: 'B'),
+                    ],
+                  ),
+                ),
+                body: const TabBarView(
+                  children: [
+                    Scaffold(body: Text('sub-tab A')),
+                    Scaffold(body: Text('sub-tab B')),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      final root = tester.element(find.byType(MaterialApp));
-      controller.scanTreeFullPathForTest(root);
+        final root = tester.element(find.byType(MaterialApp));
+        controller.scanTreeFullPathForTest(root);
 
-      // Without the filter, [outerScaffold, subA, subB] are all visible;
-      // subA and subB are siblings → allNested=false → return null →
-      // navigating sentinel. Filter makes the visitor stop at TabBarView
-      // so only the outer Scaffold is collected.
-      expect(controller.interactionStateForTest, InteractionContext.idle,
-          reason: 'TabBarView filter must prevent sub-tab Scaffolds from '
-              'tripping the multi-scaffold sibling guard.');
-      expect(controller.lastScanContextForTest, isNotNull,
-          reason: 'Scan context must resolve to a non-null ancestor of the '
-              'outer Scaffold (not the sentinel null).');
-      expect(controller.activeRouteSessionForTest, isNotNull,
-          reason: 'A RouteSession must be created for the outer route.');
-    });
+        // Without the filter, [outerScaffold, subA, subB] are all visible;
+        // subA and subB are siblings → allNested=false → return null →
+        // navigating sentinel. Filter makes the visitor stop at TabBarView
+        // so only the outer Scaffold is collected.
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.idle,
+          reason:
+              'TabBarView filter must prevent sub-tab Scaffolds from '
+              'tripping the multi-scaffold sibling guard.',
+        );
+        expect(
+          controller.lastScanContextForTest,
+          isNotNull,
+          reason:
+              'Scan context must resolve to a non-null ancestor of the '
+              'outer Scaffold (not the sentinel null).',
+        );
+        expect(
+          controller.activeRouteSessionForTest,
+          isNotNull,
+          reason: 'A RouteSession must be created for the outer route.',
+        );
+      },
+    );
 
-    testWidgets(
-        'sub-tab swipe does not change the active RouteSession '
+    testWidgets('sub-tab swipe does not change the active RouteSession '
         '(outer scaffoldHashKey stays stable)', (tester) async {
       // Regression guard: we want TabBar / TabBarView changes to NOT affect
       // session boundaries. Only outer route / bottom-nav changes should
@@ -1139,58 +1388,76 @@ void main() {
       controller.scanTreeFullPathForTest(root);
 
       final session2 = controller.activeRouteSessionForTest;
-      expect(identical(session1, session2), isTrue,
-          reason: 'Sub-tab swipe must not rotate the active RouteSession — '
-              'that would incorrectly fragment a single route into per-tab '
-              'sessions and clear the network buffer mid-route.');
-      expect(session2?.scaffoldHashKey, equals(hash1),
-          reason: 'scaffoldHashKey must stay stable across sub-tab swipes '
-              'so the active session identity does not churn.');
+      expect(
+        identical(session1, session2),
+        isTrue,
+        reason:
+            'Sub-tab swipe must not rotate the active RouteSession — '
+            'that would incorrectly fragment a single route into per-tab '
+            'sessions and clear the network buffer mid-route.',
+      );
+      expect(
+        session2?.scaffoldHashKey,
+        equals(hash1),
+        reason:
+            'scaffoldHashKey must stay stable across sub-tab swipes '
+            'so the active session identity does not churn.',
+      );
     });
 
     testWidgets(
-        'PageView with per-page Scaffolds (onboarding-style): scan runs, '
-        'page swipe does not create a new session', (tester) async {
-      final pageController = PageController();
-      addTearDown(pageController.dispose);
+      'PageView with per-page Scaffolds (onboarding-style): scan runs, '
+      'page swipe does not create a new session',
+      (tester) async {
+        final pageController = PageController();
+        addTearDown(pageController.dispose);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: PageView(
-              controller: pageController,
-              children: const [
-                Scaffold(body: Text('page 1')),
-                Scaffold(body: Text('page 2')),
-              ],
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: PageView(
+                controller: pageController,
+                children: const [
+                  Scaffold(body: Text('page 1')),
+                  Scaffold(body: Text('page 2')),
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      final root = tester.element(find.byType(MaterialApp));
-      controller.scanTreeFullPathForTest(root);
-      expect(controller.interactionStateForTest, InteractionContext.idle,
-          reason: 'PageView filter must prevent per-page Scaffolds from '
-              'tripping the sibling guard.');
-      final session1 = controller.activeRouteSessionForTest;
+        final root = tester.element(find.byType(MaterialApp));
+        controller.scanTreeFullPathForTest(root);
+        expect(
+          controller.interactionStateForTest,
+          InteractionContext.idle,
+          reason:
+              'PageView filter must prevent per-page Scaffolds from '
+              'tripping the sibling guard.',
+        );
+        final session1 = controller.activeRouteSessionForTest;
 
-      pageController.jumpToPage(1);
-      await tester.pumpAndSettle();
-      controller.scanTreeFullPathForTest(root);
+        pageController.jumpToPage(1);
+        await tester.pumpAndSettle();
+        controller.scanTreeFullPathForTest(root);
 
-      expect(identical(session1, controller.activeRouteSessionForTest), isTrue,
-          reason: 'Swiping to a new PageView page must not rotate the '
-              'active RouteSession.');
-    });
+        expect(
+          identical(session1, controller.activeRouteSessionForTest),
+          isTrue,
+          reason:
+              'Swiping to a new PageView page must not rotate the '
+              'active RouteSession.',
+        );
+      },
+    );
 
-    testWidgets(
-        'bottom-nav tab switch STILL creates a new RouteSession '
-        '(per-tab session behavior is unaffected by the TabBarView filter)',
-        (tester) async {
-      // This is the happy path we shipped for bottom nav: IndexedStack
-      // marks inactive tabs with Visibility(!visible), so the earlier
-      // filter skips them before the TabBarView check is even reached.
+    testWidgets('bottom-nav tab switch STILL creates a new RouteSession '
+        '(per-tab session behavior is unaffected by the TabBarView filter)', (
+      tester,
+    ) async {
+      // This is the happy path we shipped for bottom nav: the visitor
+      // descends only into IndexedStack's selected child, so inactive tabs
+      // are skipped before the TabBarView check is even reached.
       // The TabBarView filter must not regress this behavior.
       final indexNotifier = ValueNotifier<int>(0);
       addTearDown(indexNotifier.dispose);
@@ -1200,7 +1467,7 @@ void main() {
           home: Scaffold(
             body: ValueListenableBuilder<int>(
               valueListenable: indexNotifier,
-              builder: (_, idx, __) => IndexedStack(
+              builder: (_, idx, _) => IndexedStack(
                 index: idx,
                 children: const [
                   Scaffold(body: Text('home tab')),
@@ -1226,26 +1493,34 @@ void main() {
       controller.scanTreeFullPathForTest(root);
 
       final session2 = controller.activeRouteSessionForTest;
-      expect(identical(session1, session2), isFalse,
-          reason: 'Bottom-nav tab switch must rotate the active session — '
-              'the TabBarView filter only applies inside TabBarView/'
-              'PageView, not to IndexedStack-backed bottom nav.');
+      expect(
+        identical(session1, session2),
+        isFalse,
+        reason:
+            'Bottom-nav tab switch must rotate the active session — '
+            'the TabBarView filter only applies inside TabBarView/'
+            'PageView, not to IndexedStack-backed bottom nav.',
+      );
       expect(session2?.scaffoldHashKey, isNotNull);
-      expect(session2!.scaffoldHashKey, isNot(equals(hash1)),
-          reason: 'New tab must own a distinct scaffoldHashKey so its '
-              'FPS / issue telemetry is isolated from the previous tab.');
+      expect(
+        session2!.scaffoldHashKey,
+        isNot(equals(hash1)),
+        reason:
+            'New tab must own a distinct scaffoldHashKey so its '
+            'FPS / issue telemetry is isolated from the previous tab.',
+      );
 
       // And the previous session must end up in history.
       expect(
         controller.routeHistoryForTest.any((s) => identical(s, session1)),
         isTrue,
-        reason: 'Prior tab\'s session should be archived in route history, '
+        reason:
+            'Prior tab\'s session should be archived in route history, '
             'not discarded.',
       );
     });
 
-    testWidgets(
-        'A→B→A bottom-nav cycle produces three distinct sessions and '
+    testWidgets('A→B→A bottom-nav cycle produces three distinct sessions and '
         'bumps tabVisitIndex on the second visit to A', (tester) async {
       final indexNotifier = ValueNotifier<int>(0);
       addTearDown(indexNotifier.dispose);
@@ -1255,7 +1530,7 @@ void main() {
           home: Scaffold(
             body: ValueListenableBuilder<int>(
               valueListenable: indexNotifier,
-              builder: (_, idx, __) => IndexedStack(
+              builder: (_, idx, _) => IndexedStack(
                 index: idx,
                 children: const [
                   Scaffold(body: Text('A')),
@@ -1284,15 +1559,22 @@ void main() {
 
       expect(visitA1, 1);
       expect(visitB1, 1);
-      expect(visitA2, 2,
-          reason: 'Returning to tab A after visiting B must bump '
-              'tabVisitIndex to 2 so exports can distinguish the two '
-              'visits as separate rows.');
+      expect(
+        visitA2,
+        2,
+        reason:
+            'Returning to tab A after visiting B must bump '
+            'tabVisitIndex to 2 so exports can distinguish the two '
+            'visits as separate rows.',
+      );
 
       // Three sessions total: A(visit 1), B(visit 1), A(visit 2). The
       // third is the one currently active.
-      expect(controller.routeHistoryForTest.length, greaterThanOrEqualTo(2),
-          reason: 'Prior A and B sessions must be archived.');
+      expect(
+        controller.routeHistoryForTest.length,
+        greaterThanOrEqualTo(2),
+        reason: 'Prior A and B sessions must be archived.',
+      );
     });
 
     // -----------------------------------------------------------------------
@@ -1304,82 +1586,90 @@ void main() {
     // -----------------------------------------------------------------------
 
     testWidgets(
-        'tabVisitIndex remains unique across live history after FIFO eviction '
-        '(C1 regression)', (tester) async {
-      // Use a dedicated controller with a small cap so eviction happens
-      // quickly. The shared top-level controller has the default 50 cap.
-      final ctrl = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          routeHistoryCapacity: 3,
-        ),
-      );
-      ctrl.initializeDetectorsForTest();
-      addTearDown(ctrl.dispose);
+      'tabVisitIndex remains unique across live history after FIFO eviction',
+      (tester) async {
+        // Use a dedicated controller with a small cap so eviction happens
+        // quickly. The shared top-level controller has the default 50 cap.
+        final ctrl = SleuthController(
+          config: const SleuthConfig(
+            treeScanInterval: Duration(seconds: 1),
+            routeHistoryCapacity: 3,
+          ),
+        );
+        ctrl.initializeDetectorsForTest();
+        addTearDown(ctrl.dispose);
 
-      final indexNotifier = ValueNotifier<int>(0);
-      addTearDown(indexNotifier.dispose);
+        final indexNotifier = ValueNotifier<int>(0);
+        addTearDown(indexNotifier.dispose);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ValueListenableBuilder<int>(
-              valueListenable: indexNotifier,
-              builder: (_, idx, __) => IndexedStack(
-                index: idx,
-                children: const [
-                  Scaffold(body: Text('A')),
-                  Scaffold(body: Text('B')),
-                ],
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ValueListenableBuilder<int>(
+                valueListenable: indexNotifier,
+                builder: (_, idx, _) => IndexedStack(
+                  index: idx,
+                  children: const [
+                    Scaffold(body: Text('A')),
+                    Scaffold(body: Text('B')),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      );
-      final root = tester.element(find.byType(MaterialApp));
-
-      // Alternate A↔B enough times that eviction starts dropping older
-      // A-visits while new A-visits are still being created. 8 switches
-      // with cap=3 guarantees the collision window for a count-based impl.
-      ctrl.scanTreeFullPathForTest(root); // A₁
-      for (int i = 1; i <= 8; i++) {
-        indexNotifier.value = i % 2;
-        await tester.pump();
-        ctrl.scanTreeFullPathForTest(root);
-      }
-
-      // Group all archived + active A-sessions and assert uniqueness.
-      final history = ctrl.routeHistoryForTest;
-      final aSessions = history
-          .where((s) => s.routeName == '/' && s.scaffoldHashKey != null)
-          .toList();
-      // IndexedStack children share the outer '/' ModalRoute. Group strictly
-      // by scaffoldHashKey — all sessions for the SAME tab Scaffold must have
-      // distinct tabVisitIndex values.
-      final byHash = <int, List<int>>{};
-      for (final s in history) {
-        byHash
-            .putIfAbsent(s.scaffoldHashKey ?? -1, () => <int>[])
-            .add(s.tabVisitIndex);
-      }
-      for (final entry in byHash.entries) {
-        final indices = entry.value;
-        expect(
-          indices.toSet().length,
-          indices.length,
-          reason: 'Sessions for scaffoldHashKey=${entry.key} must have '
-              'unique tabVisitIndex values, got $indices. This is the C1 '
-              'collision: count+1 duplicated after eviction; max+1 must not.',
         );
-      }
+        final root = tester.element(find.byType(MaterialApp));
 
-      // Sanity: we should have actually hit the cap (otherwise the test
-      // didn't exercise eviction).
-      expect(history.length, lessThanOrEqualTo(3),
-          reason: 'Cap=3 must bound history.');
-      expect(aSessions, isNotEmpty,
-          reason: 'Precondition: at least one A-session must survive.');
-    });
+        // Alternate A↔B enough times that eviction starts dropping older
+        // A-visits while new A-visits are still being created. 8 switches
+        // with cap=3 guarantees the collision window for a count-based impl.
+        ctrl.scanTreeFullPathForTest(root); // A₁
+        for (int i = 1; i <= 8; i++) {
+          indexNotifier.value = i % 2;
+          await tester.pump();
+          ctrl.scanTreeFullPathForTest(root);
+        }
+
+        // Group all archived + active A-sessions and assert uniqueness.
+        final history = ctrl.routeHistoryForTest;
+        final aSessions = history
+            .where((s) => s.routeName == '/' && s.scaffoldHashKey != null)
+            .toList();
+        // IndexedStack children share the outer '/' ModalRoute. Group strictly
+        // by scaffoldHashKey — all sessions for the SAME tab Scaffold must have
+        // distinct tabVisitIndex values.
+        final byHash = <int, List<int>>{};
+        for (final s in history) {
+          byHash
+              .putIfAbsent(s.scaffoldHashKey ?? -1, () => <int>[])
+              .add(s.tabVisitIndex);
+        }
+        for (final entry in byHash.entries) {
+          final indices = entry.value;
+          expect(
+            indices.toSet().length,
+            indices.length,
+            reason:
+                'Sessions for scaffoldHashKey=${entry.key} must have '
+                'unique tabVisitIndex values, got $indices. count+1 '
+                'duplicated an index after eviction; max+1 must not.',
+          );
+        }
+
+        // Sanity: we should have actually hit the cap (otherwise the test
+        // didn't exercise eviction).
+        expect(
+          history.length,
+          lessThanOrEqualTo(3),
+          reason: 'Cap=3 must bound history.',
+        );
+        expect(
+          aSessions,
+          isNotEmpty,
+          reason: 'Precondition: at least one A-session must survive.',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -1392,15 +1682,13 @@ void main() {
   // pre-reload session continues.
   // -------------------------------------------------------------------------
 
-  group('hot reload closes active session (C2 regression)', () {
-    testWidgets(
-        'reassembleForTest closes active session and starts a fresh '
-        'one with incremented hotReloadGeneration on next scan',
-        (tester) async {
+  group('hot reload closes active session', () {
+    testWidgets('reassembleForTest closes active session and starts a fresh '
+        'one with incremented hotReloadGeneration on next scan', (
+      tester,
+    ) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: Text('pre-reload')),
-        ),
+        const MaterialApp(home: Scaffold(body: Text('pre-reload'))),
       );
       final root = tester.element(find.byType(MaterialApp));
 
@@ -1414,10 +1702,13 @@ void main() {
       controller.reassembleForTest();
 
       // Pre-reload session must be closed; pointer cleared.
-      expect(preReload.isActive, isFalse,
-          reason:
-              'Active session must be closed on reassemble, otherwise frames '
-              'and issues from before and after the reload blend into one.');
+      expect(
+        preReload.isActive,
+        isFalse,
+        reason:
+            'Active session must be closed on reassemble, otherwise frames '
+            'and issues from before and after the reload blend into one.',
+      );
       expect(preReload.endedAt, isNotNull);
       expect(controller.activeRouteSessionForTest, isNull);
       expect(controller.hotReloadGenerationForTest, 1);
@@ -1426,20 +1717,30 @@ void main() {
       // even though routeName and scaffoldHashKey are unchanged.
       controller.scanTreeFullPathForTest(root);
       final postReload = controller.activeRouteSessionForTest!;
-      expect(identical(postReload, preReload), isFalse,
-          reason: 'New session must be a distinct instance.');
+      expect(
+        identical(postReload, preReload),
+        isFalse,
+        reason: 'New session must be a distinct instance.',
+      );
       expect(postReload.isActive, isTrue);
-      expect(postReload.hotReloadGeneration, 1,
-          reason: 'New session must carry the incremented generation stamp.');
+      expect(
+        postReload.hotReloadGeneration,
+        1,
+        reason: 'New session must carry the incremented generation stamp.',
+      );
       expect(postReload.routeName, preReload.routeName);
-      expect(postReload.scaffoldHashKey, preReload.scaffoldHashKey,
-          reason:
-              'Scaffold Element identity is preserved across non-structural '
-              'hot reload — the test itself depends on this.');
+      expect(
+        postReload.scaffoldHashKey,
+        preReload.scaffoldHashKey,
+        reason:
+            'Scaffold Element identity is preserved across non-structural '
+            'hot reload — the test itself depends on this.',
+      );
     });
 
-    testWidgets('reassembleForTest with no active session does not crash',
-        (tester) async {
+    testWidgets('reassembleForTest with no active session does not crash', (
+      tester,
+    ) async {
       // Controller is created but has never run a scan → _activeRouteSession
       // is null. Reassemble must be a safe no-op on the session pointer.
       expect(controller.activeRouteSessionForTest, isNull);
@@ -1448,4 +1749,62 @@ void main() {
       expect(controller.activeRouteSessionForTest, isNull);
     });
   });
+}
+
+class _TabPage extends StatefulWidget {
+  const _TabPage({required this.label});
+
+  final String label;
+
+  @override
+  State<_TabPage> createState() => _TabPageState();
+}
+
+class _TabPageState extends State<_TabPage> {
+  @override
+  Widget build(BuildContext context) => Scaffold(body: Text(widget.label));
+}
+
+/// Mirrors Flutter 3.47's private `_RawIndexedStack`: a [RenderIndexedStack]
+/// whose element reports only the selected child as onstage, with children
+/// NOT wrapped in [Visibility].
+class _RawIndexedStackLike extends MultiChildRenderObjectWidget {
+  const _RawIndexedStackLike({required this.index, super.children});
+
+  final int? index;
+
+  @override
+  RenderIndexedStack createRenderObject(BuildContext context) =>
+      RenderIndexedStack(
+        index: index,
+        alignment: AlignmentDirectional.topStart,
+        textDirection: TextDirection.ltr,
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    RenderIndexedStack renderObject,
+  ) {
+    renderObject.index = index;
+  }
+
+  @override
+  MultiChildRenderObjectElement createElement() =>
+      _RawIndexedStackLikeElement(this);
+}
+
+class _RawIndexedStackLikeElement extends MultiChildRenderObjectElement {
+  _RawIndexedStackLikeElement(_RawIndexedStackLike super.widget);
+
+  @override
+  _RawIndexedStackLike get widget => super.widget as _RawIndexedStackLike;
+
+  @override
+  void debugVisitOnstageChildren(ElementVisitor visitor) {
+    final index = widget.index;
+    if (index != null && children.isNotEmpty) {
+      visitor(children.elementAt(index));
+    }
+  }
 }

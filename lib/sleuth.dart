@@ -13,7 +13,7 @@
 /// ```
 ///
 /// ## Features
-/// - 18 performance detectors (VM-powered, hybrid, structural, and runtime)
+/// - 20 performance detectors (VM-powered, hybrid, structural, and runtime)
 /// - Actionable fix hints for every issue
 /// - In-app overlay with live FPS chart and issue dashboard
 /// - Debug mode warning (run with --profile for accurate data)
@@ -21,9 +21,11 @@
 ///
 /// ## Theming
 ///
-/// The overlay auto-detects dark/light mode from the system brightness.
-/// A built-in toggle in the overlay header lets you switch at runtime.
-/// To force a specific theme or customize colors:
+/// The overlay auto-detects dark/light mode from the system brightness and
+/// uses the high-contrast presets when the platform asks for high
+/// contrast. The header toggle cycles System, Light and Dark (persisted in
+/// `OverlayUiState.themeMode`). To force a specific theme or customize
+/// colors:
 ///
 /// ```dart
 /// // Light theme for light-background apps
@@ -44,7 +46,7 @@
 ///
 /// // Toggle at runtime (e.g. from app code)
 /// Sleuth.updateTheme(const SleuthThemeData.light());
-/// Sleuth.updateTheme(null); // revert to auto-detect
+/// Sleuth.updateTheme(null); // revert to the config theme or auto-detect
 /// ```
 ///
 /// See [SleuthThemeData] for all available tokens (colors, spacing,
@@ -73,13 +75,17 @@ import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
 import 'src/models/startup_metrics.dart';
+import 'src/ui/overlay_ui_state.dart';
 import 'src/ui/sleuth_overlay.dart';
+import 'src/vm/poll_timings.dart';
 import 'src/ui/sleuth_theme.dart';
 
 // Public API exports
+export 'src/ai/ai_providers.dart' show AiProviderException;
 export 'src/models/ai_chat_adapter.dart';
 export 'src/models/performance_issue.dart';
 export 'src/models/frame_stats.dart';
+export 'src/models/frame_budget.dart';
 export 'src/models/frame_verdict.dart';
 export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';
@@ -90,16 +96,26 @@ export 'src/detectors/stream_resource_detector.dart'
     show StreamResourcePollResult;
 export 'src/controller/detector_thresholds.dart';
 export 'src/ui/sleuth_theme.dart' show SleuthThemeData;
+export 'src/ui/overlay_ui_state.dart'
+    show OverlayUiState, TriggerEdge, CardWindowState, SleuthThemeMode;
+export 'src/persistence/sleuth_state_store.dart';
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
 export 'src/models/simple_structural_detector.dart';
-export 'src/vm/timeline_parser.dart' show ParsedTimelineData;
+export 'src/vm/timeline_parser.dart'
+    show ParsedTimelineData, PlatformChannelCall;
 export 'src/vm/connection_mode.dart' show ConnectionMode;
+export 'src/vm/poll_timings.dart' show PollTimings;
 export 'src/vm/service_extension_handlers.dart'
     show kMcpEnvelopeSchemaVersion, kSleuthPackageVersion;
 export 'src/vm/service_extension_registry.dart' show ServiceExtensionRegistry;
-export 'src/debug/debug_snapshot.dart' show DebugSnapshot, RebuildCountSource;
+export 'src/debug/debug_snapshot.dart'
+    show
+        DebugSnapshot,
+        PaintOriginInstance,
+        PaintOriginStats,
+        RebuildCountSource;
 export 'src/models/allocation_entry.dart';
 export 'src/models/cpu_attribution.dart';
 export 'src/models/gc_event_summary.dart';
@@ -156,7 +172,6 @@ class Sleuth {
 
   /// Print-once throttle on pre-init [setResourceThreshold] warning;
   /// multi-name pre-init would otherwise spam the debug console.
-  // ignore: prefer_final_fields
   static bool _preInitWarned = false;
 
   /// Dart entry timestamp captured by [init].
@@ -259,12 +274,8 @@ class Sleuth {
         if (timings.isEmpty) return;
         final first = timings.first;
 
-        final vsyncStart = first.timestampInMicroseconds(
-          FramePhase.vsyncStart,
-        );
-        final buildStart = first.timestampInMicroseconds(
-          FramePhase.buildStart,
-        );
+        final vsyncStart = first.timestampInMicroseconds(FramePhase.vsyncStart);
+        final buildStart = first.timestampInMicroseconds(FramePhase.buildStart);
         final buildFinish = first.timestampInMicroseconds(
           FramePhase.buildFinish,
         );
@@ -286,7 +297,8 @@ class Sleuth {
         // DateTime.fromMicrosecondsSinceEpoch(rasterFinish) would produce
         // garbage when diffed against _dartEntryTimestamp (wall clock).
         final firstFrameCompleteTime = DateTime.now();
-        final ttff = firstFrameCompleteTime
+        final ttff =
+            firstFrameCompleteTime
                 .difference(_dartEntryTimestamp!)
                 .inMicroseconds /
             1000.0;
@@ -296,9 +308,9 @@ class Sleuth {
           ttffMs: ttff > 0 ? ttff : null,
           ttiMs: _interactiveTimestamp != null
               ? _interactiveTimestamp!
-                      .difference(_dartEntryTimestamp!)
-                      .inMicroseconds /
-                  1000.0
+                        .difference(_dartEntryTimestamp!)
+                        .inMicroseconds /
+                    1000.0
               : null,
           firstFrameVsyncOverheadMs: vsyncOverhead,
           firstFrameBuildMs: buildMs,
@@ -352,7 +364,8 @@ class Sleuth {
     // Update metrics if already captured by the first-frame callback.
     if (_startupMetrics != null) {
       _startupMetrics = _startupMetrics!.copyWith(
-        ttiMs: _interactiveTimestamp!
+        ttiMs:
+            _interactiveTimestamp!
                 .difference(_dartEntryTimestamp!)
                 .inMicroseconds /
             1000.0,
@@ -433,7 +446,7 @@ class Sleuth {
   /// Wrap your app with the performance overlay.
   ///
   /// In release mode, this returns [child] unchanged (zero cost).
-  /// In debug/profile mode, adds the overlay with all 18 detectors.
+  /// In debug/profile mode, adds the overlay with all 20 detectors.
   ///
   /// Optionally pass [config] to customize thresholds, enable/disable
   /// specific detectors, or set a custom [SleuthConfig.theme].
@@ -468,8 +481,8 @@ class Sleuth {
   /// capture procedures. The matching `sleuth.scenario.end` marker MUST be
   /// emitted via [markScenarioEnd] on the same isolate before the work
   /// being measured completes — `ProfileCaptureSchema.validateBracket`
-  /// requires the pair so the AB-1 cross-check can compute span/observed
-  /// ratios.
+  /// requires the pair so the trace-vs-observed cross-check can compute
+  /// span/observed ratios.
   ///
   /// No-op in release mode AND when [SleuthConfig.captureMode] is false
   /// (the default). Production app sessions never emit these markers.
@@ -543,10 +556,11 @@ class Sleuth {
   }
 
   /// Public accessor for the [RebuildDetector] instance. Capture
-  /// screens read [RebuildDetector.lastObservedRebuildRate] after
+  /// screens read [RebuildDetector.peakObservedBuildPercent] (and
+  /// [RebuildDetector.lastObservedBuildPercent] for calibration) after
   /// driving a Ticker scenario and `await Sleuth.flushTimelineNow()`
-  /// so the wrapped magnitude reflects detector-measured rebuilds-per-
-  /// second rather than the operator's plan. Returns null when
+  /// so the wrapped magnitude reflects the detector-measured build-time
+  /// share rather than the operator's plan. Returns null when
   /// [Sleuth] has not been initialised or in release mode.
   static RebuildDetector? get rebuildDetector {
     if (kReleaseMode) return null;
@@ -554,11 +568,11 @@ class Sleuth {
   }
 
   /// Public accessor for the [RepaintDetector] instance. Capture
-  /// screens read [RepaintDetector.lastObservedPaintCount] after
-  /// driving a paint-heavy scenario and call
-  /// [RepaintDetector.flushPaintEvaluation] so the wrapped magnitude
-  /// reflects the detector-measured 1s-window paint count rather than
-  /// the operator's plan. Returns null when [Sleuth] has not been
+  /// screens read [RepaintDetector.peakObservedPaintPercent] (and
+  /// [RepaintDetector.lastObservedPaintPercent] for calibration) after
+  /// driving a paint-heavy scenario so the wrapped magnitude reflects
+  /// the detector-measured paint-time share rather than the operator's
+  /// plan. Returns null when [Sleuth] has not been
   /// initialised, in release mode, or when [DetectorType.repaint] was
   /// excluded from [SleuthConfig.enabledDetectors].
   static RepaintDetector? get repaintDetector {
@@ -675,8 +689,11 @@ class Sleuth {
       if (kDebugMode && !_preInitWarned) {
         _preInitWarned = true;
         // ignore: avoid_print
-        print('[Sleuth] setResourceThreshold called before Sleuth.init(); '
-            'override(s) dropped. (This warning prints once per session.)');
+        print(
+          '[Sleuth] setResourceThreshold was called before Sleuth.init(), '
+          'so the override was dropped. This warning prints once per '
+          'session.',
+        );
       }
       return;
     }
@@ -701,7 +718,7 @@ class Sleuth {
   /// not been initialised, or when the detector is off. See
   /// [StreamResourceDetector.pollAllocationProfileNow].
   static Future<StreamResourcePollResult>
-      pollStreamResourceAllocationProfileNow() async {
+  pollStreamResourceAllocationProfileNow() async {
     if (kReleaseMode) {
       return const StreamResourcePollResult(
         succeeded: false,
@@ -729,6 +746,17 @@ class Sleuth {
     return _controller?.lastCaptureExportFailure;
   }
 
+  /// Per-segment cost of the most recent VM timeline poll (RPC with the
+  /// decode inside it, parse, detector dispatch, remaining RPCs), with
+  /// the time it held the UI isolate, the raw response size and the
+  /// duplicate events the poll skipped. Null in
+  /// release mode, before [init], without a VM connection, or before the
+  /// first poll. The same values are served by `ext.sleuth.diagnose`.
+  static PollTimings? get lastPollTimings {
+    if (kReleaseMode) return null;
+    return _controller?.lastPollTimings;
+  }
+
   /// Diagnostic snapshot of capture-mode preconditions. Capture screens
   /// call this on `exportCaptureJson` null-return to surface the exact
   /// environmental state to the operator without requiring Console.app
@@ -750,7 +778,7 @@ class Sleuth {
   ///   so `exportCaptureJson` returns null with "VM service client
   ///   disconnected".
   static ({bool initialized, bool captureMode, bool vmConnected})
-      diagnoseCaptureState() {
+  diagnoseCaptureState() {
     final c = _controller;
     if (c == null) {
       return (initialized: false, captureMode: false, vmConnected: false);
@@ -912,14 +940,39 @@ class Sleuth {
         ?.healthScore;
   }
 
+  /// The overlay's UI state: dashboard open, trigger anchor, card
+  /// geometry, hidden issues and severity filter. Null when Sleuth has not
+  /// been initialised or in release mode.
+  ///
+  /// Advanced: the overlay drives this itself. Hiding issues or filtering
+  /// severities here changes only what the overlay shows; `ext.sleuth.*`,
+  /// snapshots and budgets still report every issue.
+  static OverlayUiState? get overlayUiState {
+    if (kReleaseMode) return null;
+    return _controller?.overlayUiState;
+  }
+
+  /// Whether [overlayUiState] holds its startup value (the configured
+  /// `SleuthConfig.stateStore` has been read, failed, or timed out).
+  /// False when Sleuth has not been initialised or in release mode.
+  static bool get isOverlayUiStateReady {
+    if (kReleaseMode) return false;
+    return _controller?.uiStateReady.value ?? false;
+  }
+
   /// Update the overlay theme at runtime.
   ///
-  /// Passing a [SleuthThemeData] overrides both the config theme and
-  /// auto-detection. Passing `null` reverts to the config theme or
-  /// auto-detection.
+  /// Passing a [SleuthThemeData] overrides the config theme and
+  /// auto-detection, and sets the header toggle to System so the theme
+  /// shows. Picking Light or Dark in the header takes precedence over it;
+  /// picking System shows it again. Passing `null` reverts to the config
+  /// theme or auto-detection. Pass the same instance on every call (a
+  /// const preset or a theme built once): the overlay compares themes by
+  /// identity.
   ///
   /// ```dart
   /// Sleuth.updateTheme(const SleuthThemeData.light());
+  /// Sleuth.updateTheme(const SleuthThemeData.highContrastDark());
   /// ```
   static void updateTheme(SleuthThemeData? theme) {
     _controller?.updateTheme(theme);

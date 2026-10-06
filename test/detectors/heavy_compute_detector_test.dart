@@ -1,10 +1,85 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
+  group('HeavyComputeDetector frame-budget threshold', () {
+    IssueSeverity? severityFor(HeavyComputeDetector d, int durationUs) {
+      d.processTimelineData(
+        heavyComputeData(buildScopeDurationsUs: [durationUs]),
+      );
+      final issues = d.issues;
+      d.isEnabled = false;
+      d.isEnabled = true;
+      return issues.isEmpty ? null : issues.single.severity;
+    }
+
+    test('default: >8 ms warning, >16 ms critical', () {
+      final d = HeavyComputeDetector();
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 8000), isNull);
+      expect(severityFor(d, 9000), IssueSeverity.warning);
+      expect(severityFor(d, 16000), IssueSeverity.warning);
+      expect(severityFor(d, 17000), IssueSeverity.critical);
+    });
+
+    test('default ignores updateFrameBudget', () {
+      final d = HeavyComputeDetector()..updateFrameBudget(8333);
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 5000), isNull);
+    });
+
+    test('explicit lagThresholdMs ignores updateFrameBudget', () {
+      final d = HeavyComputeDetector(lagThresholdMs: 8)
+        ..updateFrameBudget(8333);
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 9000), IssueSeverity.warning);
+    });
+
+    test('autoThreshold at 120 Hz: >4.17 ms warning, >8.33 ms critical', () {
+      final d = HeavyComputeDetector(autoThreshold: true)
+        ..updateFrameBudget(8333);
+      expect(d.effectiveLagThresholdUs, 4166);
+      expect(severityFor(d, 4000), isNull);
+      expect(severityFor(d, 5000), IssueSeverity.warning);
+      expect(severityFor(d, 9000), IssueSeverity.critical);
+      d.resetFrameBudget();
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 5000), isNull);
+    });
+
+    test('observedDurationMs stamping unchanged', () {
+      final d = HeavyComputeDetector(autoThreshold: true)
+        ..updateFrameBudget(8333);
+      d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [9000]));
+      expect(d.issues.single.extraTraceArgs!['observedDurationMs'], '9.0');
+    });
+  });
+
+  group('HeavyComputeDetector without phase events', () {
+    test('the batch\'s newest timestamp identifies the issue', () {
+      final d = HeavyComputeDetector();
+      d.processTimelineData(
+        ParsedTimelineData(
+          buildScopeDurations: const [20000],
+          maxTimestampUs: 123456789,
+        ),
+      );
+      expect(d.issues.single.dedupIdentityMicros, 123456789);
+    });
+
+    test('no timestamp, no identity', () {
+      final d = HeavyComputeDetector();
+      d.processTimelineData(
+        ParsedTimelineData(buildScopeDurations: const [20000]),
+      );
+      expect(d.issues.single.dedupIdentityMicros, isNull);
+    });
+  });
+
   group('HeavyComputeDetector', () {
     late HeavyComputeDetector detector;
 
@@ -44,8 +119,10 @@ void main() {
       );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
-      expect(detector.issues.first.observationSource,
-          ObservationSource.vmTimeline);
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.vmTimeline,
+      );
     });
 
     test('warning when between lagThresholdMs and 2x with default config', () {
@@ -112,11 +189,22 @@ void main() {
       expect(detector.issues.first.title, contains('20.0ms'));
     });
 
-    test('multiple buildScope events produce multiple issues', () {
+    test('multiple buildScope events produce one issue for the longest', () {
       detector.processTimelineData(
-        heavyComputeData(buildScopeDurationsUs: [20000, 30000]),
+        heavyComputeData(buildScopeDurationsUs: [20000, 30000, 5000]),
       );
-      expect(detector.issues, hasLength(2));
+      expect(detector.issues, hasLength(1));
+      final issue = detector.issues.single;
+      expect(issue.title, contains('30.0ms'));
+      expect(issue.detail, contains('2 builds exceeded the threshold'));
+      expect(issue.extraTraceArgs?['observedDurationMs'], '30.0');
+    });
+
+    test('a single slow build carries no batch note', () {
+      detector.processTimelineData(
+        heavyComputeData(buildScopeDurationsUs: [20000]),
+      );
+      expect(detector.issues.single.detail, isNot(contains('in this batch')));
     });
 
     test('no issue for normal buildScope times', () {
@@ -161,12 +249,14 @@ void main() {
     });
 
     test('enriched build shows widget names in title', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 25000,
-        dirtyCount: 2,
-        dirtyList: ['MyWidget', 'OtherWidget'],
-        scopeContext: 'MyApp(dirty)',
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 25000,
+          dirtyCount: 2,
+          dirtyList: ['MyWidget', 'OtherWidget'],
+          scopeContext: 'MyApp(dirty)',
+        ),
+      );
 
       expect(detector.issues, hasLength(1));
       final issue = detector.issues.first;
@@ -176,12 +266,14 @@ void main() {
     });
 
     test('enriched build includes dirty count and widgets in detail', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 25000,
-        dirtyCount: 3,
-        dirtyList: ['A', 'B', 'C'],
-        scopeContext: 'TestApp',
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 25000,
+          dirtyCount: 3,
+          dirtyList: ['A', 'B', 'C'],
+          scopeContext: 'TestApp',
+        ),
+      );
 
       final issue = detector.issues.first;
       expect(issue.detail, contains('Dirty widget count: 3'));
@@ -190,11 +282,13 @@ void main() {
     });
 
     test('enriched build without dirty list uses generic title', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 25000,
-        dirtyCount: 5,
-        // no dirtyList
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 25000,
+          dirtyCount: 5,
+          // no dirtyList
+        ),
+      );
 
       final issue = detector.issues.first;
       expect(issue.title, contains('Heavy Computation:'));
@@ -202,10 +296,12 @@ void main() {
     });
 
     test('widget summary truncates at 3 names', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 25000,
-        dirtyList: ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 25000,
+          dirtyList: ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'],
+        ),
+      );
 
       final issue = detector.issues.first;
       expect(issue.title, contains('Alpha'));
@@ -226,38 +322,43 @@ void main() {
     });
 
     test('enriched warning-tier shows widget names', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 12000, // 12ms: warning tier
-        dirtyCount: 2,
-        dirtyList: ['WidgetA', 'WidgetB'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 12000, // 12ms: warning tier
+          dirtyCount: 2,
+          dirtyList: ['WidgetA', 'WidgetB'],
+        ),
+      );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
       expect(detector.issues.first.title, contains('Heavy Build:'));
     });
 
     test('enriched phaseEvent warning tier', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs:
-            10000, // 10ms: 10 > 8 triggers, 10 > 16 false → warning
-        dirtyList: ['SomeWidget'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs:
+              10000, // 10ms: 10 > 8 triggers, 10 > 16 false → warning
+          dirtyList: ['SomeWidget'],
+        ),
+      );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
     });
 
     test('phaseEvents below threshold produce no issues', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 8000, // 8ms, at threshold boundary (8 > 8 is false)
-        dirtyList: ['SomeWidget'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 8000, // 8ms, at threshold boundary (8 > 8 is false)
+          dirtyList: ['SomeWidget'],
+        ),
+      );
 
       expect(detector.issues, isEmpty);
     });
 
     group('emissionPersistence (monotonic Stopwatch TTL)', () {
-      test(
-          'issue persists for emissionPersistence duration regardless of '
+      test('issue persists for emissionPersistence duration regardless of '
           'how many idle batches arrive within it', () {
         final fakeStopwatch = _FakeStopwatch();
         final ttlDetector = HeavyComputeDetector(testStopwatch: fakeStopwatch);
@@ -271,16 +372,18 @@ void main() {
           fakeStopwatch.advance(const Duration(milliseconds: 180));
           ttlDetector.processTimelineData(heavyComputeData());
         }
-        expect(ttlDetector.issues, hasLength(1),
-            reason: 'should persist through 50 idle batches in 9s');
+        expect(
+          ttlDetector.issues,
+          hasLength(1),
+          reason: 'should persist through 50 idle batches in 9s',
+        );
 
         fakeStopwatch.advance(const Duration(seconds: 2));
         ttlDetector.processTimelineData(heavyComputeData());
         expect(ttlDetector.issues, isEmpty);
       });
 
-      test(
-          'fresh emission immediately replaces stale issue and resets '
+      test('fresh emission immediately replaces stale issue and resets '
           'persistence window', () {
         final fakeStopwatch = _FakeStopwatch();
         final ttlDetector = HeavyComputeDetector(testStopwatch: fakeStopwatch);
@@ -321,9 +424,7 @@ void main() {
         final fakeStopwatch = _FakeStopwatch();
         final d = HeavyComputeDetector(testStopwatch: fakeStopwatch);
 
-        d.processTimelineData(
-          heavyComputeData(buildScopeDurationsUs: [12000]),
-        );
+        d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [12000]));
         expect(d.issues, hasLength(1));
 
         d.isEnabled = false;
@@ -335,9 +436,7 @@ void main() {
         final fakeStopwatch = _FakeStopwatch();
         final d = HeavyComputeDetector(testStopwatch: fakeStopwatch);
 
-        d.processTimelineData(
-          heavyComputeData(buildScopeDurationsUs: [12000]),
-        );
+        d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [12000]));
         expect(d.issues, hasLength(1));
 
         d.vmConnected = false;
@@ -347,8 +446,7 @@ void main() {
     });
 
     group('sourceRoute binding (route-during-TTL regression)', () {
-      test(
-          'persisted issue carries sourceRoute = route at emission, '
+      test('persisted issue carries sourceRoute = route at emission, '
           'not the route active at later aggregate cycles', () {
         // Simulate a route-changing provider: emission happens on
         // route A, subsequent retrieval happens after the user
@@ -360,9 +458,7 @@ void main() {
           sourceRouteProvider: () => currentRoute,
         );
 
-        d.processTimelineData(
-          heavyComputeData(buildScopeDurationsUs: [20000]),
-        );
+        d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [20000]));
         expect(d.issues, hasLength(1));
         expect(d.issues.first.sourceRoute, '/demo/CSV Import');
 
@@ -373,15 +469,16 @@ void main() {
 
         // Issue still retained AND still carries the original route.
         expect(d.issues, hasLength(1));
-        expect(d.issues.first.sourceRoute, '/demo/CSV Import',
-            reason: 'sourceRoute must NOT mutate during persistence window');
+        expect(
+          d.issues.first.sourceRoute,
+          '/demo/CSV Import',
+          reason: 'sourceRoute must NOT mutate during persistence window',
+        );
       });
 
       test('null sourceRouteProvider yields null sourceRoute', () {
         final d = HeavyComputeDetector();
-        d.processTimelineData(
-          heavyComputeData(buildScopeDurationsUs: [20000]),
-        );
+        d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [20000]));
         expect(d.issues.first.sourceRoute, isNull);
       });
     });

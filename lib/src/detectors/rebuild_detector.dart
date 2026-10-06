@@ -11,15 +11,19 @@ import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/monotonic_clock.dart';
+import '../utils/rate_hysteresis.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
-/// Detects excessive widget rebuilds using VM Build events + element tree.
+/// Detects expensive widget rebuilding using VM BUILD scopes + element tree.
 ///
-/// **Hybrid Detector** — VM Timeline provides exact build counts,
-/// element tree walk provides screen context only. Debug callbacks provide
-/// per-widget-type rebuild attribution when enabled.
+/// **Hybrid Detector** — the VM timeline measures the share of UI-thread
+/// wall time spent inside BUILD scopes over each ~1 s window
+/// (`rebuild_activity`); the element tree walk provides screen context
+/// only. Debug callbacks provide per-widget-type rebuild counts
+/// (`rebuild_debug_<type>`) when enabled.
 ///
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
@@ -30,7 +34,7 @@ import '../vm/timeline_parser.dart';
 /// [startupPhaseWindowSeconds] of [Sleuth.dartEntryMonotonicUs]. The
 /// classification reads `Timeline.now` at emission time — it is
 /// **emission-time semantics**, not event-time. `rebuild_activity`'s
-/// 1-second window means a window straddling the startup boundary tags
+/// ~1-second window means a window straddling the startup boundary tags
 /// as `'steady'` once `Timeline.now` exceeds the threshold even when
 /// most contributing build events happened during startup. Per-widget
 /// `rebuild_debug_<typeName>` emissions in a single scan tick share
@@ -50,20 +54,46 @@ import '../vm/timeline_parser.dart';
 class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   RebuildDetector({
     this.rebuildsPerSecThreshold = 10,
+    this.buildTimePercentThreshold = 10,
+    this.statefulDensityThreshold = 10,
     this.startupPhaseWindowSeconds = 5,
+    bool captureMode = false,
     DateTime Function()? clock,
     int? Function()? appStartMonotonicUsForTest,
-  })  : _clock = clock ?? DateTime.now,
-        _windowStart = (clock ?? DateTime.now)(),
-        _appStartForTest = appStartMonotonicUsForTest,
-        super(
-          type: DetectorType.rebuild,
-          lifecycle: DetectorLifecycle.hybrid,
-          name: 'Rebuild',
-          description: 'Detects excessive widget rebuilds (>10/sec)',
-        );
+  }) : assert(
+         buildTimePercentThreshold > 0 && buildTimePercentThreshold <= 100,
+         'buildTimePercentThreshold must be above 0 and at most 100.',
+       ),
+       _captureMode = captureMode,
+       _clock = clock ?? monotonicClock(),
+       _appStartForTest = appStartMonotonicUsForTest,
+       super(
+         type: DetectorType.rebuild,
+         lifecycle: DetectorLifecycle.hybrid,
+         name: 'Rebuild',
+         description:
+             'Detects rebuild work above 10% of UI-thread time '
+             '(VM) or widgets that rebuild more than 10 times per second '
+             '(debug)',
+       ) {
+    _windowStart = _clock();
+  }
 
+  /// Per-widget rebuilds per second (debug instrumentation) above which
+  /// `rebuild_debug_<type>` fires. Builder widgets use 3× this value.
+  /// Does not gate the VM time-share axis.
   final int rebuildsPerSecThreshold;
+
+  /// Share of UI-thread wall time, in percent, spent inside BUILD scopes
+  /// over a ~1 s window above which `rebuild_activity` fires. Critical
+  /// above 3× this value. Default mirrors
+  /// `DetectorThresholds.buildTimePercentThreshold`.
+  final double buildTimePercentThreshold;
+
+  /// Minimum number of public StatefulWidget instances on screen for the
+  /// structural-only `stateful_density` fallback to emit. Independent of
+  /// [rebuildsPerSecThreshold].
+  final int statefulDensityThreshold;
 
   /// Window in seconds after Dart entry within which emissions stamp
   /// `extraTraceArgs.lifecyclePhase: 'startup'`; outside the window
@@ -74,6 +104,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
   final DateTime Function() _clock;
   final int? Function()? _appStartForTest;
+
+  /// Capture mode reports each VM window as measured: no display hold, so
+  /// a leg's issues never outlast it.
+  final bool _captureMode;
 
   /// Returns `'startup'` when emission `Timeline.now` falls within the
   /// startup window after [Sleuth.dartEntryMonotonicUs], `'steady'`
@@ -94,6 +128,31 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   final List<PerformanceIssue> _issues = [];
+
+  /// Per-type issues from the held debug-callback types, rebuilt with each
+  /// snapshot. Snapshots arrive with each scan (every 1-5 s) and VM
+  /// windows every ~1 s, so each source's issues are kept between its own
+  /// updates and [_issues] is rebuilt from both on every evaluation.
+  final List<PerformanceIssue> _debugIssues = [];
+
+  /// The VM share's issue on display, if any ([_vmHeld]).
+  final List<PerformanceIssue> _vmIssues = [];
+
+  /// Per-type debug rates, held across scans so a widget rebuilding at
+  /// the threshold does not flip on and off.
+  final RateHysteresis _perType = RateHysteresis();
+
+  /// The last `rebuild_activity` issue, shown until the build share stays
+  /// under [vmExitFactor] times the threshold for two windows (never in
+  /// capture mode). Every window above the threshold emits a new issue.
+  PerformanceIssue? _vmHeld;
+  int _vmQuietWindows = 0;
+  int _vmBelowCriticalWindows = 0;
+
+  /// Fraction of [buildTimePercentThreshold] the build share must stay
+  /// under for two windows before a shown `rebuild_activity` clears.
+  static const double vmExitFactor = 0.8;
+
   final List<WidgetHighlight> _highlights = [];
   static const int _maxHighlightsPerType = 3;
   bool _isEnabled = true;
@@ -111,124 +170,133 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     'StreamBuilderBase',
   };
 
-  /// Threshold multiplier for builder widget types.
-  static const int _builderThresholdMultiplier = 3;
+  /// Builder widget types alert at this many times
+  /// [rebuildsPerSecThreshold].
+  static const int builderThresholdMultiplier = 3;
+
+  /// A per-widget rebuild rate above this many times its alert rate is
+  /// critical.
+  static const int debugCriticalMultiplier = 3;
 
   int _buildEventCount = 0;
+
+  /// BUILD scope time accumulated in the open window, in microseconds.
+  int _buildTimeUs = 0;
   bool _vmConnected = false;
-  DateTime _windowStart;
+  late DateTime _windowStart;
+
+  /// BUILD events accumulated in the open VM window. Informational; the
+  /// `rebuild_activity` gate reads build time, not this count.
+  int get buildEventCount => _buildEventCount;
 
   // -- Staging fields (nullable = no fresh data) --
 
+  /// Build-time share (percent of window wall time) of the most recently
+  /// closed VM window.
   /// null = no VM window completed since last evaluate.
-  /// 0 = a window completed with zero events (should clear issues).
-  /// >0 = a window completed with events (should produce issues).
-  int? _pendingVmWindowCount;
+  /// 0 = a window completed with no build time (should clear issues).
+  /// >0 = a window completed with build time (may produce issues).
+  double? _pendingVmWindowPercent;
 
   /// null = no new snapshot delivered since last evaluate.
   /// A snapshot with 0 counts means activity stopped (should clear issues).
   DebugSnapshot? _pendingDebugSnapshot;
 
+  /// Staged debug snapshot not yet consumed by a scan (for testing).
+  @visibleForTesting
+  DebugSnapshot? get pendingDebugSnapshotForTest => _pendingDebugSnapshot;
+
   /// Dirty widget names from enriched timeline args, accumulating across
   /// timeline ticks until the next 1s window completes.
   final List<String> _pendingEnrichedNames = [];
 
-  /// Enriched names staged atomically with [_pendingVmWindowCount].
+  /// Enriched names staged atomically with [_pendingVmWindowPercent].
   /// Consumed by [_evaluateVmData] and cleared unconditionally in [_evaluate].
   List<String>? _stagedEnrichedNames;
 
-  /// Last observed rebuilds-per-second count from the VM-backed
-  /// `_evaluateVmData` path. Updated unconditionally on every call —
-  /// sub-threshold buffers (no warning fire) still expose detector-
-  /// measured evidence so capture-mode operators export the same axis
-  /// the audit gate classifies on.
-  // _evaluateVmData rewrites this on every call and resetCaptureState
-  // clears it on session boundaries; cannot be final.
-  // ignore: prefer_final_fields
-  int _lastObservedRebuildRate = 0;
+  /// Build-time share of the most recently closed VM window, updated on
+  /// every window close (including idle 0 % windows) before the
+  /// threshold gate, so sub-threshold capture legs still expose the
+  /// detector's measurement.
+  double _lastObservedBuildPercent = 0;
 
-  /// Detector-measured rebuilds-per-second from the most recent
-  /// VM-backed evaluation, with [baselineRebuildRate] subtracted when
-  /// non-zero. Capture-mode operators read this for sub-threshold legs
-  /// where no warning event fires. A separate `Sleuth.flushTimelineNow()`
-  /// barrier drives the VM-poll → `processTimelineData` →
-  /// `_evaluateVmData` chain that updates this getter; no detector-side
-  /// flush API needed.
-  int get lastObservedRebuildRate => _lastObservedRebuildRate;
+  /// Share of UI-thread wall time, in percent, spent inside BUILD scopes
+  /// in the most recently closed ~1 s VM window. A
+  /// `Sleuth.flushTimelineNow()` barrier drives the VM poll →
+  /// [processTimelineData] → window-close chain that updates it.
+  double get lastObservedBuildPercent => _lastObservedBuildPercent;
 
-  // Highest adjusted window count seen since the last
-  // resetCaptureState call. Capture-mode operators read this for
-  // bracket-band evidence when the audit gate uses
-  // `observedAxisReduction: 'max'`. Last-window-only would let a
-  // tail-off window understate the worst signal in the scenario.
-  // ignore: prefer_final_fields
-  int _peakObservedRebuildRate = 0;
+  // Highest window share since the last resetCaptureState. Updated on the
+  // same evaluation path that stamps `observedBuildPercent` on emissions,
+  // so a capture's `max` reduction over emission args can match it.
+  double _peakObservedBuildPercent = 0;
 
-  /// Highest adjusted rebuilds-per-second observed across all staged
-  /// windows since the last [resetCaptureState] (which is auto-invoked
-  /// by `Sleuth.markScenarioBegin`). Capture-mode operators report
-  /// this as `expectedMagnitude.observed` when the audit-gate bracket
-  /// uses `observedAxisReduction: 'max'` so the capture's send-side
-  /// number agrees with the schema's max-of-trace-events reduction.
-  int get peakObservedRebuildRate => _peakObservedRebuildRate;
-
-  /// Ambient framework-driven rebuild rate (BUILDs per second observed
-  /// when no user signal is present). Subtracted from raw window counts
-  /// before the threshold gate fires and before
-  /// [_lastObservedRebuildRate] is exposed. Defaults to `0` —
-  /// live-monitoring behavior is unchanged because zero subtraction is
-  /// a no-op. Capture-mode operators set this via [setBaseline] after a
-  /// dedicated idle-measurement run, so that on-device evidence
-  /// reflects user-driven rebuild activity rather than Material
-  /// framework noise (Scaffold animations, theme inheritance, navigator
-  /// transitions). Without this, iOS profile-mode emits ~10–15 BUILD
-  /// events per second purely from framework state, which exceeds the
-  /// default 10/sec threshold and breaks below-leg honesty for the
-  /// runtimeVerified bracket.
-  int _baselineRebuildRate = 0;
-
-  /// Currently configured ambient floor for capture-mode evidence. See
-  /// [setBaseline].
-  int get baselineRebuildRate => _baselineRebuildRate;
-
-  /// Configures the ambient rebuild floor that [_evaluateVmData]
-  /// subtracts from raw window counts. Pass `0` to disable subtraction
-  /// (the default; preserves live-monitoring semantics). Typical
-  /// usage: capture-mode operator runs an idle scenario, reads
-  /// [lastObservedRebuildRate], then calls [setBaseline] with that
-  /// value before driving the actual workload. Negative inputs are
-  /// clamped to `0`.
-  void setBaseline(int rate) {
-    _baselineRebuildRate = rate < 0 ? 0 : rate;
-  }
+  /// Highest build-time share observed across VM windows since the last
+  /// [resetCaptureState] (auto-invoked by `Sleuth.markScenarioBegin`).
+  /// Capture-mode operators report this as `expectedMagnitude.observed`
+  /// when the bracket uses `observedAxisReduction: 'max'`; every value it
+  /// takes is also the `observedBuildPercent` of an emission whenever it
+  /// crosses [buildTimePercentThreshold].
+  double get peakObservedBuildPercent => _peakObservedBuildPercent;
 
   /// Capture-mode session-boundary reset hook called from
   /// `SleuthController.resetCaptureState()` (auto-invoked by
   /// `Sleuth.markScenarioBegin`). Clears the VM-path window state so
-  /// leg N+1's measured rate reflects ONLY leg-N+1 activity:
-  ///   - `_lastObservedRebuildRate`: prior leg's peak read.
-  ///   - `_buildEventCount`: accumulator that would otherwise carry
-  ///     pre-scenario BUILD events into the first window stage.
-  ///   - `_pendingVmWindowCount`: staged-but-unconsumed window count
-  ///     from a window that closed before scenario start.
-  ///   - `_pendingEnrichedNames` / `_stagedEnrichedNames`: parallel
-  ///     dirty-widget staging for the same window.
-  ///   - `_windowStart`: re-anchored to scenario-begin time so the
-  ///     next window stage fires exactly 1 s after leg start, not
-  ///     1 s from app-construction time.
+  /// leg N+1's measured share reflects only leg-N+1 activity: the
+  /// last/peak observables, the open window's build time and event
+  /// count, any staged-but-unconsumed window, the parallel dirty-widget
+  /// staging, and the window clock (re-anchored so the next window
+  /// closes 1 s after the reset and measures elapsed time from it).
   ///
-  /// `_pendingDebugSnapshot` and `_widgetRebuildCounts` are NOT
+  /// `_pendingDebugSnapshot` and `_widgetRebuildCounts` are not
   /// touched — those drive the structural-fallback path, managed by
-  /// the existing `prepareScan` lifecycle. Clearing them would
-  /// change behavior for non-capture detector paths.
+  /// the existing `prepareScan` lifecycle.
   void resetCaptureState() {
-    _lastObservedRebuildRate = 0;
-    _peakObservedRebuildRate = 0;
+    _lastObservedBuildPercent = 0;
+    _peakObservedBuildPercent = 0;
     _buildEventCount = 0;
-    _pendingVmWindowCount = null;
+    _buildTimeUs = 0;
+    _pendingVmWindowPercent = null;
     _pendingEnrichedNames.clear();
     _stagedEnrichedNames = null;
+    _pendingDebugSnapshot = null;
+    _clearHeld();
+    _issues.clear();
     _windowStart = _clock();
+  }
+
+  /// Starts over at a route change or hot reload: drops the held debug
+  /// types and VM issue and restarts the open VM window, so evidence from
+  /// the previous screen is neither shown nor mixed into the next window.
+  void markRouteEpoch() {
+    _buildEventCount = 0;
+    _buildTimeUs = 0;
+    _pendingVmWindowPercent = null;
+    _pendingEnrichedNames.clear();
+    _stagedEnrichedNames = null;
+    _pendingDebugSnapshot = null;
+    _windowStart = _clock();
+    _clearHeld();
+    _compose();
+  }
+
+  /// Drops the held debug types, for a scan that could not run: the
+  /// counts it drained are gone, and the types held from earlier scans
+  /// belong to a page that may no longer be shown.
+  void discardDebugEvidence() {
+    _pendingDebugSnapshot = null;
+    _perType.reset();
+    _debugIssues.clear();
+    _compose();
+  }
+
+  void _clearHeld() {
+    _perType.reset();
+    _debugIssues.clear();
+    _vmHeld = null;
+    _vmQuietWindows = 0;
+    _vmBelowCriticalWindows = 0;
+    _vmIssues.clear();
   }
 
   /// Current VM connectivity — set by the controller.
@@ -240,24 +308,29 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     _vmConnected = value;
     if (!value) {
       _buildEventCount = 0;
-      _pendingVmWindowCount = null;
+      _buildTimeUs = 0;
+      _pendingVmWindowPercent = null;
+      _vmHeld = null;
+      _vmQuietWindows = 0;
+      _vmBelowCriticalWindows = 0;
+      _vmIssues.clear();
+      // The VM share's card goes with the connection; structural and
+      // debug issues stay until their next evaluation.
+      _issues.removeWhere(
+        (i) => i.observationSource == ObservationSource.vmTimeline,
+      );
       _pendingEnrichedNames.clear();
       _stagedEnrichedNames = null;
-      // Capture-mode operators set a non-zero baseline before each
-      // leg via `setBaseline(int)`. The baseline is intentionally
-      // retained across `resetCaptureState` so multiple legs in one
-      // session share the ambient measurement. VM disconnect is the
-      // implicit end of a capture session: a `setBaseline`-bearing
-      // session that loses VM connectivity (DevTools detach, app
-      // backgrounded, debugger reattach) and reconnects must NOT
-      // carry the stale floor into post-reconnect live monitoring,
-      // otherwise the threshold gate silently suppresses real
-      // rebuild storms in `(threshold, threshold + baseline]`.
-      _baselineRebuildRate = 0;
+      // A leg straddling a VM disconnect must not export a peak from
+      // before the drop; post-reconnect windows accumulate a fresh one.
+      _lastObservedBuildPercent = 0;
+      _peakObservedBuildPercent = 0;
     } else if (!wasConnected) {
       // Reconnect: stage a fresh-zero so the next _evaluate() flushes
       // stale structural/debug issues that are incompatible with VM mode.
-      _pendingVmWindowCount = 0;
+      // The window restarts so its elapsed time excludes the disconnect.
+      _pendingVmWindowPercent = 0;
+      _windowStart = _clock();
     }
   }
 
@@ -275,15 +348,18 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  /// Process VM timeline data for build event counts.
+  /// Process VM timeline data for BUILD scope time.
   ///
-  /// Accumulates counts and enriched dirty names into pending buffers.
-  /// On 1s window completion, stages count + enrichment atomically
-  /// for [_evaluate].
+  /// Accumulates BUILD scope durations, event counts, and enriched dirty
+  /// names into pending buffers. When at least 1 s has elapsed on the
+  /// detector clock, the window closes: its build time divided by the
+  /// measured elapsed time (windows close at poll arrival and can run
+  /// 1.0–1.5 s) is staged with the enrichment atomically for [_evaluate].
   @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
     _buildEventCount += data.buildEventCount;
+    _buildTimeUs += data.totalBuildScopeUs;
 
     // Accumulate enriched dirty names from this batch
     for (final event in data.phaseEvents) {
@@ -293,19 +369,25 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     }
 
     final now = _clock();
-    if (now.difference(_windowStart).inMilliseconds >= 1000) {
-      _pendingVmWindowCount = _buildEventCount;
-      // Stage enrichment atomically with the window count
+    final elapsedUs = now.difference(_windowStart).inMicroseconds;
+    if (elapsedUs >= Duration.microsecondsPerSecond) {
+      // Clamped: a mis-paired or nested scope could otherwise credit more
+      // phase time than the window holds.
+      final percent = (_buildTimeUs / elapsedUs * 100).clamp(0.0, 100.0);
+      _pendingVmWindowPercent = percent;
+      _lastObservedBuildPercent = percent;
+      // Stage enrichment atomically with the window share
       _stagedEnrichedNames = _pendingEnrichedNames.isNotEmpty
           ? _pendingEnrichedNames.toList()
           : null;
       _pendingEnrichedNames.clear();
       _buildEventCount = 0;
+      _buildTimeUs = 0;
       _windowStart = now;
     }
   }
 
-  Map<String, double> _hotTypes = const {};
+  Map<String, ({double rate, bool critical})> _hotTypes = const {};
   Map<String, int> _hotCounts = {};
 
   @override
@@ -342,27 +424,26 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     // escalate to critical at `> effectiveThreshold * 3` (= 90/sec for
     // builders), not at `rebuildsPerSecThreshold * 3` (= 30/sec). A plain
     // `* 3` would over-escalate builders by 60 units relative to issues.
-    final rate = _hotTypes[name];
-    if (rate != null) {
+    final hot = _hotTypes[name];
+    if (hot != null) {
       final count = _hotCounts[name] ?? 0;
       if (count < _maxHighlightsPerType) {
         final ro = element.renderObject;
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
-            final effectiveThreshold =
-                _builderWidgetTypes.contains(baseTypeName(name))
-                    ? rebuildsPerSecThreshold * _builderThresholdMultiplier
-                    : rebuildsPerSecThreshold;
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: name,
-              severity: rate > effectiveThreshold * 3
-                  ? IssueSeverity.critical
-                  : IssueSeverity.warning,
-              detectorName: 'Rebuild',
-              detail: '${rate.round()} rebuilds/sec',
-            ));
+            _highlights.add(
+              WidgetHighlight(
+                rect: rect,
+                renderObject: ro,
+                widgetName: name,
+                severity: hot.critical
+                    ? IssueSeverity.critical
+                    : IssueSeverity.warning,
+                detectorName: 'Rebuild',
+                detail: '${hot.rate.round()} rebuilds/sec',
+              ),
+            );
             _hotCounts[name] = count + 1;
           }
         }
@@ -377,35 +458,24 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Compute types with excessive rebuild rates from available staging data.
   ///
-  /// Returns a map of typeName → rate. Priority: debug snapshot > enriched
-  /// VM names. Returns empty when only structural data is available (density
-  /// is not proven rebuild rate).
-  Map<String, double> _hotRebuildTypes() {
-    final hotTypes = <String, double>{};
-
-    // Priority 1: Debug snapshot (per-widget type attribution).
+  /// Returns typeName → rate and severity. Priority: debug snapshot >
+  /// enriched VM names. Returns empty when only structural data is
+  /// available (density is not proven rebuild rate).
+  Map<String, ({double rate, bool critical})> _hotRebuildTypes() {
+    // Priority 1: Debug snapshot (per-widget type attribution), through
+    // the same held types as the issues so highlights and cards agree.
     // Source-mode `flutterTimeline` includes initial widget inflations
-    // (KDD-5) — `_evaluate` suppresses per-type issues for that source.
-    // Highlights MUST share the same gate or the overlay paints hot-widget
-    // boxes without a corresponding issue card.
-    final snapshot = _pendingDebugSnapshot;
-    if (snapshot != null) {
-      if (snapshot.source == RebuildCountSource.flutterTimeline) {
-        return hotTypes;
-      }
-      for (final entry in snapshot.rebuildCounts.entries) {
-        final rate = snapshot.rebuildsPerSecond(entry.key);
-        final threshold = _builderWidgetTypes.contains(baseTypeName(entry.key))
-            ? rebuildsPerSecThreshold * _builderThresholdMultiplier
-            : rebuildsPerSecThreshold;
-        if (rate >= threshold) {
-          hotTypes[entry.key] = rate;
-        }
-      }
-      return hotTypes;
+    // (first builds), so `_evaluate` suppresses per-type issues for that source,
+    // and the held set is empty for it.
+    if (_pendingDebugSnapshot != null) {
+      return {
+        for (final entry in _perType.held.entries)
+          entry.key: (rate: entry.value.rate, critical: entry.value.critical),
+      };
     }
 
     // Priority 2: Enriched VM names (dirty widget names from timeline)
+    final hotTypes = <String, ({double rate, bool critical})>{};
     final enriched = _stagedEnrichedNames;
     if (enriched != null && enriched.isNotEmpty) {
       final counts = <String, int>{};
@@ -413,183 +483,215 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         counts[name] = (counts[name] ?? 0) + 1;
       }
       for (final entry in counts.entries) {
-        final threshold = _builderWidgetTypes.contains(baseTypeName(entry.key))
-            ? rebuildsPerSecThreshold * _builderThresholdMultiplier
-            : rebuildsPerSecThreshold;
+        final threshold = _thresholdFor(entry.key);
         if (entry.value >= threshold) {
-          hotTypes[entry.key] = entry.value.toDouble();
+          hotTypes[entry.key] = (
+            rate: entry.value.toDouble(),
+            critical: entry.value > threshold * debugCriticalMultiplier,
+          );
         }
       }
     }
-
     return hotTypes;
   }
+
+  /// Per-type alert rate: builder widgets are designed to rebuild on
+  /// data/tick changes and alert at [builderThresholdMultiplier] times
+  /// [rebuildsPerSecThreshold]. The generic suffix is canonicalized
+  /// because production runtime types arrive as `StreamBuilder<int>`.
+  double _thresholdFor(String typeName) =>
+      (_builderWidgetTypes.contains(baseTypeName(typeName))
+              ? rebuildsPerSecThreshold * builderThresholdMultiplier
+              : rebuildsPerSecThreshold)
+          .toDouble();
 
   @override
   void updateDebugSnapshot(DebugSnapshot snapshot) {
     _pendingDebugSnapshot = snapshot;
+    if (snapshot.source == RebuildCountSource.flutterTimeline) {
+      // Profile counts include initial inflations (first builds), not
+      // only rebuilds: no per-type issues from them.
+      _perType.reset();
+      return;
+    }
+    _perType.update(
+      counts: snapshot.rebuildCounts,
+      elapsedUs: snapshot.elapsed.inMicroseconds,
+      capped: snapshot.rebuildTypesCapped,
+      thresholdFor: _thresholdFor,
+      criticalMultiplier: debugCriticalMultiplier.toDouble(),
+    );
   }
 
   @override
   void evaluateNow() => _evaluate();
 
-  /// The ONLY method that writes [_issues].
+  /// The ONLY method that writes [_issues] from fresh data.
   ///
   /// Priority: debug callback > VM timeline > structural scan.
   /// Nullable staging fields distinguish "no new data" (null → keep
   /// existing issues) from "fresh window with zero events" (non-null
-  /// with 0 → clear stale issues).
+  /// with 0 → clear stale issues). A fresh debug snapshot rebuilds
+  /// [_debugIssues] from the held types, every fresh VM window is
+  /// evaluated into [_vmIssues], and [_compose] picks what is shown, so a
+  /// tick of one source keeps the other source's issues. Staging is
+  /// consumed so a window or snapshot is evaluated once.
   void _evaluate() {
     final debugSnapshot = _pendingDebugSnapshot;
-    final vmWindowCount = _pendingVmWindowCount;
+    final vmWindowPercent = _pendingVmWindowPercent;
     final enrichedNames = _stagedEnrichedNames;
     final hasStructuralData = !_vmConnected && _widgetRebuildCounts.isNotEmpty;
 
     final hasFreshDebug = debugSnapshot != null;
-    final hasFreshVm = _vmConnected && vmWindowCount != null;
+    final hasFreshVm = _vmConnected && vmWindowPercent != null;
 
     // No fresh data from any source — keep existing issues.
     if (!hasFreshDebug && !hasFreshVm && !hasStructuralData) return;
 
-    // Fresh data exists — clear and re-evaluate.
-    _issues.clear();
     // Unconditional clear — prevents enrichment leaking across branches.
     _stagedEnrichedNames = null;
 
     if (hasFreshDebug) {
-      // `_evaluateDebugData` must NOT run on profile-mode
-      // (`flutterTimeline`) snapshots. Those counts include initial widget
-      // inflations per KDD-5 — feeding them to the per-type "Excessive
-      // Rebuilds" path produced critical false positives on route entry
-      // (e.g. `ProductCard × 50` list-entry inflations interpreted as
-      // rebuilds). Profile mode surfaces a single session-level rollup
-      // instead; debug mode keeps the per-type attribution unchanged
-      // because `debugOnRebuildDirtyWidget` only fires on actual
-      // `setState`-driven rebuilds. The gate is "not flutterTimeline"
-      // rather than "equals debugCallback" so existing tests that
-      // construct `DebugSnapshot` with the default `source:
-      // RebuildCountSource.none` (no explicit source tag) keep exercising
-      // the per-type path — backwards compatibility for pre-v15 fixtures.
-      if (debugSnapshot.source != RebuildCountSource.flutterTimeline &&
-          debugSnapshot.totalRebuilds > 0) {
-        _evaluateDebugData(debugSnapshot);
-        // Same-tick VM fallback. `_evaluateDebugData` only fires when an
-        // individual type crosses its per-type threshold; a window where
-        // total rebuilds are spread across many sub-threshold types
-        // would otherwise drop the VM aggregate signal entirely. Surface
-        // it as `rebuild_activity` instead of silently discarding the
-        // storm.
-        if (_issues.isEmpty && hasFreshVm && vmWindowCount > 0) {
-          _evaluateVmData(vmWindowCount, enrichedNames);
-        }
-      } else if (debugSnapshot.totalRebuilds == 0 && hasFreshVm) {
-        // Debug callbacks active but returned zero counts — fall back to VM.
-        if (vmWindowCount > 0) {
-          _evaluateVmData(vmWindowCount, enrichedNames);
-        }
-      }
-      // Debug snapshot is the priority signal whenever fresh; consume the
-      // VM window in the same scan. Otherwise the `flutterTimeline +
-      // totalRebuilds > 0 + hasFreshVm` branch falls through both inner
-      // cases and leaves `_pendingVmWindowCount` staged. The next scan
-      // would replay it as `rebuild_activity` after the snapshot's
-      // enrichment + tree context has already been discarded — a stale
-      // ghost issue, often surfacing after navigation.
+      _debugIssues
+        ..clear()
+        ..addAll(_perTypeIssues(debugSnapshot));
       _pendingDebugSnapshot = null;
-      _pendingVmWindowCount = null;
-    } else if (hasFreshVm) {
-      if (vmWindowCount > 0) {
-        _evaluateVmData(vmWindowCount, enrichedNames);
+    }
+
+    if (hasFreshVm) {
+      // Every window is evaluated, so the peak and the emissions follow
+      // the measurement whatever is on display.
+      final emitted = vmWindowPercent > 0
+          ? _evaluateVmData(vmWindowPercent, enrichedNames)
+          : null;
+      if (vmWindowPercent >= buildTimePercentThreshold * 3 * vmExitFactor) {
+        _vmBelowCriticalWindows = 0;
+      } else {
+        _vmBelowCriticalWindows++;
       }
-      _pendingVmWindowCount = null;
-    } else if (hasStructuralData) {
+      if (emitted != null) {
+        // A critical card stays critical until the share is under
+        // [vmExitFactor] of the critical boundary for two windows; the
+        // emission itself keeps its measured severity.
+        final holdCritical =
+            !_captureMode &&
+            _vmHeld?.severity == IssueSeverity.critical &&
+            emitted.severity == IssueSeverity.warning &&
+            _vmBelowCriticalWindows < 2;
+        _vmHeld = holdCritical
+            ? emitted.copyWith(severity: IssueSeverity.critical)
+            : emitted;
+        _vmQuietWindows = 0;
+      } else if (_vmHeld != null) {
+        if (_captureMode) {
+          _vmHeld = null;
+        } else if (vmWindowPercent < buildTimePercentThreshold * vmExitFactor) {
+          if (++_vmQuietWindows >= 2) _vmHeld = null;
+        } else {
+          _vmQuietWindows = 0;
+        }
+      }
+      _vmIssues
+        ..clear()
+        ..addAll([?_vmHeld]);
+      _pendingVmWindowPercent = null;
+    }
+
+    _compose(structural: !hasFreshDebug && hasStructuralData);
+  }
+
+  /// Rebuilds [_issues]: per-type debug issues win, then the VM share
+  /// while connected, then (on a scan without debug data and without a
+  /// VM connection) the structural density report.
+  void _compose({bool structural = false}) {
+    _issues.clear();
+    if (_debugIssues.isNotEmpty) {
+      _issues.addAll(_debugIssues);
+    } else if (_vmConnected) {
+      _issues.addAll(_vmIssues);
+    } else if (structural) {
       _evaluateStructuralOnly();
     }
   }
 
-  /// Debug callback path — per-widget-type rebuild attribution.
-  void _evaluateDebugData(DebugSnapshot snapshot) {
+  /// Debug callback path — one issue per held widget type.
+  List<PerformanceIssue> _perTypeIssues(DebugSnapshot snapshot) {
     // Read once per evaluation pass — multiple per-widget emissions in
     // the same scan tick share the same lifecycle phase.
     final lifecyclePhase = _classifyLifecyclePhase();
-    for (final entry in snapshot.rebuildCounts.entries) {
-      final typeName = entry.key;
-      final count = entry.value;
-      final rate = snapshot.rebuildsPerSecond(typeName);
-
-      // Builder widgets are designed to rebuild on data/tick changes —
-      // apply a higher threshold to avoid false positives. Canonicalize
-      // the generic suffix because production runtime types arrive as
-      // `StreamBuilder<int>` etc.
-      final isBuilder = _builderWidgetTypes.contains(baseTypeName(typeName));
-      final effectiveThreshold = isBuilder
-          ? rebuildsPerSecThreshold * _builderThresholdMultiplier
-          : rebuildsPerSecThreshold;
-
-      if (rate < effectiveThreshold) continue;
-
-      final elapsedSec =
-          snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
-
-      final (hint, effort) = FixHintBuilder.rebuildDebug(
-        typeName: typeName,
-        rate: rate.round(),
-        ancestorChain: snapshot.ancestorChains[typeName],
-      );
-
-      final builderNote = isBuilder ? ' (builder widget)' : '';
-
-      _issues.add(PerformanceIssue(
-        stableId: 'rebuild_debug_$typeName',
-        severity: rate > effectiveThreshold * 3
-            ? IssueSeverity.critical
-            : IssueSeverity.warning,
-        category: IssueCategory.build,
-        confidence: IssueConfidence.confirmed,
-        title: 'Excessive Rebuilds: $typeName (${rate.round()}/sec)',
-        detail: '$typeName: $count rebuilds in '
-            '${elapsedSec.toStringAsFixed(1)}s '
-            '(${rate.round()}/sec).$builderNote',
-        fixHint: hint,
-        fixEffort: effort,
-        widgetName: typeName,
-        ancestorChain: snapshot.ancestorChains[typeName],
-        observationSource: ObservationSource.debugCallback,
-        detectedAt: DateTime.now(),
-        extraTraceArgs: {
-          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-        },
-        confidenceReason:
-            'Measured directly from debug callback rebuild counter',
-      ));
-    }
+    final snapshotSeconds =
+        snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    return [
+      for (final MapEntry(key: typeName, value: held) in _perType.held.entries)
+        _perTypeIssue(
+          typeName,
+          held,
+          snapshot,
+          snapshotSeconds,
+          lifecyclePhase,
+        ),
+    ];
   }
 
-  /// VM timeline path — aggregate build event count with attribution context.
+  PerformanceIssue _perTypeIssue(
+    String typeName,
+    HeldRate held,
+    DebugSnapshot snapshot,
+    double snapshotSeconds,
+    String? lifecyclePhase,
+  ) {
+    final rate = held.rate;
+    final isBuilder = _builderWidgetTypes.contains(baseTypeName(typeName));
+    final (hint, effort) = FixHintBuilder.rebuildDebug(
+      typeName: typeName,
+      rate: rate.round(),
+      ancestorChain: snapshot.ancestorChains[typeName],
+    );
+    final builderNote = isBuilder ? ' (builder widget)' : '';
+    final forced = snapshot.forcedRebuildsByRoot[typeName] ?? 0;
+    final forcedNote = forced > 0
+        ? ' Its builds also rebuilt $forced widget'
+              '${forced == 1 ? '' : 's'} below it in the last '
+              '${snapshotSeconds.toStringAsFixed(1)}s.'
+        : '';
+    return PerformanceIssue(
+      stableId: 'rebuild_debug_$typeName',
+      severity: held.critical ? IssueSeverity.critical : IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.confirmed,
+      title: 'Excessive Rebuilds: $typeName (${rate.round()}/sec)',
+      detail:
+          '$typeName rebuilt ${held.count} times in '
+          '${held.seconds.toStringAsFixed(1)}s '
+          '(${rate.round()}/sec).$builderNote$forcedNote',
+      fixHint: hint,
+      fixEffort: effort,
+      widgetName: typeName,
+      ancestorChain: snapshot.ancestorChains[typeName],
+      observationSource: ObservationSource.debugCallback,
+      detectedAt: DateTime.now(),
+      extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+      confidenceReason: 'Measured directly from debug callback rebuild counter',
+    );
+  }
+
+  /// VM timeline path — share of UI-thread time inside BUILD scopes, with
+  /// attribution context.
   ///
   /// When [enrichedNames] are available (from timeline enrichment args),
   /// uses them for dirty-widget attribution. Otherwise falls back to
   /// structural tree scan context.
-  void _evaluateVmData(int buildCount, [List<String>? enrichedNames]) {
-    // Subtract the configured ambient floor before the threshold gate.
-    // When [_baselineRebuildRate] is 0 (the default for live monitoring)
-    // the adjusted count is identical to the raw count, so existing
-    // detection semantics are unchanged. Capture mode opts in by calling
-    // [setBaseline] with a measured idle rate, which lets the
-    // user-driven signal cross the threshold without ambient framework
-    // BUILDs (Material animations, theme inheritance, navigator
-    // transitions on iOS profile mode) inflating the magnitude.
-    final adjusted = (buildCount - _baselineRebuildRate).clamp(0, buildCount);
-
-    // Update detector-measured rate BEFORE the threshold gate so
-    // sub-threshold buffers still expose the value to capture-mode
-    // operators. The threshold gate below skips emission only —
-    // the field is the source of truth for the bracket axis.
-    _lastObservedRebuildRate = adjusted;
-    if (adjusted > _peakObservedRebuildRate) {
-      _peakObservedRebuildRate = adjusted;
+  PerformanceIssue? _evaluateVmData(
+    double percent, [
+    List<String>? enrichedNames,
+  ]) {
+    // The peak moves on the evaluation path that stamps
+    // `observedBuildPercent`, so every peak above the threshold is also
+    // the arg of an emission (the audit's `max` reduction matches it).
+    if (percent > _peakObservedBuildPercent) {
+      _peakObservedBuildPercent = percent;
     }
-    if (adjusted <= rebuildsPerSecThreshold) return;
+    if (percent <= buildTimePercentThreshold) return null;
 
     String detailSuffix;
 
@@ -601,7 +703,8 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       }
       final sorted = counts.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
-      detailSuffix = '\nTop dirty widgets (timeline enrichment): '
+      detailSuffix =
+          '\nTop dirty widgets (timeline enrichment): '
           '${sorted.take(3).map((e) => '${e.key} (${e.value}x)').join(', ')}';
     } else {
       // Structural fallback
@@ -609,82 +712,87 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         ..sort((a, b) => b.value.compareTo(a.value));
       detailSuffix = topRebuilders.isNotEmpty
           ? '\nMost common StatefulWidget on screen: ${topRebuilders.first.key} '
-              '(${topRebuilders.first.value} instances — screen context, '
-              'not proven rebuild source).'
+                '(${topRebuilders.first.value} instances). This is screen '
+                'context, not a proven rebuild source.'
           : '';
     }
 
-    // FixHintBuilder receives the RAW count (not adjusted) so the
-    // user-facing prose reflects total observed rebuild activity, not
-    // baseline-subtracted activity. A user reading the hint cares
-    // about reducing the actual rebuild rate happening in their app —
-    // baseline-correction is an internal capture-mode mechanism that
-    // shouldn't surface in advice text.
+    final formatted = percent.toStringAsFixed(1);
     final (hint, effort) = FixHintBuilder.rebuildActivity(
-      buildCount: buildCount,
+      buildPercent: percent,
     );
 
     final detectedAt = DateTime.now();
     final lifecyclePhase = _classifyLifecyclePhase();
-    _issues.add(PerformanceIssue(
+    return PerformanceIssue(
       stableId: 'rebuild_activity',
-      severity: adjusted > rebuildsPerSecThreshold * 3
+      severity: percent > buildTimePercentThreshold * 3
           ? IssueSeverity.critical
           : IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.confirmed,
-      title: 'High Rebuild Activity: $adjusted builds/sec',
-      detail: '$adjusted widget rebuilds in the last second.$detailSuffix',
+      title: 'Rebuild Activity: build phase $formatted% of UI time',
+      detail:
+          'Widget rebuilding (BUILD scopes on the UI thread) took '
+          '$formatted% of wall time in the last window of about 1 s '
+          '(threshold ${_formatPercent(buildTimePercentThreshold)}%).'
+          '$detailSuffix',
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: detectedAt,
       dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
       extraTraceArgs: {
-        'observedRebuildRate': adjusted.toString(),
-        if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+        'observedBuildPercent': formatted,
+        'lifecyclePhase': ?lifecyclePhase,
       },
-      confidenceReason: 'Measured directly from VM timeline build count',
-    ));
+      confidenceReason: 'Measured directly from VM timeline BUILD durations',
+    );
   }
+
+  static String _formatPercent(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(1);
 
   /// Structural-only fallback when VM data is unavailable.
   /// Reports high StatefulWidget density as context, not proven rebuild rate.
   void _evaluateStructuralOnly() {
     final totalStateful = _widgetRebuildCounts.values.fold(0, (s, v) => s + v);
-    if (totalStateful < rebuildsPerSecThreshold) return;
+    if (totalStateful < statefulDensityThreshold) return;
 
     final topRebuilders = _widgetRebuildCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    final topWidget =
-        topRebuilders.isNotEmpty ? topRebuilders.first.key : 'Unknown';
+    final topWidget = topRebuilders.isNotEmpty
+        ? topRebuilders.first.key
+        : 'Unknown';
 
     final (hint, effort) = FixHintBuilder.statefulDensity(
       topWidget: topRebuilders.isNotEmpty ? topWidget : null,
     );
 
     final lifecyclePhase = _classifyLifecyclePhase();
-    _issues.add(PerformanceIssue(
-      stableId: 'stateful_density',
-      severity: IssueSeverity.warning,
-      category: IssueCategory.build,
-      confidence: IssueConfidence.possible,
-      title: 'High StatefulWidget Density: $totalStateful instances',
-      detail: '$totalStateful StatefulWidget instances on screen '
-          '(VM unavailable — rebuild rate unknown).'
-          '${topRebuilders.isNotEmpty ? '\nMost common: $topWidget '
-              '(${topRebuilders.first.value} instances).' : ''}',
-      fixHint: hint,
-      fixEffort: effort,
-      observationSource: ObservationSource.structural,
-      detectedAt: DateTime.now(),
-      extraTraceArgs: {
-        if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-      },
-      confidenceReason:
-          'Structural scan only — connect VM for higher confidence',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'stateful_density',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'High StatefulWidget Density: $totalStateful instances',
+        detail:
+            '$totalStateful StatefulWidget instances are on screen. The VM '
+            'is unavailable, so the rebuild rate is unknown.'
+            '${topRebuilders.isNotEmpty ? '\nThe most common one is $topWidget '
+                      '(${topRebuilders.first.value} instances).' : ''}',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.structural,
+        detectedAt: DateTime.now(),
+        extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+        confidenceReason:
+            'Structural scan only. Connect the VM for higher confidence',
+      ),
+    );
   }
 
   /// Framework StatefulWidget types that inflate the structural density count
@@ -741,6 +849,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void dispose() {
     _issues.clear();
+    _clearHeld();
     _highlights.clear();
     _widgetRebuildCounts.clear();
     _pendingEnrichedNames.clear();
@@ -749,97 +858,93 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        perStableIdTier: {
-          'rebuild_activity': EvidenceTier.runtimeVerified,
-        },
-        additionalBrackets: [
-          BracketSpec(
-            stableId: 'rebuild_activity',
-            severityLabel: 'critical',
-            threshold: 31,
-            unit: 'rebuilds',
-            coveredThresholds: {'rebuild_activity.critical'},
-            profileCapturePaths: [
-              'test/validation/captures/rebuild_detector/critical_below.json',
-              'test/validation/captures/rebuild_detector/critical_at.json',
-              'test/validation/captures/rebuild_detector/critical_above.json',
-            ],
-            atTolerance: 0.65,
-            aboveCeilingMultiplier: 2.7,
-            requireUniqueDetectedAtMicros: true,
-            requireDetectorTraceRecord: true,
-            observedAxisArgKey: 'observedRebuildRate',
-            observedAxisReduction: 'max',
-            // Each leg's capture must contain >=2 in-band detector
-            // samples in its role band so a single in-band peak
-            // surrounded by sub-band emissions cannot certify the
-            // bracket. iPhone thermal throttling on a 6 s sustained
-            // leg routinely produces a mix of in-band + sub-band
-            // emissions; requiring redundancy makes the audit gate
-            // robust against a future event drop (VM-poll dedup
-            // tightening, ring-buffer roll, reduction-strategy
-            // change) that would otherwise leave the leg with only
-            // sub-band evidence.
-            minInBandSamples: 2,
-          ),
-        ],
-        rationale: 'Hybrid detector. Three families: `stateful_density` '
-            '(public-named StatefulWidget density; framework/private '
-            'filtered), `rebuild_activity` (VM-timeline rebuild-rate — '
-            'warning at `> rebuildsPerSecThreshold` default 10/sec, '
-            'critical at `> 3×` = 30/sec; reproducer pins 11 → warning, '
-            '31 → critical), and parametric `rebuild_debug_<typeName>` '
-            '(declared via `parametricFamilies` — concrete '
-            '`rebuild_debug_MyWidget` credits via `_` separator '
-            'matcher). `rebuild_activity.warning` runtimeVerified via '
-            'three on-device captures bracketing 11 BUILDs/sec '
-            '(below 8 / at 18 / above 26) on iPhone 12 + iOS 17.5 + '
-            'Flutter 3.41.x. Capture-mode operator measures ambient '
-            'baseline inline before each leg and calls '
-            '`setBaseline(int)` so framework-driven BUILDs (Material '
-            'animations, theme inheritance, navigator transitions) are '
-            'subtracted from the threshold gate. Without subtraction '
-            'iOS profile-mode emits ~10–15 BUILDs/sec from ambient '
-            'state alone, which exceeds the default threshold and '
-            'breaks below-leg honesty. Live monitoring is unaffected '
-            '(default baseline=0 → no-op subtraction). VM → '
-            'TimelineParser → detector boundary exercised via '
-            'cross-harness reproducer (raw `List<TimelineEvent>` '
-            'through `parseAndAssertShape` + real `pumpWidget` for '
-            'the structural-fallback leg). Builder-widget 3× threshold '
-            'multiplier proven with paired non-builder/builder fixture '
-            'at identical rate=25. Source-mode '
-            '`RebuildCountSource.flutterTimeline` per-type suppression '
-            'pinned. Detector exports `observedRebuildRate` to '
-            '`extraTraceArgs` and stamps `dedupIdentityMicros` on '
-            'every emission; `peakObservedRebuildRate` and '
-            '`lastObservedRebuildRate` getters expose adjusted rates '
-            'unconditionally (sub-threshold buffers update both '
-            'before the emission gate). `RebuildActivityCaptureScreen` '
-            'drives Stopwatch-throttled `_Pulse` setState (1 BUILD '
-            'per tick via const-child diff short-circuit) at '
-            'refresh-rate-independent rates.',
-        reproducerPath: 'test/validation/rebuild_reproducer_test.dart',
-        coveredStableIds: {'stateful_density', 'rebuild_activity'},
-        coveredThresholds: {
-          'rebuild_activity.warning',
-          'rebuild_activity.critical',
-        },
-        parametricFamilies: {'rebuild_debug'},
-        bracketStableId: 'rebuild_activity',
-        bracketSeverityLabel: 'warning',
-        bracketThreshold: 11,
-        bracketUnit: 'rebuilds',
-        bracketAtTolerance: 0.65,
-        aboveCeilingMultiplier: 2.7,
-        observedAxisArgKey: 'observedRebuildRate',
-        observedAxisReduction: 'max',
-        bracketRequireUniqueDetectedAtMicros: true,
+    tier: EvidenceTier.reproducerOnly,
+    perStableIdTier: {'rebuild_activity': EvidenceTier.runtimeVerified},
+    additionalBrackets: [
+      BracketSpec(
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        threshold: 30,
+        unit: 'percent',
+        coveredThresholds: {'rebuild_activity.critical'},
         profileCapturePaths: [
-          'test/validation/captures/rebuild_detector/below.json',
-          'test/validation/captures/rebuild_detector/at.json',
-          'test/validation/captures/rebuild_detector/above.json',
+          'test/validation/captures/rebuild_detector/critical_below.json',
+          'test/validation/captures/rebuild_detector/critical_at.json',
+          'test/validation/captures/rebuild_detector/critical_above.json',
         ],
-      );
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.7,
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+        observedAxisArgKey: 'observedBuildPercent',
+        observedAxisTolerance: 0.25,
+        observedAxisReduction: 'max',
+        // Each leg's capture must contain >=2 in-band detector samples in
+        // its role band so a single in-band window surrounded by sub-band
+        // windows cannot certify the bracket. Build time drifts with
+        // device temperature across a 6 s leg; requiring redundancy keeps
+        // the gate robust against a dropped window.
+        minInBandSamples: 2,
+      ),
+    ],
+    rationale:
+        'Hybrid detector with three families. `stateful_density` counts '
+        'public-named StatefulWidget instances and fires at or above '
+        '`statefulDensityThreshold` (default 10), independent of rebuild '
+        'cost, with framework and private widgets filtered out. '
+        '`rebuild_activity` measures the share of UI-thread wall time spent '
+        'inside VM-timeline BUILD scopes over each window of about 1 s, '
+        'normalised by the measured window length. It warns above '
+        '`buildTimePercentThreshold` (default 10 %) and is critical above 3 '
+        'times that (30 %). The reproducer pins 9.5 as silent, 10.5 as a '
+        'warning and 31 as critical. The parametric '
+        '`rebuild_debug_<typeName>` family compares per-widget rebuilds/sec '
+        'from debug instrumentation against `rebuildsPerSecThreshold`. It '
+        'is declared via `parametricFamilies`, so a concrete '
+        '`rebuild_debug_MyWidget` credits the family through the `_` '
+        'separator matcher. `rebuild_activity` warning and critical are '
+        'runtimeVerified via on-device capture triads on iPhone 12, iOS '
+        '17.5 and Flutter 3.47.x. The capture workload varies BUILD cost '
+        'per frame (64 non-const leaf widgets rebuilt by a per-frame '
+        'Ticker, each running a work loop in build) at a fixed frame rate. '
+        'A calibration pre-pass scales the work per leaf to the leg target, '
+        'and an idle window between the pre-pass and the scenario keeps '
+        'pre-pass build time out of any in-span emission. The `max` '
+        'reduction over in-span `observedBuildPercent` args matches '
+        '`peakObservedBuildPercent`, which moves only on the emission path. '
+        'atTolerance 0.5 and observedAxisTolerance 0.25 absorb thermal '
+        'drift in build duration across a leg. A cross-harness reproducer '
+        'exercises the boundary from the VM through TimelineParser to the '
+        'detector (raw `List<TimelineEvent>` through `parseAndAssertShape`, '
+        'and a real `pumpWidget` for the structural-fallback leg). A paired '
+        'non-builder and builder fixture at the same rate=25 proves the 3 '
+        'times per-widget threshold multiplier for builder widgets. A test '
+        'pins per-type suppression in source mode '
+        '`RebuildCountSource.flutterTimeline`. The detector stamps '
+        '`observedBuildPercent` and `dedupIdentityMicros` on every '
+        '`rebuild_activity` emission, and `lastObservedBuildPercent` tracks '
+        'every closed window.',
+    reproducerPath: 'test/validation/rebuild_reproducer_test.dart',
+    coveredStableIds: {'stateful_density', 'rebuild_activity'},
+    coveredThresholds: {
+      'rebuild_activity.warning',
+      'rebuild_activity.critical',
+    },
+    parametricFamilies: {'rebuild_debug'},
+    bracketStableId: 'rebuild_activity',
+    bracketSeverityLabel: 'warning',
+    bracketThreshold: 10,
+    bracketUnit: 'percent',
+    bracketAtTolerance: 0.5,
+    aboveCeilingMultiplier: 2.7,
+    observedAxisArgKey: 'observedBuildPercent',
+    observedAxisTolerance: 0.25,
+    observedAxisReduction: 'max',
+    bracketRequireUniqueDetectedAtMicros: true,
+    profileCapturePaths: [
+      'test/validation/captures/rebuild_detector/below.json',
+      'test/validation/captures/rebuild_detector/at.json',
+      'test/validation/captures/rebuild_detector/above.json',
+    ],
+  );
 }

@@ -5,6 +5,9 @@ import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 
 void main() {
+  // The rebuild callback reads the scheduler's frame stamp.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('DebugInstrumentationCoordinator', () {
     late DebugInstrumentationCoordinator coordinator;
 
@@ -136,9 +139,7 @@ void main() {
 
     test('snapshot returns accumulated counts with elapsed duration', () {
       var clockTime = DateTime(2025, 1, 1, 0, 0, 0);
-      final coord = DebugInstrumentationCoordinator(
-        clock: () => clockTime,
-      );
+      final coord = DebugInstrumentationCoordinator(clock: () => clockTime);
 
       assert(() {
         coord.install();
@@ -153,7 +154,9 @@ void main() {
 
         final otherWidget = _FakeElement('OtherWidget');
         debugOnRebuildDirtyWidget?.call(
-            otherWidget, false); // initial — skipped
+          otherWidget,
+          false,
+        ); // initial — skipped
 
         // Simulate paint callback.
         debugOnProfilePaint?.call(_FakeRenderObject());
@@ -274,9 +277,7 @@ void main() {
 
     test('per-widget paint counts from debugCreator', () {
       var clockTime = DateTime(2025, 1, 1, 0, 0, 0);
-      final coord = DebugInstrumentationCoordinator(
-        clock: () => clockTime,
-      );
+      final coord = DebugInstrumentationCoordinator(clock: () => clockTime);
 
       assert(() {
         coord.install();
@@ -342,36 +343,38 @@ void main() {
       }());
     });
 
-    test('user callback in rebuild slot → coordinator installed → both fire',
-        () {
-      assert(() {
-        var userRebuildCount = 0;
-        debugOnRebuildDirtyWidget = (Element e, bool b) {
-          userRebuildCount++;
-        };
+    test(
+      'user callback in rebuild slot → coordinator installed → both fire',
+      () {
+        assert(() {
+          var userRebuildCount = 0;
+          debugOnRebuildDirtyWidget = (Element e, bool b) {
+            userRebuildCount++;
+          };
 
-        coordinator.install();
+          coordinator.install();
 
-        // Coordinator should have skipped rebuild (occupied) but installed
-        // paint.
-        expect(coordinator.isRebuildInstalled, isFalse);
-        expect(coordinator.isPaintInstalled, isTrue);
+          // Coordinator should have skipped rebuild (occupied) but installed
+          // paint.
+          expect(coordinator.isRebuildInstalled, isFalse);
+          expect(coordinator.isPaintInstalled, isTrue);
 
-        // Trigger user's rebuild callback.
-        debugOnRebuildDirtyWidget?.call(_FakeElement('W'), true);
-        expect(userRebuildCount, 1);
+          // Trigger user's rebuild callback.
+          debugOnRebuildDirtyWidget?.call(_FakeElement('W'), true);
+          expect(userRebuildCount, 1);
 
-        // Trigger coordinator's paint callback.
-        final ro = _FakeRenderObjectWithCreator(_FakeElement('W'));
-        debugOnProfilePaint?.call(ro);
+          // Trigger coordinator's paint callback.
+          final ro = _FakeRenderObjectWithCreator(_FakeElement('W'));
+          debugOnProfilePaint?.call(ro);
 
-        final snap = coordinator.snapshot();
-        expect(snap.paintCounts, {'W': 1});
+          final snap = coordinator.snapshot();
+          expect(snap.paintCounts, {'W': 1});
 
-        debugOnRebuildDirtyWidget = null;
-        return true;
-      }());
-    });
+          debugOnRebuildDirtyWidget = null;
+          return true;
+        }());
+      },
+    );
 
     test('coordinator disposed → user callback still works', () {
       assert(() {
@@ -422,9 +425,7 @@ void main() {
 
     test('selective install: installRebuild=false', () {
       assert(() {
-        final coord = DebugInstrumentationCoordinator(
-          installRebuild: false,
-        );
+        final coord = DebugInstrumentationCoordinator(installRebuild: false);
         coord.install();
 
         // Rebuild slot should remain empty even though it's available.
@@ -442,9 +443,7 @@ void main() {
 
     test('type name cache avoids repeated toString allocations', () {
       var clockTime = DateTime(2025, 1, 1, 0, 0, 0);
-      final coord = DebugInstrumentationCoordinator(
-        clock: () => clockTime,
-      );
+      final coord = DebugInstrumentationCoordinator(clock: () => clockTime);
 
       assert(() {
         coord.install();
@@ -468,9 +467,7 @@ void main() {
         for (int i = 0; i < 50; i++) {
           final types = ['PaintX', 'PaintY'];
           debugOnProfilePaint?.call(
-            _FakeRenderObjectWithCreator(
-              _FakeElement(types[i % 2]),
-            ),
+            _FakeRenderObjectWithCreator(_FakeElement(types[i % 2])),
           );
         }
 
@@ -494,9 +491,7 @@ void main() {
 
     test('type name cache persists across snapshot windows', () {
       var clockTime = DateTime(2025, 1, 1, 0, 0, 0);
-      final coord = DebugInstrumentationCoordinator(
-        clock: () => clockTime,
-      );
+      final coord = DebugInstrumentationCoordinator(clock: () => clockTime);
 
       assert(() {
         coord.install();
@@ -527,9 +522,7 @@ void main() {
 
     test('selective install: installPaint=false', () {
       assert(() {
-        final coord = DebugInstrumentationCoordinator(
-          installPaint: false,
-        );
+        final coord = DebugInstrumentationCoordinator(installPaint: false);
         coord.install();
 
         // Paint slot should remain empty.
@@ -622,6 +615,14 @@ class _FakeElement extends Element {
 
   @override
   bool get debugDoingBuild => false;
+
+  // Never mounted, so the framework getters would assert; a callback for
+  // it stands for a self-dirtied (setState) rebuild at the top level.
+  @override
+  int get depth => 1;
+
+  @override
+  bool get dirty => true;
 
   @override
   void performRebuild() {

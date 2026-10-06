@@ -53,25 +53,31 @@ void main() {
     });
 
     test('observationSource preserved in copyWith when not overridden', () {
-      final withSource =
-          base.copyWith(observationSource: ObservationSource.vmTimeline);
+      final withSource = base.copyWith(
+        observationSource: ObservationSource.vmTimeline,
+      );
       final copied = withSource.copyWith(title: 'Changed');
       expect(copied.observationSource, ObservationSource.vmTimeline);
     });
 
     test('observationSource overridden in copyWith', () {
-      final withSource =
-          base.copyWith(observationSource: ObservationSource.vmTimeline);
-      final changed =
-          withSource.copyWith(observationSource: ObservationSource.structural);
+      final withSource = base.copyWith(
+        observationSource: ObservationSource.vmTimeline,
+      );
+      final changed = withSource.copyWith(
+        observationSource: ObservationSource.structural,
+      );
       expect(changed.observationSource, ObservationSource.structural);
     });
 
     test('toString includes observationSource when present', () {
-      final withSource =
-          base.copyWith(observationSource: ObservationSource.debugCallback);
-      expect(withSource.toString(),
-          contains('source: ObservationSource.debugCallback'));
+      final withSource = base.copyWith(
+        observationSource: ObservationSource.debugCallback,
+      );
+      expect(
+        withSource.toString(),
+        contains('source: ObservationSource.debugCallback'),
+      );
     });
 
     test('toString omits observationSource when null', () {
@@ -94,25 +100,31 @@ void main() {
     });
 
     test('interactionContext preserved in copyWith when not overridden', () {
-      final withCtx =
-          base.copyWith(interactionContext: InteractionContext.scrolling);
+      final withCtx = base.copyWith(
+        interactionContext: InteractionContext.scrolling,
+      );
       final copied = withCtx.copyWith(title: 'Changed');
       expect(copied.interactionContext, InteractionContext.scrolling);
     });
 
     test('interactionContext overridden in copyWith', () {
-      final withCtx =
-          base.copyWith(interactionContext: InteractionContext.scrolling);
-      final changed =
-          withCtx.copyWith(interactionContext: InteractionContext.idle);
+      final withCtx = base.copyWith(
+        interactionContext: InteractionContext.scrolling,
+      );
+      final changed = withCtx.copyWith(
+        interactionContext: InteractionContext.idle,
+      );
       expect(changed.interactionContext, InteractionContext.idle);
     });
 
     test('toString includes interactionContext when present', () {
-      final withCtx =
-          base.copyWith(interactionContext: InteractionContext.scrolling);
-      expect(withCtx.toString(),
-          contains('interaction: InteractionContext.scrolling'));
+      final withCtx = base.copyWith(
+        interactionContext: InteractionContext.scrolling,
+      );
+      expect(
+        withCtx.toString(),
+        contains('interaction: InteractionContext.scrolling'),
+      );
     });
 
     test('toString omits interactionContext when null', () {
@@ -142,8 +154,9 @@ void main() {
 
     test('ancestorChain overridden in copyWith', () {
       final withChain = base.copyWith(ancestorChain: 'MyPage > Column > Image');
-      final changed =
-          withChain.copyWith(ancestorChain: 'OtherPage > Row > Text');
+      final changed = withChain.copyWith(
+        ancestorChain: 'OtherPage > Row > Text',
+      );
       expect(changed.ancestorChain, 'OtherPage > Row > Text');
     });
 
@@ -317,11 +330,12 @@ void main() {
     });
 
     test(
-        'hashCode distribution: different stableIds produce different hashCodes',
-        () {
-      final other = base.copyWith(stableId: 'completely_different');
-      expect(base.hashCode, isNot(equals(other.hashCode)));
-    });
+      'hashCode distribution: different stableIds produce different hashCodes',
+      () {
+        final other = base.copyWith(stableId: 'completely_different');
+        expect(base.hashCode, isNot(equals(other.hashCode)));
+      },
+    );
 
     test('can be used as Map key', () {
       final map = <PerformanceIssue, String>{};
@@ -339,13 +353,13 @@ void main() {
   // payload can't poison the whole snapshot deserialization.
   group('PerformanceIssue.fromJson defensive casts', () {
     Map<String, dynamic> minimalValid() => {
-          'severity': 'warning',
-          'category': 'build',
-          'confidence': 'confirmed',
-          'title': 'Test',
-          'detail': 'detail',
-          'fixHint': 'fix',
-        };
+      'severity': 'warning',
+      'category': 'build',
+      'confidence': 'confirmed',
+      'title': 'Test',
+      'detail': 'detail',
+      'fixHint': 'fix',
+    };
 
     test('tolerates malformed topAllocators entry (JS string coercion)', () {
       final json = minimalValid()
@@ -353,8 +367,11 @@ void main() {
           {'className': 42}, // malformed: className should be String
         ];
       final parsed = PerformanceIssue.fromJson(json);
-      expect(parsed.topAllocators, isNull,
-          reason: 'Single bad entry should drop silently, not crash');
+      expect(
+        parsed.topAllocators,
+        isNull,
+        reason: 'Single bad entry should drop silently, not crash',
+      );
     });
 
     test('keeps valid allocator entries and drops invalid siblings', () {
@@ -438,8 +455,11 @@ void main() {
       final json = minimalValid()..['detectedAt'] = 'not-a-valid-iso-date';
       final parsed = PerformanceIssue.fromJson(json);
       expect(parsed.detectedAt, isNull);
-      expect(parsed.title, 'Test',
-          reason: 'Other fields must still deserialize');
+      expect(
+        parsed.title,
+        'Test',
+        reason: 'Other fields must still deserialize',
+      );
     });
 
     test('tolerates non-string detectedAt (drops to null)', () {
@@ -484,21 +504,101 @@ void main() {
       expect(base.dedupIdentityMicros, isNull);
     });
 
-    test(
-        'preserved through copyWith when not overridden — protects '
+    test('preserved through copyWith when not overridden — protects '
         'producer-side dedup when enrichment clones the issue', () {
       final withIdentity = base.copyWith(dedupIdentityMicros: 1234567890);
       final enriched = withIdentity.copyWith(title: 'Enriched');
-      expect(enriched.dedupIdentityMicros, 1234567890,
-          reason: 'Cloning to attach enrichment must NOT silently drop '
-              'the dedup identity — capture-mode composite-key dedup '
-              'depends on it.');
+      expect(
+        enriched.dedupIdentityMicros,
+        1234567890,
+        reason:
+            'Cloning to attach enrichment must NOT silently drop '
+            'the dedup identity — capture-mode composite-key dedup '
+            'depends on it.',
+      );
     });
 
     test('overridden through copyWith when explicitly passed', () {
       final withIdentity = base.copyWith(dedupIdentityMicros: 100);
       final replaced = withIdentity.copyWith(dedupIdentityMicros: 200);
       expect(replaced.dedupIdentityMicros, 200);
+    });
+  });
+
+  group('PerformanceIssue.toClipboardText', () {
+    test('lists every present field in order', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.critical,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        confidenceReason: 'Seen in 3 scans',
+        title: 'Excessive rebuilds',
+        detail: 'Rebuilt 40 times per second.',
+        fixHint: 'Split the widget.',
+        stableId: 'rebuild_activity',
+        widgetName: 'FeedItem',
+        routeName: '/feed',
+        tabVisitIndex: 2,
+      );
+      expect(
+        issue.toClipboardText(),
+        'Excessive rebuilds\n'
+        'Severity: critical\n'
+        'Confidence: likely. Seen in 3 scans\n'
+        'Route: /feed (tab-2)\n'
+        'Widget: FeedItem\n'
+        '\n'
+        'Rebuilt 40 times per second.\n'
+        '\n'
+        'Fix: Split the widget.\n'
+        '\n'
+        'Stable ID: rebuild_activity',
+      );
+    });
+
+    test('omits absent optional fields', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.layout,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+      );
+      final text = issue.toClipboardText();
+      expect(text, 'T\nSeverity: warning\nConfidence: possible\n\nD\n\nFix: F');
+    });
+  });
+
+  group('occurrenceId', () {
+    const base = PerformanceIssue(
+      severity: IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.possible,
+      title: 'Non-lazy ListView',
+      detail: 'detail',
+      fixHint: 'fix',
+      stableId: 'non_lazy_shrinkwrap',
+      widgetName: 'ListView',
+      occurrenceId: 42,
+    );
+
+    test('preserved in copyWith when not overridden', () {
+      expect(base.copyWith(title: 'Changed').occurrenceId, 42);
+      expect(base.copyWith(occurrenceId: 7).occurrenceId, 7);
+    });
+
+    test('kept out of toJson, so a round trip drops it', () {
+      final json = base.toJson();
+      expect(json.keys, isNot(contains('occurrenceId')));
+      expect(json.values, isNot(contains(42)));
+      expect(PerformanceIssue.fromJson(json).occurrenceId, isNull);
+    });
+
+    test('not part of equality or hashCode', () {
+      final other = base.copyWith(occurrenceId: 7);
+      expect(other, equals(base));
+      expect(other.hashCode, base.hashCode);
     });
   });
 }

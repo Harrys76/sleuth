@@ -123,14 +123,16 @@ class _MonitoringHttpClient implements HttpClient {
         // Non-fatal: monitoring must not alter app behavior.
       }
       try {
-        _onRecord(RequestRecord(
-          url: url.toString(),
-          method: method,
-          statusCode: -1,
-          durationMs: DateTime.now().difference(startTime).inMilliseconds,
-          responseBytes: 0,
-          startedAt: startTime,
-        ));
+        _onRecord(
+          RequestRecord(
+            url: url.toString(),
+            method: method,
+            statusCode: -1,
+            durationMs: DateTime.now().difference(startTime).inMilliseconds,
+            responseBytes: 0,
+            startedAt: startTime,
+          ),
+        );
       } catch (_) {
         // Non-fatal: monitoring must not alter app behavior.
       }
@@ -140,13 +142,19 @@ class _MonitoringHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> open(
-      String method, String host, int port, String path) {
+    String method,
+    String host,
+    int port,
+    String path,
+  ) {
     // Best-effort scheme inference — HttpClient.open() has no scheme parameter.
     // Port 443 → https; all others default to http. This only affects the
     // recorded URL string, not the actual connection.
     final scheme = port == 443 ? 'https' : 'http';
     return openUrl(
-        method, Uri(scheme: scheme, host: host, port: port, path: path));
+      method,
+      Uri(scheme: scheme, host: host, port: port, path: path),
+    );
   }
 
   @override
@@ -222,31 +230,32 @@ class _MonitoringHttpClient implements HttpClient {
 
   @override
   set authenticate(
-          Future<bool> Function(Uri url, String scheme, String? realm)? f) =>
-      _inner.authenticate = f;
+    Future<bool> Function(Uri url, String scheme, String? realm)? f,
+  ) => _inner.authenticate = f;
 
   @override
   set authenticateProxy(
-          Future<bool> Function(
-                  String host, int port, String scheme, String? realm)?
-              f) =>
-      _inner.authenticateProxy = f;
+    Future<bool> Function(String host, int port, String scheme, String? realm)?
+    f,
+  ) => _inner.authenticateProxy = f;
 
   @override
   set findProxy(String Function(Uri url)? f) => _inner.findProxy = f;
 
   @override
   set badCertificateCallback(
-          bool Function(X509Certificate cert, String host, int port)?
-              callback) =>
-      _inner.badCertificateCallback = callback;
+    bool Function(X509Certificate cert, String host, int port)? callback,
+  ) => _inner.badCertificateCallback = callback;
 
   @override
   set connectionFactory(
-          Future<ConnectionTask<Socket>> Function(
-                  Uri url, String? proxyHost, int? proxyPort)?
-              f) =>
-      _inner.connectionFactory = f;
+    Future<ConnectionTask<Socket>> Function(
+      Uri url,
+      String? proxyHost,
+      int? proxyPort,
+    )?
+    f,
+  ) => _inner.connectionFactory = f;
 
   @override
   set keyLog(Function(String line)? callback) => _inner.keyLog = callback;
@@ -255,13 +264,18 @@ class _MonitoringHttpClient implements HttpClient {
 
   @override
   void addCredentials(
-          Uri url, String realm, HttpClientCredentials credentials) =>
-      _inner.addCredentials(url, realm, credentials);
+    Uri url,
+    String realm,
+    HttpClientCredentials credentials,
+  ) => _inner.addCredentials(url, realm, credentials);
 
   @override
   void addProxyCredentials(
-          String host, int port, String realm, HttpClientCredentials cred) =>
-      _inner.addProxyCredentials(host, port, realm, cred);
+    String host,
+    int port,
+    String realm,
+    HttpClientCredentials cred,
+  ) => _inner.addProxyCredentials(host, port, realm, cred);
 
   // -- Lifecycle --
 
@@ -312,14 +326,16 @@ class _MonitoringRequest implements HttpClientRequest {
         // Non-fatal: monitoring must not alter app behavior.
       }
       try {
-        _onRecord(RequestRecord(
-          url: _url,
-          method: _method,
-          statusCode: -1,
-          durationMs: DateTime.now().difference(_startTime).inMilliseconds,
-          responseBytes: 0,
-          startedAt: _startTime,
-        ));
+        _onRecord(
+          RequestRecord(
+            url: _url,
+            method: _method,
+            statusCode: -1,
+            durationMs: DateTime.now().difference(_startTime).inMilliseconds,
+            responseBytes: 0,
+            startedAt: _startTime,
+          ),
+        );
       } catch (_) {
         // Non-fatal: monitoring must not alter app behavior.
       }
@@ -444,16 +460,25 @@ class _MonitoringResponse extends Stream<List<int>>
     } catch (_) {
       // Non-fatal: monitoring must not alter app behavior.
     }
+    String? contentType;
     try {
-      _onRecord(RequestRecord(
-        url: _url,
-        method: _method,
-        statusCode: _inner.statusCode,
-        durationMs: DateTime.now().difference(_startTime).inMilliseconds,
-        responseBytes: bytesReceived,
-        startedAt: _startTime,
-        cancelled: cancelled,
-      ));
+      contentType = _inner.headers.contentType?.mimeType;
+    } catch (_) {
+      // Headers unreadable: record without a content type.
+    }
+    try {
+      _onRecord(
+        RequestRecord(
+          url: _url,
+          method: _method,
+          statusCode: _inner.statusCode,
+          durationMs: DateTime.now().difference(_startTime).inMilliseconds,
+          responseBytes: bytesReceived,
+          startedAt: _startTime,
+          cancelled: cancelled,
+          contentType: contentType,
+        ),
+      );
     } catch (_) {
       // Non-fatal: monitoring must not alter app behavior.
     }
@@ -478,8 +503,9 @@ class _MonitoringResponse extends Stream<List<int>>
     //   `final sub = response.listen(...); sub.onDone(...);` (or
     //   `sub.onError(...)`) to rebind terminal callbacks AFTER listen.
     //   If those setters were forwarded to `_inner`, they would strip
-    //   the closures that call `_emitRecord` — resurfacing AB1 via a
-    //   new vector. To guard against that, the inner subscription's
+    //   the closures that call `_emitRecord`, and the record would be
+    //   lost again (the same failure as the `asFuture()` case above)
+    //   through a new path. To guard against that, the inner subscription's
     //   handlers are PERMANENTLY owned by this proxy; the wrapper
     //   stores user-supplied callbacks in mutable fields and the
     //   permanent handlers dereference those fields at call time.
@@ -564,9 +590,11 @@ class _MonitoringResponse extends Stream<List<int>>
   bool get isBroadcast => _inner.isBroadcast;
 
   @override
-  Future<HttpClientResponse> redirect(
-          [String? method, Uri? url, bool? followLoops]) =>
-      _inner.redirect(method, url, followLoops);
+  Future<HttpClientResponse> redirect([
+    String? method,
+    Uri? url,
+    bool? followLoops,
+  ]) => _inner.redirect(method, url, followLoops);
 
   @override
   Future<Socket> detachSocket() => _inner.detachSocket();

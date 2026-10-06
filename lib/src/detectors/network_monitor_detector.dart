@@ -29,22 +29,19 @@ class NetworkMonitorDetector extends BaseDetector
     this.frequencyLimit = 30,
     this.largeResponseBytes = 1048576,
     DateTime Function()? clock,
-  })  : assert(
-          slowThresholdMs >= 0,
-          'slowThresholdMs must be >= 0.',
-        ),
-        assert(
-          criticalSlowThresholdMs > slowThresholdMs,
-          'criticalSlowThresholdMs must be strictly greater than '
-          'slowThresholdMs so the critical tier is reachable.',
-        ),
-        _clock = clock ?? DateTime.now,
-        super(
-          type: DetectorType.networkMonitor,
-          lifecycle: DetectorLifecycle.runtime,
-          name: 'Network Monitor',
-          description: 'Detects slow, excessive, or large HTTP requests',
-        );
+  }) : assert(slowThresholdMs >= 0, 'slowThresholdMs must not be negative.'),
+       assert(
+         criticalSlowThresholdMs > slowThresholdMs,
+         'criticalSlowThresholdMs must be strictly greater than '
+         'slowThresholdMs so the critical tier is reachable.',
+       ),
+       _clock = clock ?? DateTime.now,
+       super(
+         type: DetectorType.networkMonitor,
+         lifecycle: DetectorLifecycle.runtime,
+         name: 'Network Monitor',
+         description: 'Detects slow, excessive, or large HTTP requests',
+       );
 
   /// Slow request warning threshold in milliseconds. Default 1000 ms.
   ///
@@ -86,9 +83,6 @@ class NetworkMonitorDetector extends BaseDetector
   /// the count crosses [frequencyLimit] — capture-mode tooling reads
   /// this so the below-leg's exported magnitude reflects what the
   /// detector measured rather than the operator's plan.
-  // _evaluateFrequency rewrites this on every tick and clearRecords
-  // resets it on session boundaries; cannot be final.
-  // ignore: prefer_final_fields
   int _lastObservedPeakCount = 0;
 
   /// Detector-measured peak count from the most recent
@@ -240,49 +234,72 @@ class NetworkMonitorDetector extends BaseDetector
         .toList();
     if (slowRecords.isEmpty) return;
 
-    final worstMs =
-        slowRecords.map((r) => r.durationMs).reduce((a, b) => a > b ? a : b);
+    final worstMs = slowRecords
+        .map((r) => r.durationMs)
+        .reduce((a, b) => a > b ? a : b);
     final severity = worstMs >= criticalSlowThresholdMs
         ? IssueSeverity.critical
         : IssueSeverity.warning;
 
     // Build detail listing slow URLs
     final urlDetails = slowRecords
-        .map((r) => '${r.method.toUpperCase()} ${_shortenUrl(r.url)} — '
-            '${(r.durationMs / 1000).toStringAsFixed(1)}s')
+        .map(
+          (r) =>
+              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} '
+              '(${(r.durationMs / 1000).toStringAsFixed(1)}s)',
+        )
         .join('\n');
 
     final (hint, effort) = FixHintBuilder.slowRequest(
       worstUrl: slowRecords.isNotEmpty ? slowRecords.first.url : null,
     );
     final detectedAt = _clock();
-    _issues.add(PerformanceIssue(
-      stableId: 'slow_request',
-      severity: severity,
-      category: IssueCategory.network,
-      confidence: IssueConfidence.confirmed,
-      title:
-          'Slow Request: ${slowRecords.length} request${slowRecords.length > 1 ? 's' : ''} '
-          '> ${(slowThresholdMs / 1000).toStringAsFixed(0)}s '
-          '(worst: ${(worstMs / 1000).toStringAsFixed(1)}s)',
-      detail: '$urlDetails\n\n'
-          'Threshold: ${(slowThresholdMs / 1000).toStringAsFixed(0)}s. '
-          '${slowRecords.length} slow request${slowRecords.length > 1 ? 's' : ''} '
-          'in buffer.',
-      fixHint: hint,
-      fixEffort: effort,
-      detectedAt: detectedAt,
-      // Audit gate cross-checks `expectedMagnitude.observed` (operator-
-      // Stopwatch) against this detector-side measurement so a regression
-      // in HTTP-duration computation cannot certify the wrong magnitude.
-      extraTraceArgs: {'observedDurationMs': worstMs.toString()},
-      confidenceReason: 'Measured directly from HTTP interception',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'slow_request',
+        severity: severity,
+        category: IssueCategory.network,
+        confidence: IssueConfidence.confirmed,
+        title:
+            'Slow Request: ${slowRecords.length} request${slowRecords.length > 1 ? 's' : ''} '
+            '> ${(slowThresholdMs / 1000).toStringAsFixed(0)}s '
+            '(worst: ${(worstMs / 1000).toStringAsFixed(1)}s)',
+        detail:
+            '$urlDetails\n\n'
+            'Threshold: ${(slowThresholdMs / 1000).toStringAsFixed(0)}s. '
+            'The buffer holds ${slowRecords.length} slow '
+            'request${slowRecords.length > 1 ? 's' : ''}.',
+        fixHint: hint,
+        fixEffort: effort,
+        detectedAt: detectedAt,
+        // Audit gate cross-checks `expectedMagnitude.observed` (operator-
+        // Stopwatch) against this detector-side measurement so a regression
+        // in HTTP-duration computation cannot certify the wrong magnitude.
+        extraTraceArgs: {'observedDurationMs': worstMs.toString()},
+        confidenceReason: 'Measured directly from HTTP interception',
+      ),
+    );
+  }
+
+  /// Media responses (images, video, audio, fonts) are large by nature;
+  /// `large_response` targets oversized data payloads.
+  static bool _isMediaContentType(String? contentType) {
+    if (contentType == null) return false;
+    final type = contentType.toLowerCase();
+    return type.startsWith('image/') ||
+        type.startsWith('video/') ||
+        type.startsWith('audio/') ||
+        type.startsWith('font/');
   }
 
   void _evaluateLargeResponses() {
-    final largeRecords =
-        _records.where((r) => r.responseBytes >= largeResponseBytes).toList();
+    final largeRecords = _records
+        .where(
+          (r) =>
+              r.responseBytes >= largeResponseBytes &&
+              !_isMediaContentType(r.contentType),
+        )
+        .toList();
     if (largeRecords.isEmpty) return;
 
     final worstBytes = largeRecords
@@ -290,34 +307,40 @@ class NetworkMonitorDetector extends BaseDetector
         .reduce((a, b) => a > b ? a : b);
 
     final urlDetails = largeRecords
-        .map((r) => '${r.method.toUpperCase()} ${_shortenUrl(r.url)} — '
-            '${_formatBytes(r.responseBytes)}')
+        .map(
+          (r) =>
+              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} '
+              '(${_formatBytes(r.responseBytes)})',
+        )
         .join('\n');
 
     final (hint, effort) = FixHintBuilder.largeResponse(
       worstUrl: largeRecords.isNotEmpty ? largeRecords.first.url : null,
     );
     final detectedAt = _clock();
-    _issues.add(PerformanceIssue(
-      stableId: 'large_response',
-      severity: IssueSeverity.warning,
-      category: IssueCategory.network,
-      confidence: IssueConfidence.confirmed,
-      title:
-          'Large Response: ${largeRecords.length} response${largeRecords.length > 1 ? 's' : ''} '
-          '> ${_formatBytes(largeResponseBytes)} '
-          '(largest: ${_formatBytes(worstBytes)})',
-      detail: '$urlDetails\n\n'
-          'Threshold: ${_formatBytes(largeResponseBytes)}. '
-          '${largeRecords.length} large response${largeRecords.length > 1 ? 's' : ''} '
-          'in buffer.',
-      fixHint: hint,
-      fixEffort: effort,
-      detectedAt: detectedAt,
-      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
-      extraTraceArgs: {'observedResponseBytes': worstBytes.toString()},
-      confidenceReason: 'Measured directly from HTTP interception',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'large_response',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.network,
+        confidence: IssueConfidence.confirmed,
+        title:
+            'Large Response: ${largeRecords.length} response${largeRecords.length > 1 ? 's' : ''} '
+            '> ${_formatBytes(largeResponseBytes)} '
+            '(largest: ${_formatBytes(worstBytes)})',
+        detail:
+            '$urlDetails\n\n'
+            'Threshold: ${_formatBytes(largeResponseBytes)}. '
+            'The buffer holds ${largeRecords.length} large '
+            'response${largeRecords.length > 1 ? 's' : ''}.',
+        fixHint: hint,
+        fixEffort: effort,
+        detectedAt: detectedAt,
+        dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+        extraTraceArgs: {'observedResponseBytes': worstBytes.toString()},
+        confidenceReason: 'Measured directly from HTTP interception',
+      ),
+    );
   }
 
   /// Pure peak recompute — updates [_lastObservedPeakCount] only,
@@ -330,15 +353,15 @@ class NetworkMonitorDetector extends BaseDetector
   void _recomputeFrequencyPeak() {
     // Cancels are excluded from frequency classification — a prefetch
     // that the caller aborts is not evidence of a noisy endpoint.
-    final recordsList =
-        _records.where((r) => !r.cancelled).toList(growable: false);
+    final recordsList = _records
+        .where((r) => !r.cancelled)
+        .toList(growable: false);
     int peakCount = 0;
     if (recordsList.isNotEmpty) {
       int left = 0;
       for (var right = 0; right < recordsList.length; right++) {
         while (left < right &&
-            recordsList[right]
-                    .startedAt
+            recordsList[right].startedAt
                     .difference(recordsList[left].startedAt)
                     .inMilliseconds >
                 _frequencyWindowMs) {
@@ -358,22 +381,26 @@ class NetworkMonitorDetector extends BaseDetector
 
     final (hint, effort) = FixHintBuilder.requestFrequency();
     final detectedAt = _clock();
-    _issues.add(PerformanceIssue(
-      stableId: 'request_frequency',
-      severity: IssueSeverity.warning,
-      category: IssueCategory.network,
-      confidence: IssueConfidence.confirmed,
-      title: 'Request Frequency Spike: $peakCount requests in 5s '
-          '(limit: $frequencyLimit)',
-      detail: '$peakCount HTTP requests within a 5-second window. '
-          'Threshold: $frequencyLimit/5s.',
-      fixHint: hint,
-      fixEffort: effort,
-      detectedAt: detectedAt,
-      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
-      extraTraceArgs: {'observedRequestCount': peakCount.toString()},
-      confidenceReason: 'Measured directly from HTTP interception',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'request_frequency',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.network,
+        confidence: IssueConfidence.confirmed,
+        title:
+            'Request Frequency Spike: $peakCount requests in 5s '
+            '(limit: $frequencyLimit)',
+        detail:
+            'The app sent $peakCount HTTP requests within a 5-second window. '
+            'Threshold: $frequencyLimit/5s.',
+        fixHint: hint,
+        fixEffort: effort,
+        detectedAt: detectedAt,
+        dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+        extraTraceArgs: {'observedRequestCount': peakCount.toString()},
+        confidenceReason: 'Measured directly from HTTP interception',
+      ),
+    );
   }
 
   void _evaluateErrors() {
@@ -392,8 +419,7 @@ class NetworkMonitorDetector extends BaseDetector
     int left = 0;
     for (var right = 0; right < errorRecords.length; right++) {
       while (left < right &&
-          errorRecords[right]
-                  .startedAt
+          errorRecords[right].startedAt
                   .difference(errorRecords[left].startedAt)
                   .inMilliseconds >
               _frequencyWindowMs) {
@@ -412,8 +438,9 @@ class NetworkMonitorDetector extends BaseDetector
     // Scope breakdown counts to the peak window so severity, title, and
     // detail all describe the same set of errors.
     final peakRecords = errorRecords.sublist(peakLeft, peakRight + 1);
-    final transportFailures =
-        peakRecords.where((r) => r.statusCode == -1).length;
+    final transportFailures = peakRecords
+        .where((r) => r.statusCode == -1)
+        .length;
     final serverErrors = peakRecords.where((r) => r.statusCode >= 500).length;
 
     final severity = peakCount >= 10 || serverErrors >= 5
@@ -422,8 +449,11 @@ class NetworkMonitorDetector extends BaseDetector
 
     final urlDetails = peakRecords
         .take(5)
-        .map((r) => '${r.method.toUpperCase()} ${_shortenUrl(r.url)} — '
-            '${r.statusCode == -1 ? 'FAILED' : r.statusCode}')
+        .map(
+          (r) =>
+              '${r.method.toUpperCase()} ${_shortenUrl(r.url)} '
+              '(${r.statusCode == -1 ? 'FAILED' : r.statusCode})',
+        )
         .join('\n');
 
     final (hint, effort) = FixHintBuilder.httpErrorSpike(
@@ -431,21 +461,24 @@ class NetworkMonitorDetector extends BaseDetector
       transportFailures: transportFailures,
     );
 
-    _issues.add(PerformanceIssue(
-      stableId: 'http_error_spike',
-      severity: severity,
-      category: IssueCategory.network,
-      confidence: IssueConfidence.confirmed,
-      title: 'HTTP Error Spike: $peakCount errors in 5s',
-      detail: '$peakCount HTTP errors within a 5-second window'
-          '${transportFailures > 0 ? ' ($transportFailures transport failures)' : ''}'
-          '${serverErrors > 0 ? ' ($serverErrors server errors)' : ''}.\n\n'
-          '$urlDetails',
-      fixHint: hint,
-      fixEffort: effort,
-      detectedAt: _clock(),
-      confidenceReason: 'Measured directly from HTTP interception',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'http_error_spike',
+        severity: severity,
+        category: IssueCategory.network,
+        confidence: IssueConfidence.confirmed,
+        title: 'HTTP Error Spike: $peakCount errors in 5s',
+        detail:
+            '$peakCount HTTP errors occurred within a 5-second window'
+            '${transportFailures > 0 ? ' ($transportFailures transport failures)' : ''}'
+            '${serverErrors > 0 ? ' ($serverErrors server errors)' : ''}.\n\n'
+            '$urlDetails',
+        fixHint: hint,
+        fixEffort: effort,
+        detectedAt: _clock(),
+        confidenceReason: 'Measured directly from HTTP interception',
+      ),
+    );
   }
 
   void _evaluateHighFrequencySamePath() {
@@ -459,8 +492,9 @@ class NetworkMonitorDetector extends BaseDetector
     // until route transition clears records.
     // Cancels excluded — an aborted request to the same path is not
     // evidence of missing caching or un-debounced input.
-    final recentRecords =
-        _records.where((r) => !r.cancelled).toList(growable: false);
+    final recentRecords = _records
+        .where((r) => !r.cancelled)
+        .toList(growable: false);
 
     // Group by method + normalized URL
     final groups = <String, List<RequestRecord>>{};
@@ -484,8 +518,7 @@ class NetworkMonitorDetector extends BaseDetector
       int maxCluster = 1;
       int clusterStart = 0;
       for (var i = 1; i < records.length; i++) {
-        if (records[i]
-                .startedAt
+        if (records[i].startedAt
                 .difference(records[clusterStart].startedAt)
                 .inMilliseconds <=
             _duplicateWindowMs) {
@@ -510,25 +543,30 @@ class NetworkMonitorDetector extends BaseDetector
       // Use method+URL fingerprint for stable identity across scans.
       // Index-based IDs jitter when records age in/out of the buffer.
       final fingerprint = entry.key.hashCode.abs().toRadixString(16);
-      _issues.add(PerformanceIssue(
-        stableId: 'high_frequency_same_path:$fingerprint',
-        severity: severity,
-        category: IssueCategory.network,
-        confidence: IssueConfidence.likely,
-        title: 'High-Frequency Requests: ${entry.key.split(' ').first} '
-            '${_shortenUrl(records.first.url)} ×$maxCluster in '
-            '${_duplicateWindowMs}ms',
-        detail: '$maxCluster requests to '
-            '${_shortenUrl(records.first.url)} within ${_duplicateWindowMs}ms '
-            '(query strings ignored). This often indicates missing caching, '
-            'un-debounced input, redundant fetches from multiple widgets, or '
-            'a rebuild triggering repeated API calls.',
-        fixHint: hint,
-        fixEffort: effort,
-        detectedAt: _clock(),
-        confidenceReason:
-            'Request timing correlation + same-path clustering (query stripped)',
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'high_frequency_same_path:$fingerprint',
+          severity: severity,
+          category: IssueCategory.network,
+          confidence: IssueConfidence.likely,
+          title:
+              'High-Frequency Requests: ${entry.key.split(' ').first} '
+              '${_shortenUrl(records.first.url)} ×$maxCluster in '
+              '${_duplicateWindowMs}ms',
+          detail:
+              '$maxCluster requests went to '
+              '${_shortenUrl(records.first.url)} within ${_duplicateWindowMs}ms '
+              '(query strings ignored). Common causes are missing caching, '
+              'input without a debounce, redundant fetches from several '
+              'widgets, or a rebuild that repeats API calls.',
+          fixHint: hint,
+          fixEffort: effort,
+          detectedAt: _clock(),
+          confidenceReason:
+              'Request timing correlation and same-path clustering (query '
+              'stripped)',
+        ),
+      );
     }
   }
 
@@ -576,150 +614,147 @@ class NetworkMonitorDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer: direct `processRecord` boundary '
-            'tests at 999/1000/2999/3000/3001 ms plus a loopback '
-            '`HttpServer` exercising the full `SleuthHttpOverrides` → '
-            '`_MonitoringHttpClient` → `RequestRecord` → `processRecord` '
-            'pipeline. Three families ship at runtimeVerified backed by '
-            'on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x): '
-            'slow_request (1000 ms warning), large_response (1 MB warning), '
-            'and request_frequency (>30 req per 5 s sliding window '
-            'warning). Captures driven by the in-app capture helper '
-            'screen via a loopback HTTP server; mode toggle selects '
-            'family. slow_request scenarios delay the response to '
-            '800/1020/1500 ms; large_response returns sized payloads '
-            '(800 KB / 1.05 MB / 1.5 MB); request_frequency spreads N '
-            'parallel requests across a 5.5 s scenario span with '
-            '`Sleuth.suspendNonEssentialTimelineStreams` to prevent '
-            'ring-buffer overflow on the longer span. Each leg brackets '
-            'the workload in `Sleuth.markScenarioBegin/End` markers with '
-            'a 200 ms post-completion dwell so detector trace events '
-            'land inside the scenario span, then exports the wrapped '
-            'JSON via the iOS clipboard. request_frequency uses '
-            '`atTolerance: 0.50` (at-band [30, 45]) to absorb iOS '
-            'scheduling jitter on Dart `HttpClient` request dispatch; '
-            'multiple in-span emissions per scenario carry distinct '
-            '`detectedAtMicros` and a monotone-growing `peakCount` that '
-            'the audit-gate MAX reduction picks. Critical tier '
-            '(slow_request 3000 ms) and the two unraised families '
-            '(http_error_spike, high_frequency_same_path) stay '
-            'reproducerOnly.',
-        reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'The hermetic reproducer has direct `processRecord` boundary tests '
+        'at 999, 1000, 2999, 3000 and 3001 ms. It also runs a loopback '
+        '`HttpServer` through the full pipeline, from `SleuthHttpOverrides` '
+        'through `_MonitoringHttpClient` and `RequestRecord` to '
+        '`processRecord`. Three families ship at runtimeVerified, backed by '
+        'on-device captures (iPhone 12, iOS 17.5, Flutter 3.41.x): '
+        'slow_request (1000 ms warning), large_response (1 MB warning) and '
+        'request_frequency (warning above 30 requests per 5 s sliding '
+        'window). The in-app capture helper screen drives the captures '
+        'through a loopback HTTP server, and a mode toggle selects the '
+        'family. slow_request scenarios delay the response to 800, 1020 and '
+        '1500 ms. large_response returns sized payloads (800 KB, 1.05 MB, '
+        '1.5 MB). request_frequency spreads N parallel requests across a '
+        '5.5 s scenario span and calls '
+        '`Sleuth.suspendNonEssentialTimelineStreams` to prevent ring-buffer '
+        'overflow on the longer span. Each leg wraps the workload in '
+        '`Sleuth.markScenarioBegin/End` markers with a 200 ms dwell after '
+        'completion, so detector trace events land inside the scenario '
+        'span. The leg then exports the wrapped JSON through the iOS '
+        'clipboard. request_frequency uses `atTolerance: 0.50` (at-band '
+        '[30, 45]) to absorb iOS scheduling jitter on Dart `HttpClient` '
+        'request dispatch. Multiple in-span emissions per scenario carry '
+        'distinct `detectedAtMicros` and a `peakCount` that only grows, '
+        'which the audit-gate MAX reduction picks. The critical tier '
+        '(slow_request 3000 ms) is raised through its own bracket in '
+        '`additionalBrackets`. The two unraised families '
+        '(http_error_spike, high_frequency_same_path) stay reproducerOnly.',
+    reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
+    profileCapturePaths: [
+      'test/validation/captures/network_monitor/slow_request_below.json',
+      'test/validation/captures/network_monitor/slow_request_at.json',
+      'test/validation/captures/network_monitor/slow_request_above.json',
+    ],
+    bracketThreshold: 1000,
+    bracketUnit: 'ms',
+    bracketStableId: 'slow_request',
+    bracketSeverityLabel: 'warning',
+    aboveCeilingMultiplier: 2.0,
+    coveredStableIds: {
+      'slow_request',
+      'large_response',
+      'request_frequency',
+      'http_error_spike',
+      'high_frequency_same_path',
+    },
+    perStableIdTier: {
+      'slow_request': EvidenceTier.runtimeVerified,
+      'large_response': EvidenceTier.runtimeVerified,
+      'request_frequency': EvidenceTier.runtimeVerified,
+    },
+    coveredThresholds: {'slow_request.warning', 'slow_request.critical'},
+    // Captures recorded under v0.18.1+ producer-side dedup, so
+    // every in-span trace record carries a distinct
+    // `detectedAtMicros`. Opting in locks single-issue replay
+    // protection on the audit gate (see ProfileCaptureSchema
+    // `requireUniqueDetectedAtMicros`).
+    bracketRequireUniqueDetectedAtMicros: true,
+    // Detector stamps per-request worst-duration ms into
+    // `extraTraceArgs` so the audit gate cross-checks operator-
+    // Stopwatch observed against detector-side measurement (closes
+    // the wrong-magnitude gap when `magnitudeSourceEventName: ''`
+    // bypasses BUILD-derivation). Backward-compatible: pre-arg
+    // captures lack the key and the cross-check is skipped per-record.
+    observedAxisArgKey: 'observedDurationMs',
+    // Tighter than schema default 0.25 because both measurement
+    // paths (operator Stopwatch, detector RequestRecord.durationMs)
+    // wrap the same loopback round-trip and routinely agree to the
+    // millisecond — a 10 % tolerance still absorbs scheduler jitter
+    // while catching small constant-offset regressions a 25 % band
+    // would silently pass.
+    observedAxisTolerance: 0.10,
+    additionalBrackets: [
+      BracketSpec(
+        stableId: 'large_response',
+        severityLabel: 'warning',
+        threshold: 1048576,
+        unit: 'bytes',
+        coveredThresholds: {'large_response.warning'},
         profileCapturePaths: [
-          'test/validation/captures/network_monitor/slow_request_below.json',
-          'test/validation/captures/network_monitor/slow_request_at.json',
-          'test/validation/captures/network_monitor/slow_request_above.json',
+          'test/validation/captures/network_monitor/large_response_below.json',
+          'test/validation/captures/network_monitor/large_response_at.json',
+          'test/validation/captures/network_monitor/large_response_above.json',
         ],
-        bracketThreshold: 1000,
-        bracketUnit: 'ms',
-        bracketStableId: 'slow_request',
-        bracketSeverityLabel: 'warning',
+        atTolerance: 0.10,
         aboveCeilingMultiplier: 2.0,
-        coveredStableIds: {
-          'slow_request',
-          'large_response',
-          'request_frequency',
-          'http_error_spike',
-          'high_frequency_same_path',
-        },
-        perStableIdTier: {
-          'slow_request': EvidenceTier.runtimeVerified,
-          'large_response': EvidenceTier.runtimeVerified,
-          'request_frequency': EvidenceTier.runtimeVerified,
-        },
-        coveredThresholds: {
-          'slow_request.warning',
-          'slow_request.critical',
-        },
-        // Captures recorded under v0.18.1+ producer-side dedup, so
-        // every in-span trace record carries a distinct
-        // `detectedAtMicros`. Opting in locks single-issue replay
-        // protection on the audit gate (see ProfileCaptureSchema
-        // `requireUniqueDetectedAtMicros`).
-        bracketRequireUniqueDetectedAtMicros: true,
-        // Detector stamps per-request worst-duration ms into
-        // `extraTraceArgs` so the audit gate cross-checks operator-
-        // Stopwatch observed against detector-side measurement (closes
-        // the wrong-magnitude gap when `magnitudeSourceEventName: ''`
-        // bypasses BUILD-derivation). Backward-compatible: pre-arg
-        // captures lack the key and the cross-check is skipped per-record.
-        observedAxisArgKey: 'observedDurationMs',
-        // Tighter than schema default 0.25 because both measurement
-        // paths (operator Stopwatch, detector RequestRecord.durationMs)
-        // wrap the same loopback round-trip and routinely agree to the
-        // millisecond — a 10 % tolerance still absorbs scheduler jitter
-        // while catching small constant-offset regressions a 25 % band
-        // would silently pass.
-        observedAxisTolerance: 0.10,
-        additionalBrackets: [
-          BracketSpec(
-            stableId: 'large_response',
-            severityLabel: 'warning',
-            threshold: 1048576,
-            unit: 'bytes',
-            coveredThresholds: {'large_response.warning'},
-            profileCapturePaths: [
-              'test/validation/captures/network_monitor/large_response_below.json',
-              'test/validation/captures/network_monitor/large_response_at.json',
-              'test/validation/captures/network_monitor/large_response_above.json',
-            ],
-            atTolerance: 0.10,
-            aboveCeilingMultiplier: 2.0,
-            observedAxisArgKey: 'observedResponseBytes',
-            requireUniqueDetectedAtMicros: true,
-            requireDetectorTraceRecord: true,
-          ),
-          BracketSpec(
-            stableId: 'request_frequency',
-            severityLabel: 'warning',
-            threshold: 30,
-            unit: 'events',
-            coveredThresholds: {'request_frequency.warning'},
-            profileCapturePaths: [
-              'test/validation/captures/network_monitor/request_frequency_below.json',
-              'test/validation/captures/network_monitor/request_frequency_at.json',
-              'test/validation/captures/network_monitor/request_frequency_above.json',
-            ],
-            // iOS scheduling jitter on Dart HttpClient request dispatch
-            // makes ±10% unreachable; ±50% gives at-band [30, 45].
-            atTolerance: 0.50,
-            aboveCeilingMultiplier: 2.0,
-            observedAxisArgKey: 'observedRequestCount',
-            requireUniqueDetectedAtMicros: true,
-            requireDetectorTraceRecord: true,
-          ),
-          // Critical-tier bracket (3000 ms = 3× warning). atTolerance
-          // 0.40 (at-band [3000, 4200]) is forward-compat re-record
-          // headroom — wider than warning's 0.10 because the operator
-          // targets 3000+ ms on a stub HTTP server with iOS scheduler +
-          // network RTT variance. Tighter than HeavyCompute's 0.60
-          // because network-bound work is more deterministic than CPU-
-          // bound thermal drift. Above-ceiling 6000 ms (no super-tier
-          // above; iOS NSURLSession 60 s default leaves comfortable
-          // margin). Cross-spec uniqueness tuple
-          // (stableId, severityLabel, argKey) distinguishes this from
-          // the canonical warning bracket via severityLabel.
-          BracketSpec(
-            stableId: 'slow_request',
-            severityLabel: 'critical',
-            threshold: 3000,
-            unit: 'ms',
-            coveredThresholds: {'slow_request.critical'},
-            profileCapturePaths: [
-              'test/validation/captures/network_monitor/slow_request_critical_below.json',
-              'test/validation/captures/network_monitor/slow_request_critical_at.json',
-              'test/validation/captures/network_monitor/slow_request_critical_above.json',
-            ],
-            atTolerance: 0.40,
-            aboveCeilingMultiplier: 2.0,
-            observedAxisArgKey: 'observedDurationMs',
-            // Same tighter tolerance as canonical bracket — loopback
-            // measurement paths agree to the millisecond.
-            observedAxisTolerance: 0.10,
-            requireUniqueDetectedAtMicros: true,
-            requireDetectorTraceRecord: true,
-          ),
+        observedAxisArgKey: 'observedResponseBytes',
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+      BracketSpec(
+        stableId: 'request_frequency',
+        severityLabel: 'warning',
+        threshold: 30,
+        unit: 'events',
+        coveredThresholds: {'request_frequency.warning'},
+        profileCapturePaths: [
+          'test/validation/captures/network_monitor/request_frequency_below.json',
+          'test/validation/captures/network_monitor/request_frequency_at.json',
+          'test/validation/captures/network_monitor/request_frequency_above.json',
         ],
-      );
+        // iOS scheduling jitter on Dart HttpClient request dispatch
+        // makes ±10% unreachable; ±50% gives at-band [30, 45].
+        atTolerance: 0.50,
+        aboveCeilingMultiplier: 2.0,
+        observedAxisArgKey: 'observedRequestCount',
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+      // Critical-tier bracket (3000 ms = 3× warning). atTolerance
+      // 0.40 (at-band [3000, 4200]) is forward-compat re-record
+      // headroom — wider than warning's 0.10 because the operator
+      // targets 3000+ ms on a stub HTTP server with iOS scheduler +
+      // network RTT variance. Tighter than HeavyCompute's 0.60
+      // because network-bound work is more deterministic than CPU-
+      // bound thermal drift. Above-ceiling 6000 ms (no super-tier
+      // above; iOS NSURLSession 60 s default leaves comfortable
+      // margin). Cross-spec uniqueness tuple
+      // (stableId, severityLabel, argKey) distinguishes this from
+      // the canonical warning bracket via severityLabel.
+      BracketSpec(
+        stableId: 'slow_request',
+        severityLabel: 'critical',
+        threshold: 3000,
+        unit: 'ms',
+        coveredThresholds: {'slow_request.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/network_monitor/slow_request_critical_below.json',
+          'test/validation/captures/network_monitor/slow_request_critical_at.json',
+          'test/validation/captures/network_monitor/slow_request_critical_above.json',
+        ],
+        atTolerance: 0.40,
+        aboveCeilingMultiplier: 2.0,
+        observedAxisArgKey: 'observedDurationMs',
+        // Same tighter tolerance as canonical bracket — loopback
+        // measurement paths agree to the millisecond.
+        observedAxisTolerance: 0.10,
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+    ],
+  );
 }

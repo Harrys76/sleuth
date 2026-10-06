@@ -25,8 +25,9 @@ void main() {
     expect(r.message, contains('added mcpServers.sleuth'));
     final root =
         jsonDecode(await config.readAsString()) as Map<String, Object?>;
-    final entry = (root['mcpServers'] as Map<String, Object?>)['sleuth']
-        as Map<String, Object?>;
+    final entry =
+        (root['mcpServers'] as Map<String, Object?>)['sleuth']
+            as Map<String, Object?>;
     expect(entry['command'], 'sleuth_mcp');
   });
 
@@ -47,15 +48,17 @@ void main() {
     expect(r.message, contains('removed mcpServers.sleuth'));
   });
 
-  test('install --remove when missing → exit 0 with "nothing to remove"',
-      () async {
-    final r = await runInstallCommand(
-      args: const ['--remove'],
-      configFile: config,
-    );
-    expect(r.exitCode, 0);
-    expect(r.message, contains('nothing to remove'));
-  });
+  test(
+    'install --remove when missing → exit 0 with "nothing to remove"',
+    () async {
+      final r = await runInstallCommand(
+        args: const ['--remove'],
+        configFile: config,
+      );
+      expect(r.exitCode, 0);
+      expect(r.message, contains('nothing to remove'));
+    },
+  );
 
   test('install --help → exit 0 with usage', () async {
     final r = await runInstallCommand(
@@ -75,13 +78,15 @@ void main() {
     expect(r.message, contains('unknown flag'));
   });
 
-  test('non-JSON-object config surfaces ConfigWriteException → exit 1',
-      () async {
-    await config.writeAsString('"not an object"');
-    final r = await runInstallCommand(args: const [], configFile: config);
-    expect(r.exitCode, 1);
-    expect(r.message, contains('not a JSON object'));
-  });
+  test(
+    'non-JSON-object config surfaces ConfigWriteException → exit 1',
+    () async {
+      await config.writeAsString('"not an object"');
+      final r = await runInstallCommand(args: const [], configFile: config);
+      expect(r.exitCode, 1);
+      expect(r.message, contains('not a JSON object'));
+    },
+  );
 
   test('custom entry overrides default', () async {
     final r = await runInstallCommand(
@@ -92,8 +97,9 @@ void main() {
     expect(r.exitCode, 0);
     final root =
         jsonDecode(await config.readAsString()) as Map<String, Object?>;
-    final entry = (root['mcpServers'] as Map<String, Object?>)['sleuth']
-        as Map<String, Object?>;
+    final entry =
+        (root['mcpServers'] as Map<String, Object?>)['sleuth']
+            as Map<String, Object?>;
     expect(entry['command'], '/abs/path/sleuth_mcp');
   });
 }

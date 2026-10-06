@@ -3,6 +3,8 @@ import 'package:sleuth/src/analyzer/frame_event_correlator.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/phase_event.dart';
 
+import '../helpers/benchmark_helpers.dart';
+
 void main() {
   final correlator = FrameEventCorrelator();
 
@@ -95,7 +97,8 @@ void main() {
       expect(result[1]!.buildScopeUs, 5000);
       expect(result[1]!.matchedEventCount, 1);
       expect(result[1]!.totalBatchEventCount, 1);
-      expect(result[1]!.coverageRatio, 1.0);
+      expect(result[1]!.batchMatchedEventCount, 1);
+      expect(result[1]!.batchCoverageRatio, 1.0);
     });
 
     test('single frame, events across all phases — correct bucketing', () {
@@ -353,7 +356,8 @@ void main() {
         return PhaseEvent(
           phase: i.isEven ? TimelinePhase.build : TimelinePhase.raster,
           timestampUs: i.isEven
-              ? buildStart + 2000 // inside build window
+              ? buildStart +
+                    2000 // inside build window
               : buildStart + 12000, // inside raster window
           durationUs: 500,
         );
@@ -367,14 +371,16 @@ void main() {
       stopwatch.stop();
 
       // All 500 events should match some frame
-      final totalMatched =
-          result.values.fold(0, (sum, d) => sum + d.matchedEventCount);
+      final totalMatched = result.values.fold(
+        0,
+        (sum, d) => sum + d.matchedEventCount,
+      );
       expect(totalMatched, eventCount);
       expect(result, hasLength(frameCount));
 
-      // Binary search should complete well under 50ms even in debug mode
-      expect(stopwatch.elapsedMilliseconds, lessThan(50));
-    });
+      // measured: 3489 µs (serial, debug JIT, M1 Pro)
+      expect(stopwatch.elapsedMicroseconds, lessThan(18000 * budgetMultiplier));
+    }, tags: ['benchmark']);
 
     test('coverage calculation across multiple frames', () {
       final frame = makeFrame(
@@ -412,7 +418,8 @@ void main() {
       // 1 matched out of 3 total
       expect(result[1]!.matchedEventCount, 1);
       expect(result[1]!.totalBatchEventCount, 3);
-      expect(result[1]!.coverageRatio, closeTo(0.333, 0.01));
+      expect(result[1]!.batchMatchedEventCount, 1);
+      expect(result[1]!.batchCoverageRatio, closeTo(0.333, 0.01));
     });
 
     test('empty recentFrames returns empty map', () {
@@ -428,6 +435,158 @@ void main() {
       );
 
       expect(result, isEmpty);
+    });
+  });
+
+  group('batch coverage', () {
+    // Three back-to-back frames, 16 ms apart: build 0–8 ms, raster 8–14 ms.
+    List<FrameStats> threeFrames() => List.generate(3, (i) {
+      final start = 100000 + i * 16000;
+      return makeFrame(
+        frameNumber: i + 1,
+        buildStartUs: start,
+        buildFinishUs: start + 8000,
+        rasterStartUs: start + 8000,
+        rasterFinishUs: start + 14000,
+      );
+    });
+
+    PhaseEvent buildIn(int frameIndex) => PhaseEvent(
+      phase: TimelinePhase.build,
+      timestampUs: 100000 + frameIndex * 16000 + 1000,
+      durationUs: 2000,
+    );
+
+    PhaseEvent rasterIn(int frameIndex) => PhaseEvent(
+      phase: TimelinePhase.raster,
+      timestampUs: 100000 + frameIndex * 16000 + 9000,
+      durationUs: 2000,
+    );
+
+    test('three frames each matching a third of the batch are all '
+        'trustworthy', () {
+      final result = FrameEventCorrelator().correlate(
+        recentFrames: threeFrames(),
+        phaseEvents: [
+          for (var i = 0; i < 3; i++) ...[buildIn(i), rasterIn(i)],
+        ],
+      );
+
+      expect(result, hasLength(3));
+      for (final data in result.values) {
+        expect(data.matchedEventCount, 2);
+        expect(data.batchMatchedEventCount, 6);
+        expect(data.totalBatchEventCount, 6);
+        expect(data.batchCoverageRatio, 1.0);
+        expect(data.isTrustworthy, isTrue);
+      }
+    });
+
+    test('70 % of the batch outside every frame: no frame is trustworthy', () {
+      final result = FrameEventCorrelator().correlate(
+        recentFrames: threeFrames(),
+        phaseEvents: [
+          buildIn(0),
+          buildIn(1),
+          buildIn(2),
+          // Seven events before the first frame's windows.
+          for (var i = 0; i < 7; i++)
+            PhaseEvent(
+              phase: i.isEven ? TimelinePhase.build : TimelinePhase.raster,
+              timestampUs: 10000 + i * 1000,
+              durationUs: 500,
+            ),
+        ],
+      );
+
+      expect(result, hasLength(3));
+      for (final data in result.values) {
+        expect(data.matchedEventCount, 1);
+        expect(data.batchMatchedEventCount, 3);
+        expect(data.totalBatchEventCount, 10);
+        expect(data.batchCoverageRatio, closeTo(0.3, 1e-9));
+        expect(data.isTrustworthy, isFalse);
+      }
+    });
+
+    test('a single-frame batch: batch coverage equals the frame share', () {
+      final frame = threeFrames().first;
+      final events = [
+        buildIn(0),
+        rasterIn(0),
+        const PhaseEvent(
+          phase: TimelinePhase.build,
+          timestampUs: 500000,
+          durationUs: 1000,
+        ),
+      ];
+
+      final result = FrameEventCorrelator().correlate(
+        recentFrames: [frame],
+        phaseEvents: events,
+      );
+      final data = result[1]!;
+      expect(data.matchedEventCount, 2);
+      expect(data.batchMatchedEventCount, 2);
+      expect(data.batchCoverageRatio, closeTo(2 / 3, 1e-9));
+      expect(data.isTrustworthy, isTrue);
+
+      final sparse = FrameEventCorrelator().correlate(
+        recentFrames: [frame],
+        phaseEvents: [
+          buildIn(0),
+          for (var i = 0; i < 2; i++)
+            PhaseEvent(
+              phase: TimelinePhase.build,
+              timestampUs: 500000 + i * 1000,
+              durationUs: 500,
+            ),
+        ],
+      );
+      expect(sparse[1]!.batchCoverageRatio, closeTo(1 / 3, 1e-9));
+      expect(sparse[1]!.isTrustworthy, isFalse);
+    });
+
+    test('a frame with one matched event is not trustworthy at full batch '
+        'coverage', () {
+      final result = FrameEventCorrelator().correlate(
+        recentFrames: threeFrames(),
+        phaseEvents: [buildIn(0), rasterIn(0), buildIn(1)],
+      );
+
+      expect(result[1]!.matchedEventCount, 2);
+      expect(result[1]!.isTrustworthy, isTrue);
+      expect(result[2]!.matchedEventCount, 1);
+      expect(result[2]!.batchCoverageRatio, 1.0);
+      expect(result[2]!.isTrustworthy, isFalse);
+    });
+
+    test('a frame with no matched events is not trustworthy at full batch '
+        'coverage', () {
+      final result = FrameEventCorrelator().correlate(
+        recentFrames: threeFrames(),
+        phaseEvents: [buildIn(0), rasterIn(0)],
+      );
+
+      expect(result[1]!.isTrustworthy, isTrue);
+      expect(result[2]!.batchCoverageRatio, 1.0);
+      expect(result[2]!.isTrustworthy, isFalse);
+      expect(result[3]!.isTrustworthy, isFalse);
+    });
+
+    test('an empty batch is not trustworthy', () {
+      final result = FrameEventCorrelator().correlate(
+        recentFrames: threeFrames(),
+        phaseEvents: const [],
+      );
+      expect(result, isEmpty);
+
+      const data = CorrelatedFrameData(
+        batchMatchedEventCount: 0,
+        totalBatchEventCount: 0,
+      );
+      expect(data.batchCoverageRatio, 0);
+      expect(data.isTrustworthy, isFalse);
     });
   });
 }

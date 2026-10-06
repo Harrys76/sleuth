@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 
 import 'frame_stats.dart';
@@ -19,7 +20,11 @@ class RouteSession {
     this.hotReloadGeneration = 0,
   });
 
-  /// Route name from `ModalRoute.of(context)?.settings.name`, or a synthetic
+  /// Maximum number of keys retained in [issueSnapshots] and
+  /// [rebuildCountsByType]. On overflow the oldest-inserted key is evicted.
+  static const maxTrackedEntries = 256;
+
+  /// Route name from `ModalRoute.settingsOf(context)?.name`, or a synthetic
   /// `<unnamed-N>` when the route has no name (common with go_router shell
   /// routes, dialog routes, etc.).
   final String routeName;
@@ -67,32 +72,40 @@ class RouteSession {
 
   /// Per-route frame stats ring buffer, capacity derived from [fpsTarget]
   /// so 120 Hz devices retain a full 1 s window.
-  late final FrameStatsBuffer frameStats =
-      FrameStatsBuffer(fpsTarget: fpsTarget);
+  late final FrameStatsBuffer frameStats = FrameStatsBuffer(
+    fpsTarget: fpsTarget,
+  );
 
   /// Latest snapshot of each issue observed while this route was active,
   /// keyed by `stableId ?? title`. Upserted each scan cycle — only the
-  /// most recent observation is retained.
-  final Map<String, PerformanceIssue> issueSnapshots = {};
+  /// most recent observation is retained. Holds at most [maxTrackedEntries]
+  /// keys; the oldest-inserted key is evicted on overflow.
+  final Map<String, PerformanceIssue> issueSnapshots =
+      _InsertionCappedMap<String, PerformanceIssue>(maxTrackedEntries);
 
   /// Number of scan cycles completed while this route was active.
   int scanCycleCount = 0;
 
   /// Per-widget-type rebuild counts accumulated during this session
-  /// (spec v15, M6). Populated only in profile mode when
+  /// (since v0.15.0). Populated only in profile mode when
   /// [SleuthConfig.enableDeepDebugInstrumentation] is `true` — otherwise
   /// stays empty. The controller additively merges
   /// [DebugSnapshot.rebuildCounts] into this map on every scan where
-  /// `DebugSnapshot.source == RebuildCountSource.flutterTimeline` (M7).
+  /// `DebugSnapshot.source == RebuildCountSource.flutterTimeline`.
   ///
-  /// KDD-5 divergence note: counts include initial widget inflations as
+  /// Divergence from debug mode: counts include initial widget inflations as
   /// well as actual rebuilds, because the framework emits the same
   /// `FlutterTimeline.startSync('${runtimeType}')` from `_tryRebuild`,
   /// `updateChild`, and `inflateWidget`. Route entry therefore shows a
   /// transient spike that decays as the tree stabilises. The inline
   /// `_RebuildStatsBanner` panel and the `RebuildStatsPage` drilldown
   /// disclose this caveat.
-  final Map<String, int> rebuildCountsByType = {};
+  ///
+  /// Holds at most [maxTrackedEntries] widget types; the oldest-inserted
+  /// type is evicted on overflow.
+  final Map<String, int> rebuildCountsByType = _InsertionCappedMap<String, int>(
+    maxTrackedEntries,
+  );
 
   /// Total profile-mode rebuilds observed during this session, summed
   /// across every widget type in [rebuildCountsByType]. Surfaced by the
@@ -132,8 +145,9 @@ class RouteSession {
 
     // FPS component: 40 points max. When no frames, grant full 40.
     final target = fpsTarget > 0 ? fpsTarget.toDouble() : 60.0;
-    final fpsComponent =
-        total == 0 ? 40.0 : (fps / target * 40.0).clamp(0.0, 40.0);
+    final fpsComponent = total == 0
+        ? 40.0
+        : (fps / target * 40.0).clamp(0.0, 40.0);
 
     // Jank penalty: 30 points max
     final jankRatio = total > 0 ? jank / total : 0.0;
@@ -149,8 +163,9 @@ class RouteSession {
         warningCount++;
       }
     }
-    final issuePenalty =
-        math.min(criticalCount * 10 + warningCount * 3, 30).toDouble();
+    final issuePenalty = math
+        .min(criticalCount * 10 + warningCount * 3, 30)
+        .toDouble();
 
     return (fpsComponent + (30.0 - jankPenalty) + (30.0 - issuePenalty))
         .round()
@@ -202,12 +217,62 @@ class RouteSession {
       'criticalCount': criticalCount,
       'warningCount': warningCount,
       'issues': issueSnapshots.keys.toList(),
-      // M6 / KDD-7: purely additive optional field. Emitted only when
-      // non-empty so debug-mode exports (which never populate this map)
-      // stay byte-identical to v0.14.1 and the schema stays at v4.
+      // Purely additive optional field, added in v0.15.0 without a schema
+      // bump. Emitted only when non-empty so debug-mode exports (which
+      // never populate this map) omit it.
       if (rebuildCountsByType.isNotEmpty)
         'rebuildCountsByType': Map<String, int>.of(rebuildCountsByType),
       if (rebuildCountsByType.isNotEmpty) 'totalRebuilds': totalRebuilds,
     };
   }
+}
+
+/// Insertion-ordered map that evicts its oldest-inserted key when a new key
+/// would exceed [_capacity]. Updating an existing key keeps its position.
+class _InsertionCappedMap<K, V> extends MapBase<K, V> {
+  _InsertionCappedMap(this._capacity);
+
+  final int _capacity;
+  final LinkedHashMap<K, V> _inner = LinkedHashMap<K, V>();
+
+  @override
+  V? operator [](Object? key) => _inner[key];
+
+  @override
+  void operator []=(K key, V value) {
+    if (_inner.length >= _capacity && !_inner.containsKey(key)) {
+      _inner.remove(_inner.keys.first);
+    }
+    _inner[key] = value;
+  }
+
+  @override
+  void clear() => _inner.clear();
+
+  @override
+  Iterable<K> get keys => _inner.keys;
+
+  @override
+  Iterable<V> get values => _inner.values;
+
+  @override
+  Iterable<MapEntry<K, V>> get entries => _inner.entries;
+
+  @override
+  int get length => _inner.length;
+
+  @override
+  bool get isEmpty => _inner.isEmpty;
+
+  @override
+  bool get isNotEmpty => _inner.isNotEmpty;
+
+  @override
+  bool containsKey(Object? key) => _inner.containsKey(key);
+
+  @override
+  void forEach(void Function(K key, V value) action) => _inner.forEach(action);
+
+  @override
+  V? remove(Object? key) => _inner.remove(key);
 }

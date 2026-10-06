@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
+
+import 'capture_driver.dart';
 
 /// Capture helper for `FrameTimingDetector.jank_detected.warning`
 /// (`jankPercent > 15` over the steady-state 240-frame buffer; runtimeVerified
@@ -14,9 +15,11 @@ import 'package:sleuth/sleuth.dart';
 /// **VM-service connection required.** Captures satisfy
 /// `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:
 /// true, ...)` ONLY when SleuthController's VmServiceClient is connected
-/// (VM+ mode). USB-tethered iPhone profile-mode is FRAME mode (the VM
-/// service port is not routed to the host); use **wireless debugging** via
-/// Xcode → Window → Devices and Simulators → "Connect via network".
+/// (VM+ mode). Sleuth connects to the app's own VM service from inside the
+/// app, so USB and wireless both work. `flutter run` starts DDS by default,
+/// and DDS keeps the VM service as its only client, which leaves Sleuth in
+/// FRAME mode. Launch with `--no-dds` (step 1), or start the installed app
+/// from the home screen.
 ///
 /// **Why FrameTiming differs from the prior runtimeVerified raises.**
 ///
@@ -29,8 +32,9 @@ import 'package:sleuth/sleuth.dart';
 ///     relative to scenario span boundaries.
 ///   * `Sleuth.flushTimelineNow()` — deterministic; flush also iterates
 ///     ALL detectors regardless of lifecycle and calls
-///     `_recordIssuesForCapture(const <BaseDetector>{})` (controller
-///     line 2806, batch path; line 2990, flush path).
+///     `_recordIssuesForCapture(const <BaseDetector>{})` from
+///     `SleuthController._onTimelineData`, which the flush runs before it
+///     returns.
 ///
 /// The capture screen calls `flushTimelineNow()` immediately before
 /// `markScenarioEnd` so the detector's per-frame emission lands inside
@@ -55,9 +59,13 @@ import 'package:sleuth/sleuth.dart';
 ///
 /// **Procedure per leg:**
 ///
-///   1. `cd example && fvm flutter run --profile -d "iPhone 12" \
-///         --dart-define=SLEUTH_CAPTURE_MODE=true`.
-///   2. Confirm the pre-flight banner shows `60 Hz` (top of screen).
+///   1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+///         --dart-define=SLEUTH_CAPTURE_MODE=true \
+///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
+///   2. Confirm the pre-flight banner shows `60 Hz` and the capture
+///      provenance (device, OS, Flutter version) the export stamps. Legs
+///      are refused while the provenance is unknown or not approved by
+///      `ProfileCaptureSchema`.
 ///   3. Tap a leg (Below / At / Above). The screen runs a 4 s scenario
 ///      span — `markScenarioBegin` resets the detector buffer, the
 ///      injector immediately starts spinning the UI thread per-frame
@@ -174,6 +182,10 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
 
   final List<String> _log = [];
 
+  /// Device, OS and Flutter version stamped on exports, or why they
+  /// cannot be stamped.
+  final CaptureProvenanceCheck _provenance = currentCaptureProvenance();
+
   bool get _captureModeOn => const bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
 
   @override
@@ -193,25 +205,25 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     // to first frame so the display info is populated.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final views = WidgetsBinding.instance.platformDispatcher.views;
-      if (views.isEmpty) {
+      final view = View.maybeOf(context);
+      if (view == null) {
         setState(() {
           _detectedRefreshRate = null;
           _refreshRateOk = false;
           _log.add(
-            'Pre-flight: no platform view available — refresh rate '
+            'Pre-flight: no platform view is available, so refresh rate '
             'detection failed. Re-open the screen.',
           );
         });
         return;
       }
-      final rate = views.first.display.refreshRate;
+      final rate = view.display.refreshRate;
       final ok = rate >= _expected60HzMin && rate <= _expected60HzMax;
       setState(() {
         _detectedRefreshRate = rate;
         _refreshRateOk = ok;
         _log.add(
-          'Pre-flight: detected refresh rate ${rate.toStringAsFixed(1)} Hz — '
+          'Pre-flight: detected refresh rate ${rate.toStringAsFixed(1)} Hz, '
           '${ok ? 'OK' : 'REJECTED (expected 60 Hz)'}',
         );
         if (!ok) {
@@ -238,7 +250,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     if (!_refreshRateOk) {
       setState(() {
         _log.add(
-          '[${leg.label}] ABORT — refresh rate not 60 Hz '
+          '[${leg.label}] ABORT: refresh rate is not 60 Hz '
           '(${_detectedRefreshRate?.toStringAsFixed(1) ?? "unknown"} Hz).',
         );
       });
@@ -247,11 +259,21 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     if (!_captureModeOn) {
       setState(() {
         _log.add(
-          '[${leg.label}] ABORT — captureMode is OFF. Restart the app '
+          '[${leg.label}] ABORT: captureMode is OFF. Restart the app '
           'with `--dart-define=SLEUTH_CAPTURE_MODE=true`. Without it, '
-          'markScenarioBegin/End are no-ops AND '
-          'FrameTimingDetector.captureMode stays false (the 3 s warmup '
-          'gate suppresses every leg).',
+          'markScenarioBegin/End do nothing, and '
+          'FrameTimingDetector.captureMode stays false, so the 3 s warmup '
+          'gate suppresses every leg.',
+        );
+      });
+      return;
+    }
+    final provenance = _provenance.provenance;
+    if (provenance == null) {
+      setState(() {
+        _log.add(
+          '[${leg.label}] ABORT: capture provenance: '
+          '${_provenance.problem}.',
         );
       });
       return;
@@ -272,7 +294,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       _lastCompletedLeg = null;
       _stashedCaptureJson = null;
       _log.add(
-        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg — '
+        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg: '
         'rate-based injection, target ${leg.targetJankPercent}%, '
         'band [${leg.jankPercentMin}, ${leg.jankPercentMax}]',
       );
@@ -348,8 +370,8 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       // Post-end barrier before exportCaptureJson — mirrors the
       // MemoryPressure proven pattern. VM service buffer needs to flush
       // the just-emitted scenario.end marker before service.getVMTimeline
-      // can return it; over wireless debug the RPC can otherwise
-      // observe a snapshot that pre-dates the end marker.
+      // can return it; without the wait the RPC can observe a snapshot
+      // that pre-dates the end marker.
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
 
@@ -364,6 +386,9 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       // Compose-then-stash: snapshot wrapped JSON immediately while
       // scenario markers are still present in the VM trace buffer.
       String? stashed;
+      // Why the capture did not compose: the export's own reason when it
+      // returned null, or the text of a failure inside the call.
+      String? composeFailure;
       try {
         stashed = await Sleuth.exportCaptureJson(
           scenario: 'frame_timing_jank_detected_${leg.label}',
@@ -378,20 +403,23 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           magnitudeObserved: leg.targetJankPercent.toDouble(),
           magnitudeMax: leg.jankPercentMax.toDouble(),
           unit: 'percent',
-          device: 'iPhone 12',
-          deviceOsVersion: 'iOS 17.5',
-          flutterVersion: '3.41.4',
-          captureCommand:
-              'fvm flutter run --profile -d "iPhone 12" '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true',
+          device: provenance.device,
+          deviceOsVersion: provenance.deviceOsVersion,
+          flutterVersion: provenance.flutterVersion,
+          captureCommand: provenance.captureCommand,
           // jank_detected source event is the FrameTiming pipeline,
           // NOT a VM Timeline BUILD/PAINT event. Skip BUILD-derivation;
           // operator's measured jank count is authoritative.
           magnitudeSourceEventName: '',
         );
+        if (stashed == null) {
+          composeFailure =
+              Sleuth.lastCaptureExportFailure ??
+              'exportCaptureJson gave no reason';
+        }
       } catch (e) {
         stashed = null;
-        if (kDebugMode) debugPrint('exportCaptureJson threw: $e');
+        composeFailure = '$e';
       }
 
       if (!mounted) return;
@@ -408,20 +436,17 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         _stashedCaptureJson = inBand ? stashed : null;
         if (stashed == null) {
           _log.add(
-            '[${leg.label}] capture FAILED to compose. Common causes: '
-            '(1) captureMode OFF; (2) VM service disconnected (FRAME '
-            'mode — kill app from Xcode and re-open from home screen); '
-            '(3) scenario markers rolled off the VM ring buffer. '
+            '[${leg.label}] capture FAILED to compose: $composeFailure. '
             'Re-tap leg after fixing.',
           );
         } else if (validationFailure != null) {
-          _log.add('[${leg.label}] Validation REJECTED — $validationFailure');
+          _log.add('[${leg.label}] Validation REJECTED: $validationFailure');
           _logRetryHint(leg);
         } else {
           _activeRetryLeg = null;
           _log.add(
-            '[${leg.label}] capture stashed (${stashed.length} chars) — '
-            'tap "Export last leg" to copy to clipboard.',
+            '[${leg.label}] capture stashed (${stashed.length} chars). '
+            'Tap "Export last leg" to copy it to the clipboard.',
           );
         }
       });
@@ -558,12 +583,13 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       }
     } else {
       if (jankWarningCount < 1) {
-        return 'expected ≥1 `$jankEventName` events inside scenario span, '
-            'found 0. Detector did not fire. Likely cause: (1) jankPercent '
-            'never crossed 15 % gate — spin too low for this device; '
-            '(2) FrameTimingDetector captureMode flag not plumbed (check '
-            'SleuthConfig.captureMode == true); (3) buffer did not reach '
-            'steady state — extend scenario beyond $_scenarioDurationSec s.';
+        return 'expected at least 1 `$jankEventName` event inside the '
+            'scenario span, found 0. Detector did not fire. Likely causes: (1) jankPercent '
+            'never crossed the 15 % gate, so the spin is too low for this '
+            'device. (2) The FrameTimingDetector captureMode flag is not '
+            'plumbed; check that SleuthConfig.captureMode is true. (3) The '
+            'buffer did not reach steady state, so extend the scenario '
+            'beyond $_scenarioDurationSec s.';
       }
       // Freshness invariant: the LAST in-span emission must
       // reflect a near-full buffer. Rolling-aggregate axis is unreliable
@@ -591,7 +617,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           lastObservedJankPercent > leg.jankPercentMax) {
         return 'observedJankPercent ($lastObservedJankPercent%) outside '
             'expected band [${leg.jankPercentMin}, ${leg.jankPercentMax}]. '
-            'Spin calibration drift — retry will bump spin.';
+            'Retry the leg.';
       }
     }
     return null;
@@ -621,13 +647,14 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       if (!mounted) return;
       setState(() {
         _log.add(
-          '[${leg.label}] Export OK — wrapped capture (${json.length} '
-          'chars) copied to iOS clipboard.',
+          '[${leg.label}] Export OK. Copied the wrapped capture '
+          '(${json.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[${leg.label}] Paste into Notes / Mail / AirDrop note → send '
-          'to Mac. Save the pasted JSON as jank_detected_${leg.label}.json '
-          'under test/validation/captures/frame_timing/.',
+          '[${leg.label}] Paste it into Notes, Mail or an AirDrop note and '
+          'send it to the Mac. Save the pasted JSON as '
+          'jank_detected_${leg.label}.json under '
+          'test/validation/captures/frame_timing/.',
         );
       });
       messenger.showSnackBar(
@@ -648,7 +675,11 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
 
   @override
   Widget build(BuildContext context) {
-    final ready = _refreshRateOk && _captureModeOn && !_busy;
+    final ready =
+        _refreshRateOk &&
+        _captureModeOn &&
+        _provenance.provenance != null &&
+        !_busy;
     return Scaffold(
       appBar: AppBar(title: const Text('FrameTiming capture helper')),
       body: Padding(
@@ -656,53 +687,72 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _PreFlightBanner(
-              refreshRate: _detectedRefreshRate,
-              refreshRateOk: _refreshRateOk,
-              captureModeOn: _captureModeOn,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Records profile-mode captures for jank_detected WARNING-tier '
-              'bracketing on the denominator-independent jankPercent axis '
-              '(detector emits at rounded jankPercent > 15; first reachable '
-              'observed value is 16). Bracket bands: at [16, 24], '
-              'above (24, 29.6]. Sustained_jank.critical may co-fire on '
-              'noisy devices — that is benign for this bracket axis under '
-              'parallel-emission semantics. See class docstring + '
-              'doc/capture_procedure.md for full protocol.',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            _CaptureButton(
-              label: 'Below ($_belowTargetJankPercent% target) — silent',
-              subtitle: 'No spin; baseline frames; detector stays silent',
-              enabled: ready,
-              onTap: () => _runLeg(_JankLeg.below),
-            ),
-            const SizedBox(height: 8),
-            _CaptureButton(
-              label: 'At ($_atTargetJankPercent% target) — warning',
-              subtitle:
-                  '$_spinPerFrameMs ms spin every ~5th frame; '
-                  'in [16, 24] at-band',
-              enabled: ready,
-              onTap: () => _runLeg(_JankLeg.at),
-            ),
-            const SizedBox(height: 8),
-            _CaptureButton(
-              label: 'Above ($_aboveTargetJankPercent% target) — warning',
-              subtitle:
-                  '$_spinPerFrameMs ms spin every ~4th frame; '
-                  'in (24, 29.6] above-band',
-              enabled: ready,
-              onTap: () => _runLeg(_JankLeg.above),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _busy ? null : _exportLastLeg,
-              icon: const Icon(Icons.save_alt),
-              label: const Text('Export last leg'),
+            // Takes its natural height up to three quarters of the body
+            // and scrolls past that, so a long pre-flight reason or a
+            // large text scale cannot overflow the screen.
+            Flexible(
+              flex: 3,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _PreFlightBanner(
+                      refreshRate: _detectedRefreshRate,
+                      refreshRateOk: _refreshRateOk,
+                      captureModeOn: _captureModeOn,
+                      provenance: _provenance,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Records profile-mode captures for jank_detected '
+                      'WARNING-tier bracketing on the '
+                      'denominator-independent jankPercent axis (detector '
+                      'emits at rounded jankPercent > 15; first reachable '
+                      'observed value is 16). Bracket bands: at [16, 24], '
+                      'above (24, 29.6]. sustained_jank.critical may '
+                      'co-fire on noisy devices. That does not affect this '
+                      'bracket axis, because the two ids emit in parallel. '
+                      'See the class doc comment and '
+                      'doc/capture_procedure.md for the full protocol.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    _CaptureButton(
+                      label: 'Below ($_belowTargetJankPercent% target), silent',
+                      subtitle:
+                          'No spin; baseline frames; detector stays silent',
+                      enabled: ready,
+                      onTap: () => _runLeg(_JankLeg.below),
+                    ),
+                    const SizedBox(height: 8),
+                    _CaptureButton(
+                      label: 'At ($_atTargetJankPercent% target), warning',
+                      subtitle:
+                          '$_spinPerFrameMs ms spin every ~5th frame; '
+                          'in [16, 24] at-band',
+                      enabled: ready,
+                      onTap: () => _runLeg(_JankLeg.at),
+                    ),
+                    const SizedBox(height: 8),
+                    _CaptureButton(
+                      label:
+                          'Above ($_aboveTargetJankPercent% target), '
+                          'warning',
+                      subtitle:
+                          '$_spinPerFrameMs ms spin every ~4th frame; '
+                          'in (24, 29.6] above-band',
+                      enabled: ready,
+                      onTap: () => _runLeg(_JankLeg.above),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _busy ? null : _exportLastLeg,
+                      icon: const Icon(Icons.save_alt),
+                      label: const Text('Export last leg'),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             const Divider(),
@@ -739,15 +789,18 @@ class _PreFlightBanner extends StatelessWidget {
     required this.refreshRate,
     required this.refreshRateOk,
     required this.captureModeOn,
+    required this.provenance,
   });
 
   final double? refreshRate;
   final bool refreshRateOk;
   final bool captureModeOn;
+  final CaptureProvenanceCheck provenance;
 
   @override
   Widget build(BuildContext context) {
-    final allOk = refreshRateOk && captureModeOn;
+    final stamp = provenance.provenance;
+    final allOk = refreshRateOk && captureModeOn && stamp != null;
     final color = allOk ? Colors.green.shade100 : Colors.red.shade100;
     return Container(
       padding: const EdgeInsets.all(12),
@@ -766,11 +819,13 @@ class _PreFlightBanner extends StatelessWidget {
                 color: refreshRateOk ? Colors.green : Colors.red,
               ),
               const SizedBox(width: 8),
-              Text(
-                'Refresh rate: '
-                '${refreshRate?.toStringAsFixed(1) ?? "detecting..."} Hz '
-                '${refreshRateOk ? "(60 Hz OK)" : "(REQUIRES 60 Hz)"}',
-                style: const TextStyle(fontSize: 12),
+              Expanded(
+                child: Text(
+                  'Refresh rate: '
+                  '${refreshRate?.toStringAsFixed(1) ?? "detecting..."} Hz '
+                  '${refreshRateOk ? "(60 Hz OK)" : "(REQUIRES 60 Hz)"}',
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
             ],
           ),
@@ -783,11 +838,35 @@ class _PreFlightBanner extends StatelessWidget {
                 color: captureModeOn ? Colors.green : Colors.red,
               ),
               const SizedBox(width: 8),
-              Text(
-                'captureMode: ${captureModeOn ? "ON" : "OFF"}'
-                '${captureModeOn ? "" : " (restart with --dart-define="
-                          "SLEUTH_CAPTURE_MODE=true)"}',
-                style: const TextStyle(fontSize: 12),
+              Expanded(
+                child: Text(
+                  'captureMode: ${captureModeOn ? "ON" : "OFF"}'
+                  '${captureModeOn ? "" : " (restart with --dart-define="
+                            "SLEUTH_CAPTURE_MODE=true)"}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                stamp != null ? Icons.check : Icons.close,
+                size: 16,
+                color: stamp != null ? Colors.green : Colors.red,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  stamp != null
+                      ? 'Provenance: ${stamp.device} / '
+                            '${stamp.deviceOsVersion} / '
+                            'Flutter ${stamp.flutterVersion}'
+                      : 'Provenance: ${provenance.problem}',
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
             ],
           ),

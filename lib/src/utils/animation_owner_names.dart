@@ -34,7 +34,7 @@ import 'type_name_cache.dart';
 /// and survive in chains, so they belong here. They drive per-frame
 /// repaints during their tween window — e.g. a card that grows from
 /// 100x100 to 300x300 over 300ms paints ~18 frames in a row, comfortably
-/// over the 30/sec threshold. Without these entries, every implicit
+/// over the 30/sec per-widget debug paint threshold. Without these entries, every implicit
 /// animation in user code triggers a false `repaint_debug_*`.
 const Set<String> animationOwnerNames = <String>{
   // --- Material / Cupertino indeterminate progress indicators (4) ---
@@ -57,9 +57,10 @@ const Set<String> animationOwnerNames = <String>{
   // --- Implicit animation widgets (12) ---
   // Each runs an internal AnimationController to tween between old and
   // new property values. Tween durations of 100-300ms produce ~6-18
-  // consecutive paints, which trips the 30/sec threshold for the duration
-  // of the animation. Without these entries, every implicit animation in
-  // user code surfaces as a false `repaint_debug_*`.
+  // consecutive paints, which trips the 30/sec per-widget debug paint
+  // threshold for the duration of the animation. Without these entries,
+  // every implicit animation in user code surfaces as a false
+  // `repaint_debug_*`.
   'AnimatedContainer',
   'AnimatedRotation',
   'AnimatedScale',
@@ -80,6 +81,41 @@ const Set<String> animationOwnerNames = <String>{
   // transition (~300ms by default).
   'Hero',
 };
+
+/// Owners in [animationOwnerNames] that animate by rebuilding: a
+/// listenable or a ticker calls `setState` on them every frame, so they
+/// drive their subtree's paints only in frames where they rebuilt. An
+/// idle one (a finished `AnimatedContainer`, a `ValueListenableBuilder`
+/// whose value did not change) owns nothing. The other owners animate in
+/// a render object or a transition widget without rebuilding, so their
+/// presence is the evidence.
+const Set<String> rebuildDrivenOwnerNames = <String>{
+  'AnimatedBuilder',
+  'ValueListenableBuilder',
+  'TweenAnimationBuilder',
+  'AnimatedContainer',
+  'AnimatedPadding',
+  'AnimatedAlign',
+  'AnimatedPositioned',
+  'AnimatedPositionedDirectional',
+  'AnimatedFractionallySizedBox',
+};
+
+/// [Element.widget]'s type name without generic arguments, as matched
+/// against [animationOwnerNames].
+String _ownerName(Element element) {
+  final rawName = typeNameCache.lookup(element.widget);
+  final ltIdx = rawName.indexOf('<');
+  return ltIdx == -1 ? rawName : rawName.substring(0, ltIdx);
+}
+
+/// Whether [element]'s widget is one of [animationOwnerNames].
+bool isAnimationOwnerElement(Element element) =>
+    animationOwnerNames.contains(_ownerName(element));
+
+/// Whether [element]'s widget is one of [rebuildDrivenOwnerNames].
+bool isRebuildDrivenOwnerElement(Element element) =>
+    rebuildDrivenOwnerNames.contains(_ownerName(element));
 
 /// Word-boundary regex over [animationOwnerNames], computed once at
 /// module load. The `\b…\b` anchors prevent substring lookalikes from
@@ -138,27 +174,33 @@ bool hasAnimationOwnerDescendant(
   Element root, {
   int maxVisits = 32,
   int maxDepth = 4,
+}) =>
+    findAnimationOwnerDescendant(
+      root,
+      maxVisits: maxVisits,
+      maxDepth: maxDepth,
+    ) !=
+    null;
+
+/// The first animation owner [hasAnimationOwnerDescendant] reaches from
+/// [root] (itself included), or null.
+Element? findAnimationOwnerDescendant(
+  Element root, {
+  int maxVisits = 32,
+  int maxDepth = 4,
 }) {
-  // Local mutable state instead of recursion-with-closure, to keep the
-  // hot path allocation-free.
   var visits = 0;
-  var found = false;
+  Element? found;
 
   void walk(Element element, int depth) {
-    if (found || visits >= maxVisits || depth > maxDepth) return;
+    if (found != null || visits >= maxVisits || depth > maxDepth) return;
     visits++;
-    final rawName = typeNameCache.lookup(element.widget);
-    // Strip generics: `Foo<X>` → `Foo`. Only allocates when the type is
-    // actually generic; non-generic names hit the indexOf == -1 branch
-    // and pass through unchanged.
-    final ltIdx = rawName.indexOf('<');
-    final name = ltIdx == -1 ? rawName : rawName.substring(0, ltIdx);
-    if (animationOwnerNames.contains(name)) {
-      found = true;
+    if (isAnimationOwnerElement(element)) {
+      found = element;
       return;
     }
     element.visitChildren((child) {
-      if (!found) walk(child, depth + 1);
+      if (found == null) walk(child, depth + 1);
     });
   }
 
@@ -197,18 +239,19 @@ bool hasAnimationOwnerDescendant(
 /// Cost analysis at 60 Hz with `maxDepth=16`: 60 × 16 = 960 ancestor
 /// visits per second per repainting widget. Same shape as the descendant
 /// walk's budget. Negligible.
-bool hasAnimationOwnerAncestor(Element element, {int maxDepth = 16}) {
+bool hasAnimationOwnerAncestor(Element element, {int maxDepth = 16}) =>
+    findAnimationOwnerAncestor(element, maxDepth: maxDepth) != null;
+
+/// The nearest animation owner among [element]'s [maxDepth] nearest
+/// ancestors, or null.
+Element? findAnimationOwnerAncestor(Element element, {int maxDepth = 16}) {
   var depth = 0;
-  var found = false;
+  Element? found;
   element.visitAncestorElements((ancestor) {
     if (depth >= maxDepth) return false;
     depth++;
-    final rawName = typeNameCache.lookup(ancestor.widget);
-    // Strip generics: `Foo<X>` → `Foo`. Same trick as the descendant walk.
-    final ltIdx = rawName.indexOf('<');
-    final name = ltIdx == -1 ? rawName : rawName.substring(0, ltIdx);
-    if (animationOwnerNames.contains(name)) {
-      found = true;
+    if (isAnimationOwnerElement(ancestor)) {
+      found = ancestor;
       return false;
     }
     return true;
@@ -233,7 +276,7 @@ bool hasAnimationOwnerAncestor(Element element, {int maxDepth = 16}) {
 ///    the chain depth budget. Catches deeply-nested framework owners
 ///    (e.g. `RefreshProgressIndicator` → AnimatedBuilder ~13 levels up).
 /// 3. [hasAnimationOwnerDescendant] — typed descendant walk. Catches the
-///    KDD-3 gap where a `CircularProgressIndicator` mounted *without* a
+///    gap where a `CircularProgressIndicator` mounted *without* a
 ///    wrapping `RepaintBoundary` propagates its dirty mark UP to a
 ///    plain ancestor like `Center`, which becomes the leaf in the paint
 ///    callback — the owner is then a *child* of the captured leaf.

@@ -42,46 +42,46 @@ void main() {
   );
 
   group('IssueCard downstream rendering', () {
-    testWidgets('root card shows effects badge when downstream present',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueCard(
-          issue: rootIssue,
-          downstreamIssues: const [downstream1, downstream2],
+    testWidgets('root card shows effects badge when downstream present', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          IssueCard(
+            issue: rootIssue,
+            downstreamIssues: const [downstream1, downstream2],
+          ),
         ),
-      ));
+      );
 
       // Effects badge shows count
       expect(find.text('\u21B3 2'), findsOneWidget);
     });
 
     testWidgets('no badge when downstreamIssues is null', (tester) async {
-      await tester.pumpWidget(wrap(
-        const IssueCard(issue: rootIssue),
-      ));
+      await tester.pumpWidget(wrap(const IssueCard(issue: rootIssue)));
 
       expect(find.text('\u21B3 2'), findsNothing);
     });
 
     testWidgets('no badge when downstreamIssues is empty', (tester) async {
-      await tester.pumpWidget(wrap(
-        const IssueCard(
-          issue: rootIssue,
-          downstreamIssues: [],
-        ),
-      ));
+      await tester.pumpWidget(
+        wrap(const IssueCard(issue: rootIssue, downstreamIssues: [])),
+      );
 
       expect(find.text('\u21B3 0'), findsNothing);
     });
 
     testWidgets('expanding root card shows downstream titles', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueCard(
-          issue: rootIssue,
-          downstreamIssues: const [downstream1, downstream2],
-          initiallyExpanded: true,
+      await tester.pumpWidget(
+        wrap(
+          IssueCard(
+            issue: rootIssue,
+            downstreamIssues: const [downstream1, downstream2],
+            initiallyExpanded: true,
+          ),
         ),
-      ));
+      );
 
       // Downstream titles visible
       expect(find.text('Heavy compute on main thread'), findsOneWidget);
@@ -92,12 +92,14 @@ void main() {
     });
 
     testWidgets('downstream not visible when collapsed', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueCard(
-          issue: rootIssue,
-          downstreamIssues: const [downstream1, downstream2],
+      await tester.pumpWidget(
+        wrap(
+          IssueCard(
+            issue: rootIssue,
+            downstreamIssues: const [downstream1, downstream2],
+          ),
         ),
-      ));
+      );
 
       // Section header should not be visible
       expect(find.text('Related effects (2):'), findsNothing);
@@ -117,13 +119,15 @@ void main() {
         ),
       );
 
-      await tester.pumpWidget(wrap(
-        IssueCard(
-          issue: rootIssue,
-          downstreamIssues: manyDownstream,
-          initiallyExpanded: true,
+      await tester.pumpWidget(
+        wrap(
+          IssueCard(
+            issue: rootIssue,
+            downstreamIssues: manyDownstream,
+            initiallyExpanded: true,
+          ),
         ),
-      ));
+      );
 
       // First 5 visible
       for (var i = 0; i < 5; i++) {

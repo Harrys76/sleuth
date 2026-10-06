@@ -1,13 +1,18 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../ai/ai_providers.dart';
 import '../models/ai_chat_adapter.dart';
 import '../models/performance_issue.dart';
 import '../utils/ai_context_builder.dart';
+import '../utils/ai_session_context.dart';
 import 'issue_card.dart';
+import 'motion.dart';
 import 'sleuth_theme.dart';
 
 /// Full-screen AI chat page for contextual conversations about a specific
@@ -28,6 +33,9 @@ class AiChatPage extends StatefulWidget {
     required this.history,
     required this.onHistoryChanged,
     required this.onClose,
+    this.onNotify,
+    this.onNotifyAction,
+    this.sessionContext,
   });
 
   /// The performance issue being discussed.
@@ -48,12 +56,233 @@ class AiChatPage extends StatefulWidget {
   /// Close this page and return to the main card.
   final VoidCallback onClose;
 
+  /// Shows a short confirmation (copied, copy failed) in the host's
+  /// toast. The page sits outside any [ScaffoldMessenger].
+  final ValueChanged<String>? onNotify;
+
+  /// Shows a notice with an action (the send-while-replying notice offers
+  /// Stop) and returns a callback that hides it, or null. The page hides
+  /// the Stop notice when the reply ends, so a notice kept on screen for
+  /// a screen reader never outlives its reply. Null falls back to
+  /// [onNotify] without the action.
+  final VoidCallback? Function(
+    String message,
+    String actionLabel,
+    VoidCallback onAction,
+  )?
+  onNotifyAction;
+
+  /// The app's state for the prompt's "## Session" section, read when a
+  /// message is sent and for the caption above the input. Null leaves
+  /// the section out.
+  final AiSessionContext Function()? sessionContext;
+
   @override
   State<AiChatPage> createState() => _AiChatPageState();
 }
 
+/// Short, user-facing reason for a failed reply.
+///
+/// HTTP 401/403 is "API key rejected", 429 "Rate limited", 5xx "Provider
+/// error" (the status of an [AiProviderException], else read from the
+/// error text: "returned 503", "status code of 401", "statusCode: 429");
+/// no network (a failed host lookup, the network unreachable or down) is
+/// "Offline"; a refused, unreachable, reset or timed-out connection is
+/// "Can't reach the provider"; anything else "Reply failed". The full
+/// error text is only offered through Copy error.
+@visibleForTesting
+String aiFailureReason(Object error) {
+  final status = switch (error) {
+    AiProviderException(:final statusCode) => statusCode,
+    HttpException(:final message) => _statusIn(message),
+    _ => _statusIn(error.toString()),
+  };
+  if (status == 401 || status == 403) return 'API key rejected';
+  if (status == 429) return 'Rate limited';
+  if (status != null && status >= 500 && status < 600) return 'Provider error';
+  final text = error.toString();
+  final errno = _errnoIn(text);
+  if (_offlinePattern.hasMatch(text) || _offlineErrnos.contains(errno)) {
+    return 'Offline';
+  }
+  if (error is SocketException ||
+      text.contains('SocketException') ||
+      _unreachablePattern.hasMatch(text) ||
+      _unreachableErrnos.contains(errno)) {
+    return "Can't reach the provider";
+  }
+  return 'Reply failed';
+}
+
+/// An HTTP status in an error's text: "returned 503" (the built-in
+/// providers), "status code of 401" (Dio), "statusCode: 429"
+/// (dart_openai), "status: 500", "HTTP/1.1 502".
+final RegExp _statusPattern = RegExp(
+  r'(?:returned|status[ _-]?code|status|\bhttp(?:/[\d.]+)?)'
+  r'''(?:\s+of)?["']?\s*[:=]?\s*(\d{3})\b''',
+  caseSensitive: false,
+);
+
+int? _statusIn(String text) {
+  final match = _statusPattern.firstMatch(text);
+  return match == null ? null : int.parse(match.group(1)!);
+}
+
+/// No network: the host name could not be resolved, or the network is
+/// unreachable or down.
+final RegExp _offlinePattern = RegExp(
+  'Failed host lookup|No address associated with hostname|'
+  'Network is unreachable|Network is down|'
+  'not connected to the internet|connection appears to be offline',
+  caseSensitive: false,
+);
+
+/// A network, but the provider's host does not answer.
+final RegExp _unreachablePattern = RegExp(
+  'Connection refused|No route to host|Host is unreachable|'
+  'Connection reset|Connection timed out|connection errored',
+  caseSensitive: false,
+);
+
+/// ENETDOWN and ENETUNREACH on iOS/macOS, Android/Linux and Windows.
+const Set<int> _offlineErrnos = {50, 51, 100, 101, 10050, 10051};
+
+/// ECONNRESET, ETIMEDOUT, ECONNREFUSED and EHOSTUNREACH on iOS/macOS,
+/// Android/Linux and Windows.
+const Set<int> _unreachableErrnos = {
+  54, 60, 61, 65, // iOS / macOS
+  104, 110, 111, 113, // Android / Linux
+  10054, 10060, 10061, 10065, // Windows
+};
+
+final RegExp _errnoPattern = RegExp(r'errno\s*=\s*(\d+)');
+
+int? _errnoIn(String text) {
+  final match = _errnoPattern.firstMatch(text);
+  return match == null ? null : int.parse(match.group(1)!);
+}
+
+/// [text] with credentials replaced by `[redacted]`, so an error can be
+/// logged and copied: values of URI query parameters and JSON string
+/// fields whose names look like a key, token, secret, password, auth or
+/// signature; `Authorization` and API-key header values; `Bearer`
+/// tokens; and key-shaped strings (`sk-…`, `AIza…`, JWTs, runs of 40 or
+/// more letters and digits). The rest of the text is kept.
+@visibleForTesting
+String redactSecrets(String text) {
+  var out = text;
+  for (final (pattern, keepPrefix) in _redactions) {
+    out = out.replaceAllMapped(
+      pattern,
+      (m) => keepPrefix ? '${m.group(1)}$_redacted' : _redacted,
+    );
+  }
+  return out;
+}
+
+const String _redacted = '[redacted]';
+
+/// A parameter or field name that looks like it holds a credential.
+const String _secretName =
+    r'[\w.\-]*(?:key|token|secret|passw(?:or)?d|pwd|auth|signature|sig|'
+    r'credential)[\w.\-]*';
+
+/// Each pattern, and whether its group 1 is kept before the mask.
+final List<(RegExp, bool)> _redactions = [
+  // Header values, to the end of the line, a quote, comma or brace.
+  (
+    RegExp(
+      r'((?:\b(?:proxy-)?authorization|\bx-(?:goog-)?api-key|\bapi-key)'
+      r'''["']?\s*[:=]\s*["']?)[^"'\r\n,}&]+''',
+      caseSensitive: false,
+    ),
+    true,
+  ),
+  (RegExp(r'(\bBearer\s+)[\w\-.~+/]{8,}=*', caseSensitive: false), true),
+  // URI query parameters: ?api_key=…, &access_token=…, &X-Amz-Signature=…
+  (RegExp('([?&]$_secretName=)[^&#\\s"\'<>]+', caseSensitive: false), true),
+  // JSON string fields: "api_key": "…"
+  (RegExp('("$_secretName"\\s*:\\s*")[^"]+', caseSensitive: false), true),
+  // Provider key shapes and JWTs.
+  (RegExp(r'\bsk-[\w\-]{16,}'), false),
+  (RegExp(r'\bAIza[\w\-]{30,}'), false),
+  (RegExp(r'\beyJ[\w\-]{8,}\.[\w\-]{8,}\.[\w\-]+'), false),
+  // Any other long run of letters and digits.
+  (
+    RegExp(r'(?<![\w\-])(?=[\w\-]*\d)(?=[\w\-]*[A-Za-z])[\w\-]{40,}(?![\w\-])'),
+    false,
+  ),
+];
+
+/// [text] of a stopped reply as the provider gets it: a code fence left
+/// open is closed, then a line of its own says the reply was stopped, so
+/// the note never lands inside code.
+@visibleForTesting
+String stoppedReplyForProvider(String text) =>
+    '${_closeOpenFence(text)}\n\n$_stoppedNoteForProvider';
+
+const String _stoppedNoteForProvider =
+    '(The user stopped this reply before it finished.)';
+
+/// The opening or closing line of a fenced code block: up to three
+/// spaces, then three or more backticks or tildes.
+final RegExp _fenceLine = RegExp(r'^ {0,3}(`{3,}|~{3,})(.*)$');
+
+/// [text], with a closing fence added when it ends inside a fenced code
+/// block.
+String _closeOpenFence(String text) {
+  String? open;
+  for (final raw in text.split('\n')) {
+    final line = raw.endsWith('\r') ? raw.substring(0, raw.length - 1) : raw;
+    final match = _fenceLine.firstMatch(line);
+    if (match == null) continue;
+    final run = match.group(1)!;
+    final rest = match.group(2)!;
+    if (open == null) {
+      // A backtick fence's info string has no backticks.
+      if (run.startsWith('`') && rest.contains('`')) continue;
+      open = run;
+    } else if (run[0] == open[0] &&
+        run.length >= open.length &&
+        rest.trim().isEmpty) {
+      open = null;
+    }
+  }
+  if (open == null) return text;
+  return '$text${text.endsWith('\n') ? '' : '\n'}$open';
+}
+
+/// Where the current reply is.
+enum _ReplyState { idle, waiting, streaming, done, stopped, failed }
+
+/// A failed reply: the short [reason] shown in the failure row and the
+/// full error text behind Copy error ([fullText], null when there is
+/// nothing more to copy).
+class _ReplyFailure {
+  const _ReplyFailure(this.reason, [this.fullText]);
+
+  final String reason;
+  final String? fullText;
+}
+
 class _AiChatPageState extends State<AiChatPage>
     with SingleTickerProviderStateMixin {
+  /// Wait before the thinking row reads "Still waiting for a reply".
+  static const Duration _slowAfter = Duration(seconds: 5);
+
+  /// Shortest interval between two changes of the streaming live region.
+  static const Duration _announceInterval = Duration(seconds: 2);
+
+  /// Longest message the input accepts.
+  static const int _maxInputLength = 4000;
+
+  /// Height the message list keeps when the issue context gives way.
+  static const double _minMessageAreaHeight = 48;
+
+  /// Smallest height the issue context is shown at; below it the context
+  /// is left out until there is room again.
+  static const double _minContextHeight = 48;
+
   late final AnimationController _entranceController;
   late final CurvedAnimation _entranceCurve;
   final _inputController = TextEditingController();
@@ -61,20 +290,70 @@ class _AiChatPageState extends State<AiChatPage>
   final _scrollController = ScrollController();
 
   StreamSubscription<String>? _activeStream;
-  bool _isStreaming = false;
+  _ReplyState _state = _ReplyState.idle;
+
+  /// Set while the last reply failed (or never finished); cleared by a
+  /// send or Retry. Never written to the history.
+  _ReplyFailure? _failure;
+
+  /// Text a failed reply produced before it failed: shown above the
+  /// failure row, never written to the history.
+  String? _failedPartial;
+
+  /// First-token, then stall, timeout of the reply in flight
+  /// ([AiChatAdapter.firstTokenTimeout], [AiChatAdapter.stallTimeout]);
+  /// null while the current one is off.
+  Timer? _replyTimer;
+  Timer? _slowTimer;
+  Timer? _announceTimer;
+  bool _slow = false;
+
+  /// Label of the streaming live region, refreshed at most every
+  /// [_announceInterval].
+  String _streamAnnouncement = 'Reply in progress';
+  bool _announcePending = false;
+
+  /// The input had focus when the last message was sent or Retry was
+  /// tapped; focus returns to it when the reply ends.
+  bool _refocusAfterReply = false;
   String _streamBuffer = '';
   late List<AiChatMessage> _messages;
   bool _showStarters = true;
+
+  /// Text of the quiet row under an unanswered question: "Stopped" after
+  /// Stop, "Reply did not finish" for a question carried over from an
+  /// earlier visit.
+  String _stoppedNote = 'Stopped';
+
+  /// Session context of the last request, for Copy conversation.
+  AiSessionContext? _sentContext;
+
+  /// The issue context card is expanded; kept here so the card comes
+  /// back as it was after it gave way to the keyboard.
+  bool _contextExpanded = false;
+
+  bool get _inFlight =>
+      _state == _ReplyState.waiting || _state == _ReplyState.streaming;
+
+  bool get _endsWithUserTurn =>
+      _messages.isNotEmpty && _messages.last.role == AiChatRole.user;
 
   @override
   void initState() {
     super.initState();
     _messages = List.of(widget.history);
     if (_messages.isNotEmpty) _showStarters = false;
+    // A conversation left with an unanswered question (the page closed
+    // while a reply failed, was stopped, or before it began) offers Retry
+    // in the quiet row: the failure row is for a failure seen here.
+    if (_endsWithUserTurn) {
+      _state = _ReplyState.stopped;
+      _stoppedNote = 'Reply did not finish';
+    }
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
-    )..forward();
+    );
     _entranceCurve = CurvedAnimation(
       parent: _entranceController,
       curve: Curves.easeOut,
@@ -82,8 +361,17 @@ class _AiChatPageState extends State<AiChatPage>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
+  }
+
+  @override
   void dispose() {
-    _activeStream?.cancel();
+    // Closing the page, system back, or the card pruning the chat: a
+    // reply in flight keeps the text it produced.
+    _finish(_ReplyState.stopped, notify: false);
+    _cancelTimers();
     _inputController.dispose();
     _focusNode.dispose();
     _scrollController.dispose();
@@ -92,78 +380,364 @@ class _AiChatPageState extends State<AiChatPage>
     super.dispose();
   }
 
+  void _cancelTimers() {
+    _replyTimer?.cancel();
+    _replyTimer = null;
+    _slowTimer?.cancel();
+    _slowTimer = null;
+    _announceTimer?.cancel();
+    _announceTimer = null;
+  }
+
   void _sendMessage(String text) {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || _isStreaming) return;
+    if (trimmed.isEmpty) return;
+    if (_inFlight) {
+      const notice = 'Wait for the reply, or stop it';
+      final withAction = widget.onNotifyAction;
+      if (withAction != null) {
+        _hideStopNotice?.call();
+        _hideStopNotice = withAction(notice, 'Stop', () {
+          if (mounted) _stop();
+        });
+      } else {
+        widget.onNotify?.call(notice);
+      }
+      return;
+    }
 
     _inputController.clear();
+    _refocusAfterReply = _focusNode.hasFocus;
     setState(() {
       _showStarters = false;
+      _failure = null;
+      _failedPartial = null;
+      // A question after an unanswered one keeps its own bubble; the
+      // request joins them ([_requestHistory]).
       _messages.add(AiChatMessage(role: AiChatRole.user, text: trimmed));
-      _isStreaming = true;
-      _streamBuffer = '';
     });
     widget.onHistoryChanged(List.of(_messages));
-    _scrollToBottom();
+    _startReply();
+  }
 
+  /// Asks again for a reply to the unanswered question that ends the
+  /// history, without adding a turn. Focus returns to the input after the
+  /// reply only when the input had it at the tap, so the keyboard does
+  /// not rise over the reply.
+  void _retry() {
+    if (_inFlight || !_endsWithUserTurn) return;
+    _refocusAfterReply = _focusNode.hasFocus;
+    setState(() {
+      _failure = null;
+      _failedPartial = null;
+    });
+    _startReply();
+  }
+
+  void _stop() {
+    if (!_inFlight) return;
+    _haptic();
+    _finish(_ReplyState.stopped);
+  }
+
+  void _onRetryTap() {
+    _haptic();
+    _retry();
+  }
+
+  static void _haptic() =>
+      unawaited(HapticFeedback.selectionClick().catchError((Object _) {}));
+
+  /// Cancels the reply subscription. An adapter whose cancel fails does
+  /// not reach the app's zone.
+  void _cancelStream() {
+    final sub = _activeStream;
+    _activeStream = null;
+    if (sub != null) unawaited(sub.cancel().catchError((Object _) {}));
+  }
+
+  /// The history as sent: consecutive user turns (a question asked after
+  /// an unanswered one) joined into one, a blank line between, so no
+  /// provider gets two user turns in a row; a stopped reply's text ends
+  /// with a note that it was stopped ([stoppedReplyForProvider]).
+  List<AiChatMessage> _requestHistory() {
+    final out = <AiChatMessage>[];
+    for (final message in _messages) {
+      if (message.role == AiChatRole.user &&
+          out.isNotEmpty &&
+          out.last.role == AiChatRole.user) {
+        final previous = out.removeLast();
+        out.add(
+          AiChatMessage(
+            role: AiChatRole.user,
+            text: '${previous.text}\n\n${message.text}',
+          ),
+        );
+      } else if (message.stopped) {
+        out.add(
+          AiChatMessage(
+            role: message.role,
+            text: stoppedReplyForProvider(message.text),
+            stopped: true,
+          ),
+        );
+      } else {
+        out.add(message);
+      }
+    }
+    return out;
+  }
+
+  /// Requests a reply to the history as it stands.
+  void _startReply() {
+    final session = widget.sessionContext?.call();
+    _sentContext = session ?? _sentContext;
     final systemPrompt = AiContextBuilder.buildSystemPrompt(
       issue: widget.issue,
       allIssues: widget.allIssues,
+      session: session,
     );
-
     final request = AiChatRequest(
       systemPrompt: systemPrompt,
-      history: List.of(_messages),
+      history: _requestHistory(),
     );
 
-    _activeStream?.cancel();
-    _activeStream = widget.adapter.sendMessage(request).listen(
-      (token) {
-        if (!mounted) return;
-        setState(() => _streamBuffer += token);
-        _scrollToBottom();
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() {
-          if (_streamBuffer.isNotEmpty) {
-            _messages.add(AiChatMessage(
-              role: AiChatRole.assistant,
-              text: _streamBuffer,
-            ));
-          }
-          _streamBuffer = '';
-          _isStreaming = false;
-        });
-        widget.onHistoryChanged(List.of(_messages));
-      },
-      onError: (Object error) {
-        if (!mounted) return;
-        if (!kReleaseMode) {
-          // ignore: avoid_print
-          print('Sleuth AI error: $error');
-        }
-        setState(() {
-          final errorText = !kReleaseMode
-              ? 'Error: $error'
-              : 'Something went wrong. Check your AI provider configuration.';
-          _messages.add(AiChatMessage(
-            role: AiChatRole.assistant,
-            text: errorText,
-          ));
-          _streamBuffer = '';
-          _isStreaming = false;
-        });
-        widget.onHistoryChanged(List.of(_messages));
-      },
+    _cancelStream();
+    _cancelTimers();
+    setState(() {
+      _state = _ReplyState.waiting;
+      _streamBuffer = '';
+      _slow = false;
+      _announcePending = false;
+      _streamAnnouncement = 'Reply in progress';
+    });
+    _armFirstTokenTimer();
+    _slowTimer = Timer(_slowAfter, () {
+      if (mounted && _state == _ReplyState.waiting) {
+        setState(() => _slow = true);
+      }
+    });
+    _scrollToBottom();
+
+    // Listening can throw too (a single-subscription stream that was
+    // already listened to): the reply fails at once.
+    try {
+      _activeStream = widget.adapter
+          .sendMessage(request)
+          .listen(
+            _onToken,
+            onError: _onReplyError,
+            onDone: () => _finish(_ReplyState.done),
+            cancelOnError: true,
+          );
+    } catch (e) {
+      _onReplyError(e);
+    }
+  }
+
+  /// [timeout] when it is on: null, zero and negative turn it off.
+  static Duration? _enabled(Duration? timeout) =>
+      timeout == null || timeout <= Duration.zero ? null : timeout;
+
+  /// "30 s", "2 min" or "500 ms".
+  static String _formatTimeout(Duration timeout) {
+    final ms = timeout.inMilliseconds;
+    if (ms % 1000 != 0) return '$ms ms';
+    final seconds = timeout.inSeconds;
+    if (seconds >= 60 && seconds % 60 == 0) return '${seconds ~/ 60} min';
+    return '$seconds s';
+  }
+
+  /// Starts the wait for the reply's first text
+  /// ([AiChatAdapter.firstTokenTimeout]).
+  void _armFirstTokenTimer() {
+    _replyTimer?.cancel();
+    final timeout = _enabled(widget.adapter.firstTokenTimeout);
+    _replyTimer = timeout == null
+        ? null
+        : Timer(timeout, () {
+            final limit = _formatTimeout(timeout);
+            _finish(
+              _ReplyState.failed,
+              failure: _ReplyFailure(
+                'No reply in $limit',
+                'No reply text arrived within $limit.',
+              ),
+            );
+          });
+  }
+
+  /// Starts the wait for the reply's next text
+  /// ([AiChatAdapter.stallTimeout]).
+  void _armStallTimer() {
+    _replyTimer?.cancel();
+    final timeout = _enabled(widget.adapter.stallTimeout);
+    _replyTimer = timeout == null
+        ? null
+        : Timer(timeout, () {
+            final length = _streamBuffer.length;
+            _finish(
+              _ReplyState.failed,
+              failure: _ReplyFailure(
+                'Reply stalled',
+                'The reply stalled after $length '
+                    '${length == 1 ? 'character' : 'characters'}. No more '
+                    'text arrived within ${_formatTimeout(timeout)}.',
+              ),
+            );
+          });
+  }
+
+  void _onToken(String token) {
+    if (!mounted || !_inFlight) return;
+    if (token.isEmpty) {
+      // A sign of life without text: the current wait starts again.
+      _state == _ReplyState.waiting ? _armFirstTokenTimer() : _armStallTimer();
+      return;
+    }
+    _armStallTimer();
+    _slowTimer?.cancel();
+    _slowTimer = null;
+    setState(() {
+      _state = _ReplyState.streaming;
+      _streamBuffer += token;
+      _slow = false;
+    });
+    _scheduleAnnouncement();
+    _scrollToBottom();
+  }
+
+  /// Fails the reply with [error]'s short reason; the error text, with
+  /// credentials masked ([redactSecrets]), is logged outside release
+  /// builds and kept for Copy error.
+  void _onReplyError(Object error) {
+    final text = redactSecrets('$error');
+    if (!kReleaseMode) debugPrint('Sleuth AI error: $text');
+    _finish(
+      _ReplyState.failed,
+      failure: _ReplyFailure(aiFailureReason(error), text),
     );
+  }
+
+  /// Updates the streaming live region now, or once the current
+  /// [_announceInterval] has passed, so a screen reader hears progress
+  /// rather than every token.
+  void _scheduleAnnouncement() {
+    if (_announceTimer != null) {
+      _announcePending = true;
+      return;
+    }
+    _announce();
+    _announceTimer = Timer(_announceInterval, _onAnnounceTick);
+  }
+
+  void _onAnnounceTick() {
+    _announceTimer = null;
+    if (!mounted || _state != _ReplyState.streaming || !_announcePending) {
+      return;
+    }
+    _announcePending = false;
+    setState(_announce);
+    _announceTimer = Timer(_announceInterval, _onAnnounceTick);
+  }
+
+  void _announce() {
+    final sentences = _sentenceEnd.allMatches(_streamBuffer).length;
+    _streamAnnouncement = sentences == 0
+        ? 'Reply in progress'
+        : 'Reply in progress, $sentences '
+              '${sentences == 1 ? 'sentence' : 'sentences'}';
+  }
+
+  static final RegExp _sentenceEnd = RegExp(r'[.!?](\s|$)');
+
+  /// Hides the Stop notice raised while this reply was in flight.
+  VoidCallback? _hideStopNotice;
+
+  /// Ends the reply in flight once; later calls do nothing.
+  ///
+  /// [_ReplyState.done] commits the reply. [_ReplyState.stopped] commits
+  /// the text received so far as a stopped reply
+  /// ([AiChatMessage.stopped]) and records no failure.
+  /// [_ReplyState.failed] records [failure] and keeps the text received
+  /// so far on screen only. [notify] is false from [dispose]: the history
+  /// callback still runs and the Stop notice is hidden after the frame
+  /// (the host's toast cannot rebuild while the tree is being torn down);
+  /// nothing else runs.
+  void _finish(_ReplyState end, {_ReplyFailure? failure, bool notify = true}) {
+    if (!_inFlight) return;
+    final hideNotice = _hideStopNotice;
+    _hideStopNotice = null;
+    if (hideNotice != null) {
+      if (notify) {
+        hideNotice();
+      } else {
+        WidgetsBinding.instance
+          ..addPostFrameCallback((_) => hideNotice())
+          ..ensureVisualUpdate();
+      }
+    }
+    _cancelStream();
+    _cancelTimers();
+    final partial = _streamBuffer;
+    _streamBuffer = '';
+    var historyChanged = false;
+    var next = end;
+    switch (end) {
+      case _ReplyState.done:
+        if (partial.isEmpty) {
+          next = _ReplyState.failed;
+          _failure = const _ReplyFailure(
+            'Reply failed',
+            'The provider ended the reply without any text.',
+          );
+        } else {
+          _messages.add(
+            AiChatMessage(role: AiChatRole.assistant, text: partial),
+          );
+          historyChanged = true;
+        }
+      case _ReplyState.stopped:
+        _stoppedNote = 'Stopped';
+        if (partial.isNotEmpty) {
+          _messages.add(
+            AiChatMessage(
+              role: AiChatRole.assistant,
+              text: partial,
+              stopped: true,
+            ),
+          );
+          historyChanged = true;
+        }
+      case _ReplyState.failed:
+        _failure = failure ?? const _ReplyFailure('Reply failed');
+        _failedPartial = partial.isEmpty ? null : partial;
+      case _ReplyState.idle:
+      case _ReplyState.waiting:
+      case _ReplyState.streaming:
+        break;
+    }
+    _state = next;
+    if (historyChanged) widget.onHistoryChanged(List.of(_messages));
+    if (!notify || !mounted) return;
+    setState(() {});
+    _restoreFocus();
+  }
+
+  /// Puts focus back on the input after a reply when it had focus at the
+  /// send or Retry.
+  void _restoreFocus() {
+    if (_refocusAfterReply && !_focusNode.hasFocus) _focusNode.requestFocus();
+    _refocusAfterReply = false;
   }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_scrollController.hasClients) {
-        _scrollController.animateTo(
+        animateScrollTo(
+          context,
+          _scrollController,
           _scrollController.position.maxScrollExtent,
           duration: const Duration(milliseconds: 150),
           curve: Curves.easeOut,
@@ -176,21 +750,117 @@ class _AiChatPageState extends State<AiChatPage>
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+    // 40 % of the screen is enough for the full detail and fix hint.
+    final contextCap = MediaQuery.sizeOf(context).height * 0.4;
+    final header = _buildHeader(theme);
+    final messages = _buildMessageArea(theme);
+    final inputBar = _buildInputBar(theme);
 
-    return FadeTransition(
-      opacity: _entranceCurve,
-      child: Container(
-        color: theme.pageBackground,
-        padding: EdgeInsets.only(bottom: keyboardHeight),
-        child: Column(
-          children: [
-            _buildHeader(theme),
-            _buildIssueContext(theme),
-            Expanded(child: _buildMessageArea(theme)),
-            _buildInputBar(theme),
-          ],
+    // A Material surface: the TextField needs a Material ancestor, and ink
+    // and text selection paint on it. The page is a sibling of the card's
+    // Material, not a descendant.
+    //
+    // The input bar keeps its full height above the keyboard. The space
+    // above it goes to the header, then to a minimum message area, and
+    // the issue context takes what is left (up to its cap), so the
+    // context gives way first when the keyboard or large text leaves
+    // little room.
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      label: 'Ask AI',
+      child: FadeTransition(
+        opacity: _entranceCurve,
+        child: Material(
+          color: theme.pageBackground,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: keyboardHeight),
+            child: LayoutBuilder(
+              builder: (context, page) => Column(
+                children: [
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, above) => _buildAboveInput(
+                        theme,
+                        height: above.maxHeight,
+                        header: header,
+                        contextCap: contextCap,
+                        messages: messages,
+                      ),
+                    ),
+                  ),
+                  // On a page shorter than the bar (large text, a landscape
+                  // phone with the keyboard up) the bar scrolls, held at its
+                  // bottom: the field and Send stay in view and the session
+                  // caption gives way.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: page.maxHeight),
+                    child: SingleChildScrollView(
+                      reverse: true,
+                      primary: false,
+                      child: inputBar,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
+    );
+  }
+
+  /// The header over the issue context and [messages], in the [height]
+  /// above the input bar. The header is squeezed only when nothing else
+  /// fits.
+  Widget _buildAboveInput(
+    SleuthThemeData theme, {
+    required double height,
+    required Widget header,
+    required double contextCap,
+    required Widget messages,
+  }) {
+    return Column(
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: height),
+          child: header,
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) => _buildContextAndMessages(
+              theme,
+              height: constraints.maxHeight,
+              contextCap: contextCap,
+              messages: messages,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The issue context over [messages] in [height]: the context is capped
+  /// at [contextCap] and leaves the message list at least
+  /// [_minMessageAreaHeight]; with less than [_minContextHeight] for it,
+  /// the context is left out.
+  Widget _buildContextAndMessages(
+    SleuthThemeData theme, {
+    required double height,
+    required double contextCap,
+    required Widget messages,
+  }) {
+    final contextHeight = math.min(
+      contextCap,
+      height - theme.spacingLg - _minMessageAreaHeight,
+    );
+    return Column(
+      children: [
+        if (contextHeight >= _minContextHeight)
+          _buildIssueContext(theme, contextHeight),
+        Expanded(child: messages),
+      ],
     );
   }
 
@@ -205,9 +875,7 @@ class _AiChatPageState extends State<AiChatPage>
       ),
       decoration: BoxDecoration(
         color: theme.cardBackground,
-        border: Border(
-          bottom: BorderSide(color: theme.border, width: 0.5),
-        ),
+        border: Border(bottom: BorderSide(color: theme.border, width: 0.5)),
       ),
       child: Row(
         children: [
@@ -218,11 +886,14 @@ class _AiChatPageState extends State<AiChatPage>
               onTap: widget.onClose,
               behavior: HitTestBehavior.opaque,
               child: SizedBox(
-                width: 36,
-                height: 36,
+                width: 48,
+                height: 48,
                 child: Center(
-                  child: Icon(Icons.arrow_back,
-                      color: theme.textSecondary, size: 16),
+                  child: Icon(
+                    Icons.arrow_back,
+                    color: theme.textSecondary,
+                    size: 16,
+                  ),
                 ),
               ),
             ),
@@ -248,8 +919,8 @@ class _AiChatPageState extends State<AiChatPage>
               onTap: _messages.isEmpty ? null : _copyConversation,
               behavior: HitTestBehavior.opaque,
               child: SizedBox(
-                width: 36,
-                height: 36,
+                width: 48,
+                height: 48,
                 child: Center(
                   child: Icon(
                     Icons.copy_all_outlined,
@@ -284,43 +955,56 @@ class _AiChatPageState extends State<AiChatPage>
     if (_messages.isEmpty) return;
     final issue = widget.issue;
     final buf = StringBuffer()
-      ..writeln('# Sleuth AI Conversation')
+      ..writeln('# Sleuth AI conversation')
       ..writeln();
     buf
       ..writeln('**Issue:** ${_escapeMd(issue.title)}')
       ..writeln('**Stable ID:** `${issue.stableId ?? '-'}`')
-      ..writeln('**Confidence:** ${issue.confidence.name.toUpperCase()}'
-          '${issue.confidenceReason != null ? ' — ${_escapeMd(issue.confidenceReason!)}' : ''}')
+      ..writeln(
+        '**Confidence:** ${issue.confidence.name.toUpperCase()}'
+        '${issue.confidenceReason != null ? '. ${_escapeMd(issue.confidenceReason!)}' : ''}',
+      )
       ..writeln()
       ..writeln('---')
       ..writeln();
     for (final msg in _messages) {
-      final marker = msg.role == AiChatRole.user
-          ? '### \u{1F9D1} User'
-          : '### \u{1F916} Assistant';
+      final marker = msg.role == AiChatRole.user ? '### User' : '### Assistant';
       buf
         ..writeln(marker)
-        ..writeln(_escapeMd(msg.text.trim()))
+        ..writeln(
+          '${_escapeMd(msg.text.trim())}${msg.stopped ? _stoppedMark : ''}',
+        )
         ..writeln();
     }
-    try {
-      await Clipboard.setData(ClipboardData(text: buf.toString()));
-    } catch (_) {
-      return;
+    final session = _sentContext;
+    if (session != null) {
+      buf
+        ..writeln('---')
+        ..writeln()
+        ..writeln('## Context sent')
+        ..writeln();
+      for (final line in session.render().trim().split('\n')) {
+        buf.writeln('- ${_escapeMd(line)}');
+      }
     }
-    if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(
-        content: Text('Conversation copied to clipboard'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+    await _copy(buf.toString(), 'Conversation copied to clipboard');
   }
 
-  Widget _buildIssueContext(SleuthThemeData theme) {
-    // Cap expanded card height so it can't compress the chat area to zero
-    // on small screens. 40% of screen is enough for full detail + fix hint.
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.4;
+  /// Copies [text] and reports [confirmation], or a failure, through
+  /// [AiChatPage.onNotify].
+  Future<void> _copy(String text, String confirmation) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+    } catch (e) {
+      debugPrint('Sleuth: copy failed: $e');
+      if (mounted) widget.onNotify?.call("Couldn't copy");
+      return;
+    }
+    if (mounted) widget.onNotify?.call(confirmation);
+  }
+
+  /// The issue card, scrolling inside [maxHeight].
+  Widget _buildIssueContext(SleuthThemeData theme, double maxHeight) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         theme.spacingMd,
@@ -335,6 +1019,8 @@ class _AiChatPageState extends State<AiChatPage>
             issue: widget.issue,
             // Start collapsed — tap to expand full detail, fix hint, etc.
             // "Ask AI" and "Learn more" hidden since we're already in AI chat.
+            initiallyExpanded: _contextExpanded,
+            onExpandedChanged: (expanded) => _contextExpanded = expanded,
           ),
         ),
       ),
@@ -344,6 +1030,9 @@ class _AiChatPageState extends State<AiChatPage>
   Widget _buildMessageArea(SleuthThemeData theme) {
     return ListView(
       controller: _scrollController,
+      // Return keeps focus for the next question; a drag on the
+      // conversation puts the keyboard away.
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: EdgeInsets.symmetric(
         horizontal: theme.spacingLg,
         vertical: theme.spacingSm,
@@ -351,10 +1040,14 @@ class _AiChatPageState extends State<AiChatPage>
       children: [
         if (_showStarters) _buildStarterQuestions(theme),
         for (final msg in _messages) _buildMessageBubble(msg, theme),
-        if (_isStreaming && _streamBuffer.isNotEmpty)
-          _buildStreamingBubble(theme),
-        if (_isStreaming && _streamBuffer.isEmpty)
-          _buildThinkingIndicator(theme),
+        if (_state == _ReplyState.streaming) _buildStreamingBubble(theme),
+        if (_state == _ReplyState.waiting) _buildThinkingIndicator(theme),
+        if (_state == _ReplyState.failed && _failedPartial != null)
+          _buildPartialBubble(_failedPartial!, theme),
+        if (_state == _ReplyState.failed && _failure != null)
+          _buildFailureRow(_failure!, theme),
+        if (_state == _ReplyState.stopped && _endsWithUserTurn)
+          _buildStoppedRow(theme),
       ],
     );
   }
@@ -380,12 +1073,8 @@ class _AiChatPageState extends State<AiChatPage>
           ),
           Wrap(
             spacing: theme.spacingXs,
-            runSpacing: theme.spacingXs,
             children: questions
-                .map((q) => _StarterChip(
-                      text: q,
-                      onTap: () => _sendMessage(q),
-                    ))
+                .map((q) => _StarterChip(text: q, onTap: () => _sendMessage(q)))
                 .toList(),
           ),
         ],
@@ -393,10 +1082,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildAvatar({
-    required SleuthThemeData theme,
-    required bool isUser,
-  }) {
+  Widget _buildAvatar({required SleuthThemeData theme, required bool isUser}) {
     // DecoratedBox (NOT Container) to avoid breaking thinking-dots test
     // which counts Container widgets with BoxShape.circle.
     return SizedBox(
@@ -406,7 +1092,9 @@ class _AiChatPageState extends State<AiChatPage>
         decoration: BoxDecoration(
           color: isUser
               ? Color.alphaBlend(
-                  const Color(0x33000000), theme.aiChatUserBubbleBg)
+                  const Color(0x33000000),
+                  theme.aiChatUserBubbleBg,
+                )
               : theme.textQuaternary,
           shape: BoxShape.circle,
         ),
@@ -431,6 +1119,10 @@ class _AiChatPageState extends State<AiChatPage>
   }
 
   static const double _avatarSize = 20;
+
+  /// Shown after a stopped reply ([AiChatMessage.stopped]), on screen and
+  /// in Copy conversation; never part of the reply's text.
+  static const String _stoppedMark = ' (stopped)';
 
   Widget _buildMessageBubble(AiChatMessage msg, SleuthThemeData theme) {
     final isUser = msg.role == AiChatRole.user;
@@ -457,12 +1149,29 @@ class _AiChatPageState extends State<AiChatPage>
         color: isUser ? theme.aiChatUserBubbleBg : theme.sectionBackground,
         borderRadius: bubbleRadius,
       ),
-      child: Text(
-        msg.text,
-        style: TextStyle(
-          color: isUser ? theme.aiChatUserBubbleText : theme.textPrimary,
-          fontSize: theme.fontSm,
-          height: 1.5,
+      // The latest reply is read out when it lands.
+      child: Semantics(
+        container: true,
+        liveRegion: !isUser && identical(msg, _messages.last),
+        child: Text.rich(
+          TextSpan(
+            text: msg.text,
+            children: [
+              if (msg.stopped)
+                TextSpan(
+                  text: _stoppedMark,
+                  style: TextStyle(
+                    color: theme.textTertiary,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+            ],
+          ),
+          style: TextStyle(
+            color: isUser ? theme.aiChatUserBubbleText : theme.textPrimary,
+            fontSize: theme.fontSm,
+            height: 1.5,
+          ),
         ),
       ),
     );
@@ -478,10 +1187,7 @@ class _AiChatPageState extends State<AiChatPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Spacer(flex: 1),
-                Flexible(
-                  flex: 4,
-                  child: bubble,
-                ),
+                Flexible(flex: 4, child: bubble),
                 SizedBox(width: theme.spacingMd),
                 _buildAvatar(theme: theme, isUser: true),
               ],
@@ -518,10 +1224,7 @@ class _AiChatPageState extends State<AiChatPage>
             ],
           ),
           Padding(
-            padding: EdgeInsets.only(
-              left: labelInset,
-              top: theme.spacingXxs,
-            ),
+            padding: EdgeInsets.only(left: labelInset, top: theme.spacingXxs),
             child: Row(
               children: [
                 Text(
@@ -532,16 +1235,23 @@ class _AiChatPageState extends State<AiChatPage>
                   ),
                 ),
                 SizedBox(width: theme.spacingMd),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => Clipboard.setData(ClipboardData(text: msg.text)),
-                  child: SizedBox(
-                    width: 36,
-                    height: 24,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child:
-                          Icon(Icons.copy, color: theme.textTertiary, size: 12),
+                Semantics(
+                  label: 'Copy message',
+                  button: true,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _copy(msg.text, 'Copied'),
+                    child: SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Icon(
+                          Icons.copy,
+                          color: theme.textTertiary,
+                          size: 12,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -553,7 +1263,25 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
+  /// The reply as it streams. Its tokens are not read out one by one: the
+  /// node is a live region labelled with a progress summary that changes
+  /// at most every [_announceInterval]; the finished reply is read when
+  /// it lands.
   Widget _buildStreamingBubble(SleuthThemeData theme) {
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: _streamAnnouncement,
+      excludeSemantics: true,
+      child: _replyBubble('$_streamBuffer\u258C', theme),
+    );
+  }
+
+  /// Text a failed reply produced before it failed. Shown, not kept.
+  Widget _buildPartialBubble(String text, SleuthThemeData theme) =>
+      Semantics(container: true, child: _replyBubble(text, theme));
+
+  Widget _replyBubble(String text, SleuthThemeData theme) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
@@ -574,7 +1302,7 @@ class _AiChatPageState extends State<AiChatPage>
                 ),
               ),
               child: Text(
-                '$_streamBuffer\u258C',
+                text,
                 style: TextStyle(
                   color: theme.textPrimary,
                   fontSize: theme.fontSm,
@@ -588,106 +1316,373 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildThinkingIndicator(SleuthThemeData theme) {
+  /// Why the last reply failed, on its own line, with Retry when the
+  /// history ends with an unanswered question and Copy error when there
+  /// is error text, wrapped below it.
+  Widget _buildFailureRow(_ReplyFailure failure, SleuthThemeData theme) {
+    final canRetry = _endsWithUserTurn;
+    final fullText = failure.fullText;
+    final inset = theme.spacingLg - theme.spacingSm;
+    return Padding(
+      padding: EdgeInsets.only(bottom: theme.spacingMd),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.bannerWarningBg,
+          borderRadius: BorderRadius.circular(theme.radiusXxl),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(theme.spacingSm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: inset,
+                  vertical: theme.spacingSm,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      color: theme.bannerWarningText,
+                      size: 14,
+                    ),
+                    SizedBox(width: theme.spacingSm),
+                    Expanded(
+                      child: Semantics(
+                        container: true,
+                        liveRegion: true,
+                        child: Text(
+                          failure.reason,
+                          style: TextStyle(
+                            color: theme.bannerWarningText,
+                            fontSize: theme.fontSm,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (fullText != null || canRetry)
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  children: [
+                    if (fullText != null)
+                      _ChatTextAction(
+                        label: 'Copy error',
+                        color: theme.bannerWarningText,
+                        onTap: () => _copy(fullText, 'Error copied'),
+                      ),
+                    if (canRetry)
+                      _ChatTextAction(
+                        label: 'Retry',
+                        color: theme.bannerWarningText,
+                        onTap: _onRetryTap,
+                      ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A reply stopped before any text arrived: a quiet note with Retry.
+  Widget _buildStoppedRow(SleuthThemeData theme) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          _buildAvatar(theme: theme, isUser: false),
-          SizedBox(width: theme.spacingMd),
-          for (var i = 0; i < 3; i++) ...[
-            if (i > 0) SizedBox(width: theme.spacingXs),
-            Container(
-              width: 5,
-              height: 5,
-              decoration: BoxDecoration(
-                color: theme.textTertiary.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
+          SizedBox(width: _avatarSize + theme.spacingMd),
+          Expanded(
+            child: Text(
+              _stoppedNote,
+              style: TextStyle(
+                color: theme.textTertiary,
+                fontSize: theme.fontXs,
               ),
             ),
-          ],
+          ),
+          _ChatTextAction(
+            label: 'Retry',
+            color: theme.textSecondary,
+            onTap: _onRetryTap,
+          ),
         ],
       ),
     );
   }
 
+  Widget _buildThinkingIndicator(SleuthThemeData theme) {
+    const slowLabel = 'Still waiting for a reply';
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: _slow ? slowLabel : 'Thinking',
+      excludeSemantics: true,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: theme.spacingMd),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatar(theme: theme, isUser: false),
+            SizedBox(width: theme.spacingMd),
+            for (var i = 0; i < 3; i++) ...[
+              if (i > 0) SizedBox(width: theme.spacingXs),
+              Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: theme.textTertiary.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+            if (_slow) ...[
+              SizedBox(width: theme.spacingMd),
+              Flexible(
+                child: Text(
+                  slowLabel,
+                  style: TextStyle(
+                    color: theme.textTertiary,
+                    fontSize: theme.fontXs,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// What the next message carries besides the conversation, at most
+  /// two lines.
+  Widget _buildContextCaption(AiSessionContext session, SleuthThemeData theme) {
+    return Semantics(
+      container: true,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: theme.spacingLg,
+          right: theme.spacingLg,
+          bottom: theme.spacingXs,
+        ),
+        child: Text(
+          session.caption(),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: theme.textTertiary, fontSize: theme.fontXs),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInputBar(SleuthThemeData theme) {
+    final session = widget.sessionContext?.call();
     return Container(
       padding: EdgeInsets.all(theme.spacingMd),
       decoration: BoxDecoration(
         color: theme.cardBackground,
-        border: Border(
-          top: BorderSide(color: theme.border, width: 0.5),
-        ),
+        border: Border(top: BorderSide(color: theme.border, width: 0.5)),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _inputController,
-              focusNode: _focusNode,
-              enabled: !_isStreaming,
-              style: TextStyle(
-                color: theme.textPrimary,
+          if (session != null) _buildContextCaption(session, theme),
+          _buildInputRow(theme),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInputRow(SleuthThemeData theme) {
+    final inputStyle = TextStyle(
+      color: theme.textPrimary,
+      fontSize: theme.fontMd,
+    );
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _inputController,
+            focusNode: _focusNode,
+            // Editable while a reply streams, so the next question can
+            // be drafted; sending it waits for the reply.
+            maxLength: _maxInputLength,
+            buildCounter: _buildCounter,
+            style: inputStyle,
+            decoration: InputDecoration(
+              hintText: 'Ask about this issue...',
+              hintStyle: TextStyle(
+                color: theme.textTertiary,
                 fontSize: theme.fontMd,
               ),
-              decoration: InputDecoration(
-                hintText: 'Ask about this issue...',
-                hintStyle: TextStyle(
-                  color: theme.textTertiary,
-                  fontSize: theme.fontMd,
-                ),
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: theme.spacingLg,
-                  vertical: theme.spacingSm,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(theme.radiusFull),
-                  borderSide: BorderSide(color: theme.border, width: 0.5),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(theme.radiusFull),
-                  borderSide: BorderSide(color: theme.border, width: 0.5),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(theme.radiusFull),
-                  borderSide: BorderSide(color: theme.textTertiary, width: 1),
-                ),
-                filled: true,
-                fillColor: theme.sectionBackground,
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: theme.spacingLg,
+                vertical: _inputVerticalPadding(inputStyle, theme),
               ),
-              onSubmitted: _sendMessage,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                borderSide: BorderSide(color: theme.border, width: 0.5),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                borderSide: BorderSide(color: theme.border, width: 0.5),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                borderSide: BorderSide(color: theme.textTertiary, width: 1),
+              ),
+              filled: true,
+              fillColor: theme.sectionBackground,
+            ),
+            // Submitting keeps focus for the next question.
+            onEditingComplete: () {},
+            onSubmitted: _sendMessage,
+          ),
+        ),
+        SizedBox(width: theme.spacingMd),
+        _inFlight ? _buildStopButton(theme) : _buildSendButton(theme),
+      ],
+    );
+  }
+
+  /// Vertical padding that makes the input's outline 48 px tall for one
+  /// line of [style] at the current text scale (a 48 px tap target), and
+  /// never less than [SleuthThemeData.spacingSm]. The outline is then the
+  /// field's whole height, so the row centres it on the Send button; a
+  /// min-height constraint would grow the field below its outline.
+  double _inputVerticalPadding(TextStyle style, SleuthThemeData theme) {
+    final painter = TextPainter(
+      text: TextSpan(text: 'Ag', style: style),
+      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    final lineHeight = painter.height;
+    painter.dispose();
+    return math.max(theme.spacingSm, (48 - lineHeight) / 2);
+  }
+
+  /// Length counter, shown once the input passes 80 % of its limit.
+  Widget? _buildCounter(
+    BuildContext context, {
+    required int currentLength,
+    required int? maxLength,
+    required bool isFocused,
+  }) {
+    if (maxLength == null || currentLength * 5 < maxLength * 4) return null;
+    final theme = SleuthTheme.of(context);
+    return Text(
+      '$currentLength / $maxLength',
+      style: TextStyle(color: theme.textTertiary, fontSize: theme.fontXs),
+    );
+  }
+
+  Widget _buildSendButton(SleuthThemeData theme) {
+    return Semantics(
+      label: 'Send',
+      button: true,
+      child: GestureDetector(
+        onTap: () => _sendMessage(_inputController.text),
+        behavior: HitTestBehavior.opaque,
+        child: _roundButton(
+          icon: Icons.send,
+          fill: theme.aiChatUserBubbleBg,
+          iconColor: theme.aiChatUserBubbleText,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStopButton(SleuthThemeData theme) {
+    return Semantics(
+      label: 'Stop reply',
+      button: true,
+      child: GestureDetector(
+        onTap: _stop,
+        behavior: HitTestBehavior.opaque,
+        child: _roundButton(
+          icon: Icons.stop,
+          fill: theme.textSecondary,
+          iconColor: theme.cardBackground,
+        ),
+      ),
+    );
+  }
+
+  /// 48 x 48 hit box around a 32 px round button.
+  static Widget _roundButton({
+    required IconData icon,
+    required Color fill,
+    required Color iconColor,
+  }) {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Center(
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: DecoratedBox(
+            decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
+            child: Center(child: Icon(icon, color: iconColor, size: 14)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A text button in a chat row with a 48 x 48 minimum hit box, styled
+/// like the toast action.
+class _ChatTextAction extends StatelessWidget {
+  const _ChatTextAction({
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    return Semantics(
+      label: label,
+      button: true,
+      onTap: onTap,
+      container: true,
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
+            child: Center(
+              widthFactor: 1,
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: theme.fontSm,
+                  fontWeight: FontWeight.bold,
+                  decoration: TextDecoration.underline,
+                  decorationColor: color,
+                ),
+              ),
             ),
           ),
-          SizedBox(width: theme.spacingMd),
-          GestureDetector(
-            onTap:
-                _isStreaming ? null : () => _sendMessage(_inputController.text),
-            child: SizedBox(
-              width: 32,
-              height: 32,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: _isStreaming
-                      ? theme.textQuaternary
-                      : theme.aiChatUserBubbleBg,
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.send,
-                    color: _isStreaming
-                        ? theme.cardBackground
-                        : theme.aiChatUserBubbleText,
-                    size: 14,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -695,10 +1690,7 @@ class _AiChatPageState extends State<AiChatPage>
 
 /// Starter question pill chip with press-state visual feedback.
 class _StarterChip extends StatefulWidget {
-  const _StarterChip({
-    required this.text,
-    required this.onTap,
-  });
+  const _StarterChip({required this.text, required this.onTap});
 
   final String text;
   final VoidCallback onTap;
@@ -713,26 +1705,37 @@ class _StarterChipState extends State<_StarterChip> {
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    return GestureDetector(
-      onTap: widget.onTap,
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: theme.spacingLg,
-          vertical: theme.spacingSm,
-        ),
-        decoration: BoxDecoration(
-          color: _pressed ? theme.border : theme.sectionBackground,
-          borderRadius: BorderRadius.circular(theme.radiusFull),
-          border: Border.all(color: theme.border, width: 0.5),
-        ),
-        child: Text(
-          widget.text,
-          style: TextStyle(
-            color: theme.textSecondary,
-            fontSize: theme.fontSm,
+    // 48 px tall hit box around the pill.
+    return Semantics(
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Align(
+            widthFactor: 1,
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: theme.spacingLg,
+                vertical: theme.spacingSm,
+              ),
+              decoration: BoxDecoration(
+                color: _pressed ? theme.border : theme.sectionBackground,
+                borderRadius: BorderRadius.circular(theme.radiusFull),
+                border: Border.all(color: theme.border, width: 0.5),
+              ),
+              child: Text(
+                widget.text,
+                style: TextStyle(
+                  color: theme.textSecondary,
+                  fontSize: theme.fontSm,
+                ),
+              ),
+            ),
           ),
         ),
       ),

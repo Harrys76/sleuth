@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../debug/debug_snapshot.dart';
 import '../vm/timeline_parser.dart';
+import 'frame_stats.dart';
 import 'performance_issue.dart';
 import 'widget_highlight.dart';
 
@@ -47,7 +48,8 @@ enum DetectorLifecycle {
   vmOnly,
 
   /// Combines VM Timeline data with widget/render tree scanning.
-  /// Degrades to structural-only evidence when VM is unavailable.
+  /// Degrades without VM: per-frame evidence from [BaseDetector.processFrame]
+  /// where the detector uses it, structural-only evidence otherwise.
   hybrid,
 
   /// Scans widget/render tree only (no VM data needed).
@@ -62,6 +64,11 @@ enum DetectorLifecycle {
 /// - **[DetectorLifecycle.vmOnly]**: Use exact data from VM Timeline events.
 /// - **[DetectorLifecycle.hybrid]**: Combine VM Timeline data with post-frame tree walks.
 /// - **[DetectorLifecycle.structural]**: Use post-frame tree walks only (1x/sec throttled).
+///
+/// Every enabled detector, whatever its lifecycle, also receives each
+/// presented frame through [processFrame]; the default is a no-op. Tree
+/// walks use [prepareScan], [checkElement], [afterElement] and
+/// [finalizeScan]; VM data arrives through [processTimelineData].
 abstract class BaseDetector {
   const BaseDetector({
     required this.type,
@@ -206,6 +213,17 @@ abstract class BaseDetector {
   /// No-op for [DetectorLifecycle.structural] detectors.
   /// Override in vmOnly and hybrid detectors.
   void processTimelineData(ParsedTimelineData data) {}
+
+  /// Process one presented frame from `FrameTiming`.
+  ///
+  /// Called once per frame on every tier (no VM needed), at display rate,
+  /// for every enabled detector except the frame-timing producer itself.
+  /// A batch of N timings delivered in one engine callback yields N calls
+  /// in presentation order. Keep the work constant-time and allocation-free;
+  /// accumulate here and emit from [finalizeScan]. A detector that throws
+  /// is reported once and skipped until the next structural scan.
+  /// Default is a no-op.
+  void processFrame(FrameStats frame) {}
 
   /// Dispose of any resources held by this detector.
   void dispose();

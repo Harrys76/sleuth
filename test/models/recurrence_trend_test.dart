@@ -161,6 +161,17 @@ void main() {
       // Last present was at cycle 10, not 100
       expect(trend.isStale(131), true); // 121 cycles since last present
     });
+
+    test('goes stale after the present entry leaves the ring buffer', () {
+      final trend = RecurrenceTrend();
+      trend.recordPresent(0, severityIndex: 1);
+      for (var c = 1; c <= 121; c++) {
+        trend.recordAbsent(c);
+      }
+      expect(trend.presentCount, 0);
+      expect(trend.isStale(120), false);
+      expect(trend.isStale(121), true);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -200,8 +211,11 @@ void main() {
 
   group('RecurrenceEntry', () {
     test('toJson round-trip for present entry', () {
-      const entry =
-          RecurrenceEntry(scanCycle: 42, present: true, severityIndex: 3);
+      const entry = RecurrenceEntry(
+        scanCycle: 42,
+        present: true,
+        severityIndex: 3,
+      );
       final json = entry.toJson();
       final restored = RecurrenceEntry.fromJson(json);
       expect(restored.scanCycle, 42);

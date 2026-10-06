@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../sleuth.dart' show Sleuth;
 import '../models/startup_metrics.dart';
+import 'motion.dart';
 import 'sleuth_theme.dart';
 
 /// Full-screen page showing complete startup metrics breakdown and
@@ -29,7 +30,13 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
-    )..forward();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
   }
 
   @override
@@ -52,11 +59,13 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
     final theme = SleuthTheme.of(context);
     final metrics = Sleuth.startupMetrics;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) widget.onClose();
-      },
+    // Route semantics: screen readers announce the page name. While a
+    // page is open, `SleuthOverlay` drops the app's nodes below it.
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      label: 'Startup metrics',
       child: Material(
         color: theme.pageBackground,
         child: SafeArea(
@@ -79,21 +88,31 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                             width: 48,
                             height: 48,
                             child: Center(
-                              child: Icon(Icons.arrow_back,
-                                  color: theme.textPrimary, size: 22),
+                              child: Icon(
+                                Icons.arrow_back,
+                                color: theme.textPrimary,
+                                size: 22,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                      Icon(Icons.rocket_launch_outlined,
-                          color: theme.categoryStartup, size: 18),
+                      Icon(
+                        Icons.rocket_launch_outlined,
+                        color: theme.categoryStartup,
+                        size: 18,
+                      ),
                       SizedBox(width: theme.spacingXs),
-                      Text(
-                        'Startup Metrics',
-                        style: TextStyle(
-                          color: theme.textPrimary,
-                          fontSize: theme.fontXl,
-                          fontWeight: FontWeight.bold,
+                      // Wraps at large text on a narrow screen.
+                      Expanded(
+                        child: Text(
+                          'Startup metrics',
+                          softWrap: true,
+                          style: TextStyle(
+                            color: theme.textPrimary,
+                            fontSize: theme.fontXl,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -106,7 +125,11 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
               Expanded(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
-                      theme.spacingXl, theme.spacingLg, theme.spacingXl, 24),
+                    theme.spacingXl,
+                    theme.spacingLg,
+                    theme.spacingXl,
+                    24,
+                  ),
                   child: metrics == null
                       ? _noDataMessage(theme)
                       : _buildContent(metrics, theme),
@@ -154,7 +177,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           _section(
             index: 2,
             icon: Icons.view_timeline_outlined,
-            title: 'First Frame Breakdown',
+            title: 'First frame breakdown',
             accent: accent,
             theme: theme,
             child: _firstFrameSection(m, theme),
@@ -167,7 +190,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           _section(
             index: 3,
             icon: Icons.memory_outlined,
-            title: 'Engine Phases',
+            title: 'Engine phases',
             accent: accent,
             theme: theme,
             child: _engineSection(m, theme),
@@ -180,7 +203,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           _section(
             index: 4,
             icon: Icons.analytics_outlined,
-            title: 'VM Sub-Phases',
+            title: 'VM sub-phases',
             accent: accent,
             theme: theme,
             child: _vmSection(m, theme),
@@ -192,7 +215,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         _section(
           index: 5,
           icon: Icons.science_outlined,
-          title: 'How Sleuth Measures Startup',
+          title: 'How Sleuth measures startup',
           accent: theme.textTertiary,
           theme: theme,
           child: _methodologySection(m, theme),
@@ -232,7 +255,9 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
             children: [
               Padding(
                 padding: EdgeInsets.symmetric(
-                    horizontal: 14, vertical: theme.spacingLg),
+                  horizontal: 14,
+                  vertical: theme.spacingLg,
+                ),
                 child: Row(
                   children: [
                     Container(
@@ -245,12 +270,16 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                       child: Icon(icon, color: accent, size: 16),
                     ),
                     SizedBox(width: theme.spacingSm),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: theme.fontLg,
-                        fontWeight: FontWeight.w600,
+                    // A long title wraps beside the icon at large text.
+                    Expanded(
+                      child: Text(
+                        title,
+                        softWrap: true,
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: theme.fontLg,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -275,13 +304,13 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         if (m.ttffMs != null)
           _metricRow(
             theme,
-            'Time to First Frame (TTFF)',
+            'Time to first frame (TTFF)',
             '${m.ttffMs!.toStringAsFixed(1)} ms',
           ),
         if (m.ttiMs != null)
           _metricRow(
             theme,
-            'Time to Interactive (TTI)',
+            'Time to interactive (TTI)',
             '${m.ttiMs!.toStringAsFixed(1)} ms',
           ),
         if (m.engineTtffMs != null)
@@ -289,7 +318,8 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
             theme,
             'Engine TTFF',
             '${m.engineTtffMs!.toStringAsFixed(1)} ms',
-            subtitle: 'FlutterEngineMainEnter \u2192 first frame rasterized',
+            subtitle:
+                'From FlutterEngineMainEnter to the first rasterized frame',
           ),
       ],
     );
@@ -305,7 +335,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         if (m.firstFrameVsyncOverheadMs != null)
           _metricBarRow(
             theme,
-            'Vsync Overhead',
+            'Vsync overhead',
             m.firstFrameVsyncOverheadMs!,
             total,
             theme.textTertiary,
@@ -331,9 +361,9 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           _infoChip(
             theme,
             m.dominantPhase == 'balanced'
-                ? 'Balanced \u2014 no phase exceeds 50%'
+                ? 'Balanced, no phase exceeds 50%'
                 : 'Dominant: ${m.dominantPhase} '
-                    '(${m.dominantPhasePercent.round()}% of first frame)',
+                      '(${m.dominantPhasePercent.round()}% of first frame)',
           ),
       ],
     );
@@ -352,20 +382,22 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         if (m.preDartOverheadMs != null)
           _metricRow(
             theme,
-            'Pre-Dart Overhead',
+            'Pre-Dart overhead',
             '${m.preDartOverheadMs!.toStringAsFixed(1)} ms',
             subtitle: 'C++ engine init before Dart entry',
           ),
         if (m.frameworkInitMs != null)
           _metricRow(
             theme,
-            'Framework Init',
+            'Framework init',
             '${m.frameworkInitMs!.toStringAsFixed(1)} ms',
             subtitle: 'WidgetsFlutterBinding.ensureInitialized()',
           ),
         if (m.preDartOverheadMs == null && m.engineEnterUs == null)
-          _infoChip(theme,
-              'Engine timestamps not available \u2014 VM connected too late'),
+          _infoChip(
+            theme,
+            'No engine timestamps, because the VM connected too late',
+          ),
       ],
     );
   }
@@ -408,8 +440,8 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         SizedBox(height: theme.spacingXs),
         _infoChip(
           theme,
-          'From VM timeline \u2014 first poll after startup. '
-          '~95% reliable (ring buffer may evict early events).',
+          'From the VM timeline at the first poll after startup. About 95% '
+          'reliable, because the ring buffer may evict early events.',
         ),
       ],
     );
@@ -423,8 +455,10 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       fontSize: theme.fontMd,
       fontWeight: FontWeight.w600,
     );
-    final bodyStyle =
-        TextStyle(color: theme.textTertiary, fontSize: theme.fontSm);
+    final bodyStyle = TextStyle(
+      color: theme.textTertiary,
+      fontSize: theme.fontSm,
+    );
     final dimStyle = TextStyle(
       color: theme.textQuaternary,
       fontSize: theme.fontXs,
@@ -434,11 +468,13 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Sleuth does NOT use flutter run --trace-startup.',
-            style: labelStyle),
+        Text(
+          'Sleuth does not use flutter run --trace-startup.',
+          style: labelStyle,
+        ),
         SizedBox(height: theme.spacingXs),
         Text(
-          'Instead, it captures startup data using two independent layers:',
+          'It captures startup data with two independent layers:',
           style: bodyStyle,
         ),
         SizedBox(height: theme.spacingMd),
@@ -446,7 +482,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         // Layer 1
         _methodBlock(
           theme,
-          label: 'Layer 1: Direct Capture (100% reliable)',
+          label: 'Layer 1: direct capture (100% reliable)',
           items: [
             'TTFF: wall-clock DateTime from Sleuth.init() to first '
                 'FrameTiming raster-end callback',
@@ -463,24 +499,24 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         // Layer 2
         _methodBlock(
           theme,
-          label: 'Layer 2: VM Timeline Extraction (~95% reliable)',
+          label: 'Layer 2: VM timeline extraction (about 95% reliable)',
           items: [
-            'FlutterEngineMainEnter \u2014 C++ instant event '
+            'FlutterEngineMainEnter: C++ instant event '
                 '(engine start timestamp)',
-            'Rasterized first useful frame \u2014 instant event '
+            'Rasterized first useful frame: instant event '
                 '(engine TTFF end)',
-            'buildScope / flushLayout / flushPaint / raster \u2014 '
-                'duration events from first timeline poll',
-            'Pre-Dart overhead = Dart entry \u2212 engine enter '
+            'buildScope, flushLayout, flushPaint and raster: duration '
+                'events from the first timeline poll',
+            'Pre-Dart overhead: Dart entry minus engine enter '
                 '(same monotonic clock)',
           ],
         ),
         SizedBox(height: theme.spacingMd),
 
         Text(
-          'Layer 2 depends on the VM timeline ring buffer. Events may be '
-          'evicted if the buffer fills before Sleuth polls. This is why '
-          'engine-level fields are nullable.',
+          'Layer 2 depends on the VM timeline ring buffer. The buffer can '
+          'evict events if it fills before Sleuth polls, so engine-level '
+          'fields are nullable.',
           style: dimStyle,
         ),
         SizedBox(height: theme.spacingXs),
@@ -514,18 +550,26 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         for (final item in items)
           Padding(
             padding: EdgeInsets.only(
-                left: theme.spacingMd, bottom: theme.spacingXxs),
+              left: theme.spacingMd,
+              bottom: theme.spacingXxs,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('\u2022 ',
-                    style: TextStyle(
-                        color: theme.textQuaternary, fontSize: theme.fontSm)),
+                Text(
+                  '\u2022 ',
+                  style: TextStyle(
+                    color: theme.textQuaternary,
+                    fontSize: theme.fontSm,
+                  ),
+                ),
                 Expanded(
                   child: Text(
                     item,
                     style: TextStyle(
-                        color: theme.textTertiary, fontSize: theme.fontSm),
+                      color: theme.textTertiary,
+                      fontSize: theme.fontSm,
+                    ),
                   ),
                 ),
               ],
@@ -596,24 +640,33 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
+          // Label left, value right; the value moves below the label when
+          // both do not fit one line (large text on a narrow screen). Full
+          // width, so the value sits at the right edge.
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: theme.spacingSm,
+              children: [
+                Text(
                   label,
                   style: TextStyle(
-                      color: theme.textSecondary, fontSize: theme.fontMd),
+                    color: theme.textSecondary,
+                    fontSize: theme.fontMd,
+                  ),
                 ),
-              ),
-              Text(
-                '${value.toStringAsFixed(1)} ms ($percent%)',
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontSize: theme.fontMd,
-                  fontWeight: FontWeight.w600,
+                Text(
+                  '${value.toStringAsFixed(1)} ms ($percent%)',
+                  style: TextStyle(
+                    color: theme.textPrimary,
+                    fontSize: theme.fontMd,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           SizedBox(height: theme.spacingXxs),
           ClipRRect(
@@ -642,10 +695,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       ),
       child: Text(
         text,
-        style: TextStyle(
-          color: theme.categoryStartup,
-          fontSize: theme.fontSm,
-        ),
+        style: TextStyle(color: theme.textPrimary, fontSize: theme.fontSm),
       ),
     );
   }

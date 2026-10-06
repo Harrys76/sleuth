@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 /// Capture helper for the v0.19.4 `runtimeVerified` raise on
 /// `PlatformChannelDetector.platform_channel_traffic` **WARNING tier**
 /// (frequency axis only — `> 20` calls per 1 s evaluation window).
@@ -14,10 +16,11 @@ import 'package:sleuth/sleuth.dart';
 /// runtimeVerified capture screens: SleuthController's VmServiceClient
 /// must be connected (VM+ overlay) so `_recordIssuesForCapture` lands
 /// the `sleuth.issue.platform_channel_traffic.warning` trace event
-/// inside the scenario span. USB-tethered iPhone profile-mode is FRAME
-/// mode and does not work; use **wireless debugging** via Xcode →
-/// Window → Devices and Simulators → "Connect via network" or the iOS
-/// simulator.
+/// inside the scenario span. Sleuth connects to the app's own VM service
+/// from inside the app, so USB and wireless both work. `flutter run`
+/// starts DDS by default, and DDS keeps the VM service as its only
+/// client, which leaves Sleuth in FRAME mode. Launch with `--no-dds`
+/// (step 1), or start the installed app from the home screen.
 ///
 /// **Why the procedure differs from `MemoryPressureCaptureScreen`.**
 ///
@@ -45,8 +48,9 @@ import 'package:sleuth/sleuth.dart';
 ///
 /// **Procedure per leg:**
 ///
-///   1. `cd example && fvm flutter run --profile -d DEVICE \
-///         --dart-define=SLEUTH_CAPTURE_MODE=true`.
+///   1. `cd example && fvm flutter run --profile --no-dds -d DEVICE \
+///         --dart-define=SLEUTH_CAPTURE_MODE=true \
+///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
 ///   2. Wait ≥ 3 s after app launch (lets VM service connection settle
 ///      and the parser's per-tid cursor map initialize).
 ///   3. Tap a leg (Below / At / Above). Workload runs ≥ 1.5 s of
@@ -77,23 +81,21 @@ import 'package:sleuth/sleuth.dart';
 ///                                above-leg cannot ambiently bracket
 ///                                the critical tier)
 ///
-/// Per-leg send-rate targets are picked mid-band so iOS scheduling
-/// jitter stays inside the band without retries:
+/// Per-leg send rates aim the detector count at the middle of each band.
+/// The above leg sends more than its band because coalescing lowers the
+/// detector count (see the constants below):
 ///
 ///   below:  3 calls / 200 ms tick = 15/sec
 ///   at:     5 calls / 200 ms tick = 25/sec
-///   above:  7 calls / 200 ms tick = 35/sec
+///   above:  9 calls / 200 ms tick = 45/sec
 ///
 /// **Parallel send.** Each tick fires K parallel `invokeMethod` Futures
-/// via `Future.wait` rather than sequential awaits. iOS round-trip
-/// latency on `MethodChannel` averages ~12–25 ms over a USB cable and
-/// 30–80 ms over wireless debug — sequential awaits would cap the
-/// effective send rate at ~12–80/sec depending on link, making the
-/// `above` band unreachable on wireless. Parallel batches let the
-/// per-tick cost be the slowest single round-trip, not the sum.
+/// via `Future.wait` rather than sequential awaits, so the per-tick cost
+/// is the slowest single round trip, not the sum. Sequential awaits would
+/// cap the send rate at one call per round trip.
 ///
 /// **Cooldown.** The detector emits ONCE per fire then suppresses for
-/// the next 3 evaluation cycles. With a 1.5 s scenario span and 1 s
+/// the next 3 evaluation cycles. With a 1.5 s call phase and 1 s
 /// evaluation windows, exactly one emission lands per leg — the
 /// cooldown only matters as a guard against the second second
 /// firing again, which it does not under the chosen budget.
@@ -159,8 +161,8 @@ const _callPhaseDurationMs = 1500;
 const _postCallDwellMs = 1500;
 
 // Extra barrier after markScenarioEnd before exportCaptureJson reads
-// the VM trace buffer. Over wireless debug the RPC may otherwise
-// observe a snapshot that pre-dates the end marker.
+// the VM trace buffer. Without it the RPC may observe a snapshot that
+// pre-dates the end marker.
 const _postEndBarrierMs = 200;
 
 const _maxRetriesPerLeg = 5;
@@ -215,7 +217,7 @@ class _PlatformChannelCaptureScreenState
     super.initState();
     if (!_captureModeOn) {
       _log.add(
-        '⚠ captureMode OFF — restart with --dart-define='
+        '⚠ captureMode OFF. Restart with --dart-define='
         'SLEUTH_CAPTURE_MODE=true to emit scenario markers.',
       );
     }
@@ -226,8 +228,8 @@ class _PlatformChannelCaptureScreenState
       );
     }
     _log.add(
-      'Wait ≥ 3 s after app launch before tapping a leg — '
-      'VM service connection needs to settle.',
+      'Wait at least 3 s after app launch before tapping a leg, so '
+      'the VM service connection can settle.',
     );
   }
 
@@ -243,22 +245,29 @@ class _PlatformChannelCaptureScreenState
     if (_persistentRewriteError) {
       setState(() {
         _log.add(
-          '[${leg.label}] persistent rewriteError on a prior leg — '
-          'restart the screen to retry. Same shape-drift bug breaks '
+          '[${leg.label}] persistent rewriteError on a prior leg. '
+          'Restart the screen to retry. The same shape-drift bug breaks '
           'every leg.',
         );
       });
       return;
     }
-    if (!_captureModeOn) {
+    // Capture mode and provenance are properties of the build, so a leg
+    // that could never be exported is refused before its workload. Both
+    // are reported so one relaunch can fix both.
+    final provenanceProblem = provenanceRefusal(leg.label);
+    if (!_captureModeOn || provenanceProblem != null) {
       setState(() {
-        _log.add(
-          '[${leg.label}] ABORT — captureMode is OFF. Restart the app '
-          'with `--dart-define=SLEUTH_CAPTURE_MODE=true`. Without it '
-          'markScenarioBegin/End are no-ops, no scenario markers reach '
-          'the VM trace buffer, and Export will fail with no markers '
-          'found.',
-        );
+        if (!_captureModeOn) {
+          _log.add(
+            '[${leg.label}] ABORT: captureMode is OFF. Restart the app '
+            'with `--dart-define=SLEUTH_CAPTURE_MODE=true`. Without it '
+            'markScenarioBegin/End do nothing, no scenario markers reach '
+            'the VM trace buffer, and Export fails with no markers '
+            'found.',
+          );
+        }
+        if (provenanceProblem != null) _log.add(provenanceProblem);
       });
       return;
     }
@@ -279,7 +288,7 @@ class _PlatformChannelCaptureScreenState
       _lastMeasuredCps = null;
       _stashedCaptureJson = null;
       _log.add(
-        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg — '
+        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg: '
         'target ${leg.targetCps} calls/sec '
         '(${leg.callsPerBatch} per ${_batchTickMs}ms tick), '
         'band [${leg.cpsMin}, ${leg.cpsMax}] calls/sec',
@@ -307,8 +316,8 @@ class _PlatformChannelCaptureScreenState
       while (sw.elapsedMilliseconds < _callPhaseDurationMs) {
         // Parallel send: K invokeMethod Futures fire concurrently per
         // tick. Sequential awaits would serialize the round-trips and
-        // cap the effective send rate at ~12–80/sec on wireless,
-        // making the above band unreachable. Future.wait completes
+        // cap the send rate at one call per round trip, which can leave
+        // the above band unreachable. Future.wait completes
         // when the slowest single round-trip completes, so per-tick
         // cost ≈ slowest RT not sum-of-RTs.
         final batch = <Future<void>>[];
@@ -371,7 +380,12 @@ class _PlatformChannelCaptureScreenState
       final operatorCps = totalCallsSent / (callPhaseElapsedMs / 1000.0);
 
       String? stashed;
+      // Why the capture did not compose: the export's own reason when it
+      // returned null, or the text of a failure before or inside the call.
+      String? composeFailure;
       try {
+        // Checked when the leg started; this is a safety net.
+        final provenance = requireCaptureProvenance();
         stashed = await Sleuth.exportCaptureJson(
           scenario: 'platform_channel_traffic_${leg.label}',
           role: leg.label,
@@ -381,12 +395,10 @@ class _PlatformChannelCaptureScreenState
           magnitudeObserved: operatorCps,
           magnitudeMax: leg.cpsMax.toDouble(),
           unit: 'events',
-          device: 'iPhone 12',
-          deviceOsVersion: 'iOS 17.5',
-          flutterVersion: '3.41.4',
-          captureCommand:
-              'fvm flutter run --profile -d "iPhone 12" '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true',
+          device: provenance.device,
+          deviceOsVersion: provenance.deviceOsVersion,
+          flutterVersion: provenance.flutterVersion,
+          captureCommand: provenance.captureCommand,
           // platform_channel_traffic's source events are
           // per-call `Platform Channel send …` async TimelineTask
           // events, not BUILDs — skip BUILD-derivation. The
@@ -394,8 +406,17 @@ class _PlatformChannelCaptureScreenState
           // count.
           magnitudeSourceEventName: '',
         );
-      } catch (_) {
+        if (stashed == null) {
+          final reason =
+              Sleuth.lastCaptureExportFailure ??
+              'exportCaptureJson gave no reason';
+          composeFailure =
+              '$reason. Keep the screen on and in the foreground while '
+              'the leg runs; iOS auto-lock drops the VM service connection';
+        }
+      } catch (e) {
         stashed = null;
+        composeFailure = '$e';
       }
 
       double? detectorCps;
@@ -426,16 +447,20 @@ class _PlatformChannelCaptureScreenState
       final reportedCps = leg == _ChannelLeg.below
           ? operatorCps
           : (detectorCps ?? operatorCps);
+      // A leg is offered for export only with an in-band value and a
+      // composed capture. An in-band leg whose export or rewrite failed
+      // logs the failure after its band verdict.
+      final stashedJson = inBand ? rewrittenJson : null;
       setState(() {
         _busy = false;
-        _lastCompletedLeg = inBand ? leg : null;
-        _lastMeasuredCps = inBand ? reportedCps : null;
-        _stashedCaptureJson = inBand ? rewrittenJson : null;
+        _lastCompletedLeg = stashedJson != null ? leg : null;
+        _lastMeasuredCps = stashedJson != null ? reportedCps : null;
+        _stashedCaptureJson = stashedJson;
         final ratio = (detectorCps != null && operatorCps > 0)
             ? (detectorCps / operatorCps).toStringAsFixed(2)
             : null;
         _log.add(
-          '[${leg.label}] $marker — '
+          '[${leg.label}] $marker: '
           'operator ${operatorCps.toStringAsFixed(1)} calls/sec, '
           'detector ${detectorCps == null ? '(silent)' : '${detectorCps.toStringAsFixed(1)} calls/sec'}'
           '${ratio == null ? '' : ' (det/op ratio $ratio)'} '
@@ -445,26 +470,17 @@ class _PlatformChannelCaptureScreenState
           '${leg == _ChannelLeg.below ? 'operator' : 'detector'}: '
           '[${leg.cpsMin}, ${leg.cpsMax}] calls/sec)',
         );
-        if (inBand) {
+        if (stashedJson != null) {
           _activeRetryLeg = null;
-          if (rewrittenJson != null) {
-            _log.add(
-              '[${leg.label}] capture stashed (${rewrittenJson.length} chars) '
-              '— tap "Export last leg" to copy to clipboard.',
-            );
-          }
+          _log.add(
+            '[${leg.label}] capture stashed (${stashedJson.length} chars). '
+            'Tap "Export last leg" to copy it to the clipboard.',
+          );
         } else {
           if (stashed == null) {
             _log.add(
-              '[${leg.label}] capture FAILED to compose. Check the '
-              'flutter run terminal — Sleuth.exportCaptureJson logs the '
-              'exact reason via debugPrint (VM client null, VM client '
-              'disconnected, empty trace buffer, or scenario markers '
-              'not found). Most common cause when '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true was passed: '
-              'iOS auto-locked the screen during the leg and the VM '
-              'service connection dropped. Keep the screen on and '
-              'foreground; re-tap after fixing.',
+              '[${leg.label}] capture FAILED to compose: $composeFailure. '
+              'Re-tap after fixing.',
             );
           } else if (rewriteError != null) {
             // Persistent shape change: every retry on this leg AND
@@ -474,11 +490,11 @@ class _PlatformChannelCaptureScreenState
             _retryCount = _maxRetriesPerLeg;
             _persistentRewriteError = true;
             _log.add(
-              '[${leg.label}] post-process FAILED — $rewriteError. '
-              'Wrapped capture shape changed; update '
-              '_replaceExpectedObserved before retrying. Retry budget '
-              'exhausted to prevent burning through identical failures '
-              '— restart the screen after fixing.',
+              '[${leg.label}] post-process FAILED: $rewriteError. '
+              'The wrapped capture shape changed; update '
+              '_replaceExpectedObserved before retrying. The screen used '
+              'up the retry budget so the same failure does not repeat. '
+              'Restart the screen after fixing.',
             );
           } else if (leg != _ChannelLeg.below && detectorCps == null) {
             _log.add(
@@ -537,10 +553,10 @@ class _PlatformChannelCaptureScreenState
         _log.add(
           '[${leg.label}] Export FAILED: no stashed capture. The leg '
           "completed but Sleuth.exportCaptureJson returned null at "
-          'compose-time. Common causes: (1) captureMode OFF — '
-          'restart with --dart-define=SLEUTH_CAPTURE_MODE=true. '
-          '(2) VM service disconnected (FRAME mode) — re-launch from '
-          'home screen so VM+ mode activates. Re-tap after fixing.',
+          'compose-time. Common causes: (1) captureMode is OFF. '
+          'Restart with --dart-define=SLEUTH_CAPTURE_MODE=true. '
+          '(2) The VM service disconnected (FRAME mode). Re-launch from '
+          'the home screen so VM+ mode activates. Re-tap after fixing.',
         );
       });
       return;
@@ -555,7 +571,7 @@ class _PlatformChannelCaptureScreenState
     if (validation != null) {
       setState(() {
         _busy = false;
-        _log.add('[${leg.label}] Export REJECTED — $validation');
+        _log.add('[${leg.label}] Export REJECTED: $validation');
       });
       return;
     }
@@ -567,12 +583,12 @@ class _PlatformChannelCaptureScreenState
       setState(() {
         _busy = false;
         _log.add(
-          '[${leg.label}] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[${leg.label}] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[${leg.label}] Paste into Notes / Mail / AirDrop note → '
-          'send to Mac. Save the pasted JSON as '
+          '[${leg.label}] Paste it into Notes, Mail or an AirDrop note '
+          'and send it to the Mac. Save the pasted JSON as '
           'platform_channel_traffic_${leg.label}.json under '
           'test/validation/captures/platform_channel/.',
         );
@@ -659,16 +675,16 @@ class _PlatformChannelCaptureScreenState
     final expected = leg == _ChannelLeg.below ? 0 : 1;
     if (trafficCount != expected) {
       final cause = trafficCount == 0
-          ? 'Detector did not fire. Likely cause: (1) parser '
+          ? 'Detector did not fire. Likely causes: (1) The parser '
                 'dropped channel events because '
-                'debugProfilePlatformChannels was not enabled — '
-                'check the framework flag is true at leg start. '
-                '(2) iOS coalesced parallel calls and rate stayed '
-                'below 20/sec. Recheck batch geometry.'
-          : 'Detector fired more than once inside scenario span — '
-                'cooldown failed. Likely cause: scenario span '
-                'extended into a second 1 s evaluation cycle '
-                'and the cooldown counter did not suppress. Retry.';
+                'debugProfilePlatformChannels was not enabled. Check '
+                'that the framework flag is true at leg start. '
+                '(2) iOS coalesced parallel calls and the rate stayed '
+                'below 20/sec. Recheck the batch geometry.'
+          : 'Detector fired more than once inside the scenario span, '
+                'so the cooldown failed. Likely cause: the scenario span '
+                'reached a second 1 s evaluation cycle and the cooldown '
+                'counter did not suppress it. Retry.';
       return 'expected $expected `$trafficEventName` events inside '
           'scenario span, found $trafficCount. $cause';
     }
@@ -722,8 +738,8 @@ class _PlatformChannelCaptureScreenState
       return 'expected each `$trafficEventName` to carry a unique '
           '`detectedAtMicros` (producer-side dedup invariant). Found '
           '$trafficCount records but only ${uniqueDetectedAtMicros.length} '
-          'distinct values inside scenario span — capture replay or '
-          'forgery. Re-record the leg.';
+          'distinct values inside the scenario span, which points to a '
+          'replayed or forged capture. Re-record the leg.';
     }
 
     return null;
@@ -856,13 +872,13 @@ class _PlatformChannelCaptureScreenState
               '(20 calls/sec threshold, frequency axis only). '
               'Above preset stays under any critical-tier collision '
               '(critical = 41 calls/sec; above-band ceiling = 39). '
-              'See class docstring + doc/capture_procedure.md for '
-              'the full recording protocol.',
+              'See the class doc comment and doc/capture_procedure.md '
+              'for the full recording protocol.',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 16),
             _CaptureButton(
-              label: 'Below ($_belowTargetCps calls/sec) — passes',
+              label: 'Below ($_belowTargetCps calls/sec), passes',
               subtitle:
                   'Under $_warningThresholdCallsPerSec calls/sec '
                   'threshold; detector stays silent',
@@ -871,7 +887,7 @@ class _PlatformChannelCaptureScreenState
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'At (op $_atTargetCps calls/sec) — warning',
+              label: 'At (op $_atTargetCps calls/sec), warning',
               subtitle:
                   'Detector count must land in [20, 30] '
                   '(operator ≈ detector on this leg)',
@@ -880,7 +896,7 @@ class _PlatformChannelCaptureScreenState
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'Above (op $_aboveTargetCps calls/sec) — warning',
+              label: 'Above (op $_aboveTargetCps calls/sec), warning',
               subtitle:
                   'Detector count must land in [31, 39] '
                   '(operator overshoots; iOS coalescing reduces detector '

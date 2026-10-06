@@ -17,11 +17,8 @@ import 'package:sleuth/sleuth.dart';
 import 'package:sleuth/src/detectors/startup_detector.dart';
 
 Future<void> _pumpEmpty(WidgetTester tester) => tester.pumpWidget(
-      const Directionality(
-        textDirection: TextDirection.ltr,
-        child: SizedBox(),
-      ),
-    );
+  const Directionality(textDirection: TextDirection.ltr, child: SizedBox()),
+);
 
 BuildContext _root(WidgetTester tester) =>
     tester.element(find.byType(Directionality));
@@ -32,13 +29,14 @@ void main() {
   group('StartupDetector reproducer', () {
     // --- slow_startup_ttff ---------------------------------------------
 
-    testWidgets(
-        'slow_startup_ttff: ttffMs above warning threshold fires '
+    testWidgets('slow_startup_ttff: ttffMs above warning threshold fires '
         '(confirmed confidence)', (tester) async {
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.utc(2026),
-        ttffMs: 2000, // > 1500 warning, < 3000 critical → warning
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(
+          dartEntryTimestamp: DateTime.utc(2026),
+          ttffMs: 2000, // > 1500 warning, < 3000 critical → warning
+        ),
+      );
       final detector = StartupDetector();
       await _pumpEmpty(tester);
       detector.prepareScan(_root(tester));
@@ -46,34 +44,40 @@ void main() {
         detector.issues.any((i) => i.stableId == 'slow_startup_ttff'),
         isTrue,
       );
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'slow_startup_ttff');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'slow_startup_ttff',
+      );
       expect(issue.severity, IssueSeverity.warning);
       expect(issue.confidence, IssueConfidence.confirmed);
     });
 
     testWidgets(
-        'slow_startup_ttff: ttffMs >= critical threshold emits critical',
-        (tester) async {
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.utc(2026),
-        ttffMs: 3500, // >= 3000 critical
-      ));
-      final detector = StartupDetector();
-      await _pumpEmpty(tester);
-      detector.prepareScan(_root(tester));
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'slow_startup_ttff');
-      expect(issue.severity, IssueSeverity.critical);
-    });
+      'slow_startup_ttff: ttffMs >= critical threshold emits critical',
+      (tester) async {
+        Sleuth.setStartupMetricsForTest(
+          StartupMetrics(
+            dartEntryTimestamp: DateTime.utc(2026),
+            ttffMs: 3500, // >= 3000 critical
+          ),
+        );
+        final detector = StartupDetector();
+        await _pumpEmpty(tester);
+        detector.prepareScan(_root(tester));
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'slow_startup_ttff',
+        );
+        expect(issue.severity, IssueSeverity.critical);
+      },
+    );
 
-    testWidgets(
-        'slow_startup_ttff: ttffMs below warning threshold silent '
+    testWidgets('slow_startup_ttff: ttffMs below warning threshold silent '
         '(strict-less: `ttff < ttffWarningMs` early-returns)', (tester) async {
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.utc(2026),
-        ttffMs: 1499, // just under warning (1500)
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(
+          dartEntryTimestamp: DateTime.utc(2026),
+          ttffMs: 1499, // just under warning (1500)
+        ),
+      );
       final detector = StartupDetector();
       await _pumpEmpty(tester);
       detector.prepareScan(_root(tester));
@@ -83,18 +87,18 @@ void main() {
     testWidgets('slow_startup_ttff: ttffMs null → silent', (tester) async {
       // Models the "`Sleuth.init` not called before `runApp`" case — the
       // detector's `_checkTtff` early-returns on null ttffMs.
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.utc(2026),
-        ttffMs: null,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(dartEntryTimestamp: DateTime.utc(2026), ttffMs: null),
+      );
       final detector = StartupDetector();
       await _pumpEmpty(tester);
       detector.prepareScan(_root(tester));
       expect(detector.issues, isEmpty);
     });
 
-    testWidgets('slow_startup_ttff: no StartupMetrics at all → silent',
-        (tester) async {
+    testWidgets('slow_startup_ttff: no StartupMetrics at all → silent', (
+      tester,
+    ) async {
       // `Sleuth.startupMetrics == null` path — prepareScan short-circuits
       // before touching _consumed.
       Sleuth.resetStartupForTest();
@@ -104,13 +108,11 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
-    testWidgets(
-        'slow_startup_ttff: second prepareScan is a no-op '
+    testWidgets('slow_startup_ttff: second prepareScan is a no-op '
         '(one-shot `_consumed` guard)', (tester) async {
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.utc(2026),
-        ttffMs: 2000,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(dartEntryTimestamp: DateTime.utc(2026), ttffMs: 2000),
+      );
       final detector = StartupDetector();
       await _pumpEmpty(tester);
       detector.prepareScan(_root(tester));
@@ -118,13 +120,15 @@ void main() {
 
       // Mutate metrics to something that WOULD emit a different outcome
       // if the detector re-evaluated — one-shot must ignore.
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.utc(2026),
-        ttffMs: 100,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(dartEntryTimestamp: DateTime.utc(2026), ttffMs: 100),
+      );
       detector.prepareScan(_root(tester));
-      expect(detector.issues.length, 1,
-          reason: 'Second prepareScan must be a no-op.');
+      expect(
+        detector.issues.length,
+        1,
+        reason: 'Second prepareScan must be a no-op.',
+      );
     });
   });
 }

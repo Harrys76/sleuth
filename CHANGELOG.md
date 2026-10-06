@@ -1,3 +1,109 @@
+## 0.37.0
+
+Flutter 3.47 support, more accurate detectors, a cheaper VM poll loop, and a
+reworked overlay with accessibility support. The matching sidecar is
+`sleuth_mcp` 0.8.0. The
+[full release notes](https://github.com/Harrys76/sleuth/blob/main/doc/release_notes/0.37.0.md)
+list every change.
+
+### Breaking and behavior changes
+
+- The minimum versions are Dart `^3.8.0` and Flutter `>=3.32.0`, and
+  `vm_service` widens to `>=14.0.0 <16.0.0`.
+- `rebuild_activity` and `excessive_repaint` measure the share of UI-thread
+  time spent building or painting per ~1 s window instead of counts. They warn
+  above 10 % and go critical above 30 %
+  (`DetectorThresholds.buildTimePercentThreshold` /
+  `paintTimePercentThreshold`). `SleuthConfig.rebuildThreshold` and
+  `RepaintDetector.paintFrequencyThreshold` now gate only the per-widget debug
+  cards.
+- Removed: `RebuildDetector.setBaseline`, `baselineRebuildRate`,
+  `lastObservedRebuildRate`, `peakObservedRebuildRate`,
+  `RepaintDetector.lastObservedPaintCount`, `peakObservedPaintCount` (replaced
+  by `last`/`peakObservedBuildPercent` and `last`/`peakObservedPaintPercent`),
+  and `CorrelatedFrameData.coverageRatio` (`FrameVerdict.correlationCoverage`
+  reports the batch coverage). `FixHintBuilder.rebuildActivity` and
+  `excessiveRepaintVm` take percentages.
+- `heap_near_capacity` compares process memory (RSS) with the new opt-in
+  `DetectorThresholds.memoryBudgetBytes` and stays off until you set it.
+  `gc_pressure` fires above 180 GC/min (was 60).
+- Issues rank by evidence tier, which combines severity and confidence, so a
+  confirmed warning ranks above a possible critical. A warning no longer turns
+  critical after 30 scans. Comparing a 0.36 snapshot with a 0.37 one can show
+  severity changes from this alone.
+- The jank budget follows the measured frame rate, between `fpsTarget` and the
+  display's refresh rate (`autoFrameBudget: false` keeps it fixed). At 60 Hz a
+  33 ms frame is jank but no longer severe.
+- In the causal graph a `possible` cause no longer claims a `likely` or
+  `confirmed` effect, and an effect collapses under a single cause only when
+  that cause is at least as severe. The graph has 41 rules.
+- Debug repaint cards name the likely origin of a layer's repaints, are titled
+  "Likely Repaint Origin" and are `likely`. Per-widget debug counts cover only
+  widgets your app creates (`DebugInstrumentationConfig.userWidgetsOnly`).
+- Platform-channel profiling is opt-in (`SleuthConfig.profilePlatformChannels`),
+  and `platform_channel_traffic` triggers on call count only.
+- `excessive_keep_alive` ids name the scrollable
+  (`excessive_keep_alive:PageView~1`). Hides saved under the old positional ids
+  are dropped.
+- Encyclopedia entries, fix hints, guides and some overlay titles are reworded
+  to match what the detectors do.
+
+### Added
+
+- Overlay: system and predictive back close the innermost layer first; the
+  overlay layout, hidden cards, filter and theme survive restarts with
+  `SleuthConfig.stateStore`; Hide with Undo and a Hidden list; Copy details;
+  severity filter chips; collapsed cards hold their order while the dashboard
+  is open; `Sleuth.overlayUiState`.
+- Accessibility: overlay text scales from 0.8 to 2.0×, screen-reader labels and
+  actions replace dragging, most controls are 48 dp, text meets WCAG AA contrast,
+  plus high-contrast presets, a System / Light / Dark toggle, reduced motion
+  and Escape. `SleuthThemeData.fromColorScheme` and `fromSeed` build a theme
+  from your app's colours.
+- AI chat: Stop and Retry, short failure reasons with Copy error, first-token
+  and stall timeouts (`AiChatAdapter.firstTokenTimeout` / `stallTimeout`), a
+  Session section in the prompt, and conversations kept per card for the
+  session. Custom adapters can throw `AiProviderException`.
+- `raster_dominance` from per-frame `FrameTiming` without a VM link, and
+  `BaseDetector.processFrame(FrameStats)` for custom detectors.
+- `non_lazy_shrinkwrap` for shrink-wrapped lists inside a `Column` or `Row`.
+- `Sleuth.lastPollTimings` and VM poll costs in `ext.sleuth.diagnose`, which
+  also reports `effectiveFrameRateHz`, `frameBudgetUs` and `frameRateSource`.
+- `ext.sleuth.issues` carries `vmConnected`.
+
+### Fixed
+
+- On Flutter 3.47, scans no longer abort in bottom-navigation apps
+  (`IndexedStack`).
+- Sleuth reads the VM timeline incrementally and never clears it, so DevTools
+  keeps its view. In capture mode a poll on an idle iPhone 12 screen dropped
+  from 117 ms to 6.6 ms. CPU-sample requests are spaced 10 s apart.
+- `shader_compilation` reads Impeller Vulkan and Skia build events; it was
+  silent on devices.
+- Fewer false positives: framework painters, Material's own clips and
+  framework-built intrinsics are skipped, `setstate_scope` needs observed
+  rebuilds, keep-alive counts the innermost page view, sliver-added repaint
+  boundaries are not counted, `uncached_images` measures real decode waste, and
+  `large_response` skips images, video, audio and fonts.
+- Rebuild and repaint cards no longer flicker at the threshold, and the
+  overlay's own widgets are no longer counted as the app's.
+- The VM connection survives a single failed poll and tries loopback first
+  (wireless iOS), a scan on a quiet screen no longer waits for an unrelated
+  repaint, jank is judged per route, and `heavy_compute` emits one issue per
+  batch.
+- Explanation placeholders are filled in the AI prompt and
+  `ext.sleuth.explain`.
+
+### Example and testing
+
+- New Tabbed Shell and Shrink-wrapped Sections demos, an animated GPU demo,
+  `ext.sleuthDemo.*` remote-drive extensions, capture screens that check
+  provenance and bands before export, and capture triads re-recorded on
+  Flutter 3.47.6.
+- Wall-clock benchmarks carry the `benchmark` tag and run serially.
+
+`kSleuthPackageVersion` is 0.37.0.
+
 ## 0.36.0
 
 Companion package: `sleuth_mcp` is now available — an MCP stdio sidecar that

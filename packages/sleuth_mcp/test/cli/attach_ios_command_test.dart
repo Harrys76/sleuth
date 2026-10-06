@@ -127,28 +127,32 @@ void main() {
       expect(await selectUsbAnnouncement(const []), isNull);
     });
 
-    test('returns the highest interface index when no override / probe',
-        () async {
-      // Order intentionally interleaved so neither input position nor a
-      // naive `.last` would coincidentally pass.
-      final list = [ann(15, 1, 'wifi'), ann(25, 2, 'usb'), ann(9, 3, 'low')];
-      final picked = await selectUsbAnnouncement(list);
-      expect(picked!.authCode, 'usb');
-      expect(picked.interfaceIndex, 25);
-    });
+    test(
+      'returns the highest interface index when no override / probe',
+      () async {
+        // Order intentionally interleaved so neither input position nor a
+        // naive `.last` would coincidentally pass.
+        final list = [ann(15, 1, 'wifi'), ann(25, 2, 'usb'), ann(9, 3, 'low')];
+        final picked = await selectUsbAnnouncement(list);
+        expect(picked!.authCode, 'usb');
+        expect(picked.interfaceIndex, 25);
+      },
+    );
 
-    test('prefers highest interface index across 3-way (15 vs 25 vs 24)',
-        () async {
-      // Models the real Pengen / iOS 17.5 ordering: WiFi first (iface 15),
-      // then USB primary (25), then USB alt (24). 25 must win.
-      final picked = await selectUsbAnnouncement([
-        ann(15, 1234, 'wifi'),
-        ann(25, 1234, 'usb-25'),
-        ann(24, 1234, 'usb-24'),
-      ]);
-      expect(picked!.interfaceIndex, 25);
-      expect(picked.authCode, 'usb-25');
-    });
+    test(
+      'prefers highest interface index across 3-way (15 vs 25 vs 24)',
+      () async {
+        // Models the real Pengen / iOS 17.5 ordering: WiFi first (iface 15),
+        // then USB primary (25), then USB alt (24). 25 must win.
+        final picked = await selectUsbAnnouncement([
+          ann(15, 1234, 'wifi'),
+          ann(25, 1234, 'usb-25'),
+          ann(24, 1234, 'usb-24'),
+        ]);
+        expect(picked!.interfaceIndex, 25);
+        expect(picked.authCode, 'usb-25');
+      },
+    );
 
     test('single announcement is returned as-is', () async {
       final picked = await selectUsbAnnouncement([ann(15, 1234, 'only')]);
@@ -285,8 +289,8 @@ void main() {
           expect(args, contains('com.foo.bar'));
           return ProcessResult(0, 1, '', 'device not found');
         },
-        start: (_, __) async => throw StateError('should not spawn iproxy'),
-        bonjourLines: (_, __) => const Stream.empty(), // never reached
+        start: (_, _) async => throw StateError('should not spawn iproxy'),
+        bonjourLines: (_, _) => const Stream.empty(), // never reached
       );
       expect(r.exitCode, 66);
       expect(err.toString(), contains('devicectl launch failed'));
@@ -301,9 +305,9 @@ void main() {
         stdout_: out,
         stderr_: err,
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        start: (_, __) async => throw StateError('should not spawn iproxy'),
-        bonjourLines: (_, __) => const Stream.empty(),
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        start: (_, _) async => throw StateError('should not spawn iproxy'),
+        bonjourLines: (_, _) => const Stream.empty(),
         bonjourCollectFor: const Duration(milliseconds: 50),
         bonjourTimeout: const Duration(milliseconds: 200),
       );
@@ -311,40 +315,42 @@ void main() {
       expect(err.toString(), contains('no Bonjour announcement'));
     });
 
-    test('success path: prints wsUri, returns exit 0 without waiting',
-        () async {
-      final out = StringBuffer();
-      final err = StringBuffer();
-      final r = await runAttachIosCommand(
-        args: const ['ABC123', '--port', '12345'],
-        stdout_: out,
-        stderr_: err,
-        hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (exe, args) async {
-          expect(exe, 'iproxy');
-          expect(args, ['12345', '53172', '--udid', 'ABC123']);
-          // Use a real shell process that just sleeps briefly so we get
-          // a valid pid + drainable streams; waitForSignal=false skips
-          // the wait, so we kill it ourselves on teardown via the
-          // returned object. The test relies on `iproxyStart` returning
-          // a real Process; we use `sh -c "sleep 1"`.
-          return Process.start('sh', ['-c', 'sleep 1']);
-        },
-        bonjourLines: (_, __) => Stream.fromIterable([
-          'can be reached at h.local.:53172 (interface 25) Flags: 1',
-          ' authCode=usbtoken=',
-        ]),
-        bonjourCollectFor: const Duration(milliseconds: 100),
-        waitForSignal: false,
-      );
-      expect(r.exitCode, 0);
-      expect(r.wsUri, 'ws://127.0.0.1:12345/usbtoken=/ws');
-      expect(out.toString(), contains('wsUri: ws://127.0.0.1:12345/'));
-      expect(out.toString(), contains('attach_app(debugUrl:'));
-      expect(out.toString(), contains('Collected 1 announcement(s):'));
-      expect(out.toString(), contains('iface 25: h.local.:53172'));
-    });
+    test(
+      'success path: prints wsUri, returns exit 0 without waiting',
+      () async {
+        final out = StringBuffer();
+        final err = StringBuffer();
+        final r = await runAttachIosCommand(
+          args: const ['ABC123', '--port', '12345'],
+          stdout_: out,
+          stderr_: err,
+          hasTool: (_) async => true,
+          run: (_, _) async => ProcessResult(0, 0, '', ''),
+          iproxyStart: (exe, args) async {
+            expect(exe, 'iproxy');
+            expect(args, ['12345', '53172', '--udid', 'ABC123']);
+            // Use a real shell process that just sleeps briefly so we get
+            // a valid pid + drainable streams; waitForSignal=false skips
+            // the wait, so we kill it ourselves on teardown via the
+            // returned object. The test relies on `iproxyStart` returning
+            // a real Process; we use `sh -c "sleep 1"`.
+            return Process.start('sh', ['-c', 'sleep 1']);
+          },
+          bonjourLines: (_, _) => Stream.fromIterable([
+            'can be reached at h.local.:53172 (interface 25) Flags: 1',
+            ' authCode=usbtoken=',
+          ]),
+          bonjourCollectFor: const Duration(milliseconds: 100),
+          waitForSignal: false,
+        );
+        expect(r.exitCode, 0);
+        expect(r.wsUri, 'ws://127.0.0.1:12345/usbtoken=/ws');
+        expect(out.toString(), contains('wsUri: ws://127.0.0.1:12345/'));
+        expect(out.toString(), contains('attach_app(debugUrl:'));
+        expect(out.toString(), contains('Collected 1 announcement(s):'));
+        expect(out.toString(), contains('iface 25: h.local.:53172'));
+      },
+    );
 
     test('two pairings + --auth picks the matching authCode', () async {
       final out = StringBuffer();
@@ -353,9 +359,9 @@ void main() {
         stdout_: out,
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async => Process.start('sh', ['-c', 'sleep 1']),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        iproxyStart: (_, _) async => Process.start('sh', ['-c', 'sleep 1']),
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:8001 (interface 15) Flags: 1',
           ' authCode=wifitoken=',
           'can be reached at h.local.:8002 (interface 25) Flags: 1',
@@ -375,9 +381,9 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: err,
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        start: (_, __) async => throw StateError('should not spawn'),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        start: (_, _) async => throw StateError('should not spawn'),
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:1 (interface 25) Flags: 1',
           ' authCode=present=',
         ]),
@@ -388,60 +394,67 @@ void main() {
       expect(err.toString(), contains('no announcement matched --auth'));
     });
 
-    test('wireless detected → wsUri uses .local hostname, no iproxy spawn',
-        () async {
-      final out = StringBuffer();
-      var iproxySpawned = false;
-      final r = await runAttachIosCommand(
-        args: const ['ABC123', '--wireless'],
-        stdout_: out,
-        stderr_: StringBuffer(),
-        hasTool: (t) async => t != 'iproxy',
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async {
-          iproxySpawned = true;
-          return Process.start('sh', ['-c', 'sleep 1']);
-        },
-        bonjourLines: (_, __) => Stream.fromIterable([
-          'can be reached at Pengen.local.:53172 (interface 25) Flags: 1',
-          ' authCode=wifitoken=',
-        ]),
-        bonjourCollectFor: const Duration(milliseconds: 100),
-        waitForSignal: false,
-      );
-      expect(r.exitCode, 0);
-      expect(r.wsUri, 'ws://Pengen.local:53172/wifitoken=/ws');
-      expect(iproxySpawned, isFalse,
-          reason: 'wireless mode must not spawn iproxy');
-      expect(out.toString(), contains('Wireless attach'));
-    });
+    test(
+      'wireless detected → wsUri uses .local hostname, no iproxy spawn',
+      () async {
+        final out = StringBuffer();
+        var iproxySpawned = false;
+        final r = await runAttachIosCommand(
+          args: const ['ABC123', '--wireless'],
+          stdout_: out,
+          stderr_: StringBuffer(),
+          hasTool: (t) async => t != 'iproxy',
+          run: (_, _) async => ProcessResult(0, 0, '', ''),
+          iproxyStart: (_, _) async {
+            iproxySpawned = true;
+            return Process.start('sh', ['-c', 'sleep 1']);
+          },
+          bonjourLines: (_, _) => Stream.fromIterable([
+            'can be reached at Pengen.local.:53172 (interface 25) Flags: 1',
+            ' authCode=wifitoken=',
+          ]),
+          bonjourCollectFor: const Duration(milliseconds: 100),
+          waitForSignal: false,
+        );
+        expect(r.exitCode, 0);
+        expect(r.wsUri, 'ws://Pengen.local:53172/wifitoken=/ws');
+        expect(
+          iproxySpawned,
+          isFalse,
+          reason: 'wireless mode must not spawn iproxy',
+        );
+        expect(out.toString(), contains('wireless attach needs no iproxy'));
+      },
+    );
 
-    test('--usb forces wired path even when devicectl reports wireless',
-        () async {
-      final out = StringBuffer();
-      var iproxySpawned = false;
-      final r = await runAttachIosCommand(
-        args: const ['ABC123', '--port', '54000', '--usb'],
-        stdout_: out,
-        stderr_: StringBuffer(),
-        hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async {
-          iproxySpawned = true;
-          return Process.start('sh', ['-c', 'sleep 1']);
-        },
-        bonjourLines: (_, __) => Stream.fromIterable([
-          'can be reached at h.local.:53172 (interface 25) Flags: 1',
-          ' authCode=usbtoken=',
-        ]),
-        bonjourCollectFor: const Duration(milliseconds: 100),
-        pidfileDirectory: Directory.systemTemp.createTempSync('s_').path,
-        waitForSignal: false,
-      );
-      expect(r.exitCode, 0);
-      expect(r.wsUri, 'ws://127.0.0.1:54000/usbtoken=/ws');
-      expect(iproxySpawned, isTrue);
-    });
+    test(
+      '--usb forces wired path even when devicectl reports wireless',
+      () async {
+        final out = StringBuffer();
+        var iproxySpawned = false;
+        final r = await runAttachIosCommand(
+          args: const ['ABC123', '--port', '54000', '--usb'],
+          stdout_: out,
+          stderr_: StringBuffer(),
+          hasTool: (_) async => true,
+          run: (_, _) async => ProcessResult(0, 0, '', ''),
+          iproxyStart: (_, _) async {
+            iproxySpawned = true;
+            return Process.start('sh', ['-c', 'sleep 1']);
+          },
+          bonjourLines: (_, _) => Stream.fromIterable([
+            'can be reached at h.local.:53172 (interface 25) Flags: 1',
+            ' authCode=usbtoken=',
+          ]),
+          bonjourCollectFor: const Duration(milliseconds: 100),
+          pidfileDirectory: Directory.systemTemp.createTempSync('s_').path,
+          waitForSignal: false,
+        );
+        expect(r.exitCode, 0);
+        expect(r.wsUri, 'ws://127.0.0.1:54000/usbtoken=/ws');
+        expect(iproxySpawned, isTrue);
+      },
+    );
   });
 
   group('detectIosTransport', () {
@@ -453,24 +466,26 @@ void main() {
 ]}}''';
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, sample, ''),
+        run: (_, _) async => ProcessResult(0, 0, sample, ''),
       );
       expect(t, IosTransport.wired);
     });
 
-    test('parses wireless transport (localNetwork) from devicectl JSON',
-        () async {
-      const sample = '''
+    test(
+      'parses wireless transport (localNetwork) from devicectl JSON',
+      () async {
+        const sample = '''
 {"result": {"devices": [
   {"hardwareProperties": {"udid": "ABC123"},
    "connectionProperties": {"transportType": "localNetwork"}}
 ]}}''';
-      final t = await detectIosTransport(
-        udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, sample, ''),
-      );
-      expect(t, IosTransport.wireless);
-    });
+        final t = await detectIosTransport(
+          udid: 'ABC123',
+          run: (_, _) async => ProcessResult(0, 0, sample, ''),
+        );
+        expect(t, IosTransport.wireless);
+      },
+    );
 
     test('matches udid case-insensitively', () async {
       const sample = '''
@@ -480,7 +495,7 @@ void main() {
 ]}}''';
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, sample, ''),
+        run: (_, _) async => ProcessResult(0, 0, sample, ''),
       );
       expect(t, IosTransport.wireless);
     });
@@ -493,7 +508,7 @@ void main() {
 ]}}''';
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, sample, ''),
+        run: (_, _) async => ProcessResult(0, 0, sample, ''),
       );
       expect(t, IosTransport.unknown);
     });
@@ -501,7 +516,7 @@ void main() {
     test('non-zero exit → unknown', () async {
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 1, '', 'boom'),
+        run: (_, _) async => ProcessResult(0, 1, '', 'boom'),
       );
       expect(t, IosTransport.unknown);
     });
@@ -509,7 +524,7 @@ void main() {
     test('malformed JSON → unknown', () async {
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, 'not json', ''),
+        run: (_, _) async => ProcessResult(0, 0, 'not json', ''),
       );
       expect(t, IosTransport.unknown);
     });
@@ -517,10 +532,16 @@ void main() {
 
   group('pidfileForSession', () {
     test('path is deterministic on (udid, hostPort)', () {
-      final a =
-          pidfileForSession(directory: '/tmp', udid: 'ABC123', hostPort: 12345);
-      final b =
-          pidfileForSession(directory: '/tmp', udid: 'ABC123', hostPort: 12345);
+      final a = pidfileForSession(
+        directory: '/tmp',
+        udid: 'ABC123',
+        hostPort: 12345,
+      );
+      final b = pidfileForSession(
+        directory: '/tmp',
+        udid: 'ABC123',
+        hostPort: 12345,
+      );
       expect(a.path, b.path);
       expect(a.path, '/tmp/sleuth_mcp_iproxy_ABC123_12345.pid');
     });
@@ -548,8 +569,11 @@ void main() {
     });
 
     test('no pidfile → no-op', () async {
-      final pidfile =
-          pidfileForSession(directory: tmp.path, udid: 'U', hostPort: 9001);
+      final pidfile = pidfileForSession(
+        directory: tmp.path,
+        udid: 'U',
+        hostPort: 9001,
+      );
       final calls = <List<String>>[];
       await reclaimStaleIproxy(
         pidfile: pidfile,
@@ -567,8 +591,11 @@ void main() {
     });
 
     test('stale pidfile pointing at dead pid → removed cleanly', () async {
-      final pidfile =
-          pidfileForSession(directory: tmp.path, udid: 'U', hostPort: 9002);
+      final pidfile = pidfileForSession(
+        directory: tmp.path,
+        udid: 'U',
+        hostPort: 9002,
+      );
       pidfile.writeAsStringSync('99999\n');
       final err = StringBuffer();
       await reclaimStaleIproxy(
@@ -589,8 +616,11 @@ void main() {
     });
 
     test('live pid with matching argv → SIGTERM + pidfile removed', () async {
-      final pidfile =
-          pidfileForSession(directory: tmp.path, udid: 'U', hostPort: 9003);
+      final pidfile = pidfileForSession(
+        directory: tmp.path,
+        udid: 'U',
+        hostPort: 9003,
+      );
       pidfile.writeAsStringSync('42\n');
       var aliveCallCount = 0;
       final calls = <List<String>>[];
@@ -621,49 +651,69 @@ void main() {
       expect(pidfile.existsSync(), isFalse);
       expect(err.toString(), contains('removed stale iproxy'));
       expect(
-          calls.any((c) => c.first == 'kill' && c.contains('-TERM')), isTrue);
+        calls.any((c) => c.first == 'kill' && c.contains('-TERM')),
+        isTrue,
+      );
     });
 
-    test('live pid with mismatched argv → NOT killed, pidfile removed',
-        () async {
-      final pidfile =
-          pidfileForSession(directory: tmp.path, udid: 'U', hostPort: 9004);
-      pidfile.writeAsStringSync('1234\n');
-      final calls = <List<String>>[];
-      final err = StringBuffer();
-      await reclaimStaleIproxy(
-        pidfile: pidfile,
-        hostPort: 9004,
-        devicePort: 9004,
-        udid: 'U',
-        run: (exe, args) async {
-          calls.add([exe, ...args]);
-          if (exe == 'kill' && args.first == '-0') {
-            return ProcessResult(0, 0, '', ''); // alive
-          }
-          if (exe == 'ps') {
-            // Different command — someone else owns this pid now.
-            return ProcessResult(
-                0, 0, '/Applications/Editor.app/Contents/MacOS/Editor\n', '');
-          }
-          throw StateError('unexpected call: $exe $args');
-        },
-        err: err,
-      );
-      expect(pidfile.existsSync(), isFalse,
-          reason: 'pidfile cleared even though the process is left alone');
-      expect(err.toString(), contains('argv does not match'));
-      expect(
-          calls.any((c) =>
-              c.first == 'kill' &&
-              (c.contains('-TERM') || c.contains('-KILL'))),
+    test(
+      'live pid with mismatched argv → NOT killed, pidfile removed',
+      () async {
+        final pidfile = pidfileForSession(
+          directory: tmp.path,
+          udid: 'U',
+          hostPort: 9004,
+        );
+        pidfile.writeAsStringSync('1234\n');
+        final calls = <List<String>>[];
+        final err = StringBuffer();
+        await reclaimStaleIproxy(
+          pidfile: pidfile,
+          hostPort: 9004,
+          devicePort: 9004,
+          udid: 'U',
+          run: (exe, args) async {
+            calls.add([exe, ...args]);
+            if (exe == 'kill' && args.first == '-0') {
+              return ProcessResult(0, 0, '', ''); // alive
+            }
+            if (exe == 'ps') {
+              // Different command — someone else owns this pid now.
+              return ProcessResult(
+                0,
+                0,
+                '/Applications/Editor.app/Contents/MacOS/Editor\n',
+                '',
+              );
+            }
+            throw StateError('unexpected call: $exe $args');
+          },
+          err: err,
+        );
+        expect(
+          pidfile.existsSync(),
           isFalse,
-          reason: 'must not signal a process whose argv does not match');
-    });
+          reason: 'pidfile cleared even though the process is left alone',
+        );
+        expect(err.toString(), contains('argv does not match'));
+        expect(
+          calls.any(
+            (c) =>
+                c.first == 'kill' &&
+                (c.contains('-TERM') || c.contains('-KILL')),
+          ),
+          isFalse,
+          reason: 'must not signal a process whose argv does not match',
+        );
+      },
+    );
 
     test('garbage pidfile content → removed without ps/kill calls', () async {
-      final pidfile =
-          pidfileForSession(directory: tmp.path, udid: 'U', hostPort: 9005);
+      final pidfile = pidfileForSession(
+        directory: tmp.path,
+        udid: 'U',
+        hostPort: 9005,
+      );
       pidfile.writeAsStringSync('not-a-pid\n');
       final calls = <List<String>>[];
       await reclaimStaleIproxy(
@@ -697,14 +747,14 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        start: (_, __) async =>
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        start: (_, _) async =>
             throw StateError('should not use non-iproxy start'),
         iproxyStart: (exe, args) async {
           expect(exe, 'iproxy');
           return Process.start('sh', ['-c', 'sleep 1']);
         },
-        bonjourLines: (_, __) => Stream.fromIterable([
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:53172 (interface 25) Flags: 1',
           ' authCode=usbtoken=',
         ]),
@@ -714,9 +764,15 @@ void main() {
       );
       expect(r.exitCode, 0);
       final pidfile = pidfileForSession(
-          directory: tmp.path, udid: 'ABC123', hostPort: 54000);
-      expect(pidfile.existsSync(), isTrue,
-          reason: 'pidfile must persist after waitForSignal:false return');
+        directory: tmp.path,
+        udid: 'ABC123',
+        hostPort: 54000,
+      );
+      expect(
+        pidfile.existsSync(),
+        isTrue,
+        reason: 'pidfile must persist after waitForSignal:false return',
+      );
       final recorded = int.parse(pidfile.readAsStringSync().trim());
       expect(recorded, greaterThan(1));
     });
@@ -732,9 +788,9 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async => Process.start('sh', ['-c', 'sleep 3']),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        iproxyStart: (_, _) async => Process.start('sh', ['-c', 'sleep 3']),
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:53172 (interface 25) Flags: 1',
           ' authCode=usbtoken=',
         ]),
@@ -744,39 +800,47 @@ void main() {
       );
       expect(r.exitCode, 0);
       final pidfile = pidfileForSession(
-          directory: tmp.path, udid: 'ABC123', hostPort: 54100);
-      expect(pidfile.existsSync(), isFalse,
-          reason: 'graceful teardown must remove pidfile');
+        directory: tmp.path,
+        udid: 'ABC123',
+        hostPort: 54100,
+      );
+      expect(
+        pidfile.existsSync(),
+        isFalse,
+        reason: 'graceful teardown must remove pidfile',
+      );
       await signalController.close();
     });
 
-    test('SLEUTH_MCP_BONJOUR_COLLECT env override widens collect window',
-        () async {
-      // The override is read via the injected `environment:` map. We
-      // don't measure timing — we assert the pipeline still produces a
-      // wsUri so the env-override path is wired through.
-      final r = await runAttachIosCommand(
-        args: const ['ABC123', '--port', '54300'],
-        stdout_: StringBuffer(),
-        stderr_: StringBuffer(),
-        hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async => Process.start('sh', ['-c', 'sleep 1']),
-        bonjourLines: (_, __) => Stream.fromIterable([
-          'can be reached at h.local.:53172 (interface 25) Flags: 1',
-          ' authCode=usbtoken=',
-        ]),
-        // call-site default 4s would dominate; env override widens to
-        // 10s and the pipeline still succeeds (announcements come in
-        // immediately from the synchronous Stream.fromIterable).
-        bonjourCollectFor: const Duration(milliseconds: 100),
-        pidfileDirectory: tmp.path,
-        waitForSignal: false,
-        environment: const {'SLEUTH_MCP_BONJOUR_COLLECT': '10'},
-      );
-      expect(r.exitCode, 0);
-      expect(r.wsUri, isNotNull);
-    });
+    test(
+      'SLEUTH_MCP_BONJOUR_COLLECT env override widens collect window',
+      () async {
+        // The override is read via the injected `environment:` map. We
+        // don't measure timing — we assert the pipeline still produces a
+        // wsUri so the env-override path is wired through.
+        final r = await runAttachIosCommand(
+          args: const ['ABC123', '--port', '54300'],
+          stdout_: StringBuffer(),
+          stderr_: StringBuffer(),
+          hasTool: (_) async => true,
+          run: (_, _) async => ProcessResult(0, 0, '', ''),
+          iproxyStart: (_, _) async => Process.start('sh', ['-c', 'sleep 1']),
+          bonjourLines: (_, _) => Stream.fromIterable([
+            'can be reached at h.local.:53172 (interface 25) Flags: 1',
+            ' authCode=usbtoken=',
+          ]),
+          // call-site default 4s would dominate; env override widens to
+          // 10s and the pipeline still succeeds (announcements come in
+          // immediately from the synchronous Stream.fromIterable).
+          bonjourCollectFor: const Duration(milliseconds: 100),
+          pidfileDirectory: tmp.path,
+          waitForSignal: false,
+          environment: const {'SLEUTH_MCP_BONJOUR_COLLECT': '10'},
+        );
+        expect(r.exitCode, 0);
+        expect(r.wsUri, isNotNull);
+      },
+    );
 
     test('invalid SLEUTH_MCP_BONJOUR_COLLECT falls back to default', () async {
       final r = await runAttachIosCommand(
@@ -784,9 +848,9 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async => Process.start('sh', ['-c', 'sleep 1']),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        iproxyStart: (_, _) async => Process.start('sh', ['-c', 'sleep 1']),
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:53172 (interface 25) Flags: 1',
           ' authCode=usbtoken=',
         ]),
@@ -795,8 +859,11 @@ void main() {
         waitForSignal: false,
         environment: const {'SLEUTH_MCP_BONJOUR_COLLECT': 'not-a-number'},
       );
-      expect(r.exitCode, 0,
-          reason: 'invalid env value must fall back to call-site default');
+      expect(
+        r.exitCode,
+        0,
+        reason: 'invalid env value must fall back to call-site default',
+      );
       expect(r.wsUri, isNotNull);
     });
 
@@ -806,10 +873,10 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async =>
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        iproxyStart: (_, _) async =>
             Process.start('sh', ['-c', 'echo failed >&2; exit 1']),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:53172 (interface 25) Flags: 1',
           ' authCode=usbtoken=',
         ]),
@@ -820,7 +887,10 @@ void main() {
       );
       expect(r.exitCode, 68);
       final pidfile = pidfileForSession(
-          directory: tmp.path, udid: 'ABC123', hostPort: 54200);
+        directory: tmp.path,
+        udid: 'ABC123',
+        hostPort: 54200,
+      );
       expect(pidfile.existsSync(), isFalse);
     });
   });

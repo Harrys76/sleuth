@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 13: Font Loading Stress
+// Demo 20: Font Loading Stress
 // Triggers: FontLoading detector (>3 custom fonts)
 // ─────────────────────────────────────────
 
@@ -31,15 +31,15 @@ class FontLoadingDemo extends StatelessWidget {
     return DemoScaffold(
       title: 'Font Loading Stress',
       description:
-          '❌ BAD: ${_badFonts.length} different custom font families on one '
-          'screen. Each family is a separate asset load, a separate raster '
-          'cache, and more work during first-paint.\n'
-          '✅ FIX: Limit to 1–2 families and vary weight/size instead. When '
-          'custom fonts are unavoidable, pre-load them at splash time via '
-          'FontLoader.\n\n'
-          '▶ Flip to Fixed Pattern — the same screen rendered using the '
-          'default font at varied weights. The FontLoading detector should '
-          'go quiet.',
+          'Bad: One screen uses ${_badFonts.length} different custom font '
+          'families. Each family is a separate asset load, a separate '
+          'raster cache and more work during the first paint.\n'
+          'Fix: Limit the screen to 1 or 2 families and vary weight and '
+          'size instead. When custom fonts are unavoidable, pre-load them '
+          'at splash time with FontLoader.\n\n'
+          'Flip to Fixed Pattern to see the same screen in the default '
+          'font at varied weights. The FontLoading detector should go '
+          'quiet.',
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [

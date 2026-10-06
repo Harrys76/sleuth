@@ -30,19 +30,24 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed timeline data to generate VM-backed issues
-      controller.feedTimelineDataForTest(rasterDominantData(
-        rasterUs: 30000,
-        buildUs: 5000,
-        layoutUs: 3000,
-        paintUs: 2000,
-      ));
+      controller.feedTimelineDataForTest(
+        rasterDominantData(
+          rasterUs: 30000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ),
+      );
 
       // Run tree scan to generate structural issues
       controller.runTreeScanForTest(context);
 
       final issuesBefore = controller.issuesNotifier.value;
-      expect(issuesBefore, isNotEmpty,
-          reason: 'Issues must exist before disconnect to prove survival');
+      expect(
+        issuesBefore,
+        isNotEmpty,
+        reason: 'Issues must exist before disconnect to prove survival',
+      );
 
       // Disconnect VM
       controller.simulateVmStateChangeForTest(false);
@@ -54,21 +59,28 @@ void main() {
 
       // Structural issues should remain
       final structuralAfter = issuesAfter
-          .where((i) =>
-              i.observationSource == ObservationSource.structural ||
-              i.observationSource == ObservationSource.debugCallback ||
-              i.observationSource ==
-                  ObservationSource.debugCallbackAndStructural)
+          .where(
+            (i) =>
+                i.observationSource == ObservationSource.structural ||
+                i.observationSource == ObservationSource.debugCallback ||
+                i.observationSource ==
+                    ObservationSource.debugCallbackAndStructural,
+          )
           .toList();
-      expect(structuralAfter, isNotEmpty,
-          reason: 'Structural issues must survive VM disconnect');
+      expect(
+        structuralAfter,
+        isNotEmpty,
+        reason: 'Structural issues must survive VM disconnect',
+      );
 
       // No issue should claim Confirmed confidence for VM-dependent signals
       // after disconnect (hybrid detectors downgrade to possible)
       for (final issue in issuesAfter) {
         if (issue.observationSource == ObservationSource.vmTimeline) {
-          fail('VM-timeline-sourced issue "${issue.title}" should not exist '
-              'after VM disconnect');
+          fail(
+            'VM-timeline-sourced issue "${issue.title}" should not exist '
+            'after VM disconnect',
+          );
         }
       }
     });
@@ -106,8 +118,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('hybrid detectors re-acquire VM data after reconnect',
-        (tester) async {
+    testWidgets('hybrid detectors re-acquire VM data after reconnect', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildMixedTree(500));
       final context = tester.element(find.byType(Directionality));
 
@@ -119,17 +132,22 @@ void main() {
       final vmIssuesWhileDisconnected = disconnectedIssues
           .where((i) => i.observationSource == ObservationSource.vmTimeline)
           .toList();
-      expect(vmIssuesWhileDisconnected, isEmpty,
-          reason: 'No VM issues when disconnected');
+      expect(
+        vmIssuesWhileDisconnected,
+        isEmpty,
+        reason: 'No VM issues when disconnected',
+      );
 
       // Reconnect and feed timeline data
       controller.simulateVmStateChangeForTest(true);
-      controller.feedTimelineDataForTest(rasterDominantData(
-        rasterUs: 30000,
-        buildUs: 5000,
-        layoutUs: 3000,
-        paintUs: 2000,
-      ));
+      controller.feedTimelineDataForTest(
+        rasterDominantData(
+          rasterUs: 30000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ),
+      );
       controller.runTreeScanForTest(context);
 
       // Issues should now include VM-backed data
@@ -155,55 +173,71 @@ void main() {
       expect(controller.isVmConnected, isFalse);
 
       // Feed a jank frame
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 30),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 30),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       final verdict = controller.verdictNotifier.value;
       expect(verdict, isNotNull);
-      expect(verdict!.isFullMode, isFalse,
-          reason: 'Verdict should be basic mode without VM');
+      expect(
+        verdict!.isFullMode,
+        isFalse,
+        reason: 'Verdict should be basic mode without VM',
+      );
     });
 
-    test('verdict is full mode when VM connected and timeline data arrives',
-        () {
+    test('verdict is full mode when VM connected and timeline data arrives', () {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed timeline data with phase events (triggers correlated/full path)
-      controller.feedTimelineDataForTest(correlatedTimelineData(
-        buildUs: 20000,
-        layoutUs: 5000,
-        paintUs: 3000,
-        rasterUs: 8000,
-      ));
+      controller.feedTimelineDataForTest(
+        correlatedTimelineData(
+          buildUs: 20000,
+          layoutUs: 5000,
+          paintUs: 3000,
+          rasterUs: 8000,
+        ),
+      );
 
       // Feed a jank frame so the timeline path can match it
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 28),
-        rasterDuration: const Duration(milliseconds: 8),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 28),
+          rasterDuration: const Duration(milliseconds: 8),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       // Feed timeline data again (now there's a frame to correlate with)
-      controller.feedTimelineDataForTest(correlatedTimelineData(
-        buildUs: 20000,
-        layoutUs: 5000,
-        paintUs: 3000,
-        rasterUs: 8000,
-      ));
+      controller.feedTimelineDataForTest(
+        correlatedTimelineData(
+          buildUs: 20000,
+          layoutUs: 5000,
+          paintUs: 3000,
+          rasterUs: 8000,
+        ),
+      );
 
       final verdict = controller.verdictNotifier.value;
       // With VM connected + timeline data, verdict should be full or correlated
-      expect(verdict, isNotNull,
-          reason: 'Verdict should exist after VM + timeline + jank frame');
-      expect(verdict!.isFullMode || verdict.isCorrelated, isTrue,
-          reason: 'Verdict should be full/correlated mode with VM + timeline');
+      expect(
+        verdict,
+        isNotNull,
+        reason: 'Verdict should exist after VM + timeline + jank frame',
+      );
+      expect(
+        verdict!.isFullMode || verdict.isCorrelated,
+        isTrue,
+        reason: 'Verdict should be full/correlated mode with VM + timeline',
+      );
     });
   });
 
@@ -239,8 +273,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('VM-only detectors produce no issues when VM never connected',
-        (tester) async {
+    testWidgets('VM-only detectors produce no issues when VM never connected', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildMixedTree(500));
       final context = tester.element(find.byType(Directionality));
 
@@ -256,8 +291,11 @@ void main() {
       final vmOnlyIssues = issues
           .where((i) => i.observationSource == ObservationSource.vmTimeline)
           .toList();
-      expect(vmOnlyIssues, isEmpty,
-          reason: 'VM-only detectors must not produce issues without VM');
+      expect(
+        vmOnlyIssues,
+        isEmpty,
+        reason: 'VM-only detectors must not produce issues without VM',
+      );
     });
 
     testWidgets('structural detectors work without VM', (tester) async {
@@ -295,14 +333,16 @@ void main() {
       expect(await controller.reconnect(), isFalse);
     });
 
-    test('is idempotent when vmClient is null (multiple pre-init calls)',
-        () async {
-      final controller = SleuthController();
-      expect(await controller.reconnect(), isFalse);
-      expect(await controller.reconnect(), isFalse);
-      expect(await controller.reconnect(), isFalse);
-      controller.dispose();
-    });
+    test(
+      'is idempotent when vmClient is null (multiple pre-init calls)',
+      () async {
+        final controller = SleuthController();
+        expect(await controller.reconnect(), isFalse);
+        expect(await controller.reconnect(), isFalse);
+        expect(await controller.reconnect(), isFalse);
+        controller.dispose();
+      },
+    );
 
     test('dispose() is safe with no background timer scheduled', () {
       final controller = SleuthController();
@@ -337,15 +377,21 @@ void main() {
         controller.setVmClientForTest(fake);
 
         controller.scheduleBackgroundReconnectForTest();
-        expect(controller.backgroundReconnectScheduledForTest, isTrue,
-            reason: 'First attempt should be armed immediately after failure');
+        expect(
+          controller.backgroundReconnectScheduledForTest,
+          isTrue,
+          reason: 'First attempt should be armed immediately after failure',
+        );
 
         // Advance the first backoff step (500 ms, the new tighter lead-in)
         // and let the async callback run.
         async.elapse(const Duration(milliseconds: 500));
         async.flushMicrotasks();
-        expect(fake.connectCallCount, 1,
-            reason: 'Backoff step 1 should have fired exactly once');
+        expect(
+          fake.connectCallCount,
+          1,
+          reason: 'Backoff step 1 should have fired exactly once',
+        );
 
         controller.dispose();
       });
@@ -364,9 +410,13 @@ void main() {
         async.elapse(const Duration(seconds: 1));
         async.flushMicrotasks();
 
-        expect(fake.connectMaxRetriesCalls, [1, 1],
-            reason: 'Background tick must request 1 inner retry so each probe '
-                'gets two attempts inside the cold-start bind window');
+        expect(
+          fake.connectMaxRetriesCalls,
+          [1, 1],
+          reason:
+              'Background tick must request 1 inner retry so each probe '
+              'gets two attempts inside the cold-start bind window',
+        );
 
         controller.dispose();
       });
@@ -396,14 +446,20 @@ void main() {
         async.flushMicrotasks();
         async.elapse(const Duration(seconds: 30));
         async.flushMicrotasks();
-        expect(fake.connectCallCount, 7,
-            reason: 'All seven ladder steps should have fired');
+        expect(
+          fake.connectCallCount,
+          7,
+          reason: 'All seven ladder steps should have fired',
+        );
 
         // After the ladder is exhausted, no more attempts fire.
         async.elapse(const Duration(seconds: 60));
         async.flushMicrotasks();
-        expect(fake.connectCallCount, 7,
-            reason: 'Should stop after exhausting the ladder');
+        expect(
+          fake.connectCallCount,
+          7,
+          reason: 'Should stop after exhausting the ladder',
+        );
 
         controller.dispose();
       });
@@ -424,8 +480,11 @@ void main() {
 
         async.elapse(const Duration(seconds: 10));
         async.flushMicrotasks();
-        expect(fake.connectCallCount, 0,
-            reason: 'Cancelled timer must not fire connect after dispose');
+        expect(
+          fake.connectCallCount,
+          0,
+          reason: 'Cancelled timer must not fire connect after dispose',
+        );
       });
     });
 
@@ -450,10 +509,16 @@ void main() {
         async.flushMicrotasks();
 
         expect(fake.connectCallCount, 3);
-        expect(controller.backgroundReconnectAttemptForTest, 0,
-            reason: 'Counter must reset after a real success');
-        expect(controller.backgroundReconnectScheduledForTest, isFalse,
-            reason: 'Loop stops once connected');
+        expect(
+          controller.backgroundReconnectAttemptForTest,
+          0,
+          reason: 'Counter must reset after a real success',
+        );
+        expect(
+          controller.backgroundReconnectScheduledForTest,
+          isFalse,
+          reason: 'Loop stops once connected',
+        );
 
         controller.dispose();
       });
@@ -473,8 +538,11 @@ void main() {
         async.elapse(const Duration(milliseconds: 500));
         async.flushMicrotasks();
         // First tick succeeded → loop is now idle (no pending timer).
-        expect(controller.backgroundReconnectScheduledForTest, isFalse,
-            reason: 'Successful connect should have stopped the loop');
+        expect(
+          controller.backgroundReconnectScheduledForTest,
+          isFalse,
+          reason: 'Successful connect should have stopped the loop',
+        );
         fake.succeed = false;
         // Mirror the real VmServiceClient: its internal `_connected` flips
         // to false BEFORE the onConnectionChanged callback fires. Without
@@ -488,49 +556,60 @@ void main() {
         // the onConnectionChanged callback. The controller must re-arm
         // the background ladder so we don't get stuck in BASIC.
         controller.onVmConnectionChangedForTest(false);
-        expect(controller.backgroundReconnectScheduledForTest, isTrue,
-            reason: 'Disconnect signal while initialized must re-arm the loop');
+        expect(
+          controller.backgroundReconnectScheduledForTest,
+          isTrue,
+          reason: 'Disconnect signal while initialized must re-arm the loop',
+        );
 
         // Drain the next scheduled tick (first step = 500 ms).
         async.elapse(const Duration(milliseconds: 500));
         async.flushMicrotasks();
-        expect(fake.connectCallCount, priorCallCount + 1,
-            reason: 'Re-armed loop must fire a fresh connect attempt');
+        expect(
+          fake.connectCallCount,
+          priorCallCount + 1,
+          reason: 'Re-armed loop must fire a fresh connect attempt',
+        );
 
         controller.dispose();
       });
     });
 
-    test('disconnect into an already-armed loop is idempotent (no stacking)',
-        () {
-      fakeAsync((async) {
-        final controller = SleuthController();
-        controller.initializeDetectorsForTest();
-        final fake = _FakeVmClient(succeed: false);
-        controller.setVmClientForTest(fake);
-        controller.scheduleBackgroundReconnectForTest();
+    test(
+      'disconnect into an already-armed loop is idempotent (no stacking)',
+      () {
+        fakeAsync((async) {
+          final controller = SleuthController();
+          controller.initializeDetectorsForTest();
+          final fake = _FakeVmClient(succeed: false);
+          controller.setVmClientForTest(fake);
+          controller.scheduleBackgroundReconnectForTest();
 
-        // First tick fires (step 1 = 500 ms), fails, loop re-arms step 2.
-        async.elapse(const Duration(milliseconds: 500));
-        async.flushMicrotasks();
-        expect(fake.connectCallCount, 1);
-        expect(controller.backgroundReconnectScheduledForTest, isTrue);
+          // First tick fires (step 1 = 500 ms), fails, loop re-arms step 2.
+          async.elapse(const Duration(milliseconds: 500));
+          async.flushMicrotasks();
+          expect(fake.connectCallCount, 1);
+          expect(controller.backgroundReconnectScheduledForTest, isTrue);
 
-        // Inject a disconnect signal while the loop is already armed.
-        // _backgroundReconnectActive guards against stacking a second timer.
-        controller.onVmConnectionChangedForTest(false);
-        expect(controller.backgroundReconnectScheduledForTest, isTrue);
+          // Inject a disconnect signal while the loop is already armed.
+          // _backgroundReconnectActive guards against stacking a second timer.
+          controller.onVmConnectionChangedForTest(false);
+          expect(controller.backgroundReconnectScheduledForTest, isTrue);
 
-        // Drain step 2 (1 s). A stacked timer would produce 3 calls here;
-        // the guard keeps it at 2.
-        async.elapse(const Duration(seconds: 1));
-        async.flushMicrotasks();
-        expect(fake.connectCallCount, 2,
-            reason: 'Duplicate schedule must not double-count attempts');
+          // Drain step 2 (1 s). A stacked timer would produce 3 calls here;
+          // the guard keeps it at 2.
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+          expect(
+            fake.connectCallCount,
+            2,
+            reason: 'Duplicate schedule must not double-count attempts',
+          );
 
-        controller.dispose();
-      });
-    });
+          controller.dispose();
+        });
+      },
+    );
 
     test('concurrent reconnect() calls share the same in-flight future', () {
       fakeAsync((async) {
@@ -542,16 +621,25 @@ void main() {
         final a = controller.reconnect();
         final b = controller.reconnect();
         final c = controller.reconnect();
-        expect(identical(a, b), isTrue,
-            reason: 'Second call must join the in-flight future');
-        expect(identical(b, c), isTrue,
-            reason: 'Third call must join the in-flight future');
+        expect(
+          identical(a, b),
+          isTrue,
+          reason: 'Second call must join the in-flight future',
+        );
+        expect(
+          identical(b, c),
+          isTrue,
+          reason: 'Third call must join the in-flight future',
+        );
 
         // Let the fake reconnect complete.
         async.elapse(const Duration(milliseconds: 200));
         async.flushMicrotasks();
-        expect(fake.reconnectCallCount, 1,
-            reason: 'Only one underlying client.reconnect() should run');
+        expect(
+          fake.reconnectCallCount,
+          1,
+          reason: 'Only one underlying client.reconnect() should run',
+        );
 
         controller.dispose();
       });
@@ -574,50 +662,58 @@ void main() {
       SleuthController.clockOverrideForTest = null;
     });
 
-    test('first frame always emits, rapid frames within 200ms are throttled',
-        () {
-      final controller = SleuthController();
-      controller.initializeDetectorsForTest();
-      controller.markInitializedForTest();
+    test(
+      'first frame always emits, rapid frames within 200ms are throttled',
+      () {
+        final controller = SleuthController();
+        controller.initializeDetectorsForTest();
+        controller.markInitializedForTest();
 
-      int emitCount = 0;
-      controller.frameStatsNotifier.addListener(() => emitCount++);
+        int emitCount = 0;
+        controller.frameStatsNotifier.addListener(() => emitCount++);
 
-      FrameStats frame(int n) => FrameStats(
-            frameNumber: n,
-            uiDuration: const Duration(milliseconds: 8),
-            rasterDuration: const Duration(milliseconds: 5),
-            timestamp: fakeClock,
-            frameBudgetMs: 16,
-          );
+        FrameStats frame(int n) => FrameStats(
+          frameNumber: n,
+          uiDuration: const Duration(milliseconds: 8),
+          rasterDuration: const Duration(milliseconds: 5),
+          timestamp: fakeClock,
+          frameBudgetMs: 16,
+        );
 
-      // Frame 1 — first emit, throttle has no prior timestamp.
-      controller.addFrameForTest(frame(1));
-      expect(emitCount, 1, reason: 'First frame must emit immediately');
+        // Frame 1 — first emit, throttle has no prior timestamp.
+        controller.addFrameForTest(frame(1));
+        expect(emitCount, 1, reason: 'First frame must emit immediately');
 
-      // Frames 2-5 — within 200 ms window, should all be throttled.
-      for (var i = 2; i <= 5; i++) {
-        fakeClock = fakeClock.add(const Duration(milliseconds: 30));
-        controller.addFrameForTest(frame(i));
-      }
-      expect(emitCount, 1,
-          reason: 'Rapid frames within 200 ms must be throttled');
+        // Frames 2-5 — within 200 ms window, should all be throttled.
+        for (var i = 2; i <= 5; i++) {
+          fakeClock = fakeClock.add(const Duration(milliseconds: 30));
+          controller.addFrameForTest(frame(i));
+        }
+        expect(
+          emitCount,
+          1,
+          reason: 'Rapid frames within 200 ms must be throttled',
+        );
 
-      // Advance past the 200 ms throttle window.
-      fakeClock = fakeClock.add(const Duration(milliseconds: 200));
+        // Advance past the 200 ms throttle window.
+        fakeClock = fakeClock.add(const Duration(milliseconds: 200));
 
-      // Frame 6 — throttle elapsed, should emit.
-      controller.addFrameForTest(frame(6));
-      expect(emitCount, 2,
-          reason: 'Frame after 200 ms throttle window must emit');
+        // Frame 6 — throttle elapsed, should emit.
+        controller.addFrameForTest(frame(6));
+        expect(
+          emitCount,
+          2,
+          reason: 'Frame after 200 ms throttle window must emit',
+        );
 
-      // Another rapid burst.
-      fakeClock = fakeClock.add(const Duration(milliseconds: 50));
-      controller.addFrameForTest(frame(7));
-      expect(emitCount, 2, reason: 'Still within 200 ms of last emit');
+        // Another rapid burst.
+        fakeClock = fakeClock.add(const Duration(milliseconds: 50));
+        controller.addFrameForTest(frame(7));
+        expect(emitCount, 2, reason: 'Still within 200 ms of last emit');
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
     test('pre-initialized path bypasses throttle (every frame emits)', () {
       final controller = SleuthController();
@@ -628,18 +724,24 @@ void main() {
       controller.frameStatsNotifier.addListener(() => emitCount++);
 
       for (var i = 1; i <= 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 8),
-          rasterDuration: const Duration(milliseconds: 5),
-          timestamp: fakeClock,
-          frameBudgetMs: 16,
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 8),
+            rasterDuration: const Duration(milliseconds: 5),
+            timestamp: fakeClock,
+            frameBudgetMs: 16,
+          ),
+        );
       }
 
-      expect(emitCount, 5,
-          reason: 'Pre-init path must emit every frame (no throttle) '
-              'because exportSnapshot reads from the notifier');
+      expect(
+        emitCount,
+        5,
+        reason:
+            'Pre-init path must emit every frame (no throttle) '
+            'because exportSnapshot reads from the notifier',
+      );
 
       controller.dispose();
     });
@@ -653,9 +755,7 @@ void main() {
 
 class _FakeVmClient extends VmServiceClient {
   _FakeVmClient({this.succeed = true}) : _slow = false;
-  _FakeVmClient.slow()
-      : succeed = true,
-        _slow = true;
+  _FakeVmClient.slow() : succeed = true, _slow = true;
 
   bool succeed;
   final bool _slow;

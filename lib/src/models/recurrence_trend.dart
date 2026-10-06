@@ -62,10 +62,10 @@ class RecurrenceEntry {
   final int? severityIndex;
 
   Map<String, dynamic> toJson() => {
-        'scanCycle': scanCycle,
-        'present': present,
-        if (severityIndex != null) 'severityIndex': severityIndex,
-      };
+    'scanCycle': scanCycle,
+    'present': present,
+    if (severityIndex != null) 'severityIndex': severityIndex,
+  };
 
   factory RecurrenceEntry.fromJson(Map<String, dynamic> json) =>
       RecurrenceEntry(
@@ -87,6 +87,10 @@ class RecurrenceTrend {
 
   final List<RecurrenceEntry> _entries = [];
 
+  /// Scan cycle of the most recent presence. Kept outside [_entries] so
+  /// staleness still resolves after the ring buffer evicts that entry.
+  int? _lastPresentCycle;
+
   /// Scan cycles since the issue was last observed.
   /// Used for stale eviction — entries unseen for [staleThreshold]
   /// cycles are eligible for removal.
@@ -106,19 +110,19 @@ class RecurrenceTrend {
 
   /// Record that the issue was present during [scanCycle].
   void recordPresent(int scanCycle, {required int severityIndex}) {
-    _add(RecurrenceEntry(
-      scanCycle: scanCycle,
-      present: true,
-      severityIndex: severityIndex,
-    ));
+    _lastPresentCycle = scanCycle;
+    _add(
+      RecurrenceEntry(
+        scanCycle: scanCycle,
+        present: true,
+        severityIndex: severityIndex,
+      ),
+    );
   }
 
   /// Record that the issue was absent during [scanCycle].
   void recordAbsent(int scanCycle) {
-    _add(RecurrenceEntry(
-      scanCycle: scanCycle,
-      present: false,
-    ));
+    _add(RecurrenceEntry(scanCycle: scanCycle, present: false));
   }
 
   void _add(RecurrenceEntry entry) {
@@ -161,10 +165,10 @@ class RecurrenceTrend {
 
     final firstAvg =
         firstHalf.fold<double>(0, (s, e) => s + (e.severityIndex ?? 0)) /
-            firstHalf.length;
+        firstHalf.length;
     final secondAvg =
         secondHalf.fold<double>(0, (s, e) => s + (e.severityIndex ?? 0)) /
-            secondHalf.length;
+        secondHalf.length;
 
     final delta = secondAvg - firstAvg;
     if (delta > 0.3) return TrendDirection.worsening;
@@ -176,17 +180,15 @@ class RecurrenceTrend {
   /// cycles from the most recent entry's scan cycle).
   bool isStale(int currentScanCycle) {
     if (_entries.isEmpty) return true;
-    final lastPresent = _entries.lastWhere(
-      (e) => e.present,
-      orElse: () => _entries.first,
-    );
-    return (currentScanCycle - lastPresent.scanCycle) > staleThreshold;
+    final lastPresent = _lastPresentCycle ?? _entries.first.scanCycle;
+    return (currentScanCycle - lastPresent) > staleThreshold;
   }
 
   /// Summary for export (not the full ring buffer).
   Map<String, dynamic> toJson() {
-    final presentSeverities =
-        _entries.where((e) => e.present).map((e) => e.severityIndex ?? 0);
+    final presentSeverities = _entries
+        .where((e) => e.present)
+        .map((e) => e.severityIndex ?? 0);
     return {
       'trend': trend.name,
       'totalOccurrences': presentCount,

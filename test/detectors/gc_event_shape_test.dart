@@ -15,21 +15,48 @@ import 'package:vm_service/vm_service.dart' as vm;
 void main() {
   test('committed GC event fixture parses as vm_service Event of kind GC', () {
     final file = File('test/detectors/_fixtures/gc_event_real.json');
-    expect(file.existsSync(), isTrue,
-        reason: 'fixture path is referenced from doc/validation_ledger.md '
-            'and the GC event regression note in CHANGELOG.md');
+    expect(
+      file.existsSync(),
+      isTrue,
+      reason:
+          'fixture path is referenced from doc/validation_ledger.md '
+          'and the GC event regression note in CHANGELOG.md',
+    );
 
     final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
     final event = vm.Event.parse(json);
 
     expect(event, isNotNull, reason: 'Event.parse should not return null');
-    expect(event!.kind, vm.EventKind.kGC,
-        reason: 'kGC stream events always carry kind=GC');
-    expect(event.timestamp, isNotNull,
-        reason: '_onGcEvent depends on event.timestamp for sliding-window '
-            'cutoff math; absence would corrupt rate calculation');
-    expect(event.isolate, isNotNull,
-        reason: 'isolate ref is part of every kGC event in the published '
-            'vm_service contract — its absence indicates malformed JSON');
+    expect(
+      event!.kind,
+      vm.EventKind.kGC,
+      reason: 'kGC stream events always carry kind=GC',
+    );
+    expect(
+      event.timestamp,
+      isNotNull,
+      reason:
+          '_onGcEvent depends on event.timestamp for sliding-window '
+          'cutoff math; absence would corrupt rate calculation',
+    );
+    expect(
+      event.isolate,
+      isNotNull,
+      reason:
+          'isolate ref is part of every kGC event in the published '
+          'vm_service contract — its absence indicates malformed JSON',
+    );
+  });
+
+  test('gcType is readable from the raw event map', () {
+    // The controller reads `event.json?['gcType']` rather than a typed
+    // accessor so the split works on every supported vm_service major.
+    final file = File('test/detectors/_fixtures/gc_event_real.json');
+    final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    for (final type in ['Scavenge', 'MarkSweep', 'MarkCompact']) {
+      final event = vm.Event.parse({...json, 'gcType': type})!;
+      expect(event.json?['gcType'], type);
+    }
+    expect(vm.Event.parse(json)!.json?['gcType'], isNull);
   });
 }

@@ -37,12 +37,12 @@ class AllocationEntry {
   }
 
   Map<String, dynamic> toJson() => {
-        'className': className,
-        'libraryUri': libraryUri,
-        'instancesDelta': instancesDelta,
-        'bytesDelta': bytesDelta,
-        'percentage': double.parse(percentage.toStringAsFixed(1)),
-      };
+    'className': className,
+    'libraryUri': libraryUri,
+    'instancesDelta': instancesDelta,
+    'bytesDelta': bytesDelta,
+    'percentage': double.parse(percentage.toStringAsFixed(1)),
+  };
 
   factory AllocationEntry.fromJson(Map<String, dynamic> json) =>
       AllocationEntry(

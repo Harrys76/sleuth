@@ -9,12 +9,19 @@ void main() {
     expect(
       pubspecFile.existsSync(),
       isTrue,
-      reason: 'run from repo root — `pubspec.yaml` not found in CWD '
+      reason:
+          'run from repo root — `pubspec.yaml` not found in CWD '
           '(${Directory.current.path})',
     );
     final pubspec = pubspecFile.readAsStringSync();
-    final match =
-        RegExp(r'^version:\s*(.+)$', multiLine: true).firstMatch(pubspec);
+    // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+    // (fires only on subclassing). Remove when analyzer-server recognizes the
+    // implement-only kind.
+    // ignore: deprecated_member_use
+    final match = RegExp(
+      r'^version:\s*(.+)$',
+      multiLine: true,
+    ).firstMatch(pubspec);
     expect(match, isNotNull, reason: 'pubspec.yaml missing version line');
     final pubspecVersion = match!.group(1)!.trim();
     expect(

@@ -19,20 +19,20 @@
 // [FrameTimingDetector.addFrameForTest]) AND a real `FrameTiming` leg
 // (via [FrameTimingDetector.handleTimingsForTest]) so hand-written
 // synthetic fixtures cannot encode the detector's own expected shape
-// (anti-tautology, Tactic 9 / blocker B2).
+// (anti-tautology).
 //
-// Warmup is bypassed in every `setUp` via `warmupDuration: Duration.zero`
-// (blocker B1). Without it, the default 3-second gate at
+// Warmup is bypassed in every `setUp` via `warmupDuration: Duration.zero`.
+// Without it, the default 3-second gate at
 // `_isPastWarmup` silences both `_evaluateJank` and
 // `_evaluateCacheTrends` for the entire test run.
 //
-// Thresholds are chosen to survive `Duration.inMilliseconds` truncation
-// (blocker B5): 17 ms for a jank frame (17 > 16) and 33 ms for a severe
+// Thresholds are chosen to survive `Duration.inMilliseconds` truncation:
+// 17 ms for a jank frame (17 > 16) and 33 ms for a severe
 // jank frame (33 > 32).
 //
 // A dedicated Impeller-zero suppression test documents why every other
-// cache-family test sets `pictureCacheBytes: 1` as a belt-and-suspender
-// (blocker F2): the moment all four cache metrics read 0 for ≥30
+// cache-family test sets `pictureCacheBytes: 1`, which keeps the Impeller
+// branch from arming: the moment all four cache metrics read 0 for ≥30
 // consecutive frames, the detector marks the runtime as Impeller-backed
 // and actively clears cache-family issues, which would silently eat
 // both `raster_cache_thrashing` and `raster_cache_growing` if a future
@@ -65,8 +65,11 @@ void main() {
       frameNumber: frameNumber,
       uiDuration: Duration(milliseconds: totalMs),
       rasterDuration: Duration.zero,
-      timestamp:
-          DateTime(2026, 4, 22).add(Duration(milliseconds: frameNumber * 16)),
+      timestamp: DateTime(
+        2026,
+        4,
+        22,
+      ).add(Duration(milliseconds: frameNumber * 16)),
       pictureCacheCount: pictureCacheCount,
       pictureCacheBytes: pictureCacheBytes,
       layerCacheCount: layerCacheCount,
@@ -110,24 +113,28 @@ void main() {
 
     tearDown(() => detector.dispose());
 
-    test('2 severe + 12 normal — neither sustained nor jank_detected fires',
-        () {
-      // Blocker B4: with 2 severe frames out of a 14-frame sample,
-      // severeCount < 3 AND jankPercent = round(2 / 14 * 100) = 14,
-      // which is NOT > 15 — so jank_detected also stays silent.
-      for (var i = 0; i < 2; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 33));
-      }
-      for (var i = 2; i < 14; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
-      }
+    test(
+      '2 severe + 12 normal — neither sustained nor jank_detected fires',
+      () {
+        // With 2 severe frames out of a 14-frame sample,
+        // severeCount < 3 AND jankPercent = round(2 / 14 * 100) = 14,
+        // which is NOT > 15 — so jank_detected also stays silent.
+        for (var i = 0; i < 2; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 33));
+        }
+        for (var i = 2; i < 14; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+        }
 
-      expect(
-        detector.issues.where((i) =>
-            i.stableId == 'sustained_jank' || i.stableId == 'jank_detected'),
-        isEmpty,
-      );
-    });
+        expect(
+          detector.issues.where(
+            (i) =>
+                i.stableId == 'sustained_jank' || i.stableId == 'jank_detected',
+          ),
+          isEmpty,
+        );
+      },
+    );
 
     test('3 severe + 17 normal — sustained_jank fires with critical', () {
       for (var i = 0; i < 3; i++) {
@@ -137,14 +144,14 @@ void main() {
         detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
       }
 
-      final sustained =
-          detector.issues.where((i) => i.stableId == 'sustained_jank').toList();
+      final sustained = detector.issues
+          .where((i) => i.stableId == 'sustained_jank')
+          .toList();
       expect(sustained, hasLength(1));
       expect(sustained.first.severity, IssueSeverity.critical);
     });
 
-    test(
-        'sustained_jank stamps observedSevereCount + dedupIdentityMicros '
+    test('sustained_jank stamps observedSevereCount + dedupIdentityMicros '
         'on extraTraceArgs', () {
       // Producer-side plumbing for a future runtimeVerified raise on
       // sustained_jank.critical. The audit gate's bracket spec carries
@@ -160,24 +167,35 @@ void main() {
         detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
       }
 
-      final sustained =
-          detector.issues.firstWhere((i) => i.stableId == 'sustained_jank');
+      final sustained = detector.issues.firstWhere(
+        (i) => i.stableId == 'sustained_jank',
+      );
       expect(sustained.severity, IssueSeverity.critical);
-      expect(sustained.dedupIdentityMicros, isNotNull,
-          reason: 'Producer-side dedup identity must be stamped so the '
-              'audit-side strong-uniqueness invariant has values to '
-              'check.');
+      expect(
+        sustained.dedupIdentityMicros,
+        isNotNull,
+        reason:
+            'Producer-side dedup identity must be stamped so the '
+            'audit-side strong-uniqueness invariant has values to '
+            'check.',
+      );
       expect(sustained.extraTraceArgs, isNotNull);
-      expect(sustained.extraTraceArgs!['observedSevereCount'], equals('5'),
-          reason: '5 severe frames in 20-frame sample — stringified per '
-              'Timeline arg-encoding contract.');
-      expect(sustained.extraTraceArgs!['observedJankPercent'], isA<String>(),
-          reason: 'Stringified percent for downstream cross-check.');
+      expect(
+        sustained.extraTraceArgs!['observedSevereCount'],
+        equals('5'),
+        reason:
+            '5 severe frames in 20-frame sample — stringified per '
+            'Timeline arg-encoding contract.',
+      );
+      expect(
+        sustained.extraTraceArgs!['observedJankPercent'],
+        isA<String>(),
+        reason: 'Stringified percent for downstream cross-check.',
+      );
       expect(sustained.extraTraceArgs!['bufferSize'], equals('20'));
     });
 
-    test(
-        'severeCount band 2/3/5 — sustained_jank gate transitions exactly '
+    test('severeCount band 2/3/5 — sustained_jank gate transitions exactly '
         'at >=3', () {
       // Pin the (severeCount → fires?) relationship across the bracket
       // band a future runtimeVerified raise targets. severeCount=2 below
@@ -186,7 +204,7 @@ void main() {
       for (final (severeCount, fires) in const [
         (2, false),
         (3, true),
-        (5, true)
+        (5, true),
       ]) {
         final d = FrameTimingDetector(warmupDuration: Duration.zero);
         try {
@@ -196,16 +214,25 @@ void main() {
           for (var i = severeCount; i < 20; i++) {
             d.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
           }
-          final sustained =
-              d.issues.where((i) => i.stableId == 'sustained_jank').toList();
+          final sustained = d.issues
+              .where((i) => i.stableId == 'sustained_jank')
+              .toList();
           if (fires) {
-            expect(sustained, hasLength(1),
-                reason: 'severeCount=$severeCount should fire sustained_jank.');
-            expect(sustained.first.extraTraceArgs!['observedSevereCount'],
-                equals(severeCount.toString()));
+            expect(
+              sustained,
+              hasLength(1),
+              reason: 'severeCount=$severeCount should fire sustained_jank.',
+            );
+            expect(
+              sustained.first.extraTraceArgs!['observedSevereCount'],
+              equals(severeCount.toString()),
+            );
           } else {
-            expect(sustained, isEmpty,
-                reason: 'severeCount=$severeCount is below the >=3 gate.');
+            expect(
+              sustained,
+              isEmpty,
+              reason: 'severeCount=$severeCount is below the >=3 gate.',
+            );
           }
         } finally {
           d.dispose();
@@ -213,15 +240,16 @@ void main() {
       }
     });
 
-    test(
-        'real FrameTiming pipeline — sustained_jank fires via '
+    test('real FrameTiming pipeline — sustained_jank fires via '
         'handleTimingsForTest', () {
-      // Blocker B2: anti-tautology leg. The synthetic `addFrameForTest`
+      // Anti-tautology leg. The synthetic `addFrameForTest`
       // path bypasses the `_onTimings` FrameStats construction; this leg
       // drives the detector through the exact `addTimingsCallback` code
       // path the engine uses.
+      // 34 ms: real frames carry the 16667 us budget, so severe starts
+      // above 33.334 ms.
       final timings = <FrameTiming>[
-        for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, totalMs: 33),
+        for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, totalMs: 34),
         for (var i = 3; i < 20; i++) makeTiming(frameNumber: i, totalMs: 10),
       ];
       detector.handleTimingsForTest(timings);
@@ -254,8 +282,9 @@ void main() {
         detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
       }
 
-      final jank =
-          detector.issues.where((i) => i.stableId == 'jank_detected').toList();
+      final jank = detector.issues
+          .where((i) => i.stableId == 'jank_detected')
+          .toList();
       expect(jank, hasLength(1));
       expect(jank.first.severity, IssueSeverity.warning);
       expect(
@@ -279,8 +308,7 @@ void main() {
       );
     });
 
-    test(
-        'real FrameTiming pipeline — jank_detected fires via '
+    test('real FrameTiming pipeline — jank_detected fires via '
         'handleTimingsForTest', () {
       final timings = <FrameTiming>[
         for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, totalMs: 17),
@@ -315,17 +343,80 @@ void main() {
         detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 20));
       }
 
-      final sustained =
-          detector.issues.where((i) => i.stableId == 'sustained_jank');
-      final jankDetected =
-          detector.issues.where((i) => i.stableId == 'jank_detected');
-      expect(sustained, hasLength(1),
-          reason: 'severeCount >= 3 → sustained_jank.critical fires');
-      expect(jankDetected, hasLength(1),
-          reason: 'jankPercent > 15 → jank_detected.warning fires '
-              'concurrently (Option B parallel emission)');
+      final sustained = detector.issues.where(
+        (i) => i.stableId == 'sustained_jank',
+      );
+      final jankDetected = detector.issues.where(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(
+        sustained,
+        hasLength(1),
+        reason: 'severeCount >= 3 → sustained_jank.critical fires',
+      );
+      expect(
+        jankDetected,
+        hasLength(1),
+        reason:
+            'jankPercent > 15 → jank_detected.warning fires '
+            'concurrently (the two issues emit in parallel)',
+      );
       expect(sustained.first.severity, IssueSeverity.critical);
       expect(jankDetected.first.severity, IssueSeverity.warning);
+    });
+  });
+
+  group('FrameTimingDetector reproducer — route epoch', () {
+    late FrameTimingDetector detector;
+    late String route;
+
+    setUp(() {
+      route = '/a';
+      detector = FrameTimingDetector(
+        warmupDuration: Duration.zero,
+        sourceRouteProvider: () => route,
+      );
+    });
+
+    tearDown(() => detector.dispose());
+
+    Iterable<PerformanceIssue> jank() => detector.issues.where(
+      (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected',
+    );
+
+    test('severe jank on route A does not survive the epoch', () {
+      for (var i = 0; i < 20; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 33));
+      }
+      expect(jank(), hasLength(2));
+      expect(jank().map((i) => i.sourceRoute), everyElement('/a'));
+
+      detector.markRouteEpoch();
+      route = '/b';
+      expect(jank(), isEmpty);
+
+      for (var i = 20; i < 60; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i));
+      }
+      expect(jank(), isEmpty);
+    });
+
+    test('real FrameTiming pipeline — jank after the epoch is attributed '
+        'to the new route with the slice as bufferSize', () {
+      detector.handleTimingsForTest([
+        for (var i = 0; i < 30; i++) makeTiming(frameNumber: i),
+      ]);
+      detector.markRouteEpoch();
+      route = '/b';
+      detector.handleTimingsForTest([
+        for (var i = 30; i < 40; i++) makeTiming(frameNumber: i, totalMs: 40),
+      ]);
+      final sustained = jank().singleWhere(
+        (i) => i.stableId == 'sustained_jank',
+      );
+      expect(sustained.sourceRoute, '/b');
+      expect(sustained.extraTraceArgs!['bufferSize'], '10');
+      expect(sustained.extraTraceArgs!['observedSevereCount'], '10');
     });
   });
 
@@ -343,14 +434,12 @@ void main() {
       // `previous.pictureCacheCount > 5` branch drives the delta check
       // on frame 1). Then 15 frames alternating 10 / 20 — each delta is
       // 10, variation is 0.5 or 1.0, both > 0.20.
-      detector
-          .addFrameForTest(makeStats(frameNumber: 0, pictureCacheCount: 10));
+      detector.addFrameForTest(
+        makeStats(frameNumber: 0, pictureCacheCount: 10),
+      );
       for (var i = 1; i <= 15; i++) {
         detector.addFrameForTest(
-          makeStats(
-            frameNumber: i,
-            pictureCacheCount: i.isOdd ? 20 : 10,
-          ),
+          makeStats(frameNumber: i, pictureCacheCount: i.isOdd ? 20 : 10),
         );
       }
 
@@ -362,14 +451,12 @@ void main() {
     });
 
     test('seed + 14 fluctuations (one short of window) — silent', () {
-      detector
-          .addFrameForTest(makeStats(frameNumber: 0, pictureCacheCount: 10));
+      detector.addFrameForTest(
+        makeStats(frameNumber: 0, pictureCacheCount: 10),
+      );
       for (var i = 1; i <= 14; i++) {
         detector.addFrameForTest(
-          makeStats(
-            frameNumber: i,
-            pictureCacheCount: i.isOdd ? 20 : 10,
-          ),
+          makeStats(frameNumber: i, pictureCacheCount: i.isOdd ? 20 : 10),
         );
       }
 
@@ -379,23 +466,19 @@ void main() {
       );
     });
 
-    test(
-        'real FrameTiming pipeline — thrashing fires via '
+    test('real FrameTiming pipeline — thrashing fires via '
         'handleTimingsForTest', () {
       // `_onTimings` evaluates cache trends ONCE per batch (comparing
       // `frames.last` to `frames[frames.length - 2]`) — submit frames
       // individually so `_consecutiveThrashingFrames` accumulates per
       // consecutive pair, matching what a real `addTimingsCallback`
       // cadence produces on-device.
-      detector.handleTimingsForTest(
-        [makeTiming(frameNumber: 0, pictureCacheCount: 10)],
-      );
+      detector.handleTimingsForTest([
+        makeTiming(frameNumber: 0, pictureCacheCount: 10),
+      ]);
       for (var i = 1; i <= 15; i++) {
         detector.handleTimingsForTest([
-          makeTiming(
-            frameNumber: i,
-            pictureCacheCount: i.isOdd ? 20 : 10,
-          ),
+          makeTiming(frameNumber: i, pictureCacheCount: i.isOdd ? 20 : 10),
         ]);
       }
 
@@ -424,7 +507,7 @@ void main() {
           makeStats(
             frameNumber: i,
             // 1 KiB per frame, always > 0 so the Impeller-zero branch
-            // never arms (F2 belt-and-suspender).
+            // never arms.
             pictureCacheBytes: 1024 * (i + 1),
           ),
         );
@@ -440,10 +523,7 @@ void main() {
     test('30 frames (one pairwise comparison short) — silent', () {
       for (var i = 0; i <= 29; i++) {
         detector.addFrameForTest(
-          makeStats(
-            frameNumber: i,
-            pictureCacheBytes: 1024 * (i + 1),
-          ),
+          makeStats(frameNumber: i, pictureCacheBytes: 1024 * (i + 1)),
         );
       }
 
@@ -453,17 +533,13 @@ void main() {
       );
     });
 
-    test(
-        'real FrameTiming pipeline — growing fires via '
+    test('real FrameTiming pipeline — growing fires via '
         'handleTimingsForTest', () {
       // Same per-frame cadence reason as the thrashing leg —
       // `_evaluateCacheTrends` fires once per batch.
       for (var i = 0; i <= 30; i++) {
         detector.handleTimingsForTest([
-          makeTiming(
-            frameNumber: i,
-            pictureCacheBytes: 1024 * (i + 1),
-          ),
+          makeTiming(frameNumber: i, pictureCacheBytes: 1024 * (i + 1)),
         ]);
       }
 
@@ -483,19 +559,16 @@ void main() {
 
     tearDown(() => detector.dispose());
 
-    test(
-        '30 consecutive all-zero cache frames after an active thrashing '
+    test('30 consecutive all-zero cache frames after an active thrashing '
         'issue clears the issue', () {
       // Seed a thrashing pattern so `raster_cache_thrashing` is actively
       // emitted.
-      detector
-          .addFrameForTest(makeStats(frameNumber: 0, pictureCacheCount: 10));
+      detector.addFrameForTest(
+        makeStats(frameNumber: 0, pictureCacheCount: 10),
+      );
       for (var i = 1; i <= 15; i++) {
         detector.addFrameForTest(
-          makeStats(
-            frameNumber: i,
-            pictureCacheCount: i.isOdd ? 20 : 10,
-          ),
+          makeStats(frameNumber: i, pictureCacheCount: i.isOdd ? 20 : 10),
         );
       }
       expect(
@@ -513,13 +586,15 @@ void main() {
             frameNumber: i,
             uiDuration: const Duration(milliseconds: 10),
             rasterDuration: Duration.zero,
-            timestamp:
-                DateTime(2026, 4, 22).add(Duration(milliseconds: i * 16)),
+            timestamp: DateTime(
+              2026,
+              4,
+              22,
+            ).add(Duration(milliseconds: i * 16)),
             // All four cache metrics literally zero — this is the only
             // shape that arms the Impeller-detected branch. Every other
             // cache-family test in this file uses pictureCacheBytes: 1
-            // precisely so this branch cannot silently eat their signal
-            // (blocker F2).
+            // precisely so this branch cannot silently eat their signal.
             pictureCacheCount: 0,
             pictureCacheBytes: 0,
             layerCacheCount: 0,
@@ -530,11 +605,14 @@ void main() {
       }
 
       expect(
-        detector.issues.where((i) =>
-            i.stableId == 'raster_cache_thrashing' ||
-            i.stableId == 'raster_cache_growing'),
+        detector.issues.where(
+          (i) =>
+              i.stableId == 'raster_cache_thrashing' ||
+              i.stableId == 'raster_cache_growing',
+        ),
         isEmpty,
-        reason: '30 all-zero frames arm Impeller suppression, clearing '
+        reason:
+            '30 all-zero frames arm Impeller suppression, clearing '
             'cache-family issues',
       );
     });
@@ -543,7 +621,7 @@ void main() {
   // v0.17.0 FPS semantics (count-based actualFps, rolling 1-s window
   // anchored on latest rasterFinishUs). Every test uses the real
   // `handleTimingsForTest` path so hand-written synthetic fixtures
-  // cannot encode the detector's own expected shape (Tactic 9).
+  // cannot encode the detector's own expected shape.
   group('FrameTimingDetector reproducer — FPS semantics', () {
     // Build one `FrameTiming` per intended-presented frame with rasterFinish
     // timestamps stepping at `1_000_000 / fps` microseconds. Matches the
@@ -603,24 +681,26 @@ void main() {
       expect(detector.frameBuffer.actualFps, 120);
     });
 
-    test('batched delivery — all 60 timings in one callback → actualFps == 60',
-        () {
-      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
-      final stepUs = 1000000 ~/ 60;
-      // Single call with all 60 — the engine can batch on slow hardware.
-      // Window math is anchored on rasterFinishUs, so arrival pattern is
-      // irrelevant.
-      detector.handleTimingsForTest(
-        List.generate(
-          60,
-          (i) => makeFpsTiming(
-            frameNumber: i + 1,
-            rasterFinishUs: 1000000 + i * stepUs,
+    test(
+      'batched delivery — all 60 timings in one callback → actualFps == 60',
+      () {
+        final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+        final stepUs = 1000000 ~/ 60;
+        // Single call with all 60 — the engine can batch on slow hardware.
+        // Window math is anchored on rasterFinishUs, so arrival pattern is
+        // irrelevant.
+        detector.handleTimingsForTest(
+          List.generate(
+            60,
+            (i) => makeFpsTiming(
+              frameNumber: i + 1,
+              rasterFinishUs: 1000000 + i * stepUs,
+            ),
           ),
-        ),
-      );
-      expect(detector.frameBuffer.actualFps, 60);
-    });
+        );
+        expect(detector.frameBuffer.actualFps, 60);
+      },
+    );
 
     test('window slides — 90 frames over 1.5s, newest stays ~60', () {
       final detector = FrameTimingDetector(warmupDuration: Duration.zero);
@@ -659,12 +739,14 @@ void main() {
       // To pin "null propagates through buffer math" directly, clear and
       // add one frame via the raw buffer on a fresh buffer instance.
       final buffer = FrameStatsBuffer();
-      buffer.add(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 10),
-        rasterDuration: Duration.zero,
-        timestamp: DateTime(2026, 4, 22),
-      ));
+      buffer.add(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 10),
+          rasterDuration: Duration.zero,
+          timestamp: DateTime(2026, 4, 22),
+        ),
+      );
       expect(buffer.latest, isNotNull);
       expect(buffer.windowSampleCount, 0);
       expect(buffer.actualFps, 0);
@@ -677,8 +759,7 @@ void main() {
   // emission-seq monotonicity (audit-gate uniqueness invariant), reset()
   // semantics with `_emissionSeq` preservation, and `extraTraceArgs` shape.
   group('FrameTimingDetector v0.19.6 — captureMode warmup short-circuit', () {
-    test(
-        'captureMode=true bypasses 3 s warmup — fires on synthetic frames '
+    test('captureMode=true bypasses 3 s warmup — fires on synthetic frames '
         'without elapsing warmupDuration', () {
       final detector = FrameTimingDetector(captureMode: true);
       addTearDown(detector.dispose);
@@ -697,8 +778,7 @@ void main() {
       );
     });
 
-    test(
-        'captureMode=false preserves warmupDuration suppression — synthetic '
+    test('captureMode=false preserves warmupDuration suppression — synthetic '
         'frames at default 3 s gate stay silent', () {
       final detector = FrameTimingDetector(); // captureMode=false default
       addTearDown(detector.dispose);
@@ -708,51 +788,57 @@ void main() {
       for (var i = 3; i < 19; i++) {
         detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
       }
-      expect(detector.issues, isEmpty,
-          reason: 'default warmup gate suppresses');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'default warmup gate suppresses',
+      );
     });
   });
 
   group('FrameTimingDetector v0.19.6 — extraTraceArgs shape', () {
     test(
-        'jank_detected emission carries observedJankCount, '
-        'observedJankPercent, observedWorstFrameMs, bufferSize as String args',
-        () {
-      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
-      addTearDown(detector.dispose);
-      for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 22));
-      }
-      for (var i = 3; i < 19; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
-      }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
-      expect(issue.extraTraceArgs, isNotNull);
-      expect(
+      'jank_detected emission carries observedJankCount, '
+      'observedJankPercent, observedWorstFrameMs, bufferSize as String args',
+      () {
+        final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+        addTearDown(detector.dispose);
+        for (var i = 0; i < 3; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 22));
+        }
+        for (var i = 3; i < 19; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+        }
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'jank_detected',
+        );
+        expect(issue.extraTraceArgs, isNotNull);
+        expect(
           issue.extraTraceArgs!.keys,
           containsAll(<String>{
             'observedJankCount',
             'observedJankPercent',
             'observedWorstFrameMs',
             'bufferSize',
-          }));
-      // Per Timeline arg-encoding contract values are stringified.
-      for (final v in issue.extraTraceArgs!.values) {
-        expect(v, isA<String>());
-      }
-      expect(int.parse(issue.extraTraceArgs!['observedJankCount']!), 3);
-      expect(int.parse(issue.extraTraceArgs!['bufferSize']!), 19);
-      // Worst frame must reflect the 22 ms injected jank.
-      final worstMs =
-          double.parse(issue.extraTraceArgs!['observedWorstFrameMs']!);
-      expect(worstMs, closeTo(22.0, 0.5));
-    });
+          }),
+        );
+        // Per Timeline arg-encoding contract values are stringified.
+        for (final v in issue.extraTraceArgs!.values) {
+          expect(v, isA<String>());
+        }
+        expect(int.parse(issue.extraTraceArgs!['observedJankCount']!), 3);
+        expect(int.parse(issue.extraTraceArgs!['bufferSize']!), 19);
+        // Worst frame must reflect the 22 ms injected jank.
+        final worstMs = double.parse(
+          issue.extraTraceArgs!['observedWorstFrameMs']!,
+        );
+        expect(worstMs, closeTo(22.0, 0.5));
+      },
+    );
   });
 
   group('FrameTimingDetector v0.19.6 — _emissionSeq monotonicity', () {
-    test(
-        'back-to-back evaluations across multiple emissions produce '
+    test('back-to-back evaluations across multiple emissions produce '
         'STRICTLY-INCREASING dedupIdentityMicros (audit-gate uniqueness '
         'invariant)', () {
       final detector = FrameTimingDetector(warmupDuration: Duration.zero);
@@ -766,22 +852,28 @@ void main() {
         detector.reset();
         for (var i = 0; i < 3; i++) {
           detector.addFrameForTest(
-              makeStats(frameNumber: i + leg * 100, totalMs: 17));
+            makeStats(frameNumber: i + leg * 100, totalMs: 17),
+          );
         }
         for (var i = 3; i < 19; i++) {
           detector.addFrameForTest(
-              makeStats(frameNumber: i + leg * 100, totalMs: 10));
+            makeStats(frameNumber: i + leg * 100, totalMs: 10),
+          );
         }
-        final issue =
-            detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'jank_detected',
+        );
         expect(issue.dedupIdentityMicros, isNotNull);
         identities.add(issue.dedupIdentityMicros!);
       }
       // Strictly increasing across legs — `_emissionSeq` MUST persist
       // through `reset()` so the audit-gate uniqueness invariant holds.
       for (var i = 1; i < identities.length; i++) {
-        expect(identities[i], greaterThan(identities[i - 1]),
-            reason: 'identities should strictly increase across reset()s');
+        expect(
+          identities[i],
+          greaterThan(identities[i - 1]),
+          reason: 'identities should strictly increase across reset()s',
+        );
       }
     });
   });
@@ -814,8 +906,9 @@ void main() {
       for (var i = 3; i < 19; i++) {
         detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
       }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
       expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
       // Existing observed-axis keys remain intact alongside lifecyclePhase.
       expect(issue.extraTraceArgs?['observedJankPercent'], isNotNull);
@@ -835,103 +928,118 @@ void main() {
       for (var i = 3; i < 19; i++) {
         detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
       }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
       expect(issue.extraTraceArgs?['lifecyclePhase'], 'steady');
       expect(issue.extraTraceArgs?['observedJankPercent'], isNotNull);
     });
 
-    test('sustained_jank stamps lifecyclePhase from emission-time Timeline.now',
-        () {
-      final detector = FrameTimingDetector(
-        warmupDuration: Duration.zero,
-        appStartMonotonicUsForTest: () => Timeline.now - 2000000,
-      );
-      addTearDown(detector.dispose);
-      // 3 severe + 17 normal → sustained_jank fires.
-      detector.addFrameForTest(makeStats(frameNumber: 0, totalMs: 33));
-      detector.addFrameForTest(makeStats(frameNumber: 1, totalMs: 33));
-      detector.addFrameForTest(makeStats(frameNumber: 2, totalMs: 33));
-      for (var i = 3; i < 20; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
-      }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'sustained_jank');
-      expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
-    });
+    test(
+      'sustained_jank stamps lifecyclePhase from emission-time Timeline.now',
+      () {
+        final detector = FrameTimingDetector(
+          warmupDuration: Duration.zero,
+          appStartMonotonicUsForTest: () => Timeline.now - 2000000,
+        );
+        addTearDown(detector.dispose);
+        // 3 severe + 17 normal → sustained_jank fires.
+        detector.addFrameForTest(makeStats(frameNumber: 0, totalMs: 33));
+        detector.addFrameForTest(makeStats(frameNumber: 1, totalMs: 33));
+        detector.addFrameForTest(makeStats(frameNumber: 2, totalMs: 33));
+        for (var i = 3; i < 20; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+        }
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'sustained_jank',
+        );
+        expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
+      },
+    );
 
-    test('raster_cache_thrashing + raster_cache_growing stamp lifecyclePhase',
-        () {
-      final detector = FrameTimingDetector(
-        warmupDuration: Duration.zero,
-        appStartMonotonicUsForTest: () => Timeline.now - 1000000,
-      );
-      addTearDown(detector.dispose);
-      // Seed thrashing window: alternate counts ≥6 to trip >20 % variation.
-      detector.addFrameForTest(
-          makeStats(frameNumber: 0, pictureCacheCount: 10, totalMs: 10));
-      for (var i = 1; i <= 16; i++) {
-        detector.addFrameForTest(makeStats(
-          frameNumber: i,
-          pictureCacheCount: i.isEven ? 10 : 20,
-          pictureCacheBytes: 1024 * (i + 1), // monotonic growth
-          totalMs: 10,
-        ));
-      }
-      final thrashing = detector.issues
-          .firstWhere((i) => i.stableId == 'raster_cache_thrashing');
-      expect(thrashing.extraTraceArgs?['lifecyclePhase'], 'startup');
-    });
+    test(
+      'raster_cache_thrashing + raster_cache_growing stamp lifecyclePhase',
+      () {
+        final detector = FrameTimingDetector(
+          warmupDuration: Duration.zero,
+          appStartMonotonicUsForTest: () => Timeline.now - 1000000,
+        );
+        addTearDown(detector.dispose);
+        // Seed thrashing window: alternate counts ≥6 to trip >20 % variation.
+        detector.addFrameForTest(
+          makeStats(frameNumber: 0, pictureCacheCount: 10, totalMs: 10),
+        );
+        for (var i = 1; i <= 16; i++) {
+          detector.addFrameForTest(
+            makeStats(
+              frameNumber: i,
+              pictureCacheCount: i.isEven ? 10 : 20,
+              pictureCacheBytes: 1024 * (i + 1), // monotonic growth
+              totalMs: 10,
+            ),
+          );
+        }
+        final thrashing = detector.issues.firstWhere(
+          (i) => i.stableId == 'raster_cache_thrashing',
+        );
+        expect(thrashing.extraTraceArgs?['lifecyclePhase'], 'startup');
+      },
+    );
 
-    test('emission omits lifecyclePhase when no app-start anchor available',
-        () {
-      // No appStartMonotonicUsForTest passed; Sleuth.init not called in
-      // unit-test isolate → Sleuth.dartEntryMonotonicUs returns null →
-      // key omitted from extraTraceArgs (no fabricated phase value).
-      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
-      addTearDown(detector.dispose);
-      detector.addFrameForTest(makeStats(frameNumber: 0, totalMs: 17));
-      detector.addFrameForTest(makeStats(frameNumber: 1, totalMs: 17));
-      detector.addFrameForTest(makeStats(frameNumber: 2, totalMs: 17));
-      for (var i = 3; i < 19; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
-      }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
-      expect(issue.extraTraceArgs?.containsKey('lifecyclePhase'), false);
-    });
+    test(
+      'emission omits lifecyclePhase when no app-start anchor available',
+      () {
+        // No appStartMonotonicUsForTest passed; Sleuth.init not called in
+        // unit-test isolate → Sleuth.dartEntryMonotonicUs returns null →
+        // key omitted from extraTraceArgs (no fabricated phase value).
+        final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+        addTearDown(detector.dispose);
+        detector.addFrameForTest(makeStats(frameNumber: 0, totalMs: 17));
+        detector.addFrameForTest(makeStats(frameNumber: 1, totalMs: 17));
+        detector.addFrameForTest(makeStats(frameNumber: 2, totalMs: 17));
+        for (var i = 3; i < 19; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+        }
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'jank_detected',
+        );
+        expect(issue.extraTraceArgs?.containsKey('lifecyclePhase'), false);
+      },
+    );
   });
 
   group('FrameTimingDetector v0.19.6 — reset() semantics', () {
-    test('reset clears buffer, issues, warmup anchors, cache-trend counters',
-        () {
-      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
-      addTearDown(detector.dispose);
-      for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
-      }
-      for (var i = 3; i < 19; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
-      }
-      expect(detector.frameBuffer.frames, isNotEmpty);
-      expect(detector.issues, isNotEmpty);
+    test(
+      'reset clears buffer, issues, warmup anchors, cache-trend counters',
+      () {
+        final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+        addTearDown(detector.dispose);
+        for (var i = 0; i < 3; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
+        }
+        for (var i = 3; i < 19; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+        }
+        expect(detector.frameBuffer.frames, isNotEmpty);
+        expect(detector.issues, isNotEmpty);
 
-      detector.reset();
+        detector.reset();
 
-      expect(detector.frameBuffer.frames, isEmpty, reason: 'buffer cleared');
-      expect(detector.issues, isEmpty, reason: 'issues cleared');
-      // Re-priming after reset must work — warmup anchors cleared.
-      for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
-      }
-      for (var i = 3; i < 19; i++) {
-        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
-      }
-      expect(
-        detector.issues.where((i) => i.stableId == 'jank_detected'),
-        hasLength(1),
-        reason: 'detector functional after reset',
-      );
-    });
+        expect(detector.frameBuffer.frames, isEmpty, reason: 'buffer cleared');
+        expect(detector.issues, isEmpty, reason: 'issues cleared');
+        // Re-priming after reset must work — warmup anchors cleared.
+        for (var i = 0; i < 3; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
+        }
+        for (var i = 3; i < 19; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+        }
+        expect(
+          detector.issues.where((i) => i.stableId == 'jank_detected'),
+          hasLength(1),
+          reason: 'detector functional after reset',
+        );
+      },
+    );
   });
 }

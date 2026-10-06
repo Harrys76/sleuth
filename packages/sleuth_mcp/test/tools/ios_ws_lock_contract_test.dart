@@ -15,11 +15,10 @@ void main() {
         'http://127.0.0.1:55958/abc=/ws',
       );
       expect(mapped, startsWith('ios_vmservice_busy:'));
-      expect(mapped, contains('swipe the app'));
+      expect(mapped, contains('Swipe the app'));
     });
 
-    test(
-        '"Connection closed before full header was received" → '
+    test('"Connection closed before full header was received" → '
         'ios_vmservice_busy', () {
       final mapped = DaemonSession.mapBridgeConnectErrorToLastError(
         'failed to connect: HttpException: Connection closed before '
@@ -50,16 +49,18 @@ void main() {
       expect(mapped, startsWith('bridge connect failed:'));
     });
 
-    test('"Operation not permitted" → ios_vmservice_unreachable (wireless)',
-        () {
-      final mapped = DaemonSession.mapBridgeConnectErrorToLastError(
-        'failed to connect: SocketException: Connection failed '
-        '(OS Error: Operation not permitted, errno = 1), uri = '
-        'ws://Pengen.local:55958/abc=/ws',
-      );
-      expect(mapped, startsWith('ios_vmservice_unreachable:'));
-      expect(mapped, contains('Local Network'));
-    });
+    test(
+      '"Operation not permitted" → ios_vmservice_unreachable (wireless)',
+      () {
+        final mapped = DaemonSession.mapBridgeConnectErrorToLastError(
+          'failed to connect: SocketException: Connection failed '
+          '(OS Error: Operation not permitted, errno = 1), uri = '
+          'ws://Pengen.local:55958/abc=/ws',
+        );
+        expect(mapped, startsWith('ios_vmservice_unreachable:'));
+        expect(mapped, contains('Local Network'));
+      },
+    );
 
     test('"Network is unreachable" → ios_vmservice_unreachable (wireless)', () {
       final mapped = DaemonSession.mapBridgeConnectErrorToLastError(

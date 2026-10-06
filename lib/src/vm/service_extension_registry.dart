@@ -37,8 +37,10 @@ class ServiceExtensionRegistry {
     Future<developer.ServiceExtensionResponse> Function(
       String method,
       Map<String, String> args,
-    ) handler,
-  )? registerFnForTest;
+    )
+    handler,
+  )?
+  registerFnForTest;
 
   @visibleForTesting
   static void resetForTest() {
@@ -95,12 +97,13 @@ class ServiceExtensionRegistry {
     final controller = _currentController?.target;
     if (controller == null) {
       return developer.ServiceExtensionResponse.result(
-          jsonEncode(<String, Object?>{
-        'connectionMode': 'disconnected',
-        'schemaVersion': kMcpEnvelopeSchemaVersion,
-        'disposed': true,
-        'method': method,
-      }));
+        jsonEncode(<String, Object?>{
+          'connectionMode': 'disconnected',
+          'schemaVersion': kMcpEnvelopeSchemaVersion,
+          'disposed': true,
+          'method': method,
+        }),
+      );
     }
     final handler = _handlers[method];
     if (handler == null) {
@@ -119,22 +122,25 @@ class ServiceExtensionRegistry {
       // Dispose-race surface: weak ref cleared between entry and throw.
       if (_currentController?.target == null) {
         return developer.ServiceExtensionResponse.result(
-            jsonEncode(<String, Object?>{
-          'connectionMode': 'disconnected',
-          'schemaVersion': kMcpEnvelopeSchemaVersion,
-          'disposed': true,
-          'method': method,
-          'error': '$e',
-        }));
+          jsonEncode(<String, Object?>{
+            'connectionMode': 'disconnected',
+            'schemaVersion': kMcpEnvelopeSchemaVersion,
+            'disposed': true,
+            'method': method,
+            'error': '$e',
+          }),
+        );
       }
-      return developer.ServiceExtensionResponse.result(jsonEncode(
-        envelopeError(
-          controller: controller,
-          error: '$e',
-          stack: '$st',
-          extra: <String, Object?>{'method': method},
+      return developer.ServiceExtensionResponse.result(
+        jsonEncode(
+          envelopeError(
+            controller: controller,
+            error: '$e',
+            stack: '$st',
+            extra: <String, Object?>{'method': method},
+          ),
         ),
-      ));
+      );
     }
   }
 }

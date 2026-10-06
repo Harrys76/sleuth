@@ -4,10 +4,7 @@ import 'package:test/test.dart';
 void main() {
   group('isMobileFlutterDevice', () {
     test('category=desktop → false', () {
-      expect(
-        isMobileFlutterDevice({'category': 'desktop'}),
-        isFalse,
-      );
+      expect(isMobileFlutterDevice({'category': 'desktop'}), isFalse);
     });
 
     test('no category, targetPlatform=ios → true (Flutter 3.41.4 shape)', () {

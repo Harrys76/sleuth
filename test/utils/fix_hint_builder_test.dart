@@ -278,6 +278,22 @@ void main() {
   // -------------------------------------------------------------------------
   // MemoryPressureDetector
   // -------------------------------------------------------------------------
+  group('nonLazyShrinkWrap', () {
+    test('names the list and Flex and points to slivers', () {
+      final (hint, effort) = FixHintBuilder.nonLazyShrinkWrap(
+        scrollableType: 'ListView',
+        flexType: 'Column',
+        ancestorChain: 'Page > Column > ListView',
+      );
+      expect(effort, FixEffort.medium);
+      expect(hint, contains('ListView(shrinkWrap: true) inside a Column'));
+      expect(hint, contains('CustomScrollView'));
+      expect(hint, contains('SliverToBoxAdapter'));
+      expect(hint, contains('item 0'));
+      expect(hint, contains('Page > Column > ListView'));
+    });
+  });
+
   group('gcPressure', () {
     test('returns medium effort', () {
       final (_, effort) = FixHintBuilder.gcPressure();
@@ -360,8 +376,9 @@ void main() {
     });
 
     test('includes URL when provided', () {
-      final (hint, _) =
-          FixHintBuilder.slowRequest(worstUrl: 'https://api.example.com/data');
+      final (hint, _) = FixHintBuilder.slowRequest(
+        worstUrl: 'https://api.example.com/data',
+      );
       expect(hint, contains('https://api.example.com/data'));
     });
   });
@@ -378,8 +395,9 @@ void main() {
     });
 
     test('includes URL when provided', () {
-      final (hint, _) =
-          FixHintBuilder.largeResponse(worstUrl: 'https://api.example.com/big');
+      final (hint, _) = FixHintBuilder.largeResponse(
+        worstUrl: 'https://api.example.com/big',
+      );
       expect(hint, contains('https://api.example.com/big'));
     });
   });
@@ -438,8 +456,9 @@ void main() {
     });
 
     test('includes method name when provided', () {
-      final (hint, _) =
-          FixHintBuilder.platformChannelTraffic(topMethod: 'getLocation');
+      final (hint, _) = FixHintBuilder.platformChannelTraffic(
+        topMethod: 'getLocation',
+      );
       expect(hint, contains('getLocation'));
     });
   });
@@ -449,14 +468,18 @@ void main() {
   // -------------------------------------------------------------------------
   group('rebuildDebug', () {
     test('returns medium effort', () {
-      final (_, effort) =
-          FixHintBuilder.rebuildDebug(typeName: 'MyWidget', rate: 25);
+      final (_, effort) = FixHintBuilder.rebuildDebug(
+        typeName: 'MyWidget',
+        rate: 25,
+      );
       expect(effort, FixEffort.medium);
     });
 
     test('includes type name and rate', () {
-      final (hint, _) =
-          FixHintBuilder.rebuildDebug(typeName: 'MyListItem', rate: 30);
+      final (hint, _) = FixHintBuilder.rebuildDebug(
+        typeName: 'MyListItem',
+        rate: 30,
+      );
       expect(hint, contains('MyListItem'));
       expect(hint, contains('30'));
     });
@@ -482,18 +505,19 @@ void main() {
 
   group('rebuildActivity', () {
     test('returns medium effort', () {
-      final (_, effort) = FixHintBuilder.rebuildActivity(buildCount: 100);
+      final (_, effort) = FixHintBuilder.rebuildActivity(buildPercent: 12);
       expect(effort, FixEffort.medium);
     });
 
-    test('includes build count', () {
-      final (hint, _) = FixHintBuilder.rebuildActivity(buildCount: 150);
-      expect(hint, contains('150'));
+    test('includes the formatted build-time share', () {
+      final (hint, _) = FixHintBuilder.rebuildActivity(buildPercent: 18.24);
+      expect(hint, contains('18.2% of UI-thread time'));
+      expect(hint, isNot(contains('/sec')));
     });
 
     test('includes enriched names when provided', () {
       final (hint, _) = FixHintBuilder.rebuildActivity(
-        buildCount: 100,
+        buildPercent: 12,
         enrichedNames: ['WidgetA', 'WidgetB'],
       );
       expect(hint, contains('WidgetA'));
@@ -518,17 +542,24 @@ void main() {
   // -------------------------------------------------------------------------
   group('excessiveRepaintVm', () {
     test('returns quick effort', () {
-      final (_, effort) = FixHintBuilder.excessiveRepaintVm();
+      final (_, effort) = FixHintBuilder.excessiveRepaintVm(paintPercent: 12);
       expect(effort, FixEffort.quick);
     });
 
     test('mentions RepaintBoundary', () {
-      final (hint, _) = FixHintBuilder.excessiveRepaintVm();
+      final (hint, _) = FixHintBuilder.excessiveRepaintVm(paintPercent: 12);
       expect(hint, contains('RepaintBoundary'));
+    });
+
+    test('includes the formatted paint-time share', () {
+      final (hint, _) = FixHintBuilder.excessiveRepaintVm(paintPercent: 14);
+      expect(hint, contains('14.0% of UI-thread time'));
+      expect(hint, isNot(contains('/sec')));
     });
 
     test('includes scrolling context', () {
       final (hint, _) = FixHintBuilder.excessiveRepaintVm(
+        paintPercent: 12,
         interactionContext: InteractionContext.scrolling,
       );
       expect(hint, contains('scrolling'));
@@ -537,14 +568,18 @@ void main() {
 
   group('repaintDebugType', () {
     test('returns quick effort', () {
-      final (_, effort) =
-          FixHintBuilder.repaintDebugType(typeName: 'AnimWidget', rate: 60);
+      final (_, effort) = FixHintBuilder.repaintDebugType(
+        typeName: 'AnimWidget',
+        rate: 60,
+      );
       expect(effort, FixEffort.quick);
     });
 
     test('includes type name and rate', () {
-      final (hint, _) =
-          FixHintBuilder.repaintDebugType(typeName: 'ClockFace', rate: 60);
+      final (hint, _) = FixHintBuilder.repaintDebugType(
+        typeName: 'ClockFace',
+        rate: 60,
+      );
       expect(hint, contains('ClockFace'));
       expect(hint, contains('60'));
     });
@@ -611,9 +646,12 @@ void main() {
       expect(effort, FixEffort.involved);
     });
 
-    test('mentions cache-sksl', () {
+    test('advises warm-up frames and drops SkSL flags', () {
       final (hint, _) = FixHintBuilder.shaderCompilation();
-      expect(hint, contains('cache-sksl'));
+      expect(hint, contains('warm-up or splash frame'));
+      expect(hint, contains('prefer Impeller'));
+      expect(hint, isNot(contains('cache-sksl')));
+      expect(hint, isNot(contains('bundle-sksl-path')));
     });
   });
 
@@ -621,14 +659,16 @@ void main() {
   // -------------------------------------------------------------------------
   group('shallowRebuildRisk', () {
     test('returns medium effort', () {
-      final (_, effort) =
-          FixHintBuilder.shallowRebuildRisk(widgetName: 'AppShell');
+      final (_, effort) = FixHintBuilder.shallowRebuildRisk(
+        widgetName: 'AppShell',
+      );
       expect(effort, FixEffort.medium);
     });
 
     test('includes widget name', () {
-      final (hint, _) =
-          FixHintBuilder.shallowRebuildRisk(widgetName: 'RootWidget');
+      final (hint, _) = FixHintBuilder.shallowRebuildRisk(
+        widgetName: 'RootWidget',
+      );
       expect(hint, contains('RootWidget'));
     });
 

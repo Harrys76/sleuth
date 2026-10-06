@@ -7,11 +7,15 @@ import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../vm/timeline_parser.dart';
 
-/// Detects shader compilation jank from VM Timeline events.
+/// Detects pipeline and shader build jank from VM Timeline events.
 ///
-/// **VM-Only Detector** — flags shader compilations >100ms.
-/// On Impeller (default since Flutter 3.16), shaders are pre-compiled at
-/// build time so this detector correctly produces no issues.
+/// **VM-Only Detector** — flags Impeller Vulkan pipeline builds
+/// (`PipelineVK::Create`, `CreateComputePipeline`) and Skia shader
+/// compiles (events tagged `devtoolsTag: shaders`) of 100 ms or more.
+/// Impeller Metal precompiles pipelines and emits no such events, so the
+/// detector stays silent there by design. Issues are `likely`: a build
+/// runs on a worker thread, and only frames that need that pipeline wait
+/// for it.
 ///
 /// Each emission stamps `extraTraceArgs.shaderWarmupContext` with one of
 /// `'cold_start' | 'hot_path' | 'keyframe'` discriminating shader-compile
@@ -24,13 +28,16 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
     this.coldStartShaderWindowSeconds = 5,
     this.shaderKeyframeWindowMs = 100,
     int? Function()? appStartMonotonicUsForTest,
-  })  : _appStartForTest = appStartMonotonicUsForTest,
-        super(
-          type: DetectorType.shaderJank,
-          lifecycle: DetectorLifecycle.vmOnly,
-          name: 'Shader Jank',
-          description: 'Detects shader compilation spikes (>100ms)',
-        );
+  }) : _appStartForTest = appStartMonotonicUsForTest,
+       super(
+         type: DetectorType.shaderJank,
+         lifecycle: DetectorLifecycle.vmOnly,
+         name: 'Shader Jank',
+         description:
+             'Detects Impeller Vulkan pipeline builds and Skia shader '
+             'compiles of at least 100ms (silent on Impeller Metal by '
+             'design)',
+       );
 
   final int thresholdMs;
   final int coldStartShaderWindowSeconds;
@@ -75,25 +82,30 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
       if (ms >= thresholdMs) {
         final (hint, effort) = FixHintBuilder.shaderCompilation();
         final context = _classifyShaderWarmup(event.timestampUs, data);
-        _issues.add(PerformanceIssue(
-          stableId: 'shader_compilation',
-          severity: ms >= thresholdMs * 2
-              ? IssueSeverity.critical
-              : IssueSeverity.warning,
-          category: IssueCategory.raster,
-          confidence: IssueConfidence.confirmed,
-          title: 'Shader Compilation: ${ms.toStringAsFixed(0)}ms',
-          detail:
-              'A shader was compiled on-the-fly causing a ${ms.toStringAsFixed(0)}ms '
-              'spike. Total shader events so far: $_totalShaderEvents.',
-          fixHint: hint,
-          fixEffort: effort,
-          observationSource: ObservationSource.vmTimeline,
-          detectedAt: DateTime.now(),
-          confidenceReason:
-              'Measured directly from VM timeline shader_compile events',
-          extraTraceArgs: {'shaderWarmupContext': context},
-        ));
+        _issues.add(
+          PerformanceIssue(
+            stableId: 'shader_compilation',
+            severity: ms >= thresholdMs * 2
+                ? IssueSeverity.critical
+                : IssueSeverity.warning,
+            category: IssueCategory.raster,
+            confidence: IssueConfidence.likely,
+            title: 'Shader Compilation: ${ms.toStringAsFixed(0)}ms',
+            detail:
+                'A pipeline or shader build took ${ms.toStringAsFixed(0)}ms. '
+                'Frames that need that pipeline wait for it. Total shader '
+                'events so far: $_totalShaderEvents.',
+            fixHint: hint,
+            fixEffort: effort,
+            observationSource: ObservationSource.vmTimeline,
+            detectedAt: DateTime.now(),
+            confidenceReason:
+                'Build duration measured from VM timeline begin and end '
+                'events. Frame impact depends on whether a frame waited for '
+                'it',
+            extraTraceArgs: {'shaderWarmupContext': context},
+          ),
+        );
       }
     }
   }
@@ -123,10 +135,12 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
     // keyframe window (default 100 ms), so most causal pairs land in
     // the same batch.
     final keyframeWindowUs = shaderKeyframeWindowMs * 1000;
-    final hasNearbyBuild = data.phaseEvents.any((e) =>
-        e.phase == TimelinePhase.build &&
-        shaderTsUs >= e.timestampUs &&
-        shaderTsUs - e.timestampUs < keyframeWindowUs);
+    final hasNearbyBuild = data.phaseEvents.any(
+      (e) =>
+          e.phase == TimelinePhase.build &&
+          shaderTsUs >= e.timestampUs &&
+          shaderTsUs - e.timestampUs < keyframeWindowUs,
+    );
     return hasNearbyBuild ? 'keyframe' : 'hot_path';
   }
 
@@ -138,24 +152,25 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. Shader-compile duration threshold '
-            '(100ms inclusive, 2× critical) pinned by hermetic '
-            'reproducer feeding raw `List<TimelineEvent>` through '
-            '`TimelineParser.parse()` into the detector — exercises the '
-            'VM → parser → detector boundary including shader name '
-            'variants (ShaderCompilation, Pipeline::Create, lowercase) '
-            'and Impeller-zero suppression via consecutive empty polls. '
-            '`extraTraceArgs.shaderWarmupContext` discriminates '
-            'cold_start (within `coldStartShaderWindowSeconds` of '
-            '`Sleuth.dartEntryMonotonicUs`), keyframe (build event '
-            'within `shaderKeyframeWindowMs` BEFORE shader compile), '
-            'and hot_path (fallback) — pinned by per-context reproducer '
-            'tests with mocked app-start clock and synthetic '
-            '`PhaseEvent` fixtures. Fixtures hand-built against parser '
-            'allowlist; real-device capture comparison is '
-            'runtime-verified-tier work.',
-        reproducerPath: 'test/validation/shader_jank_reproducer_test.dart',
-        coveredStableIds: {'shader_compilation'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'VM-only detector. A hermetic reproducer pins the build duration '
+        'threshold (100ms inclusive, critical at 2 times) by feeding raw '
+        '`List<TimelineEvent>` through `TimelineParser.parse()` into the '
+        'detector. Fixtures mirror the engine shapes. They use '
+        '`TRACE_EVENT` begin and end pairs for Impeller Vulkan '
+        '`PipelineVK::Create` and `CreateComputePipeline`, and Skia events '
+        'tagged `devtoolsTag: shaders`. `PipelineItem` and '
+        '`CreateShaderLibrary` stay silent, as does an empty Impeller '
+        'Metal timeline. `extraTraceArgs.shaderWarmupContext` tells apart '
+        'cold_start (within `coldStartShaderWindowSeconds` of '
+        '`Sleuth.dartEntryMonotonicUs`), keyframe (a build event within '
+        '`shaderKeyframeWindowMs` before the shader compile) and hot_path '
+        '(the fallback). Per-context reproducer tests pin these with a '
+        'mocked app-start clock and synthetic `PhaseEvent` fixtures. A '
+        'real-device capture comparison on an Impeller Vulkan device '
+        'belongs to the runtimeVerified tier.',
+    reproducerPath: 'test/validation/shader_jank_reproducer_test.dart',
+    coveredStableIds: {'shader_compilation'},
+  );
 }

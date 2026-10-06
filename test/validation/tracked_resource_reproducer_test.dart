@@ -59,9 +59,11 @@ void main() {
       }
       detector.evaluateNowForTest();
       expect(
-          detector.issues.where((i) =>
-              i.stableId?.startsWith('tracked_resource_concurrent') ?? false),
-          isEmpty);
+        detector.issues.where(
+          (i) => i.stableId?.startsWith('tracked_resource_concurrent') ?? false,
+        ),
+        isEmpty,
+      );
     });
 
     test('long-lived fires after threshold elapsed', () {
@@ -70,7 +72,8 @@ void main() {
       fakeNow = fakeNow.add(const Duration(seconds: 301));
       detector.evaluateNowForTest();
       final longLived = detector.issues.where(
-          (i) => i.stableId == 'tracked_resource_long_lived:chat_socket');
+        (i) => i.stableId == 'tracked_resource_long_lived:chat_socket',
+      );
       expect(longLived, hasLength(1));
       final issue = longLived.first;
       expect(issue.confidence, IssueConfidence.confirmed);
@@ -84,9 +87,11 @@ void main() {
       fakeNow = fakeNow.add(const Duration(seconds: 299));
       detector.evaluateNowForTest();
       expect(
-          detector.issues.where((i) =>
-              i.stableId?.startsWith('tracked_resource_long_lived') ?? false),
-          isEmpty);
+        detector.issues.where(
+          (i) => i.stableId?.startsWith('tracked_resource_long_lived') ?? false,
+        ),
+        isEmpty,
+      );
     });
 
     test('untrack reduces count below threshold; emission clears', () {

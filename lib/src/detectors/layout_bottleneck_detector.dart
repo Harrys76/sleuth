@@ -11,22 +11,25 @@ import '../utils/widget_location.dart';
 
 /// Detects intrinsic dimension render objects that cause layout bottlenecks.
 ///
-/// **Structural Detector** — scans render tree for RenderIntrinsicHeight/Width.
-/// Nested intrinsics are escalated to critical severity (exponential layout).
+/// **Structural Detector** — scans the tree for IntrinsicHeight/Width.
+/// A single intrinsic is warning/possible; nested intrinsics are
+/// critical/likely. Intrinsics built by framework widgets are skipped.
 class LayoutBottleneckDetector extends BaseDetector
     with DetectorMetadataProvider {
   LayoutBottleneckDetector()
-      : super(
-          type: DetectorType.layoutBottleneck,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Layout Bottleneck',
-          description: 'Detects RenderIntrinsicHeight/Width nodes',
-        );
+    : super(
+        type: DetectorType.layoutBottleneck,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Layout Bottleneck',
+        description:
+            'Detects RenderIntrinsicHeight and RenderIntrinsicWidth nodes',
+      );
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   final List<({String name, bool nested})> _found = [];
-  final List<({int childCount, String location})> _wrapFindings = [];
+  final List<({int childCount, String location, int occurrenceId})>
+  _wrapFindings = [];
   int _intrinsicDepth = 0;
   bool _isEnabled = true;
 
@@ -53,34 +56,66 @@ class LayoutBottleneckDetector extends BaseDetector
     _found.clear();
     _wrapFindings.clear();
     _intrinsicDepth = 0;
+    _intrinsicCounted.clear();
   }
 
-  /// Framework widgets that use IntrinsicHeight/IntrinsicWidth internally.
-  /// Developers cannot control this usage, so flagging it is noise.
-  static const _frameworkIntrinsicParents = {
-    'DropdownButton',
-    'DropdownButtonFormField',
-    'PopupMenuButton',
-    'AlertDialog',
-    'SimpleDialog',
-    'ExpansionTile',
+  /// Framework widgets that build an IntrinsicWidth/IntrinsicHeight
+  /// internally, mapped to the maximum number of ancestor hops between the
+  /// intrinsic and the owner. Developers cannot remove these intrinsics, so
+  /// flagging them is noise. The hop budget keeps a user intrinsic placed
+  /// deep inside the owner's content from being suppressed.
+  ///
+  /// Budgets sit just above the hop counts measured on Flutter 3.32 and
+  /// 3.47: ToggleButtons 1, BottomNavigationBar linear landscape label 24,
+  /// MenuBar cross-axis IntrinsicHeight 4 and per-item IntrinsicWidth 42,
+  /// popup menu 14, AlertDialog/SimpleDialog 18 (user `content` intrinsics
+  /// sit at 24 and stay reported), CupertinoContextMenu sheet 2-3.
+  static const _frameworkIntrinsicOwners = <String, int>{
+    'ToggleButtons': 2,
+    '_BottomNavigationTile': 26,
+    '_MenuPanel': 44,
+    '_PopupMenu': 16,
+    'AlertDialog': 20,
+    'SimpleDialog': 20,
+    '_ContextMenuSheet': 3,
   };
 
-  /// Walk up the element tree (max [_maxAncestorLookup] levels) to check
-  /// if a framework widget is an ancestor of this intrinsic node.
-  static const _maxAncestorLookup = 10;
+  static final int _maxOwnerHops = _frameworkIntrinsicOwners.values.reduce(
+    (a, b) => a > b ? a : b,
+  );
 
-  bool _isInsideFrameworkWidget(Element element) {
-    int depth = 0;
+  /// Scaffold places `persistentFooterButtons` under an IntrinsicHeight
+  /// inside the `LayoutId` for this slot.
+  static const _persistentFooterSlotId = '_ScaffoldSlot.persistentFooter';
+  static const _persistentFooterMaxHops = 8;
+
+  /// The bottom-navigation label intrinsic is always the direct child of a
+  /// `Flexible` (`Flexible(child: IntrinsicWidth(child: label))`). A user
+  /// intrinsic placed inside the item's icon shares the same tile ancestor
+  /// but not that parent, so the owner match requires it.
+  static const _flexibleParentOwner = '_BottomNavigationTile';
+
+  bool _isFrameworkIntrinsic(Element element) {
+    int hops = 0;
     bool found = false;
+    bool parentIsFlexible = false;
     element.visitAncestorElements((ancestor) {
-      if (depth >= _maxAncestorLookup) return false;
-      depth++;
-      final name = typeNameCache.lookup(ancestor.widget);
-      // Handle generic types like DropdownButton<String>
-      final baseName =
-          name.contains('<') ? name.substring(0, name.indexOf('<')) : name;
-      if (_frameworkIntrinsicParents.contains(baseName)) {
+      hops++;
+      if (hops > _maxOwnerHops) return false;
+      final ancestorWidget = ancestor.widget;
+      if (hops == 1) parentIsFlexible = ancestorWidget is Flexible;
+      if (hops <= _persistentFooterMaxHops &&
+          ancestorWidget is LayoutId &&
+          ancestorWidget.id.toString() == _persistentFooterSlotId) {
+        found = true;
+        return false;
+      }
+      final ownerName = baseTypeName(typeNameCache.lookup(ancestorWidget));
+      final budget = _frameworkIntrinsicOwners[ownerName];
+      if (budget != null && hops <= budget) {
+        if (ownerName == _flexibleParentOwner && !parentIsFlexible) {
+          return true;
+        }
         found = true;
         return false;
       }
@@ -88,6 +123,10 @@ class LayoutBottleneckDetector extends BaseDetector
     });
     return found;
   }
+
+  /// Parallel to the walk: whether each entered intrinsic counted toward
+  /// [_intrinsicDepth], so [afterElement] decrements symmetrically.
+  final List<bool> _intrinsicCounted = [];
 
   @override
   void checkElement(Element element) {
@@ -99,49 +138,65 @@ class LayoutBottleneckDetector extends BaseDetector
       int childCount = 0;
       element.visitChildren((_) => childCount++);
       if (childCount > _wrapChildThreshold) {
-        _wrapFindings.add(
-            (childCount: childCount, location: buildAncestorChain(element)));
+        _wrapFindings.add((
+          childCount: childCount,
+          location: buildAncestorChain(element),
+          occurrenceId: identityHashCode(element),
+        ));
         final ro = element.renderObject;
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: 'Wrap',
-              severity: childCount > _wrapChildThreshold * 2
-                  ? IssueSeverity.critical
-                  : IssueSeverity.warning,
-              detectorName: 'Layout',
-              detail: 'Wrap with $childCount children — non-virtualized layout',
-            ));
+            _highlights.add(
+              WidgetHighlight(
+                rect: rect,
+                renderObject: ro,
+                widgetName: 'Wrap',
+                severity: childCount > _wrapChildThreshold * 2
+                    ? IssueSeverity.critical
+                    : IssueSeverity.warning,
+                detectorName: 'Layout',
+                detail: 'Wrap with $childCount children, not virtualized',
+              ),
+            );
           }
         }
       }
     }
 
     if (widget is IntrinsicHeight || widget is IntrinsicWidth) {
+      // Framework-owned intrinsics are neither reported nor counted toward
+      // nesting.
+      if (_isFrameworkIntrinsic(element)) {
+        _intrinsicCounted.add(false);
+        return;
+      }
       final isNested = _intrinsicDepth > 0;
-      _intrinsicDepth++; // Always increment — afterElement always decrements.
+      _intrinsicDepth++;
+      _intrinsicCounted.add(true);
 
-      // Suppress intrinsics that are internal to framework widgets.
-      if (_isInsideFrameworkWidget(element)) return;
-
-      final widgetName =
-          widget is IntrinsicHeight ? 'IntrinsicHeight' : 'IntrinsicWidth';
+      final widgetName = widget is IntrinsicHeight
+          ? 'IntrinsicHeight'
+          : 'IntrinsicWidth';
       _found.add((name: widgetName, nested: isNested));
       final ro = element.renderObject;
       if (ro != null) {
         final rect = getGlobalRect(ro);
         if (rect != null) {
-          _highlights.add(WidgetHighlight(
-            rect: rect,
-            widgetName: widgetName,
-            severity: isNested ? IssueSeverity.critical : IssueSeverity.warning,
-            detectorName: 'Layout',
-            detail: isNested
-                ? 'Nested intrinsic — O(N²+) layout'
-                : 'Causes O(N^2) layout passes',
-          ));
+          _highlights.add(
+            WidgetHighlight(
+              rect: rect,
+              renderObject: ro,
+              widgetName: widgetName,
+              severity: isNested
+                  ? IssueSeverity.critical
+                  : IssueSeverity.warning,
+              detectorName: 'Layout',
+              detail: isNested
+                  ? 'Nested intrinsic. Each level re-measures the levels below'
+                  : 'Adds an extra intrinsic measuring pass',
+            ),
+          );
         }
       }
     }
@@ -150,7 +205,9 @@ class LayoutBottleneckDetector extends BaseDetector
   @override
   void afterElement(Element element) {
     final widget = element.widget;
-    if (widget is IntrinsicHeight || widget is IntrinsicWidth) {
+    if ((widget is IntrinsicHeight || widget is IntrinsicWidth) &&
+        _intrinsicCounted.isNotEmpty &&
+        _intrinsicCounted.removeLast()) {
       _intrinsicDepth--;
     }
   }
@@ -159,35 +216,49 @@ class LayoutBottleneckDetector extends BaseDetector
   void finalizeScan() {
     if (_found.isNotEmpty) {
       final hasNested = _found.any((f) => f.nested);
-      final locations = _found.take(5).map((f) {
-        final prefix = f.nested ? '⚠ ' : '';
-        return '  • $prefix${f.name}${f.nested ? ' (nested)' : ''}';
-      }).join('\n');
+      final locations = _found
+          .take(5)
+          .map((f) {
+            final prefix = f.nested ? '⚠ ' : '';
+            return '  • $prefix${f.name}${f.nested ? ' (nested)' : ''}';
+          })
+          .join('\n');
       final (hint, effort) = FixHintBuilder.layoutBottleneck();
 
-      _issues.add(PerformanceIssue(
-        stableId: 'layout_bottleneck',
-        severity: hasNested ? IssueSeverity.critical : IssueSeverity.warning,
-        category: IssueCategory.layout,
-        // confirmed: IntrinsicHeight/Width always triggers two-pass layout
-        // (framework guarantee — not a heuristic)
-        confidence: IssueConfidence.confirmed,
-        title: hasNested
-            ? 'Nested Layout Bottleneck: ${_found.length} intrinsic nodes'
-            : 'Layout Bottleneck: ${_found.length} intrinsic nodes',
-        detail: hasNested
-            ? 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth widgets '
-                'including nested intrinsics. Nesting multiplies layout '
-                'passes exponentially.\n\n$locations'
-            : 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth '
-                'widgets. These cause O(N²) layout passes.\n\n$locations',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Confirmed — IntrinsicHeight/Width always triggers two-pass layout',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'layout_bottleneck',
+          severity: hasNested ? IssueSeverity.critical : IssueSeverity.warning,
+          category: IssueCategory.layout,
+          // A single intrinsic's cost scales with its subtree, which a
+          // structural scan cannot size. Nesting compounds the measuring
+          // passes, so it is likely costly regardless of subtree.
+          confidence: hasNested
+              ? IssueConfidence.likely
+              : IssueConfidence.possible,
+          title: hasNested
+              ? 'Nested Layout Bottleneck: ${_found.length} intrinsic nodes'
+              : 'Layout Bottleneck: ${_found.length} intrinsic nodes',
+          detail: hasNested
+              ? 'Found ${_found.length} IntrinsicHeight or IntrinsicWidth '
+                    'widgets, including nested intrinsics. Each nested level '
+                    're-measures the levels below it.\n\n$locations'
+              : 'Found ${_found.length} IntrinsicHeight or IntrinsicWidth '
+                    'widgets. Each adds an extra intrinsic measuring '
+                    'pass.\n\n$locations',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason: hasNested
+              ? 'Structural scan. Nested IntrinsicWidth or IntrinsicHeight '
+                    'widgets multiply the measurement passes for every level '
+                    'below'
+              : 'Structural scan. An IntrinsicWidth or IntrinsicHeight adds '
+                    'a second measurement pass, and the cost depends on '
+                    'subtree size',
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
 
     // Emit Wrap bottleneck issues
@@ -196,24 +267,29 @@ class LayoutBottleneckDetector extends BaseDetector
         childCount: wrap.childCount,
         ancestorChain: wrap.location,
       );
-      _issues.add(PerformanceIssue(
-        stableId: 'wrap_layout_bottleneck',
-        severity: wrap.childCount > _wrapChildThreshold * 2
-            ? IssueSeverity.critical
-            : IssueSeverity.warning,
-        category: IssueCategory.layout,
-        confidence: IssueConfidence.possible,
-        title: 'Wrap Layout Bottleneck: ${wrap.childCount} children',
-        detail: 'Wrap with ${wrap.childCount} children is non-virtualized '
-            '— all children are laid out every frame regardless of '
-            'visibility.\n\n  • ${wrap.location}',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Structural scan only — Wrap child count exceeds threshold',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'wrap_layout_bottleneck',
+          severity: wrap.childCount > _wrapChildThreshold * 2
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.possible,
+          title: 'Wrap Layout Bottleneck: ${wrap.childCount} children',
+          detail:
+              'Wrap with ${wrap.childCount} children is not virtualized. '
+              'It lays out all its children every frame, visible or not.'
+              '\n\n  • ${wrap.location}',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Structural scan only. The Wrap child count is above the '
+              'threshold',
+          detectedAt: DateTime.now(),
+          occurrenceId: wrap.occurrenceId,
+        ),
+      );
     }
   }
 
@@ -224,20 +300,26 @@ class LayoutBottleneckDetector extends BaseDetector
     _found.clear();
     _wrapFindings.clear();
     _intrinsicDepth = 0;
+    _intrinsicCounted.clear();
   }
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins `layout_bottleneck` '
-            '(IntrinsicHeight/IntrinsicWidth structural trigger) and '
-            '`wrap_layout_bottleneck` (Wrap with > `wrapChildThreshold` '
-            'children, strict-greater). Detector is a pure structural scan '
-            'over widget shape — no layout-phase timing dependency — so the '
-            'reproducer covers the full runtime trigger path. Not yet '
-            'runtime-verified on a profile-mode capture.',
-        reproducerPath:
-            'test/validation/layout_bottleneck_reproducer_test.dart',
-        coveredStableIds: {'layout_bottleneck', 'wrap_layout_bottleneck'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins `layout_bottleneck` and '
+        '`wrap_layout_bottleneck`. `layout_bottleneck` is a structural '
+        'trigger on IntrinsicHeight and IntrinsicWidth. A single intrinsic '
+        'is warning with possible confidence, and nested intrinsics are '
+        'critical with likely confidence. The detector suppresses '
+        'framework-owned intrinsics that it matches by owner type within a '
+        'measured hop budget. `wrap_layout_bottleneck` fires for a Wrap '
+        'with more than `wrapChildThreshold` children (strict-greater). The '
+        'detector is a pure structural scan over widget shape with no '
+        'dependency on layout-phase timing, so the reproducer covers the '
+        'full runtime trigger path. No profile-mode capture verifies it at '
+        'runtime yet.',
+    reproducerPath: 'test/validation/layout_bottleneck_reproducer_test.dart',
+    coveredStableIds: {'layout_bottleneck', 'wrap_layout_bottleneck'},
+  );
 }

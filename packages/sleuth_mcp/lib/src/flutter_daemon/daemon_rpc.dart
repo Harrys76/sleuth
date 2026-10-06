@@ -36,9 +36,9 @@ class DaemonRpc {
     required Stream<DaemonRpcResponse> responses,
     Duration writeTimeout = const Duration(seconds: 5),
     Sink<String>? logger,
-  })  : _stdin = stdin,
-        _writeTimeout = writeTimeout,
-        _logger = logger {
+  }) : _stdin = stdin,
+       _writeTimeout = writeTimeout,
+       _logger = logger {
     _sub = responses.listen(_dispatchResponse);
   }
 
@@ -49,25 +49,48 @@ class DaemonRpc {
   int _nextId = 1;
   final Map<int, Completer<DaemonRpcResponse>> _inFlight = {};
 
+  /// Completes when [close] runs, so a call still writing to a stdin that
+  /// flutter stopped reading returns at once.
+  final Completer<void> _closed = Completer<void>();
+
   /// Send an RPC and await its response. [timeout] is the response
   /// deadline; the stdin write itself has a separate hard 5s timeout
-  /// (because a stuck daemon won't drain our writes).
+  /// (because a stuck daemon won't drain our writes). After [close], and
+  /// when [close] runs while the write is still pending, the call throws
+  /// [DaemonRpcException].
   Future<DaemonRpcResponse> call(
     String method,
     Map<String, Object?> params, {
     Duration? timeout,
   }) async {
+    if (_closed.isCompleted) {
+      throw DaemonRpcException('rpc channel closed before $method was sent');
+    }
     final id = _nextId++;
     final completer = Completer<DaemonRpcResponse>();
+    // [close] can fail the completer while the write below still waits for
+    // flutter to read its stdin. Nothing listens to the completer until the
+    // write finishes, so mark its error as handled here. The caller still
+    // gets the error from the future returned below.
+    completer.future.ignore();
     _inFlight[id] = completer;
     final envelope =
         '[${jsonEncode({'id': id, 'method': method, 'params': params})}]\n';
     try {
       _stdin.add(utf8.encode(envelope));
-      await _stdin.flush().timeout(_writeTimeout);
+      // Future.any also handles a late error from a flush it stopped
+      // waiting for.
+      await Future.any<void>([
+        _stdin.flush().timeout(_writeTimeout),
+        _closed.future,
+      ]);
     } catch (e) {
       _inFlight.remove(id);
       throw DaemonRpcException('stdin write for $method failed: $e');
+    }
+    if (_closed.isCompleted) {
+      _inFlight.remove(id);
+      throw DaemonRpcException('rpc channel closed while $method was sent');
     }
     final future = timeout == null
         ? completer.future
@@ -90,14 +113,19 @@ class DaemonRpc {
     c.complete(r);
   }
 
+  /// Fails every call in flight with [DaemonRpcException] and stops reading
+  /// responses. Idempotent. The calls are settled before anything is
+  /// awaited, so a response subscription that is slow to cancel cannot keep
+  /// a caller waiting.
   Future<void> close() async {
-    await _sub.cancel();
-    // Fail any in-flight RPCs so callers don't hang forever.
-    for (final c in _inFlight.values) {
+    if (!_closed.isCompleted) _closed.complete();
+    final pending = List.of(_inFlight.values);
+    _inFlight.clear();
+    for (final c in pending) {
       if (!c.isCompleted) {
         c.completeError(DaemonRpcException('rpc channel closed'));
       }
     }
-    _inFlight.clear();
+    await _sub.cancel();
   }
 }

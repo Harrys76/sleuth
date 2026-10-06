@@ -20,10 +20,10 @@ class PlatformChannelSummary {
   final String name;
 
   Map<String, dynamic> toJson() => {
-        'timestampUs': timestampUs,
-        'durationUs': durationUs,
-        'name': name,
-      };
+    'timestampUs': timestampUs,
+    'durationUs': durationUs,
+    'name': name,
+  };
 
   factory PlatformChannelSummary.fromJson(Map<String, dynamic> json) =>
       PlatformChannelSummary(

@@ -38,28 +38,30 @@ void main() {
         reason: 'Default config should enable network monitoring',
       );
       expect(
-        controller.config.enabledDetectors
-            .contains(DetectorType.networkMonitor),
+        controller.config.enabledDetectors.contains(
+          DetectorType.networkMonitor,
+        ),
         isTrue,
         reason: 'Default enabled detectors include network monitor',
       );
     });
 
-    test('network override NOT installed when enableNetworkMonitoring=false',
-        () {
-      HttpOverrides.global = null;
-      controller = SleuthController(
-        config: const SleuthConfig(enableNetworkMonitoring: false),
-      );
-      controller.initializeDetectorsForTest();
-
-      // With monitoring disabled, no HTTP override should be installed
-      // even after detector initialization
-      expect(HttpOverrides.current, isNull);
-    });
-
     test(
-        'network override NOT installed when networkMonitor removed from '
+      'network override NOT installed when enableNetworkMonitoring=false',
+      () {
+        HttpOverrides.global = null;
+        controller = SleuthController(
+          config: const SleuthConfig(enableNetworkMonitoring: false),
+        );
+        controller.initializeDetectorsForTest();
+
+        // With monitoring disabled, no HTTP override should be installed
+        // even after detector initialization
+        expect(HttpOverrides.current, isNull);
+      },
+    );
+
+    test('network override NOT installed when networkMonitor removed from '
         'enabledDetectors', () {
       HttpOverrides.global = null;
       final detectors = {...DetectorType.values}
@@ -97,8 +99,10 @@ void main() {
       );
       controller.initializeDetectorsForTest();
 
-      expect(controller.config.networkExcludePatterns,
-          containsAll(['analytics.com', '/health']));
+      expect(
+        controller.config.networkExcludePatterns,
+        containsAll(['analytics.com', '/health']),
+      );
     });
 
     test('dispose handles null _httpOverrides safely', () {
@@ -121,8 +125,9 @@ void main() {
       // Both the master switch and detector type must be enabled
       expect(controller.config.enableNetworkMonitoring, isTrue);
       expect(
-        controller.config.enabledDetectors
-            .contains(DetectorType.networkMonitor),
+        controller.config.enabledDetectors.contains(
+          DetectorType.networkMonitor,
+        ),
         isTrue,
       );
     });
@@ -159,8 +164,9 @@ void main() {
     test('memory pressure detector is initialized and enabled by default', () {
       // The memory pressure detector should be enabled in default config
       expect(
-        controller.config.enabledDetectors
-            .contains(DetectorType.memoryPressure),
+        controller.config.enabledDetectors.contains(
+          DetectorType.memoryPressure,
+        ),
         isTrue,
       );
     });
@@ -245,15 +251,17 @@ void main() {
       );
     }
 
-    test('phase 1: jank frame without VM produces verdict without topFunctions',
-        () {
-      // VM not connected, so no CPU attribution possible
-      controller.addFrameForTest(makeJankFrame());
+    test(
+      'phase 1: jank frame without VM produces verdict without topFunctions',
+      () {
+        // VM not connected, so no CPU attribution possible
+        controller.addFrameForTest(makeJankFrame());
 
-      final verdict = controller.verdictNotifier.value;
-      expect(verdict, isNotNull);
-      expect(verdict!.topFunctions, isNull);
-    });
+        final verdict = controller.verdictNotifier.value;
+        expect(verdict, isNotNull);
+        expect(verdict!.topFunctions, isNull);
+      },
+    );
 
     test('basic verdict has correct frame number', () {
       controller.addFrameForTest(makeJankFrame(frameNumber: 42));
@@ -265,13 +273,15 @@ void main() {
 
     test('non-jank frame does NOT produce a verdict', () {
       // 10ms UI + 5ms raster < 16ms budget → not jank
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 10),
-        rasterDuration: const Duration(milliseconds: 5),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 10),
+          rasterDuration: const Duration(milliseconds: 5),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       expect(controller.verdictNotifier.value, isNull);
     });
@@ -281,11 +291,13 @@ void main() {
       expect(frame.hasPhaseTimestamps, isTrue);
     });
 
-    test('FrameStats.hasPhaseTimestamps returns false without phase timestamps',
-        () {
-      final frame = makeJankFrame();
-      expect(frame.hasPhaseTimestamps, isFalse);
-    });
+    test(
+      'FrameStats.hasPhaseTimestamps returns false without phase timestamps',
+      () {
+        final frame = makeJankFrame();
+        expect(frame.hasPhaseTimestamps, isFalse);
+      },
+    );
 
     test('FrameVerdict.withTopFunctions creates enriched copy', () {
       const functions = [
@@ -352,12 +364,14 @@ void main() {
         isCorrelated: false,
       );
 
-      buffer.add(CaptureEntry(
-        frameStats: frame,
-        verdict: originalVerdict,
-        relatedIssues: const [],
-        capturedAt: DateTime.now(),
-      ));
+      buffer.add(
+        CaptureEntry(
+          frameStats: frame,
+          verdict: originalVerdict,
+          relatedIssues: const [],
+          capturedAt: DateTime.now(),
+        ),
+      );
 
       expect(buffer.entries.first.verdict.topFunctions, isNull);
 
@@ -376,42 +390,46 @@ void main() {
       expect(buffer.entries.first.verdict.topFunctions!.first.percentage, 60.0);
     });
 
-    test('capture buffer updateVerdict no-ops when frame number does not match',
-        () {
-      final buffer = JankCaptureBuffer();
-      final frame = makeJankFrame(frameNumber: 5);
-      final verdict = FrameVerdict(
-        frameNumber: 5,
-        totalFrameTime: const Duration(milliseconds: 30),
-        uiThreadTime: const Duration(milliseconds: 30),
-        rasterThreadTime: const Duration(milliseconds: 10),
-        suspectedPhase: PipelinePhase.build,
-        reason: 'Test',
-        relatedIssues: const [],
-        isFullMode: false,
-        isCorrelated: false,
-      );
+    test(
+      'capture buffer updateVerdict no-ops when frame number does not match',
+      () {
+        final buffer = JankCaptureBuffer();
+        final frame = makeJankFrame(frameNumber: 5);
+        final verdict = FrameVerdict(
+          frameNumber: 5,
+          totalFrameTime: const Duration(milliseconds: 30),
+          uiThreadTime: const Duration(milliseconds: 30),
+          rasterThreadTime: const Duration(milliseconds: 10),
+          suspectedPhase: PipelinePhase.build,
+          reason: 'Test',
+          relatedIssues: const [],
+          isFullMode: false,
+          isCorrelated: false,
+        );
 
-      buffer.add(CaptureEntry(
-        frameStats: frame,
-        verdict: verdict,
-        relatedIssues: const [],
-        capturedAt: DateTime.now(),
-      ));
+        buffer.add(
+          CaptureEntry(
+            frameStats: frame,
+            verdict: verdict,
+            relatedIssues: const [],
+            capturedAt: DateTime.now(),
+          ),
+        );
 
-      // Update with a different frame number — should not change anything
-      final enriched = verdict.withTopFunctions(const [
-        CpuAttribution(
-          functionName: 'x',
-          className: '',
-          libraryUri: '',
-          percentage: 99.0,
-        ),
-      ]);
-      buffer.updateVerdict(999, enriched);
+        // Update with a different frame number — should not change anything
+        final enriched = verdict.withTopFunctions(const [
+          CpuAttribution(
+            functionName: 'x',
+            className: '',
+            libraryUri: '',
+            percentage: 99.0,
+          ),
+        ]);
+        buffer.updateVerdict(999, enriched);
 
-      expect(buffer.entries.first.verdict.topFunctions, isNull);
-    });
+        expect(buffer.entries.first.verdict.topFunctions, isNull);
+      },
+    );
   });
 
   // =========================================================================
@@ -450,12 +468,14 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed timeline data that exercises multiple detector paths
-      controller.feedTimelineDataForTest(rasterDominantData(
-        rasterUs: 30000,
-        buildUs: 5000,
-        layoutUs: 3000,
-        paintUs: 2000,
-      ));
+      controller.feedTimelineDataForTest(
+        rasterDominantData(
+          rasterUs: 30000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ),
+      );
 
       // Aggregation ran — issues are collected from all detectors
       expect(controller.issuesNotifier.value, isA<List>());
@@ -470,13 +490,15 @@ void main() {
 
     test('jank frame populates capture buffer', () {
       // Add a jank frame to populate the buffer
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 30),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 30),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       // Buffer should have captured the jank frame
       // (via _onFrameStats → basic mode verdict path when VM not connected)
@@ -498,8 +520,7 @@ void main() {
       final context = tester.element(find.byType(Directionality));
 
       controller.simulateVmStateChangeForTest(true);
-      controller
-          .feedTimelineDataForTest(highBuildActivityData(buildCount: 100));
+      controller.feedTimelineDataForTest(buildLoadData(buildTimeUs: 400000));
 
       // First tree scan
       controller.runTreeScanForTest(context);
@@ -513,22 +534,26 @@ void main() {
 
     test('multiple jank frames captured in buffer order', () {
       // Frame 1
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 30),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 30),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       // Frame 2
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 2,
-        uiDuration: const Duration(milliseconds: 50),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 2,
+          uiDuration: const Duration(milliseconds: 50),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       final entries = controller.captureBufferForTest.entries;
       expect(entries.length, 2);
@@ -537,18 +562,12 @@ void main() {
     });
 
     test('interaction context defaults to idle', () {
-      expect(
-        controller.interactionStateForTest,
-        InteractionContext.idle,
-      );
+      expect(controller.interactionStateForTest, InteractionContext.idle);
     });
 
     test('interaction context can be set for test', () {
       controller.interactionStateForTest = InteractionContext.scrolling;
-      expect(
-        controller.interactionStateForTest,
-        InteractionContext.scrolling,
-      );
+      expect(controller.interactionStateForTest, InteractionContext.scrolling);
     });
 
     test('export snapshot works with empty state', () {
@@ -579,10 +598,14 @@ void main() {
       );
       ctrl.initializeDetectorsForTest();
 
-      expect(ctrl.config.enabledDetectors,
-          isNot(contains(DetectorType.networkMonitor)));
-      expect(ctrl.config.enabledDetectors,
-          isNot(contains(DetectorType.memoryPressure)));
+      expect(
+        ctrl.config.enabledDetectors,
+        isNot(contains(DetectorType.networkMonitor)),
+      );
+      expect(
+        ctrl.config.enabledDetectors,
+        isNot(contains(DetectorType.memoryPressure)),
+      );
 
       ctrl.dispose();
     });
@@ -607,21 +630,25 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Add a jank frame first so _frameTiming buffer has data
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 30),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 30),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       // Feed timeline data to trigger full-mode verdict
-      controller.feedTimelineDataForTest(rasterDominantData(
-        rasterUs: 30000,
-        buildUs: 5000,
-        layoutUs: 3000,
-        paintUs: 2000,
-      ));
+      controller.feedTimelineDataForTest(
+        rasterDominantData(
+          rasterUs: 30000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ),
+      );
 
       final verdict = controller.verdictNotifier.value;
       expect(verdict, isNotNull);
@@ -629,13 +656,15 @@ void main() {
 
     test('VM disconnected → basic mode verdict on jank', () {
       // VM not connected (default)
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 30),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 30),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       final verdict = controller.verdictNotifier.value;
       expect(verdict, isNotNull);
@@ -647,17 +676,19 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed data that will generate issues
-      controller.feedTimelineDataForTest(shaderCompileData(
-        shaderDurationsUs: [20000],
-      ));
+      controller.feedTimelineDataForTest(
+        shaderCompileData(shaderDurationsUs: [20000]),
+      );
 
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 30),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 30),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+        ),
+      );
 
       // Issues should be aggregated
       // (exact issue content depends on detector thresholds)
@@ -678,9 +709,9 @@ void main() {
     test('shader compile data reaches shader jank detector', () {
       controller.simulateVmStateChangeForTest(true);
 
-      controller.feedTimelineDataForTest(shaderCompileData(
-        shaderDurationsUs: [50000],
-      ));
+      controller.feedTimelineDataForTest(
+        shaderCompileData(shaderDurationsUs: [50000]),
+      );
 
       // Shader jank detector processes the data — issues aggregated
       expect(controller.issuesNotifier.value, isA<List>());
@@ -689,9 +720,9 @@ void main() {
     test('heavy compute data reaches heavy compute detector', () {
       controller.simulateVmStateChangeForTest(true);
 
-      controller.feedTimelineDataForTest(heavyComputeData(
-        buildScopeDurationsUs: [50000],
-      ));
+      controller.feedTimelineDataForTest(
+        heavyComputeData(buildScopeDurationsUs: [50000]),
+      );
 
       // Heavy compute detector processes the data
       expect(controller.issuesNotifier.value, isA<List>());
@@ -713,15 +744,18 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('structural issues from tree scan merge with VM issues',
-        (tester) async {
+    testWidgets('structural issues from tree scan merge with VM issues', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: Column(children: [
-            SizedBox(width: 100, height: 100),
-            SizedBox(width: 100, height: 100),
-          ]),
+          child: Column(
+            children: [
+              SizedBox(width: 100, height: 100),
+              SizedBox(width: 100, height: 100),
+            ],
+          ),
         ),
       );
 
@@ -729,8 +763,7 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed timeline data first
-      controller
-          .feedTimelineDataForTest(highBuildActivityData(buildCount: 100));
+      controller.feedTimelineDataForTest(buildLoadData(buildTimeUs: 400000));
 
       // Then run tree scan
       controller.runTreeScanForTest(context);
@@ -740,8 +773,9 @@ void main() {
       expect(issues, isA<List>());
     });
 
-    testWidgets('aggregateIssuesForTest re-ranks without tree scan',
-        (tester) async {
+    testWidgets('aggregateIssuesForTest re-ranks without tree scan', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
@@ -750,12 +784,14 @@ void main() {
       );
 
       controller.simulateVmStateChangeForTest(true);
-      controller.feedTimelineDataForTest(rasterDominantData(
-        rasterUs: 30000,
-        buildUs: 5000,
-        layoutUs: 3000,
-        paintUs: 2000,
-      ));
+      controller.feedTimelineDataForTest(
+        rasterDominantData(
+          rasterUs: 30000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ),
+      );
 
       // Re-aggregate without tree scan
       controller.aggregateIssuesForTest();

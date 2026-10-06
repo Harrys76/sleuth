@@ -1,17 +1,21 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/utils/type_name_cache.dart';
 
 void main() {
   setUp(() => typeNameCache.clear());
 
   group('TypeNameCache', () {
-    testWidgets('returns correct type name for StatelessWidget',
-        (tester) async {
-      await tester.pumpWidget(const Directionality(
-        textDirection: TextDirection.ltr,
-        child: SizedBox(),
-      ));
+    testWidgets('returns correct type name for StatelessWidget', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(),
+        ),
+      );
       final element = tester.element(find.byType(SizedBox));
       expect(typeNameCache.lookup(element.widget), 'SizedBox');
     });
@@ -27,27 +31,35 @@ void main() {
       expect(typeNameCache.lookup(element.widget), 'ListView');
     });
 
-    testWidgets('returns same string instance for repeated lookups',
-        (tester) async {
-      await tester.pumpWidget(const Directionality(
-        textDirection: TextDirection.ltr,
-        child: Column(children: [SizedBox(), SizedBox()]),
-      ));
+    testWidgets('returns same string instance for repeated lookups', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(children: [SizedBox(), SizedBox()]),
+        ),
+      );
       final elements = tester.elementList(find.byType(SizedBox)).toList();
       expect(elements.length, 2);
 
       final name1 = typeNameCache.lookup(elements[0].widget);
       final name2 = typeNameCache.lookup(elements[1].widget);
       expect(name1, 'SizedBox');
-      expect(identical(name1, name2), isTrue,
-          reason: 'Cache should return the same string instance');
+      expect(
+        identical(name1, name2),
+        isTrue,
+        reason: 'Cache should return the same string instance',
+      );
     });
 
     testWidgets('clear resets cache', (tester) async {
-      await tester.pumpWidget(const Directionality(
-        textDirection: TextDirection.ltr,
-        child: SizedBox(),
-      ));
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(),
+        ),
+      );
       final element = tester.element(find.byType(SizedBox));
 
       typeNameCache.lookup(element.widget);
@@ -57,13 +69,20 @@ void main() {
       expect(typeNameCache.length, 0);
     });
 
-    testWidgets('populates lazily — only accessed types cached',
-        (tester) async {
-      await tester.pumpWidget(const Directionality(
-        textDirection: TextDirection.ltr,
-        child:
-            Column(children: [SizedBox(), Padding(padding: EdgeInsets.zero)]),
-      ));
+    testWidgets('populates lazily — only accessed types cached', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              SizedBox(),
+              Padding(padding: EdgeInsets.zero),
+            ],
+          ),
+        ),
+      );
 
       final sizedBox = tester.element(find.byType(SizedBox));
       typeNameCache.lookup(sizedBox.widget);
@@ -81,7 +100,7 @@ void main() {
           textDirection: TextDirection.ltr,
           child: ValueListenableBuilder<int>(
             valueListenable: ValueNotifier(0),
-            builder: (_, __, ___) => const SizedBox(),
+            builder: (_, _, _) => const SizedBox(),
           ),
         ),
       );
@@ -90,6 +109,15 @@ void main() {
         typeNameCache.lookup(element.widget),
         contains('ValueListenableBuilder'),
       );
+    });
+  });
+
+  group('TypeNameCache.lookupType', () {
+    test('returns the type name for a non-widget type and caches it', () {
+      final first = typeNameCache.lookupType(_Probe);
+      expect(first, '_Probe');
+      expect(identical(typeNameCache.lookupType(_Probe), first), isTrue);
+      expect(typeNameCache.length, 1);
     });
   });
 
@@ -121,4 +149,32 @@ void main() {
       expect(baseTypeName('Tuple<int, String, bool>'), 'Tuple');
     });
   });
+  group('TypeNameCache lifetime in the controller', () {
+    testWidgets('persists across scans and clears on hot reload', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(children: [SizedBox(), Text('a')]),
+        ),
+      );
+      final context = tester.element(find.byType(Directionality));
+      final controller = SleuthController();
+      controller.initializeDetectorsForTest();
+      addTearDown(controller.dispose);
+
+      controller.runTreeScanForTest(context);
+      final afterFirst = typeNameCache.length;
+      expect(afterFirst, greaterThan(0));
+
+      controller.runTreeScanForTest(context);
+      expect(typeNameCache.length, afterFirst);
+
+      controller.reassembleForTest();
+      expect(typeNameCache.length, 0);
+    });
+  });
 }
+
+class _Probe {}

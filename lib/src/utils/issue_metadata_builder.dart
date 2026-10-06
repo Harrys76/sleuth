@@ -15,32 +15,27 @@ class IssueMetadataBuilder {
     final source = issue.observationSource?.displayName ?? 'heuristic analysis';
     final confidenceExplanation = switch (issue.confidence) {
       IssueConfidence.confirmed => 'Directly observed at runtime',
-      IssueConfidence.likely => 'Runtime signal + structural evidence',
+      IssueConfidence.likely => 'Runtime signal and structural evidence',
       IssueConfidence.possible =>
-        'Structural pattern only \u2014 no runtime confirmation',
+        'Structural pattern only, no runtime confirmation',
     };
     final accuracyNote = kDebugMode
-        ? 'Debug mode adds overhead \u2014 verify in profile mode'
-        : 'Profile mode \u2014 timing data is production-accurate';
+        ? 'Debug mode adds overhead. Verify in profile mode'
+        : 'Profile mode, so timing data matches production';
     final verifyWith = switch (issue.category) {
       IssueCategory.build ||
-      IssueCategory.layout =>
-        'DevTools \u2192 Performance \u2192 Frame Analysis',
+      IssueCategory.layout => 'DevTools > Performance > Frame Analysis',
       IssueCategory.paint ||
-      IssueCategory.raster =>
-        'DevTools \u2192 Performance \u2192 Raster Stats',
-      IssueCategory.memory =>
-        'DevTools \u2192 Memory \u2192 Allocation Tracking',
-      IssueCategory.channel =>
-        'DevTools \u2192 Network \u2192 Platform Channels',
-      IssueCategory.network => 'DevTools \u2192 Network',
-      IssueCategory.font =>
-        'DevTools \u2192 Performance \u2192 Timeline Events',
-      IssueCategory.startup => 'DevTools \u2192 Performance \u2192 App Startup',
+      IssueCategory.raster => 'DevTools > Performance > Raster Stats',
+      IssueCategory.memory => 'DevTools > Memory > Allocation Tracking',
+      IssueCategory.channel => 'DevTools > Network > Platform Channels',
+      IssueCategory.network => 'DevTools > Network',
+      IssueCategory.font => 'DevTools > Performance > Timeline Events',
+      IssueCategory.startup => 'DevTools > Performance > App Startup',
     };
     return [
       ('Based on:', source),
-      ('Confidence:', '${issue.confidence.name} \u2014 $confidenceExplanation'),
+      ('Confidence:', '${issue.confidence.name}. $confidenceExplanation'),
       ('Accuracy:', accuracyNote),
       ('Verify with:', verifyWith),
     ];

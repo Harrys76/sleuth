@@ -74,19 +74,22 @@ void main() {
 
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
-      expect(md, contains('# Sleuth Session Summary'));
+      expect(md, contains('# Sleuth session summary'));
       expect(md, contains('**Captured:** 2026-04-09 14:23:11'));
-      expect(md, contains('## Frame Stats'));
+      expect(md, contains('## Frame stats'));
       expect(md, contains('- Actual FPS: **58**'));
       expect(md, contains('- Throughput FPS: **58**'));
       expect(md, contains('- Worst frame: **34 ms**'));
       expect(md, contains('- Jank frames: **2 / 100**'));
-      expect(md, contains('## Top Issues (2)'));
-      expect(md, contains('1. **Heavy Build: 23.4ms** — `heavy_compute`'));
+      expect(md, contains('## Top issues (2)'));
+      expect(md, contains('1. **Heavy Build: 23.4ms**, `heavy_compute`'));
       expect(md, contains('   > VM timeline long UI-thread event.'));
       expect(md, contains('2. **Excessive GlobalKeys**'));
-      expect(md, contains('## Causal Chains'));
-      expect(md, contains('- `excessive_global_keys` → `rebuild_activity`'));
+      expect(md, contains('## Causal chains'));
+      expect(
+        md,
+        contains('- `excessive_global_keys` causes `rebuild_activity`'),
+      );
       expect(md, contains('_Exported by Sleuth v0.12.0_'));
     });
 
@@ -98,7 +101,7 @@ void main() {
       final snapshot = makeSnapshot(issues: issues);
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
-      expect(md, contains('## Top Issues (5)'));
+      expect(md, contains('## Top issues (5)'));
       expect(md, contains('5. **Issue 4**'));
       expect(md, isNot(contains('6.')));
     });
@@ -110,7 +113,7 @@ void main() {
       // The controller clamps, but the renderer also receives clamped value.
       // Verify rendering with topN=1 produces exactly 1 item.
       final md = SessionMarkdownExporter.render(snapshot, topN: 1);
-      expect(md, contains('## Top Issues (1)'));
+      expect(md, contains('## Top issues (1)'));
       expect(md, contains('1. **Only one**'));
       expect(md, isNot(contains('2. **')));
     });
@@ -119,8 +122,8 @@ void main() {
       final snapshot = makeSnapshot(issues: []);
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
-      expect(md, contains('## Frame Stats'));
-      expect(md, isNot(contains('## Top Issues')));
+      expect(md, contains('## Frame stats'));
+      expect(md, isNot(contains('## Top issues')));
     });
 
     test('zero causal edges omits Causal Chains header', () {
@@ -129,7 +132,7 @@ void main() {
       );
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
-      expect(md, isNot(contains('## Causal Chains')));
+      expect(md, isNot(contains('## Causal chains')));
     });
 
     test('escapes backticks in issue title', () {
@@ -181,9 +184,7 @@ void main() {
 
     test('escapes brackets, angle brackets, and pipes in title', () {
       final snapshot = makeSnapshot(
-        issues: [
-          makeIssue(title: 'See [docs] <html> | table', stableId: 'x'),
-        ],
+        issues: [makeIssue(title: 'See [docs] <html> | table', stableId: 'x')],
       );
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
@@ -211,7 +212,7 @@ void main() {
     test('issue without stableId falls back to category name', () {
       final snapshot = makeSnapshot(
         issues: [
-          makeIssue(title: 'Unknown issue', category: IssueCategory.memory)
+          makeIssue(title: 'Unknown issue', category: IssueCategory.memory),
         ],
       );
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
@@ -259,7 +260,7 @@ void main() {
 
       final md = SessionMarkdownExporter.render(withRoutes, topN: 5);
 
-      expect(md, contains('## Route Health'));
+      expect(md, contains('## Route health'));
       expect(md, contains('| Route | Score | FPS | Issues | Time |'));
       // Green dot for score 92
       expect(md, contains('/home'));
@@ -278,7 +279,7 @@ void main() {
       final snapshot = makeSnapshot();
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
-      expect(md, isNot(contains('## Route Health')));
+      expect(md, isNot(contains('## Route health')));
     });
 
     test('route health table omitted when routeSessions empty', () {
@@ -297,7 +298,7 @@ void main() {
       );
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
-      expect(md, isNot(contains('## Route Health')));
+      expect(md, isNot(contains('## Route health')));
     });
 
     test('route health duration formatting', () {

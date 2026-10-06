@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
 import '../utils/issue_explanation_builder.dart';
+import 'motion.dart';
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 /// Full-screen encyclopedia listing all detected issue types, grouped by category.
 ///
@@ -77,7 +79,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     _entranceController = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
-    )..forward();
+    );
 
     // Pre-expand and prepare scroll-to target. Normalise to the
     // encyclopedia key (strips parametric `:<param>` / dynamic
@@ -91,6 +93,12 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     }
 
     _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    startEntrance(context, _entranceController);
   }
 
   @override
@@ -113,15 +121,40 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
 
   void _scrollToTarget() {
     final target = _scrollTargetKey;
-    if (_scrollTargetScrolled || target == null) return;
+    if (!mounted || _scrollTargetScrolled || target == null) return;
     final key = _entryKeys[target];
     if (key?.currentContext == null) return;
     _scrollTargetScrolled = true;
-    Scrollable.ensureVisible(
+    ensureVisibleWithMotion(
+      context,
       key!.currentContext!,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
     );
+  }
+
+  void _toggleEntry(String stableId) {
+    setState(() {
+      if (!_expandedEntries.remove(stableId)) _expandedEntries.add(stableId);
+    });
+  }
+
+  /// Scrolls to and expands the related entry [id].
+  void _openRelated(String id) {
+    final key = _keyForEntry(id);
+    setState(() => _expandedEntries.add(id));
+    // Scroll to the target after next frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = key.currentContext;
+      if (mounted && ctx != null) {
+        ensureVisibleWithMotion(
+          context,
+          ctx,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
   }
 
   /// Returns (or creates) a GlobalKey for the given entry stableId.
@@ -173,14 +206,13 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTarget());
     }
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) {
-          _searchFocusNode.unfocus();
-          widget.onClose();
-        }
-      },
+    // Route semantics: screen readers announce the page name. While a
+    // page is open, `SleuthOverlay` drops the app's nodes below it.
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      label: 'Issue Encyclopedia',
       child: Material(
         color: theme.pageBackground,
         child: SafeArea(
@@ -193,18 +225,25 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
                   padding: EdgeInsets.all(theme.spacingMd),
                   child: Row(
                     children: [
-                      GestureDetector(
-                        onTap: () {
-                          _searchFocusNode.unfocus();
-                          widget.onClose();
-                        },
-                        behavior: HitTestBehavior.opaque,
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Center(
-                            child: Icon(Icons.arrow_back,
-                                color: theme.textPrimary, size: 22),
+                      Semantics(
+                        label: 'Back',
+                        button: true,
+                        child: GestureDetector(
+                          onTap: () {
+                            _searchFocusNode.unfocus();
+                            widget.onClose();
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Center(
+                              child: Icon(
+                                Icons.arrow_back,
+                                color: theme.textPrimary,
+                                size: 22,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -228,8 +267,12 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
               FadeTransition(
                 opacity: headerAnim,
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(theme.spacingMd, theme.spacingSm,
-                      theme.spacingMd, theme.spacingSm),
+                  padding: EdgeInsets.fromLTRB(
+                    theme.spacingMd,
+                    theme.spacingSm,
+                    theme.spacingMd,
+                    theme.spacingSm,
+                  ),
                   child: _SearchBar(
                     controller: _searchController,
                     focusNode: _searchFocusNode,
@@ -255,20 +298,24 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
 
   Widget _buildBody(
     List<({IssueCategory category, List<(String, IssueExplanation)> entries})>
-        groups,
+    groups,
     SleuthThemeData theme,
     double keyboardPadding,
   ) {
     // Filter groups by search.
-    final filteredGroups = <({
-      IssueCategory category,
-      List<(String, IssueExplanation)> entries,
-      int totalCount,
-    })>[];
+    final filteredGroups =
+        <
+          ({
+            IssueCategory category,
+            List<(String, IssueExplanation)> entries,
+            int totalCount,
+          })
+        >[];
 
     for (final group in groups) {
-      final filtered =
-          group.entries.where((e) => _matchesSearch(e.$2)).toList();
+      final filtered = group.entries
+          .where((e) => _matchesSearch(e.$2))
+          .toList();
       if (filtered.isNotEmpty) {
         filteredGroups.add((
           category: group.category,
@@ -289,14 +336,22 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
 
     return SingleChildScrollView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: EdgeInsets.fromLTRB(theme.spacingMd, theme.spacingSm,
-          theme.spacingMd, 24 + keyboardPadding),
+      padding: EdgeInsets.fromLTRB(
+        theme.spacingMd,
+        theme.spacingSm,
+        theme.spacingMd,
+        24 + keyboardPadding,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (final group in filteredGroups) ...[
             _categoryHeader(
-                group.category, group.entries.length, group.totalCount, theme),
+              group.category,
+              group.entries.length,
+              group.totalCount,
+              theme,
+            ),
             SizedBox(height: theme.spacingSm),
             for (final (stableId, entry) in group.entries) ...[
               _entryTile(stableId, entry, theme),
@@ -336,28 +391,34 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             child: Icon(icon, color: color, size: 14),
           ),
           SizedBox(width: theme.spacingSm),
-          Text(
-            name,
-            style: TextStyle(
-              color: color,
-              fontSize: theme.fontMd,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.3,
+          Flexible(
+            child: Text(
+              name,
+              style: TextStyle(
+                color: theme.textPrimary,
+                fontSize: theme.fontMd,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
             ),
           ),
           SizedBox(width: theme.spacingXs),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(theme.radiusLg),
-            ),
-            child: Text(
-              countText,
-              style: TextStyle(
-                color: color,
-                fontSize: theme.fontXs,
-                fontWeight: FontWeight.bold,
+          SleuthTextScaleClamp(
+            maxScaleFactor: kChromeMaxTextScale,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: theme.badgeFill(color),
+                borderRadius: BorderRadius.circular(theme.radiusLg),
+                border: Border.all(color: color),
+              ),
+              child: Text(
+                countText,
+                style: TextStyle(
+                  color: theme.badgeTextOn(color),
+                  fontSize: theme.fontXs,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -386,7 +447,8 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     );
 
     return Container(
-      key: _entryKeys[stableId] ??
+      key:
+          _entryKeys[stableId] ??
           (isScrollTarget ? _keyForEntry(stableId) : null),
       decoration: BoxDecoration(
         color: theme.sectionBackground,
@@ -396,42 +458,51 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
       child: Column(
         children: [
           // Tappable header
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                if (isExpanded) {
-                  _expandedEntries.remove(stableId);
-                } else {
-                  _expandedEntries.add(stableId);
-                }
-              });
-            },
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: theme.spacingMd, vertical: theme.spacingSm + 2),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      effectiveEntry.displayName,
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: theme.fontBase,
-                        fontWeight: FontWeight.w600,
+          Semantics(
+            container: true,
+            button: true,
+            expanded: isExpanded,
+            label: effectiveEntry.displayName,
+            onTap: () => _toggleEntry(stableId),
+            excludeSemantics: true,
+            child: GestureDetector(
+              onTap: () => _toggleEntry(stableId),
+              behavior: HitTestBehavior.opaque,
+              // At least 48 px tall.
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: theme.spacingMd,
+                    vertical: theme.spacingSm + 2,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          effectiveEntry.displayName,
+                          style: TextStyle(
+                            color: theme.textPrimary,
+                            fontSize: theme.fontBase,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-                    ),
+                      AnimatedRotation(
+                        turns: isExpanded ? 0.5 : 0,
+                        duration: motionDuration(
+                          context,
+                          const Duration(milliseconds: 200),
+                        ),
+                        child: Icon(
+                          Icons.expand_more,
+                          color: theme.textQuaternary,
+                          size: 18,
+                        ),
+                      ),
+                    ],
                   ),
-                  AnimatedRotation(
-                    turns: isExpanded ? 0.5 : 0,
-                    duration: const Duration(milliseconds: 200),
-                    child: Icon(
-                      Icons.expand_more,
-                      color: theme.textQuaternary,
-                      size: 18,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -440,7 +511,10 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             _entryContent(stableId, effectiveEntry, theme)
           else
             AnimatedSize(
-              duration: const Duration(milliseconds: 250),
+              duration: motionDuration(
+                context,
+                const Duration(milliseconds: 250),
+              ),
               curve: Curves.easeInOut,
               child: isExpanded
                   ? _entryContent(stableId, effectiveEntry, theme)
@@ -458,7 +532,11 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   ) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-          theme.spacingMd, 0, theme.spacingMd, theme.spacingMd),
+        theme.spacingMd,
+        0,
+        theme.spacingMd,
+        theme.spacingMd,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -485,10 +563,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     );
   }
 
-  Widget _relatedIssuesBlock(
-    List<String> relatedIds,
-    SleuthThemeData theme,
-  ) {
+  Widget _relatedIssuesBlock(List<String> relatedIds, SleuthThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -508,35 +583,38 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           children: [
             for (final id in relatedIds)
               if (IssueExplanationBuilder.explain(id) case final related?)
-                GestureDetector(
-                  onTap: () {
-                    final key = _keyForEntry(id);
-                    setState(() => _expandedEntries.add(id));
-                    // Scroll to the target after next frame.
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      final ctx = key.currentContext;
-                      if (ctx != null) {
-                        Scrollable.ensureVisible(
-                          ctx,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOutCubic,
-                        );
-                      }
-                    });
-                  },
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: theme.pageBackground,
-                      borderRadius: BorderRadius.circular(theme.radiusXl),
-                      border: Border.all(color: theme.border, width: 0.5),
-                    ),
-                    child: Text(
-                      related.displayName,
-                      style: TextStyle(
-                        color: theme.textSecondary,
-                        fontSize: theme.fontSm,
+                Semantics(
+                  container: true,
+                  button: true,
+                  label: related.displayName,
+                  onTap: () => _openRelated(id),
+                  excludeSemantics: true,
+                  child: GestureDetector(
+                    onTap: () => _openRelated(id),
+                    behavior: HitTestBehavior.opaque,
+                    // 48 px tall hit box around the chip.
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: Align(
+                        widthFactor: 1,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.pageBackground,
+                            borderRadius: BorderRadius.circular(theme.radiusXl),
+                            border: Border.all(color: theme.border, width: 0.5),
+                          ),
+                          child: Text(
+                            related.displayName,
+                            style: TextStyle(
+                              color: theme.textSecondary,
+                              fontSize: theme.fontSm,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -623,16 +701,16 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
       };
 
   static IconData _categoryIcon(IssueCategory category) => switch (category) {
-        IssueCategory.build => Icons.construction_outlined,
-        IssueCategory.layout => Icons.view_quilt_outlined,
-        IssueCategory.paint => Icons.brush_outlined,
-        IssueCategory.raster => Icons.memory_outlined,
-        IssueCategory.memory => Icons.sd_storage_outlined,
-        IssueCategory.network => Icons.cloud_outlined,
-        IssueCategory.font => Icons.text_fields_outlined,
-        IssueCategory.channel => Icons.swap_horiz_outlined,
-        IssueCategory.startup => Icons.rocket_launch_outlined,
-      };
+    IssueCategory.build => Icons.construction_outlined,
+    IssueCategory.layout => Icons.view_quilt_outlined,
+    IssueCategory.paint => Icons.brush_outlined,
+    IssueCategory.raster => Icons.memory_outlined,
+    IssueCategory.memory => Icons.sd_storage_outlined,
+    IssueCategory.network => Icons.cloud_outlined,
+    IssueCategory.font => Icons.text_fields_outlined,
+    IssueCategory.channel => Icons.swap_horiz_outlined,
+    IssueCategory.startup => Icons.rocket_launch_outlined,
+  };
 }
 
 // ─── Search bar ────────────────────────────────────────────────────────────
@@ -650,39 +728,52 @@ class _SearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 36,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
       child: TextField(
         controller: controller,
         focusNode: focusNode,
         style: TextStyle(color: theme.textPrimary, fontSize: theme.fontBase),
         cursorColor: theme.textTertiary,
         decoration: InputDecoration(
+          isDense: true,
+          constraints: const BoxConstraints(minHeight: 48),
           hintText: 'Search issues...',
-          hintStyle:
-              TextStyle(color: theme.textQuaternary, fontSize: theme.fontBase),
+          hintStyle: TextStyle(
+            color: theme.textQuaternary,
+            fontSize: theme.fontBase,
+          ),
           prefixIcon: Icon(Icons.search, color: theme.textQuaternary, size: 18),
           suffixIcon: ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
-            builder: (_, value, __) => value.text.isEmpty
+            builder: (_, value, _) => value.text.isEmpty
                 ? const SizedBox.shrink()
-                : GestureDetector(
-                    onTap: controller.clear,
-                    behavior: HitTestBehavior.opaque,
-                    child: SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: Center(
-                        child: Icon(Icons.close,
-                            color: theme.textQuaternary, size: 16),
+                : Semantics(
+                    label: 'Clear search',
+                    button: true,
+                    child: GestureDetector(
+                      onTap: controller.clear,
+                      behavior: HitTestBehavior.opaque,
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Center(
+                          child: Icon(
+                            Icons.close,
+                            color: theme.textQuaternary,
+                            size: 16,
+                          ),
+                        ),
                       ),
                     ),
                   ),
           ),
           filled: true,
           fillColor: theme.sectionBackground,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 0,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(theme.radiusLg),
             borderSide: BorderSide(color: theme.border, width: 0.5),

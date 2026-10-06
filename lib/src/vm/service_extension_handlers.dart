@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 
 import '../analyzer/causal_graph.dart';
 import '../controller/sleuth_controller.dart';
+import '../models/performance_issue.dart';
 import '../models/route_session.dart';
 import '../models/snapshot_sections.dart';
 import '../utils/issue_explanation_builder.dart';
@@ -16,12 +17,13 @@ import 'service_extension_registry.dart';
 const int kMcpEnvelopeSchemaVersion = 1;
 
 /// Stamped on `ext.sleuth.diagnose`. Keep in sync with `pubspec.yaml`.
-const String kSleuthPackageVersion = '0.36.0';
+const String kSleuthPackageVersion = '0.37.0';
 
-typedef ExtensionHandler = FutureOr<Map<String, Object?>> Function(
-  SleuthController controller,
-  Map<String, String> args,
-);
+typedef ExtensionHandler =
+    FutureOr<Map<String, Object?>> Function(
+      SleuthController controller,
+      Map<String, String> args,
+    );
 
 Map<String, Object?> envelopeOk({
   required SleuthController controller,
@@ -62,7 +64,7 @@ Map<String, Object?> envelopeError({
     'schemaVersion': kMcpEnvelopeSchemaVersion,
     'sessionUuid': controller.sessionUuid,
     'error': error,
-    if (stack != null) 'stack': stack,
+    'stack': ?stack,
     ...filteredExtra,
   };
 }
@@ -91,9 +93,9 @@ String _truncatedRepr(Object value) {
 }
 
 Map<String, Object?> _cycleEnvelope(Object value) => <String, Object?>{
-      '__cycle': true,
-      'repr': _truncatedRepr(value),
-    };
+  '__cycle': true,
+  'repr': _truncatedRepr(value),
+};
 
 Map<String, Object?> _truncatedEnvelope(Object? value, int depth) =>
     <String, Object?>{
@@ -189,7 +191,8 @@ FutureOr<Map<String, Object?>> extSnapshotHandler(
       if (section == null) {
         return envelopeError(
           controller: controller,
-          error: 'arg_invalid_section: "${token.trim()}" is not a known '
+          error:
+              'arg_invalid_section: "${token.trim()}" is not a known '
               'section. Valid: ${SnapshotSection.values.map((s) => s.jsonKey).join(', ')}',
         );
       }
@@ -216,7 +219,8 @@ FutureOr<Map<String, Object?>> extSnapshotHandler(
   } on FormatException {
     return envelopeError(
       controller: controller,
-      error: 'arg_invalid_int: maxIssueCount/maxRouteCount must be a '
+      error:
+          'arg_invalid_int: maxIssueCount/maxRouteCount must be a '
           'non-negative integer',
     );
   }
@@ -226,7 +230,8 @@ FutureOr<Map<String, Object?>> extSnapshotHandler(
         !include.contains(SnapshotSection.currentIssues)) {
       return envelopeError(
         controller: controller,
-        error: 'arg_pagination_unused: maxIssueCount set but currentIssues '
+        error:
+            'arg_pagination_unused: maxIssueCount set but currentIssues '
             'is not in sections',
       );
     }
@@ -234,7 +239,8 @@ FutureOr<Map<String, Object?>> extSnapshotHandler(
         !include.contains(SnapshotSection.routeSessions)) {
       return envelopeError(
         controller: controller,
-        error: 'arg_pagination_unused: maxRouteCount set but routeSessions '
+        error:
+            'arg_pagination_unused: maxRouteCount set but routeSessions '
             'is not in sections',
       );
     }
@@ -253,21 +259,29 @@ FutureOr<Map<String, Object?>> extSnapshotHandler(
 
 /// `ext.sleuth.issues` — currently-aggregated issues, optional `route` filter
 /// against `routeName` or `sourceRoute`.
+///
+/// `vmConnected` is the same flag `ext.sleuth.diagnose` reports. A client
+/// needs it to read `connectionMode: basic`, which a VM-connected session
+/// also reports until a frame gets a VM-tier verdict.
 FutureOr<Map<String, Object?>> extIssuesHandler(
   SleuthController controller,
   Map<String, String> args,
 ) {
   final route = _nullIfEmpty(args['route']);
-  final all = controller.issuesNotifier.value;
+  final all = controller.latestIssues;
   final filtered = route == null
       ? all
       : all
-          .where((i) => i.routeName == route || i.sourceRoute == route)
-          .toList(growable: false);
-  return envelopeOk(controller: controller, data: <String, Object?>{
-    'issues': [for (final i in filtered) i.toJson()],
-    if (route != null) 'route': route,
-  });
+            .where((i) => i.routeName == route || i.sourceRoute == route)
+            .toList(growable: false);
+  return envelopeOk(
+    controller: controller,
+    data: <String, Object?>{
+      'issues': [for (final i in filtered) i.toJson()],
+      'route': ?route,
+      'vmConnected': controller.isVmConnected,
+    },
+  );
 }
 
 /// `ext.sleuth.routeHealth` — per-route health rollup.
@@ -284,9 +298,12 @@ FutureOr<Map<String, Object?>> extRouteHealthHandler(
   final history = controller.routeHistoryNotifier.value;
   final route = _nullIfEmpty(args['route']);
   if (route == null) {
-    return envelopeOk(controller: controller, data: <String, Object?>{
-      'routes': [for (final r in history) r.toJson()],
-    });
+    return envelopeOk(
+      controller: controller,
+      data: <String, Object?>{
+        'routes': [for (final r in history) r.toJson()],
+      },
+    );
   }
   RouteSession? match;
   for (final r in history) {
@@ -299,13 +316,19 @@ FutureOr<Map<String, Object?>> extRouteHealthHandler(
       extra: <String, Object?>{'route': route},
     );
   }
-  return envelopeOk(controller: controller, data: <String, Object?>{
-    'route': match.toJson(),
-  });
+  return envelopeOk(
+    controller: controller,
+    data: <String, Object?>{'route': match.toJson()},
+  );
 }
 
 /// `ext.sleuth.explain` — encyclopedia entry for a `stableId`. Parametric /
 /// dynamic suffixes resolve through `IssueExplanationBuilder.canonicalId`.
+/// Placeholders are filled from the first live issue with the exact
+/// `stableId`. Only a canonical (bare) id falls back to the first live
+/// issue of its family; an occurrence id such as
+/// `excessive_keep_alive:PageView~k-home` with no exact live match gets
+/// neutral wording, so it never shows another occurrence's values.
 FutureOr<Map<String, Object?>> extExplainHandler(
   SleuthController controller,
   Map<String, String> args,
@@ -324,17 +347,37 @@ FutureOr<Map<String, Object?>> extExplainHandler(
     return envelopeError(
       controller: controller,
       error: 'unknown_stable_id',
-      extra: <String, Object?>{
-        'stableId': stableId,
-        'canonical': canonical,
-      },
+      extra: <String, Object?>{'stableId': stableId, 'canonical': canonical},
     );
   }
-  return envelopeOk(controller: controller, data: <String, Object?>{
-    'stableId': stableId,
-    'canonical': canonical,
-    'explanation': _explanationToMap(entry),
-  });
+  final live = controller.latestIssues;
+  PerformanceIssue? match;
+  for (final issue in live) {
+    if (issue.stableId == stableId) {
+      match = issue;
+      break;
+    }
+  }
+  if (match == null && stableId == canonical) {
+    for (final issue in live) {
+      final id = issue.stableId;
+      if (id != null && IssueExplanationBuilder.canonicalId(id) == canonical) {
+        match = issue;
+        break;
+      }
+    }
+  }
+  final explanation = match == null
+      ? IssueExplanationBuilder.substituteNeutral(entry)
+      : IssueExplanationBuilder.substitute(entry, match);
+  return envelopeOk(
+    controller: controller,
+    data: <String, Object?>{
+      'stableId': stableId,
+      'canonical': canonical,
+      'explanation': _explanationToMap(explanation),
+    },
+  );
 }
 
 /// `ext.sleuth.encyclopedia` — every available entry keyed by canonical id.
@@ -343,13 +386,18 @@ FutureOr<Map<String, Object?>> extEncyclopediaHandler(
   Map<String, String> args,
 ) {
   final entries = IssueExplanationBuilder.allExplanations;
-  return envelopeOk(controller: controller, data: <String, Object?>{
-    'count': entries.length,
-    'entries': <String, Object?>{
-      for (final entry in entries.entries)
-        entry.key: _explanationToMap(entry.value),
+  return envelopeOk(
+    controller: controller,
+    data: <String, Object?>{
+      'count': entries.length,
+      'entries': <String, Object?>{
+        for (final entry in entries.entries)
+          entry.key: _explanationToMap(
+            IssueExplanationBuilder.substituteNeutral(entry.value),
+          ),
+      },
     },
-  });
+  );
 }
 
 /// `ext.sleuth.causalGraph` — rule set as `{trigger, effect}` maps.
@@ -358,10 +406,10 @@ FutureOr<Map<String, Object?>> extCausalGraphHandler(
   Map<String, String> args,
 ) {
   final rules = CausalGraphRule.rulesJson;
-  return envelopeOk(controller: controller, data: <String, Object?>{
-    'count': rules.length,
-    'rules': rules,
-  });
+  return envelopeOk(
+    controller: controller,
+    data: <String, Object?>{'count': rules.length, 'rules': rules},
+  );
 }
 
 /// `ext.sleuth.diagnose` — operational health snapshot.
@@ -369,14 +417,42 @@ FutureOr<Map<String, Object?>> extDiagnoseHandler(
   SleuthController controller,
   Map<String, String> args,
 ) {
-  return envelopeOk(controller: controller, data: <String, Object?>{
-    'packageVersion': kSleuthPackageVersion,
-    'initializedAtMicros': controller.initializedAt?.microsecondsSinceEpoch,
-    'vmConnected': controller.isVmConnected,
-    'captureMode': controller.config.captureMode,
-    'lastCaptureExportFailure': controller.lastCaptureExportFailure,
-    'unboundExtensionNames': ServiceExtensionRegistry.unboundNames,
-  });
+  final timings = controller.lastPollTimings;
+  return envelopeOk(
+    controller: controller,
+    data: <String, Object?>{
+      'packageVersion': kSleuthPackageVersion,
+      'initializedAtMicros': controller.initializedAt?.microsecondsSinceEpoch,
+      'vmConnected': controller.isVmConnected,
+      'captureMode': controller.config.captureMode,
+      'lastCaptureExportFailure': controller.lastCaptureExportFailure,
+      'unboundExtensionNames': ServiceExtensionRegistry.unboundNames,
+      'effectiveFrameRateHz': controller.effectiveFrameRateHz,
+      'frameBudgetUs': controller.frameBudgetUs,
+      'frameRateSource': controller.frameRateSource.name,
+      'lastPollRpcMicros': timings?.rpcMicros,
+      'lastPollDecodeMicros': timings?.decodeMicros,
+      'lastPollParseMicros': timings?.parseMicros,
+      'lastPollDispatchMicros': timings?.dispatchMicros,
+      'lastPollDispatchDetectorsMicros': timings?.dispatchDetectorsMicros,
+      'lastPollDispatchCorrelateMicros': timings?.dispatchCorrelateMicros,
+      'lastPollDispatchAggregateMicros': timings?.dispatchAggregateMicros,
+      'lastPollDispatchOtherMicros': timings?.dispatchOtherMicros,
+      'lastPollTailMicros': timings?.tailMicros,
+      'lastPollTailMemoryMicros': timings?.tailMemoryMicros,
+      'lastPollTailCpuSamplesMicros': timings?.tailCpuSamplesMicros,
+      'lastPollTailAllocationProfileMicros':
+          timings?.tailAllocationProfileMicros,
+      'lastPollEventCount': timings?.eventCount,
+      'lastPollResponseChars': timings?.responseChars,
+      'maxPollRpcMicros': controller.maxPollRpcMicros,
+      'maxPollDecodeMicros': controller.maxPollDecodeMicros,
+      'maxPollParseMicros': controller.maxPollParseMicros,
+      'maxPollDispatchMicros': controller.maxPollDispatchMicros,
+      'pollDuplicatesDropped': controller.pollDuplicatesDropped,
+      'pollWindowFallbacks': controller.pollWindowFallbacks,
+    },
+  );
 }
 
 /// Treat empty string args as absent so an MCP client cannot drop

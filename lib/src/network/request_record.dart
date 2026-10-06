@@ -11,6 +11,7 @@ class RequestRecord {
     required this.responseBytes,
     required this.startedAt,
     this.cancelled = false,
+    this.contentType,
   });
 
   /// The full request URL.
@@ -39,18 +40,24 @@ class RequestRecord {
   /// or a noisy endpoint.
   final bool cancelled;
 
+  /// Response MIME type without parameters (e.g. `application/json`), or
+  /// null when the response had no readable `Content-Type`.
+  final String? contentType;
+
   Map<String, dynamic> toJson() => {
-        'url': url,
-        'method': method,
-        'statusCode': statusCode,
-        'durationMs': durationMs,
-        'responseBytes': responseBytes,
-        'startedAt': startedAt.toIso8601String(),
-        if (cancelled) 'cancelled': true,
-      };
+    'url': url,
+    'method': method,
+    'statusCode': statusCode,
+    'durationMs': durationMs,
+    'responseBytes': responseBytes,
+    'startedAt': startedAt.toIso8601String(),
+    if (cancelled) 'cancelled': true,
+    if (contentType != null) 'contentType': contentType,
+  };
 
   @override
   String toString() =>
       'RequestRecord($method $url, ${durationMs}ms, ${responseBytes}B, '
-      'status=$statusCode${cancelled ? ', cancelled' : ''})';
+      'status=$statusCode${cancelled ? ', cancelled' : ''}'
+      '${contentType != null ? ', $contentType' : ''})';
 }

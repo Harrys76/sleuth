@@ -1,3 +1,56 @@
+## 0.8.0
+
+Pins sleuth 0.37.0 and accepts 0.36 apps with a warning; 0.35 apps are
+refused. The SDK floor is Dart `^3.8.0`, and `vm_service` widens to
+`>=14.3.1 <16.0.0`. The
+[full release notes](https://github.com/Harrys76/sleuth/blob/main/packages/sleuth_mcp/doc/release_notes/0.8.0.md)
+list every change.
+
+### Changed
+
+- `get_snapshot` returns a compact default of seven sections and lists the
+  others in `_omittedSections`. On an iPhone 12 that was 10 KB instead of
+  285 KB. `full: true` returns every section.
+- `compare_snapshots` refuses snapshots from different sleuth lineages, from
+  the warm-up, or with different VM coverage, and compares issues per
+  stableId (`countChanged`).
+- `check_budgets` and `sleuth_check` refuse with `coverage_degraded`
+  (`sleuth_check` exit code 2) when the app has no VM link. `check_budgets`
+  thresholds default to the `sleuth_check` values.
+- `get_issues` no longer reports a connected `basic` session as degraded, and
+  `connect` returns `vmConnected`.
+- An app `packageVersion` must be semver `major.minor.patch`; anything else is
+  refused with `version_skew_unknown`.
+- Tool descriptions, `instructions`, advisories and error messages are
+  rewritten as plain sentences. Error-code prefixes are unchanged.
+
+### Added
+
+- `get_logs` returns the app's recent `print`, stderr and `dart:developer`
+  lines (the sidecar keeps the last 500).
+- `attach_app` reports progress and can be cancelled.
+- `app_status` reports `connected` and `connectedVia`, and `initialize`
+  returns `instructions`.
+- `connect` and `attach_app(debugUrl:)` accept the http URI that
+  `flutter run` prints.
+
+### Fixed
+
+- With `--uri`, `hot_reload` no longer freezes the sidecar.
+- A tool timeout keeps the connection. After 8 unanswered calls the sidecar
+  answers `app_busy` until the next connect.
+- The sidecar follows a hot restart and reports `session_changed` once.
+- `detach_app` works in every state. A failed stdout write or a stalled
+  flutter stdin no longer crashes the sidecar, and exit takes at most about
+  12 s.
+- `connect` refuses with `attached_session` while an `attach_app` session owns
+  the connection.
+- The sidecar kills `flutter devices`, `xcrun devicectl` and `dns-sd`
+  commands on cancel or timeout, on Windows with `taskkill /T`.
+- `hot_reload` returns `hot_reload_unsupported` or `hot_reload_failed` instead
+  of reporting success.
+- JSON-RPC batches are accepted only on `2025-03-26` sessions.
+
 ## 0.7.2
 
 Launch-mode advisory. `connect`, `attach_app`, `diagnose`, `get_snapshot`, and

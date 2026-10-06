@@ -86,8 +86,7 @@ void main() {
 
     void advance(Duration d) => now = now.add(d);
 
-    test(
-        'deliberate-leak harness fires stream_resource_growth.warning '
+    test('deliberate-leak harness fires stream_resource_growth.warning '
         'on co-fire', () async {
       // Drive 4 monotone-ascending samples for two watchlist classes.
       // Models a route that subscribes on every navigation and never
@@ -96,11 +95,13 @@ void main() {
       await tickAndSettle();
       advance(const Duration(seconds: 25));
       for (var i = 0; i < 4; i++) {
-        profileQueue.add(profileWith({
-          'StreamSubscription': 100 + i * 25,
-          '_BroadcastSubscription': 50 + i * 15,
-          'WebSocketChannel': 5,
-        }));
+        profileQueue.add(
+          profileWith({
+            'StreamSubscription': 100 + i * 25,
+            '_BroadcastSubscription': 50 + i * 15,
+            'WebSocketChannel': 5,
+          }),
+        );
         await tickAndSettle();
         advance(const Duration(seconds: 10));
       }
@@ -127,88 +128,107 @@ void main() {
       expect(int.parse(args['topGrowthDelta']!), 75);
     });
 
-    test('same growth pattern with heap_growing inactive does NOT emit',
-        () async {
-      heapGrowing = false;
-      await tickAndSettle();
-      advance(const Duration(seconds: 25));
-      for (var i = 0; i < 4; i++) {
-        profileQueue.add(profileWith({
-          'StreamSubscription': 100 + i * 25,
-          '_BroadcastSubscription': 50 + i * 15,
-        }));
+    test(
+      'same growth pattern with heap_growing inactive does NOT emit',
+      () async {
+        heapGrowing = false;
         await tickAndSettle();
-        advance(const Duration(seconds: 10));
-      }
-      expect(detector.issues, isEmpty,
-          reason: 'heap_growing co-fire gate suppresses emission');
-    });
+        advance(const Duration(seconds: 25));
+        for (var i = 0; i < 4; i++) {
+          profileQueue.add(
+            profileWith({
+              'StreamSubscription': 100 + i * 25,
+              '_BroadcastSubscription': 50 + i * 15,
+            }),
+          );
+          await tickAndSettle();
+          advance(const Duration(seconds: 10));
+        }
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'heap_growing co-fire gate suppresses emission',
+        );
+      },
+    );
 
     test('flat (no growth) profile does NOT emit', () async {
       await tickAndSettle();
       advance(const Duration(seconds: 25));
       for (var i = 0; i < 4; i++) {
-        profileQueue.add(profileWith({
-          'StreamSubscription': 100,
-          '_BroadcastSubscription': 50,
-        }));
+        profileQueue.add(
+          profileWith({
+            'StreamSubscription': 100,
+            '_BroadcastSubscription': 50,
+          }),
+        );
         await tickAndSettle();
         advance(const Duration(seconds: 10));
       }
       expect(detector.issues, isEmpty);
     });
 
-    test('rxdart Subject family included only with rxdart library URI',
-        () async {
-      await tickAndSettle();
-      advance(const Duration(seconds: 25));
-      for (var i = 0; i < 4; i++) {
-        profileQueue.add(profileWith(
-          {
-            'StreamSubscription': 100 + i * 5,
-            'PublishSubject': 100 + i * 25,
-            'BehaviorSubject': 50 + i * 15,
-          },
-          libraryUriByClass: {
-            'PublishSubject':
-                'package:rxdart/src/subjects/publish_subject.dart',
-            'BehaviorSubject':
-                'package:rxdart/src/subjects/behavior_subject.dart',
-          },
-        ));
+    test(
+      'rxdart Subject family included only with rxdart library URI',
+      () async {
         await tickAndSettle();
-        advance(const Duration(seconds: 10));
-      }
-      expect(detector.issues, hasLength(1));
-      final args = detector.issues.first.extraTraceArgs!;
-      expect(args['topGrowthClass'], 'PublishSubject');
-      expect(args['watchlistClassesGrowing'], contains('PublishSubject'));
-      expect(args['watchlistClassesGrowing'], contains('BehaviorSubject'));
-    });
+        advance(const Duration(seconds: 25));
+        for (var i = 0; i < 4; i++) {
+          profileQueue.add(
+            profileWith(
+              {
+                'StreamSubscription': 100 + i * 5,
+                'PublishSubject': 100 + i * 25,
+                'BehaviorSubject': 50 + i * 15,
+              },
+              libraryUriByClass: {
+                'PublishSubject':
+                    'package:rxdart/src/subjects/publish_subject.dart',
+                'BehaviorSubject':
+                    'package:rxdart/src/subjects/behavior_subject.dart',
+              },
+            ),
+          );
+          await tickAndSettle();
+          advance(const Duration(seconds: 10));
+        }
+        expect(detector.issues, hasLength(1));
+        final args = detector.issues.first.extraTraceArgs!;
+        expect(args['topGrowthClass'], 'PublishSubject');
+        expect(args['watchlistClassesGrowing'], contains('PublishSubject'));
+        expect(args['watchlistClassesGrowing'], contains('BehaviorSubject'));
+      },
+    );
 
-    test('cooldown collapses successive overage to one dedup identity',
-        () async {
-      await tickAndSettle();
-      advance(const Duration(seconds: 25));
-      for (var i = 0; i < 4; i++) {
-        profileQueue.add(profileWith({
-          'StreamSubscription': 100 + i * 25,
-          '_BroadcastSubscription': 50 + i * 15,
-        }));
+    test(
+      'cooldown collapses successive overage to one dedup identity',
+      () async {
         await tickAndSettle();
+        advance(const Duration(seconds: 25));
+        for (var i = 0; i < 4; i++) {
+          profileQueue.add(
+            profileWith({
+              'StreamSubscription': 100 + i * 25,
+              '_BroadcastSubscription': 50 + i * 15,
+            }),
+          );
+          await tickAndSettle();
+          advance(const Duration(seconds: 10));
+        }
+        final firstId = detector.issues.first.dedupIdentityMicros;
+        // Wall-clock cooldown is 30s. Re-emit within window preserves
+        // dedup identity so the controller composite-key dedup
+        // collapses successive fires to one trace record.
+        profileQueue.add(
+          profileWith({
+            'StreamSubscription': 200,
+            '_BroadcastSubscription': 100,
+          }),
+        );
         advance(const Duration(seconds: 10));
-      }
-      final firstId = detector.issues.first.dedupIdentityMicros;
-      // Wall-clock cooldown is 30s. Re-emit within window preserves
-      // dedup identity so the controller composite-key dedup
-      // collapses successive fires to one trace record.
-      profileQueue.add(profileWith({
-        'StreamSubscription': 200,
-        '_BroadcastSubscription': 100,
-      }));
-      advance(const Duration(seconds: 10));
-      await tickAndSettle();
-      expect(detector.issues.first.dedupIdentityMicros, firstId);
-    });
+        await tickAndSettle();
+        expect(detector.issues.first.dedupIdentityMicros, firstId);
+      },
+    );
   });
 }

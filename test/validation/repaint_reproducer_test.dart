@@ -1,16 +1,17 @@
 // Hermetic reproducer for `RepaintDetector`.
 //
 // Drives the detector at all three emission paths:
-//   VM aggregate (`excessive_repaint`) — feeds N PAINT events through
+//   VM aggregate (`excessive_repaint`) — feeds PAINT scopes whose
+//     durations sum to a chosen share of a 1 000 ms window through
 //     `TimelineParser.parse()` into `processTimelineData`, advances a fake
-//     clock past the 1s window so the count stages, then triggers
-//     `_evaluate` via `scanAndIssues`. Pins the strict-greater rate gate
-//     (`> paintFrequencyThreshold`, default 30) and 2× critical
-//     escalation (`> 60`).
+//     clock to close the window, then triggers `_evaluate` via
+//     `scanAndIssues`. Pins the strict-greater time-share gate
+//     (`> paintTimePercentThreshold`, default 10 %) and 3× critical
+//     escalation (`> 30 %`).
 //   Per-widget debug (`repaint_debug_<typeName>`) — supplies a
-//     `DebugSnapshot` with `paintCounts` keyed by widget type. Pins the
-//     residual-rate gate (`>= threshold`) on a triad: just-below /
-//     boundary / 2× critical.
+//     `DebugSnapshot` with `paintOrigins` keyed by widget type (the
+//     busiest instance's likely-origin count). Pins the rate gate
+//     (`>= threshold`) on a triad: just-below / boundary / 2× critical.
 //   Aggregate debug (`excessive_repaint_debug`) — supplies a snapshot with
 //     empty `paintCounts` but non-zero `totalPaintCount` while VM is
 //     disconnected, exercising the residual-aggregate fallback path. Same
@@ -24,18 +25,20 @@
 //
 // Reconnect-flush — disconnects then reconnects VM and asserts prior
 // issues are cleared on the first post-reconnect evaluate (cold-init
-// `vmConnected=false → true` transition stages `_pendingVmWindowCount=0`,
+// `vmConnected=false → true` transition stages `_pendingVmWindowPercent=0`,
 // causing the next `_evaluate` to clear and re-emit nothing).
 //
-// Highlights — pins per-type emission count and `_maxHighlightsPerType=3`
-// cap by mounting 5 instances of one type and asserting only 3
-// highlights are emitted.
+// Highlights: mounts 5 instances of one type and asserts only the
+// instances the snapshot names as origins are outlined, never the first
+// instances of the type in the tree.
 //
 // `_vmConnected` defaults to false; setUp explicitly sets `true` so VM-
 // backed tests aren't silently routed into structural-only fallback.
 // `fakeNow` is injected via `clock:` constructor callback; advancing it
 // before each `processTimelineData` call closes the 1s window in a
 // single call (no helper needed beyond the inline pattern).
+
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,6 +52,8 @@ import '_helpers/structural_reproducer_harness.dart';
 import '_helpers/vm_reproducer_harness.dart';
 
 void main() {
+  _captureScreenGuards();
+
   group('RepaintDetector reproducer', () {
     late RepaintDetector detector;
     late DateTime fakeNow;
@@ -56,22 +61,18 @@ void main() {
     setUp(() {
       fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
       detector = RepaintDetector(clock: () => fakeNow);
-      // Cold-init false → true stages a sentinel `_pendingVmWindowCount=0`
+      // Cold-init false → true stages a sentinel `_pendingVmWindowPercent=0`
       // that a subsequent `processTimelineData` overwrites.
       detector.vmConnected = true;
     });
 
     // -- Helpers ----------------------------------------------------------
 
-    List<TimelineEvent> paintEvents(int n) => List.generate(
-          n,
-          (i) => buildEvent(
-            name: 'PAINT',
-            ph: 'X',
-            dur: 100,
-            ts: 1000 + i * 100,
-          ),
-        );
+    List<TimelineEvent> paintEvents(int n, {int durUs = 100}) => List.generate(
+      n,
+      (i) =>
+          buildEvent(name: 'PAINT', ph: 'X', dur: durUs, ts: 1000 + i * 30000),
+    );
 
     /// PAINT events carrying `dirty count` enrichment in `args`.
     ///
@@ -85,48 +86,69 @@ void main() {
           (i) => buildEvent(
             name: 'PAINT',
             ph: 'X',
-            dur: 100,
-            ts: 1000 + i * 100,
+            dur: 4000,
+            ts: 1000 + i * 30000,
             args: {'dirty count': '$perEventDirty'},
           ),
         );
 
     ParsedShape paintShape(int n) => (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: n,
-          rasterCount: 0,
-          shaderCount: 0,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: n,
-        );
+      buildEventCount: 0,
+      buildScopeCount: 0,
+      layoutCount: 0,
+      paintCount: n,
+      rasterCount: 0,
+      shaderCount: 0,
+      channelCount: 0,
+      gcCount: 0,
+      phaseEventCount: n,
+    );
 
-    /// Stage a VM window with [paintCount] paint events. Advances the fake
-    /// clock past the 1s threshold first so the call stages atomically.
-    void primeVmWindow(int paintCount) {
-      fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+    /// Stage a VM window whose PAINT time is [percent] % of a 1 000 ms
+    /// window (ten PAINT scopes). Advances the fake clock to exactly
+    /// 1 000 ms first so the call stages atomically.
+    void primeVmWindow(double percent) {
+      fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
       final parsed = parseAndAssertShape(
-        paintEvents(paintCount),
-        paintShape(paintCount),
+        paintEvents(10, durUs: (percent * 1000).round()),
+        paintShape(10),
       );
       detector.processTimelineData(parsed);
     }
 
+    /// [typeName] painted [count] times and was the likely origin of
+    /// every paint [ownedCount] does not cover, in the busiest of
+    /// [instances] when given.
     DebugSnapshot perWidgetSnapshot({
       required String typeName,
       required int count,
       Duration elapsed = const Duration(seconds: 1),
       int ownedCount = 0,
+      List<Element> instances = const [],
     }) {
       return DebugSnapshot(
         rebuildCounts: const {},
         totalPaintCount: count,
         paintCounts: {typeName: count},
-        animationOwnedPaintCounts:
-            ownedCount > 0 ? {typeName: ownedCount} : const {},
+        animationOwnedPaintCounts: ownedCount > 0
+            ? {typeName: ownedCount}
+            : const {},
         totalAnimationOwnedPaintCount: ownedCount,
+        paintOrigins: {
+          if (count > ownedCount)
+            typeName: PaintOriginStats(
+              maxCount: count - ownedCount,
+              instanceCount: instances.isEmpty ? 1 : instances.length,
+              animationOwnedCount: ownedCount,
+              busiest: [
+                for (final element in instances)
+                  PaintOriginInstance(
+                    element: element,
+                    count: count - ownedCount,
+                  ),
+              ],
+            ),
+        },
         elapsed: elapsed,
       );
     }
@@ -146,15 +168,22 @@ void main() {
 
     // -- Group A: VM aggregate excessive_repaint triad --------------------
 
-    group('excessive_repaint VM triad (strict > 30)', () {
-      testWidgets('paintCount = 30 (boundary): no fire', (tester) async {
-        primeVmWindow(30);
+    group('excessive_repaint VM triad (strict > 10 %)', () {
+      testWidgets('9.5 % paint share: no fire', (tester) async {
+        primeVmWindow(9.5);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, isEmpty);
+        expect(detector.lastObservedPaintPercent, closeTo(9.5, 1e-9));
+      });
+
+      testWidgets('10.0 % paint share (boundary): no fire', (tester) async {
+        primeVmWindow(10);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, isEmpty);
       });
 
-      testWidgets('paintCount = 31: warning', (tester) async {
-        primeVmWindow(31);
+      testWidgets('10.5 % paint share: warning', (tester) async {
+        primeVmWindow(10.5);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, hasLength(1));
         final issue = issues.single;
@@ -162,58 +191,91 @@ void main() {
         expect(issue.severity, IssueSeverity.warning);
         expect(issue.confidence, IssueConfidence.confirmed);
         expect(issue.observationSource, ObservationSource.vmTimeline);
+        expect(issue.extraTraceArgs?['observedPaintPercent'], '10.5');
+        expect(detector.peakObservedPaintPercent, closeTo(10.5, 1e-9));
       });
 
-      testWidgets('paintCount = 61 (> 2× threshold): critical', (tester) async {
-        primeVmWindow(61);
+      testWidgets('31 % paint share (> 3× threshold): critical', (
+        tester,
+      ) async {
+        primeVmWindow(31);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, hasLength(1));
         final issue = issues.single;
         expect(issues, hasStableId('excessive_repaint'));
         expect(issue.severity, IssueSeverity.critical);
+        expect(issue.extraTraceArgs?['observedPaintPercent'], '31.0');
+      });
+
+      testWidgets('many cheap PAINT scopes stay silent (count is not cost)', (
+        tester,
+      ) async {
+        // 60 PAINT scopes of 100 µs in one second is 0.6 % of UI time.
+        fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
+        final parsed = parseAndAssertShape(paintEvents(60), paintShape(60));
+        detector.processTimelineData(parsed);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, isEmpty);
+        expect(detector.lastObservedPaintPercent, closeTo(0.6, 1e-9));
       });
 
       testWidgets(
-          'enriched dirty-count surfaces in detail (parser arg path exercised)',
-          (tester) async {
-        // Each PAINT event carries `args: {'dirty count': '5'}`. Parser
-        // string-decodes via `_parseIntArg`; detector accumulates
-        // `_pendingEnrichedDirtyTotal` and stages atomically with the
-        // window count. Without this fixture the enrichment branch
-        // (`event.dirtyCount != null`) is never entered.
-        fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
-        final events = paintEventsWithDirty(31, perEventDirty: 5);
-        final parsed = parseAndAssertShape(events, paintShape(31));
-        // Sanity-check the parser actually populated dirtyCount on each
-        // phase event (detector reads `event.dirtyCount` directly).
-        expect(
-          parsed.phaseEvents.every((e) => e.dirtyCount == 5),
-          isTrue,
-          reason: 'TimelineParser must decode `dirty count` arg into '
-              'PhaseEvent.dirtyCount; mismatch = arg-name typo or '
-              'string-int parse regression.',
-        );
-        detector.processTimelineData(parsed);
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, hasStableId('excessive_repaint'));
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'excessive_repaint');
-        // 31 events × 5 = 155 enriched dirty RenderObjects total.
-        expect(issue.detail, contains('155 dirty RenderObjects'));
-        expect(issue.detail, contains('timeline enrichment'));
-      });
+        'enriched dirty-count surfaces in detail (parser arg path exercised)',
+        (tester) async {
+          // Each PAINT event carries `args: {'dirty count': '5'}`. Parser
+          // string-decodes via `_parseIntArg`; detector accumulates
+          // `_pendingEnrichedDirtyTotal` and stages atomically with the
+          // window count. Without this fixture the enrichment branch
+          // (`event.dirtyCount != null`) is never entered.
+          fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
+          final events = paintEventsWithDirty(31, perEventDirty: 5);
+          final parsed = parseAndAssertShape(events, paintShape(31));
+          // Sanity-check the parser actually populated dirtyCount on each
+          // phase event (detector reads `event.dirtyCount` directly).
+          expect(
+            parsed.phaseEvents.every((e) => e.dirtyCount == 5),
+            isTrue,
+            reason:
+                'TimelineParser must decode `dirty count` arg into '
+                'PhaseEvent.dirtyCount; mismatch = arg-name typo or '
+                'string-int parse regression.',
+          );
+          detector.processTimelineData(parsed);
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, hasStableId('excessive_repaint'));
+          final issue = issues.firstWhere(
+            (i) => i.stableId == 'excessive_repaint',
+          );
+          // 31 events × 5 = 155 enriched dirty RenderObjects total.
+          expect(issue.detail, contains('155 dirty RenderObjects'));
+          expect(issue.detail, contains('timeline enrichment'));
+        },
+      );
 
-      testWidgets('exact 1000ms elapsed: window stages (gate is `>=` not `>`)',
-          (tester) async {
-        // Pins `if (now.difference(_windowStart).inMilliseconds >= 1000)`.
-        // A regression flipping to strict `>` would only fail at exactly
-        // 1000ms; reproducer's 1100ms helper would still pass.
-        fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
-        final parsed = parseAndAssertShape(paintEvents(31), paintShape(31));
-        detector.processTimelineData(parsed);
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, hasStableId('excessive_repaint'));
-      });
+      testWidgets(
+        'exact 1000ms elapsed: window stages (gate is `>=` not `>`)',
+        (tester) async {
+          // Pins `elapsedUs >= Duration.microsecondsPerSecond`. A regression
+          // flipping to strict `>` would leave the window open at exactly
+          // 1000ms and emit nothing.
+          fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
+          final parsed = parseAndAssertShape(
+            paintEvents(11, durUs: 10000),
+            paintShape(11),
+          );
+          detector.processTimelineData(parsed);
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, hasStableId('excessive_repaint'));
+        },
+      );
     });
 
     // -- Group A': aggregate debug excessive_repaint_debug triad ----------
@@ -271,7 +333,7 @@ void main() {
         final issue = issues.single;
         expect(issues, hasStableId('repaint_debug_MyWidget'));
         expect(issue.severity, IssueSeverity.warning);
-        expect(issue.confidence, IssueConfidence.confirmed);
+        expect(issue.confidence, IssueConfidence.likely);
         expect(issue.observationSource, ObservationSource.debugCallback);
       });
 
@@ -291,41 +353,51 @@ void main() {
 
     group('Gate B animation-owned suppression', () {
       testWidgets(
-          'all paints owned + VM count > threshold: issues empty (broad)',
-          (tester) async {
-        // Stage a VM count that would normally fire excessive_repaint AND
-        // a per-widget snapshot where every paint is owned. Gate B must
-        // suppress the VM aggregate fallback so the issues list stays
-        // empty across all three emission paths.
-        primeVmWindow(61);
-        detector.updateDebugSnapshot(
-          perWidgetSnapshot(typeName: 'Spinner', count: 50, ownedCount: 50),
-        );
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        // Broad assertion — the gate must mask the VM aggregate AND the
-        // per-widget AND the aggregate-debug paths simultaneously.
-        expect(issues, isEmpty);
-      });
+        'all paints owned + VM count > threshold: issues empty (broad)',
+        (tester) async {
+          // Stage a VM share that would normally fire excessive_repaint AND
+          // a per-widget snapshot where every paint is owned. Gate B must
+          // suppress the VM aggregate fallback so the issues list stays
+          // empty across all three emission paths.
+          primeVmWindow(61);
+          detector.updateDebugSnapshot(
+            perWidgetSnapshot(typeName: 'Spinner', count: 50, ownedCount: 50),
+          );
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          // Broad assertion — the gate must mask the VM aggregate AND the
+          // per-widget AND the aggregate-debug paths simultaneously.
+          expect(issues, isEmpty);
+        },
+      );
 
       testWidgets(
-          'partial ownership (residual > 0): per-widget fires on residual',
-          (tester) async {
-        // Subset relation: ownedCount < total. Residual = 50 - 20 = 30.
-        // Rate = 30/sec → boundary fires warning on the residual.
-        detector.updateDebugSnapshot(
-          perWidgetSnapshot(typeName: 'MyWidget', count: 50, ownedCount: 20),
-        );
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, hasStableId('repaint_debug_MyWidget'));
-      });
+        'partial ownership (residual > 0): per-widget fires on residual',
+        (tester) async {
+          // Subset relation: ownedCount < total. Residual = 50 - 20 = 30.
+          // Rate = 30/sec → boundary fires warning on the residual.
+          detector.updateDebugSnapshot(
+            perWidgetSnapshot(typeName: 'MyWidget', count: 50, ownedCount: 20),
+          );
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, hasStableId('repaint_debug_MyWidget'));
+        },
+      );
 
-      testWidgets(
-          'mixed ownership: one type fully owned, another unowned with '
-          'sub-threshold residual → Gate B AND-semantics: VM aggregate fires',
-          (tester) async {
+      testWidgets('mixed ownership: one type fully owned, another unowned with '
+          'sub-threshold residual → Gate B AND-semantics: VM aggregate fires', (
+        tester,
+      ) async {
         // Two types: Spinner fully owned (residual=0, skipped), Chart
         // unowned but residual rate (20/sec) below the per-widget gate
-        // (30). Per-widget produces no issues. Gate B's
+        // (30/sec). Per-widget produces no issues. Gate B's
         // `_allPaintsAnimationOwned` walks both: Spinner ok, Chart
         // owned=0 < total=20 → returns false → VM aggregate runs.
         //
@@ -333,7 +405,7 @@ void main() {
         // owned" (OR) would short-circuit on Spinner and incorrectly
         // suppress the VM fallback. Single-type Gate B fixture cannot
         // distinguish AND from OR.
-        primeVmWindow(31);
+        primeVmWindow(15);
         detector.updateDebugSnapshot(
           DebugSnapshot(
             rebuildCounts: const {},
@@ -341,6 +413,7 @@ void main() {
             paintCounts: const {'Spinner': 50, 'Chart': 20},
             animationOwnedPaintCounts: const {'Spinner': 50},
             totalAnimationOwnedPaintCount: 50,
+            paintOrigins: const {'Chart': PaintOriginStats(maxCount: 20)},
             elapsed: const Duration(seconds: 1),
           ),
         );
@@ -356,40 +429,57 @@ void main() {
 
     group('VM reconnect flush', () {
       testWidgets(
-          'disconnect → reconnect clears prior excessive_repaint on next scan',
-          (tester) async {
-        // Step 1: prime + scan → fires excessive_repaint warning.
-        primeVmWindow(31);
-        final firstIssues =
-            await scanAndIssues(tester, detector, const SizedBox());
-        expect(firstIssues, hasStableId('excessive_repaint'));
+        'disconnect → reconnect clears prior excessive_repaint on next scan',
+        (tester) async {
+          // Step 1: prime + scan → fires excessive_repaint warning.
+          primeVmWindow(31);
+          final firstIssues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(firstIssues, hasStableId('excessive_repaint'));
 
-        // Step 2: disconnect (clears VM staging, _issues unaffected).
-        detector.vmConnected = false;
-        // Step 3: reconnect — wasConnected=false → stages _pending=0.
-        detector.vmConnected = true;
+          // Step 2: disconnect (clears VM staging, _issues unaffected).
+          detector.vmConnected = false;
+          // Step 3: reconnect — wasConnected=false → stages _pending=0.
+          detector.vmConnected = true;
 
-        // Step 4: scan with NO new VM events. Reconnect-staged 0 makes
-        // hasFreshVm=true so _issues.clear() runs; vmWindowCount=0 means
-        // _evaluateVmData is not invoked → issues list ends up empty.
-        final secondIssues =
-            await scanAndIssues(tester, detector, const SizedBox());
-        expect(secondIssues, isEmpty);
-      });
+          // Step 4: scan with NO new VM events. Reconnect-staged 0 makes
+          // hasFreshVm=true so _issues.clear() runs; vmWindowPercent=0 means
+          // _evaluateVmData is not invoked → issues list ends up empty.
+          final secondIssues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(secondIssues, isEmpty);
+        },
+      );
     });
 
-    // -- Group F: highlights (severity match + cap = 3) -------------------
+    // -- Group F: highlights (severity match, origin instances only) -----
 
     group('highlights', () {
+      /// Mounts [tree] the way `scanAndIssues` does, so its elements are
+      /// the ones the scan walks.
+      Future<List<Element>> leaves(WidgetTester tester, Widget tree) async {
+        await tester.pumpWidget(
+          Directionality(textDirection: TextDirection.ltr, child: tree),
+        );
+        return find.byType(_PaintLeaf).evaluate().toList();
+      }
+
       testWidgets('severity matches issue severity (warning)', (tester) async {
+        const tree = _PaintTree(leafCount: 1);
         detector.updateDebugSnapshot(
-          perWidgetSnapshot(typeName: '_PaintLeaf', count: 30),
+          perWidgetSnapshot(
+            typeName: '_PaintLeaf',
+            count: 30,
+            instances: await leaves(tester, tree),
+          ),
         );
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          const _PaintTree(leafCount: 1),
-        );
+        final issues = await scanAndIssues(tester, detector, tree);
         expect(issues, hasLength(1));
         expect(issues, hasStableId('repaint_debug__PaintLeaf'));
         final highlight = detector.highlights.firstWhere(
@@ -398,23 +488,28 @@ void main() {
         expect(highlight.severity, IssueSeverity.warning);
       });
 
-      testWidgets('5 instances at hot rate emit only 3 highlights (cap)',
-          (tester) async {
-        // Rate 30/sec → _hotTypes['_PaintLeaf'] = 30.0. Tree has 5
-        // _PaintLeaf elements; checkElement adds highlights up to
-        // _maxHighlightsPerType=3 then skips the rest.
+      testWidgets('of 5 instances at a hot rate only the origins are '
+          'outlined', (tester) async {
+        // Rate 30/sec. The tree has 5 _PaintLeaf elements; the snapshot
+        // names leaves 1 and 3 as the origins, so the first leaves in the
+        // tree stay unmarked.
+        const tree = _PaintTree(leafCount: 5);
+        final all = await leaves(tester, tree);
         detector.updateDebugSnapshot(
-          perWidgetSnapshot(typeName: '_PaintLeaf', count: 30),
+          perWidgetSnapshot(
+            typeName: '_PaintLeaf',
+            count: 30,
+            instances: [all[3], all[1]],
+          ),
         );
-        await scanAndIssues(
-          tester,
-          detector,
-          const _PaintTree(leafCount: 5),
-        );
+        await scanAndIssues(tester, detector, tree);
         final leafHighlights = detector.highlights
             .where((h) => h.widgetName == '_PaintLeaf')
             .toList();
-        expect(leafHighlights.length, 3);
+        expect(leafHighlights.map((h) => h.renderObject), [
+          all[1].renderObject,
+          all[3].renderObject,
+        ]);
       });
     });
 
@@ -423,8 +518,11 @@ void main() {
     group('negative controls', () {
       testWidgets('disabled detector does not stage VM data', (tester) async {
         detector.isEnabled = false;
-        fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
-        final parsed = parseAndAssertShape(paintEvents(100), paintShape(100));
+        fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
+        final parsed = parseAndAssertShape(
+          paintEvents(10, durUs: 50000),
+          paintShape(10),
+        );
         detector.processTimelineData(parsed);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, isEmpty);
@@ -438,6 +536,46 @@ void main() {
   });
 }
 
+// Producer-wiring guard for the repaint capture screen: the leg targets
+// and the scenario length the committed triad is recorded with.
+void _captureScreenGuards() {
+  group('repaint capture screen', () {
+    final screenFile = File('example/lib/demos/repaint_capture_screen.dart');
+
+    test('legs target 0.5 / 1.25 / 2.0 x the threshold over a 6 s '
+        'scenario, inside each role band', () {
+      expect(screenFile.existsSync(), isTrue);
+      final src = screenFile.readAsStringSync();
+      final start = src.indexOf('const Map<String, double> _legFactors = {');
+      expect(start, greaterThanOrEqualTo(0));
+      final block = src.substring(start, src.indexOf('};', start));
+      final factors = {
+        for (final m in RegExp(r"'(\w+)':\s*([0-9.]+)").allMatches(block))
+          m.group(1)!: double.parse(m.group(2)!),
+      };
+      expect(factors, {'below': 0.5, 'at': 1.25, 'above': 2.0});
+      expect(
+        src,
+        contains('const Duration _workloadDuration = Duration(seconds: 6);'),
+      );
+      expect(
+        src,
+        contains('readPeak: () => detector.peakObservedPaintPercent'),
+      );
+      expect(src, contains('detector.paintTimePercentThreshold'));
+
+      final meta = RepaintDetector().validationMetadata;
+      final t = meta.bracketThreshold!.toDouble();
+      final at = meta.bracketAtTolerance!;
+      final ceiling = meta.aboveCeilingMultiplier!;
+      expect(factors['below']! * t, lessThan(t));
+      expect(factors['at']! * t, inInclusiveRange(t, t * (1 + at)));
+      expect(factors['above']! * t, greaterThan(t * (1 + at)));
+      expect(factors['above']! * t, lessThanOrEqualTo(t * ceiling));
+    });
+  });
+}
+
 // -- Test fixtures -----------------------------------------------------
 
 class _PaintTree extends StatelessWidget {
@@ -447,10 +585,7 @@ class _PaintTree extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: List.generate(
-        leafCount,
-        (i) => _PaintLeaf(key: ValueKey(i)),
-      ),
+      children: List.generate(leafCount, (i) => _PaintLeaf(key: ValueKey(i))),
     );
   }
 }

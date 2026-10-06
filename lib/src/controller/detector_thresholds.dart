@@ -18,10 +18,11 @@
 class DetectorThresholds {
   const DetectorThresholds({
     this.shaderJankMs = 100,
-    this.heavyComputeGapMs = 8,
+    this.heavyComputeGapMs,
     this.gpuPressureRatio = 2.0,
     this.memoryGrowthBytesPerSec = 512000,
     this.memoryCapacityPercent = 0.80,
+    this.memoryBudgetBytes,
     this.setStateScopeOwnershipPercent = 0.5,
     this.keepAliveMax = 5,
     this.fontLoadingMaxFamilies = 3,
@@ -39,95 +40,106 @@ class DetectorThresholds {
     this.trackedResourceLongLivedSeconds = 300,
     this.trackedResourceMaxDistinctNames = 1000,
     this.trackedResourceSweepIntervalSeconds = 10,
-  })  : assert(
-          trackedResourceMaxConcurrent >= 1,
-          'trackedResourceMaxConcurrent must be >= 1.',
-        ),
-        assert(
-          trackedResourceLongLivedSeconds > 0,
-          'trackedResourceLongLivedSeconds must be > 0.',
-        ),
-        assert(
-          trackedResourceMaxDistinctNames >= 1,
-          'trackedResourceMaxDistinctNames must be >= 1.',
-        ),
-        assert(
-          trackedResourceSweepIntervalSeconds > 0,
-          'trackedResourceSweepIntervalSeconds must be > 0.',
-        ),
-        assert(
-          streamResourceSampleSeconds > 0,
-          'streamResourceSampleSeconds must be > 0.',
-        ),
-        assert(
-          streamResourceMinDelta > 0,
-          'streamResourceMinDelta must be > 0.',
-        ),
-        assert(
-          streamResourceWarmupSeconds >= 0,
-          'streamResourceWarmupSeconds must be >= 0.',
-        ),
-        assert(
-          streamResourceHeapGrowingRecencyMicros > 0,
-          'streamResourceHeapGrowingRecencyMicros must be > 0.',
-        ),
-        assert(
-          streamResourcePollFailureBackoffSeconds > 0,
-          'streamResourcePollFailureBackoffSeconds must be > 0.',
-        ),
-        assert(
-          shaderJankMs >= 0,
-          'shaderJankMs must be >= 0 (got a negative value).',
-        ),
-        assert(
-          coldStartShaderWindowSeconds >= 1,
-          'coldStartShaderWindowSeconds must be >= 1.',
-        ),
-        assert(
-          shaderKeyframeWindowMs >= 1,
-          'shaderKeyframeWindowMs must be >= 1.',
-        ),
-        assert(
-          startupPhaseWindowSeconds >= 1,
-          'startupPhaseWindowSeconds must be >= 1.',
-        ),
-        assert(
-          heavyComputeGapMs >= 0,
-          'heavyComputeGapMs must be >= 0 (got a negative value).',
-        ),
-        assert(
-          gpuPressureRatio > 0,
-          'gpuPressureRatio must be > 0 (ratios must be positive).',
-        ),
-        assert(
-          memoryGrowthBytesPerSec >= 0,
-          'memoryGrowthBytesPerSec must be >= 0 (got a negative value).',
-        ),
-        assert(
-          memoryCapacityPercent >= 0.0 && memoryCapacityPercent <= 1.0,
-          'memoryCapacityPercent must be in the range 0.0..1.0.',
-        ),
-        assert(
-          setStateScopeOwnershipPercent >= 0.0 &&
-              setStateScopeOwnershipPercent <= 1.0,
-          'setStateScopeOwnershipPercent must be in the range 0.0..1.0.',
-        ),
-        assert(
-          keepAliveMax >= 1,
-          'keepAliveMax must be >= 1 (zero would flag every keep-alive).',
-        ),
-        assert(
-          fontLoadingMaxFamilies >= 1,
-          'fontLoadingMaxFamilies must be >= 1 (zero would flag every screen).',
-        ),
-        assert(
-          startupTtffWarningMs >= 0,
-          'startupTtffWarningMs must be >= 0.',
-        ),
-        assert(
-          startupTtffCriticalMs >= startupTtffWarningMs,
-          'startupTtffCriticalMs must be >= startupTtffWarningMs.',
-        );
+    this.buildTimePercentThreshold = 10,
+    this.paintTimePercentThreshold = 10,
+  }) : assert(
+         buildTimePercentThreshold > 0 && buildTimePercentThreshold <= 100,
+         'buildTimePercentThreshold must be above 0 and at most 100.',
+       ),
+       assert(
+         paintTimePercentThreshold > 0 && paintTimePercentThreshold <= 100,
+         'paintTimePercentThreshold must be above 0 and at most 100.',
+       ),
+       assert(
+         trackedResourceMaxConcurrent >= 1,
+         'trackedResourceMaxConcurrent must be at least 1.',
+       ),
+       assert(
+         trackedResourceLongLivedSeconds > 0,
+         'trackedResourceLongLivedSeconds must be above 0.',
+       ),
+       assert(
+         trackedResourceMaxDistinctNames >= 1,
+         'trackedResourceMaxDistinctNames must be at least 1.',
+       ),
+       assert(
+         trackedResourceSweepIntervalSeconds > 0,
+         'trackedResourceSweepIntervalSeconds must be above 0.',
+       ),
+       assert(
+         streamResourceSampleSeconds > 0,
+         'streamResourceSampleSeconds must be above 0.',
+       ),
+       assert(
+         streamResourceMinDelta > 0,
+         'streamResourceMinDelta must be above 0.',
+       ),
+       assert(
+         streamResourceWarmupSeconds >= 0,
+         'streamResourceWarmupSeconds must be at least 0.',
+       ),
+       assert(
+         streamResourceHeapGrowingRecencyMicros > 0,
+         'streamResourceHeapGrowingRecencyMicros must be above 0.',
+       ),
+       assert(
+         streamResourcePollFailureBackoffSeconds > 0,
+         'streamResourcePollFailureBackoffSeconds must be above 0.',
+       ),
+       assert(shaderJankMs >= 0, 'shaderJankMs must not be negative.'),
+       assert(
+         coldStartShaderWindowSeconds >= 1,
+         'coldStartShaderWindowSeconds must be at least 1.',
+       ),
+       assert(
+         shaderKeyframeWindowMs >= 1,
+         'shaderKeyframeWindowMs must be at least 1.',
+       ),
+       assert(
+         startupPhaseWindowSeconds >= 1,
+         'startupPhaseWindowSeconds must be at least 1.',
+       ),
+       assert(
+         heavyComputeGapMs == null || heavyComputeGapMs >= 0,
+         'heavyComputeGapMs must not be negative.',
+       ),
+       assert(
+         gpuPressureRatio > 0,
+         'gpuPressureRatio must be above 0, because ratios are positive.',
+       ),
+       assert(
+         memoryGrowthBytesPerSec >= 0,
+         'memoryGrowthBytesPerSec must not be negative.',
+       ),
+       assert(
+         memoryCapacityPercent >= 0.0 && memoryCapacityPercent <= 1.0,
+         'memoryCapacityPercent must be between 0.0 and 1.0.',
+       ),
+       assert(
+         memoryBudgetBytes == null || memoryBudgetBytes > 0,
+         'memoryBudgetBytes must be above 0 when set.',
+       ),
+       assert(
+         setStateScopeOwnershipPercent >= 0.0 &&
+             setStateScopeOwnershipPercent <= 1.0,
+         'setStateScopeOwnershipPercent must be between 0.0 and 1.0.',
+       ),
+       assert(
+         keepAliveMax >= 1,
+         'keepAliveMax must be at least 1. Zero would flag every keep-alive.',
+       ),
+       assert(
+         fontLoadingMaxFamilies >= 1,
+         'fontLoadingMaxFamilies must be at least 1. Zero would flag every screen.',
+       ),
+       assert(
+         startupTtffWarningMs >= 0,
+         'startupTtffWarningMs must be at least 0.',
+       ),
+       assert(
+         startupTtffCriticalMs >= startupTtffWarningMs,
+         'startupTtffCriticalMs must be at least startupTtffWarningMs.',
+       );
 
   /// Shader compilation duration in milliseconds above which
   /// `ShaderJankDetector` fires. Critical severity at 2× this value.
@@ -182,23 +194,66 @@ class DetectorThresholds {
   /// for stricter steady-state attribution on snappy startup paths.
   final int startupPhaseWindowSeconds;
 
-  /// UI-thread gap duration in milliseconds indicating heavy compute on
-  /// the main isolate. `HeavyComputeDetector` fires at 2× this value
-  /// (default fire threshold: 16 ms).
+  /// Share of UI-thread wall time, in percent, spent inside BUILD scopes
+  /// over a ~1 s window above which `RebuildDetector` raises
+  /// `rebuild_activity`. Critical above 3× this value. Measured from the
+  /// VM timeline; per-widget debug counts use
+  /// `SleuthConfig.rebuildThreshold` instead.
   ///
-  /// **Default:** 8 ms (half a 16 ms frame budget). Fires at 16 ms, which
-  /// is the point where a frame is definitively lost.
+  /// **Default:** 10 %. A single animated widget rebuilding every frame
+  /// costs well under 1 % of UI time; 10 % means rebuild work is a
+  /// visible slice of every frame.
+  ///
+  /// **Raise this** (e.g. 20) for screens that legitimately rebuild large
+  /// subtrees every frame (games, live dashboards). **Lower this**
+  /// (e.g. 5) for a stricter build-cost audit.
+  final double buildTimePercentThreshold;
+
+  /// Share of UI-thread wall time, in percent, spent inside PAINT scopes
+  /// over a ~1 s window above which `RepaintDetector` raises
+  /// `excessive_repaint`. Critical above 3× this value. Measured from the
+  /// VM timeline; per-widget debug paint rates use the detector's
+  /// `paintFrequencyThreshold` instead.
+  ///
+  /// **Default:** 10 %. Repainting a few small layers every frame costs
+  /// well under 1 % of UI time; 10 % means paint recording is a visible
+  /// slice of every frame.
+  ///
+  /// **Raise this** (e.g. 20) for canvas-heavy screens where paint cost
+  /// is expected. **Lower this** (e.g. 5) for a stricter paint-cost
+  /// audit.
+  final double paintTimePercentThreshold;
+
+  /// BUILD-scope duration threshold in milliseconds for
+  /// `HeavyComputeDetector`. A build pass above this value is a warning;
+  /// above 2× this value it is critical.
+  ///
+  /// **Default:** null (auto). 8 ms ([defaultHeavyComputeGapMs]) while the
+  /// resolved frame budget is the `fpsTarget` budget: warning above 8 ms,
+  /// critical above 16 ms at 60 Hz. When the measured frame rate is above
+  /// `fpsTarget` (e.g. a 120 Hz device rendering at 120), the threshold
+  /// becomes half the resolved frame budget (4.2 ms at 120 Hz). An
+  /// explicit value is used as-is and never scales.
   ///
   /// **Raise this** to quiet the detector on slower devices. **Lower
   /// this** (e.g. 4 ms) for a stricter main-isolate budget audit.
-  final int heavyComputeGapMs;
+  final int? heavyComputeGapMs;
 
-  /// Raster-to-UI time ratio above which `GpuPressureDetector` flags a
-  /// frame as GPU-bound. Critical severity at 2× this value.
+  /// Heavy-compute warning threshold used when [heavyComputeGapMs] is null
+  /// and the frame budget has not moved off `fpsTarget`.
+  static const int defaultHeavyComputeGapMs = 8;
+
+  /// Raster-to-UI time ratio above which `GpuPressureDetector` counts a
+  /// frame as raster-dominant.
   ///
   /// **Default:** 2.0. Raster time is normally a small fraction of UI
   /// time; a ratio above 2 means the GPU is the bottleneck (excess
-  /// layers, saveLayer calls, or expensive shaders).
+  /// layers, saveLayer calls, or expensive shaders). Per frame
+  /// (`FrameTiming`, every tier): 3 raster-dominant frames inside one
+  /// second raise `raster_dominance` as likely, critical when those
+  /// frames also exceeded the frame budget. VM timeline: the worst raster
+  /// frame against the UI thread total confirms it, critical at 2× this
+  /// value.
   ///
   /// **Raise this** (e.g. 3.0) for games or intentionally GPU-heavy
   /// scenes. **Lower this** (e.g. 1.5) to catch GPU pressure earlier.
@@ -216,17 +271,36 @@ class DetectorThresholds {
   /// for a stricter leak hunt.
   final int memoryGrowthBytesPerSec;
 
-  /// Heap usage as a fraction of capacity (0.0–1.0) above which
-  /// `MemoryPressureDetector` fires a near-capacity warning.
+  /// Fraction of [memoryBudgetBytes] (0.0–1.0) at or above which process
+  /// memory (RSS) counts toward `heap_near_capacity`. Has no effect while
+  /// [memoryBudgetBytes] is null.
   ///
-  /// **Default:** 0.80 (80 %). Once the Dart heap exceeds 80 % of
-  /// capacity, GC frequency rises sharply and the app is one allocation
-  /// burst away from a stall.
+  /// **Default:** 0.80 (80 %). The issue fires when RSS sits at or above
+  /// this fraction of the budget for 4 of the last 5 memory polls while
+  /// `heap_growing` is active: the process is near the ceiling and still
+  /// climbing.
   ///
-  /// **Raise this** (e.g. 0.90) for memory-tight apps that intentionally
-  /// run close to the limit. **Lower this** (e.g. 0.70) for an earlier
-  /// warning.
+  /// **Raise this** (e.g. 0.90) when the budget is already conservative.
+  /// **Lower this** (e.g. 0.70) for an earlier warning.
   final double memoryCapacityPercent;
+
+  /// Process memory budget in bytes that `heap_near_capacity` measures
+  /// RSS against, typically the OS kill limit of the smallest device you
+  /// support.
+  ///
+  /// **Default:** null, which disables `heap_near_capacity`. Dart's own
+  /// `heapCapacity` grows with usage, so the heap usage/capacity ratio
+  /// sits at 85–97 % in steady state and cannot tell a healthy app from
+  /// one about to be killed; only an absolute budget can.
+  ///
+  /// **Set this** to the device's memory limit when you know it. iOS
+  /// terminates foreground apps at roughly half of physical RAM on
+  /// 2–4 GB devices (`os_proc_available_memory()` reports the remaining
+  /// headroom at runtime); on Android, `ActivityManager.getMemoryClass()`
+  /// bounds the Java heap but native memory counts toward the
+  /// low-memory killer, so a figure taken from a profiling session on
+  /// the target device is the safest budget.
+  final int? memoryBudgetBytes;
 
   /// Minimum proportion of the owning subtree that must be dirty for
   /// `SetStateScopeDetector` to promote a rebuild hot spot into an issue.

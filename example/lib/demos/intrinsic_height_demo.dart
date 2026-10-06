@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 3: IntrinsicHeight Abuse
+// Demo 12: IntrinsicHeight Abuse
 // Triggers: LayoutBottleneck detector
 // ─────────────────────────────────────────
 
@@ -20,12 +20,13 @@ class IntrinsicHeightDemo extends StatelessWidget {
     return DemoScaffold(
       title: 'IntrinsicHeight Abuse',
       description:
-          '❌ BAD: Wrapping a Row in IntrinsicHeight forces two layout passes '
-          '(once to compute the intrinsic, once for the actual layout). With '
-          'nested content the cost becomes quadratic.\n'
-          '✅ FIX: Use CrossAxisAlignment.stretch on a plain Row, or give '
-          'cells a fixed height via SizedBox.\n\n'
-          '▶ Flip to Fixed Pattern — same visual result, single-pass layout.',
+          'Bad: Wrapping a Row in IntrinsicHeight forces two layout passes, '
+          'one to compute the intrinsic height and one for the real layout. '
+          'With nested content the cost becomes quadratic.\n'
+          'Fix: Use CrossAxisAlignment.stretch on a plain Row, or give '
+          'cells a fixed height with SizedBox.\n\n'
+          'Flip to Fixed Pattern for the same visual result with a '
+          'single-pass layout.',
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

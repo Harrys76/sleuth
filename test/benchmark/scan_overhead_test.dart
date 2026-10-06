@@ -1,7 +1,14 @@
-import 'package:flutter/widgets.dart';
+@Tags(['benchmark'])
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show debugOnProfilePaint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/detectors/custom_painter_detector.dart';
 import 'package:sleuth/src/detectors/font_loading_detector.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
@@ -17,10 +24,8 @@ import '../helpers/benchmark_helpers.dart';
 
 void main() {
   group('individual detector scan overhead (1000 elements)', () {
-    // Budget: 5ms per detector for 1000 elements.
+    // Budgets are about 5x the max of three serial runs' means.
     // CI runners get 2x tolerance via budgetMultiplier.
-    final defaultBudgetUs = 5000 * budgetMultiplier;
-
     late BuildContext context;
 
     Future<void> setup(WidgetTester tester) async {
@@ -37,7 +42,8 @@ void main() {
       final avgUs = benchmarkUs('RebuildDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 166 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(850 * budgetMultiplier));
     });
 
     testWidgets('RepaintDetector', (tester) async {
@@ -46,7 +52,8 @@ void main() {
       final avgUs = benchmarkUs('RepaintDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 41 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(210 * budgetMultiplier));
     });
 
     testWidgets('GpuPressureDetector', (tester) async {
@@ -55,7 +62,8 @@ void main() {
       final avgUs = benchmarkUs('GpuPressureDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 192 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(1000 * budgetMultiplier));
     });
 
     testWidgets('SetStateScopeDetector', (tester) async {
@@ -64,7 +72,8 @@ void main() {
       final avgUs = benchmarkUs('SetStateScopeDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 213 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(1100 * budgetMultiplier));
     });
 
     testWidgets('LayoutBottleneckDetector', (tester) async {
@@ -73,7 +82,8 @@ void main() {
       final avgUs = benchmarkUs('LayoutBottleneckDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 49 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(250 * budgetMultiplier));
     });
 
     testWidgets('ListviewDetector', (tester) async {
@@ -82,7 +92,8 @@ void main() {
       final avgUs = benchmarkUs('ListviewDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 190 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(950 * budgetMultiplier));
     });
 
     testWidgets('ImageMemoryDetector', (tester) async {
@@ -91,7 +102,8 @@ void main() {
       final avgUs = benchmarkUs('ImageMemoryDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 83 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(420 * budgetMultiplier));
     });
 
     testWidgets('CustomPainterDetector', (tester) async {
@@ -100,7 +112,8 @@ void main() {
       final avgUs = benchmarkUs('CustomPainterDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 60 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(300 * budgetMultiplier));
     });
 
     testWidgets('KeepAliveDetector', (tester) async {
@@ -109,7 +122,8 @@ void main() {
       final avgUs = benchmarkUs('KeepAliveDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 62 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(310 * budgetMultiplier));
     });
 
     testWidgets('FontLoadingDetector', (tester) async {
@@ -118,21 +132,23 @@ void main() {
       final avgUs = benchmarkUs('FontLoadingDetector', () {
         detector.scanTree(context);
       });
-      expect(avgUs, lessThan(defaultBudgetUs));
+      // measured: 72 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(360 * budgetMultiplier));
     });
   });
 
   group('full scan tick overhead', () {
     for (final size in [100, 500, 1000, 3000]) {
+      // measured (serial, debug JIT, M1 Pro): 100 → 145 µs, 500 → 440 µs,
+      // 1000 → 814 µs, 3000 → 2183 µs.
       final budget = switch (size) {
-        100 => 10000 * budgetMultiplier,
-        500 => 30000 * budgetMultiplier,
-        1000 => 80000 * budgetMultiplier,
-        3000 => 500000 * budgetMultiplier,
-        _ => 100000 * budgetMultiplier,
+        100 => 750 * budgetMultiplier,
+        500 => 2200 * budgetMultiplier,
+        1000 => 4100 * budgetMultiplier,
+        _ => 11000 * budgetMultiplier,
       };
 
-      testWidgets('$size elements < ${budget ~/ 1000}ms', (tester) async {
+      testWidgets('$size elements', (tester) async {
         await tester.pumpWidget(buildMixedTree(size));
         final context = tester.element(find.byType(Directionality));
         final elements = countElements(context);
@@ -176,38 +192,275 @@ void main() {
         FontLoadingDetector(),
       ];
 
-      final time500 = benchmarkUs(
-        '10 detectors × 500 elements',
-        () {
-          for (final d in detectors) {
-            d.scanTree(context);
-          }
-        },
-        iterations: 30,
-      );
+      final time500 = benchmarkUs('10 detectors × 500 elements', () {
+        for (final d in detectors) {
+          d.scanTree(context);
+        }
+      }, iterations: 30);
 
       // Measure 1000 elements
       await tester.pumpWidget(buildMixedTree(1000));
       context = tester.element(find.byType(Directionality));
 
-      final time1000 = benchmarkUs(
-        '10 detectors × 1000 elements',
-        () {
-          for (final d in detectors) {
-            d.scanTree(context);
-          }
-        },
-        iterations: 30,
-      );
+      final time1000 = benchmarkUs('10 detectors × 1000 elements', () {
+        for (final d in detectors) {
+          d.scanTree(context);
+        }
+      }, iterations: 30);
 
       final ratio = time1000 / time500;
       // ignore: avoid_print
-      print('  Scaling ratio (1000/500): ${ratio.toStringAsFixed(2)} '
-          '(ideal: 2.0, budget: < 2.5)');
+      print(
+        '  Scaling ratio (1000/500): ${ratio.toStringAsFixed(2)} '
+        '(ideal: 2.0, budget: < 2.5)',
+      );
 
-      // Pure O(N) would give ratio ~2.0. Allow noise up to 2.5.
+      // Pure O(N) would give ratio ~2.0. Allow noise up to 2.5 (3.0 on CI,
+      // where a neighbour's load can land on one of the two runs only).
       // If any detector regresses to O(N²), ratio would be ~4.0.
-      expect(ratio, lessThan(2.5));
+      expect(ratio, lessThan(2.0 + 0.5 * budgetMultiplier));
     });
   });
+
+  group('full scan tick through the scheduled path', () {
+    for (final size in [100, 500, 1000, 3000, 10000]) {
+      // measured (serial, debug JIT, M1 Pro): 100 → 436 µs, 500 → 661 µs,
+      // 1000 → 1030 µs, 3000 → 2600 µs, 10000 → 10927 µs.
+      final budget = switch (size) {
+        100 => 2200 * budgetMultiplier,
+        500 => 3400 * budgetMultiplier,
+        1000 => 5200 * budgetMultiplier,
+        3000 => 13000 * budgetMultiplier,
+        _ => 55000 * budgetMultiplier,
+      };
+
+      testWidgets('$size elements', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(home: Scaffold(body: buildMixedTree(size))),
+        );
+        final root = tester.element(find.byType(MaterialApp));
+
+        final controller = SleuthController();
+        controller.initializeDetectorsForTest();
+        addTearDown(controller.dispose);
+
+        final avgUs = benchmarkUs(
+          'full path ($size-element body)',
+          () => controller.scanTreeFullPathForTest(root),
+          warmup: size >= 10000 ? 3 : 20,
+          iterations: size >= 10000 ? 10 : 20,
+        );
+        // ignore: avoid_print
+        print('  Walked ${controller.lastScanElementCount} elements');
+
+        expect(controller.lastScanElementCount, greaterThan(size ~/ 2));
+        expect(avgUs, lessThan(budget));
+      });
+    }
+  });
+
+  group('issue aggregation', () {
+    testWidgets('40 distinct issues', (tester) async {
+      await tester.pumpWidget(buildMixedTree(100));
+      final context = tester.element(find.byType(Directionality));
+
+      final detector = _FortyIssueDetector();
+      final controller = SleuthController(
+        config: SleuthConfig(customDetectors: [detector]),
+      );
+      controller.initializeDetectorsForTest();
+      addTearDown(controller.dispose);
+      controller.runTreeScanForTest(context);
+      expect(controller.issuesNotifier.value.length, greaterThanOrEqualTo(40));
+
+      final avgUs = benchmarkUs(
+        'aggregate 40 issues',
+        controller.aggregateIssuesForTest,
+      );
+
+      // measured: 210 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(1100 * budgetMultiplier));
+    });
+  });
+
+  group('per-paint debug callback', () {
+    testWidgets('1,000 paints of a real RenderObject', (tester) async {
+      debugOnProfilePaint = null;
+      debugOnRebuildDirtyWidget = null;
+      final repaint = ValueNotifier<int>(0);
+      addTearDown(repaint.dispose);
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              for (var i = 0; i < 50; i++)
+                RepaintBoundary(
+                  child: CustomPaint(
+                    size: const Size(10, 2),
+                    painter: _BenchPainter(repaint),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+
+      final coordinator = DebugInstrumentationCoordinator(
+        installRebuild: false,
+      );
+      coordinator.install();
+      coordinator.snapshot();
+
+      // The framework reaches the handler on a real frame.
+      repaint.value++;
+      await tester.pump();
+      expect(coordinator.snapshot().totalPaintCount, greaterThanOrEqualTo(50));
+
+      final renderObject = tester.renderObject(find.byType(CustomPaint).first);
+      final onPaint = debugOnProfilePaint!;
+      final avgUs = benchmarkUs('1,000 paint callbacks', () {
+        for (var i = 0; i < 1000; i++) {
+          onPaint(renderObject);
+        }
+        coordinator.snapshot();
+      });
+      coordinator.dispose();
+
+      // measured: 6101 µs (serial, debug JIT, M1 Pro)
+      expect(avgUs, lessThan(31000 * budgetMultiplier));
+    });
+
+    testWidgets('1,000 paints of a 6-deep tree: cached attribution under '
+        '20 % of uncached', (tester) async {
+      debugOnProfilePaint = null;
+      debugOnRebuildDirtyWidget = null;
+      final repaint = ValueNotifier<int>(0);
+      addTearDown(repaint.dispose);
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: _Level(
+            depth: 6,
+            leaf: CustomPaint(
+              size: const Size(10, 2),
+              painter: _BenchPainter(repaint),
+            ),
+          ),
+        ),
+      );
+
+      final coordinator = DebugInstrumentationCoordinator(
+        installRebuild: false,
+      );
+      coordinator.install();
+      final renderObject = tester.renderObject(find.byType(CustomPaint));
+      final onPaint = debugOnProfilePaint!;
+
+      final uncached = benchmarkUs('1,000 paints, uncached attribution', () {
+        for (var i = 0; i < 1000; i++) {
+          coordinator.invalidatePaintAttribution();
+          onPaint(renderObject);
+        }
+        coordinator.snapshot();
+      });
+      final computesBefore = coordinator.paintAttributionComputeCount;
+      final cached = benchmarkUs('1,000 paints, cached attribution', () {
+        for (var i = 0; i < 1000; i++) {
+          onPaint(renderObject);
+        }
+        coordinator.snapshot();
+      });
+      final recomputed =
+          coordinator.paintAttributionComputeCount - computesBefore;
+      coordinator.dispose();
+
+      // ignore: avoid_print
+      print(
+        '  cached / uncached: '
+        '${(cached / uncached * 100).toStringAsFixed(1)} %',
+      );
+      // The uncached loop's last paint left a fresh entry; the cached
+      // loop never recomputes.
+      expect(recomputed, 0);
+      // measured: cached 13 % of uncached, about 350 µs against 2,700 µs
+      // per 1,000 paints (serial, debug JIT, M1 Pro). A cached hit still
+      // checks every ancestor in its stamp, so it costs about 0.35 µs;
+      // the uncached walk reads ownership through a weak owner reference
+      // and costs about 2.7 µs. The loops run back to back; on a shared
+      // CI runner load can land on one of them only.
+      expect(cached, lessThan(uncached * 0.2 * budgetMultiplier));
+    });
+  });
+}
+
+/// [depth] nested user widgets above [leaf].
+class _Level extends StatelessWidget {
+  const _Level({required this.depth, required this.leaf});
+
+  final int depth;
+  final Widget leaf;
+
+  @override
+  Widget build(BuildContext context) => depth == 0
+      ? leaf
+      : Padding(
+          padding: EdgeInsets.zero,
+          child: _Level(depth: depth - 1, leaf: leaf),
+        );
+}
+
+class _FortyIssueDetector extends BaseDetector {
+  _FortyIssueDetector()
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Forty Issues',
+        description: 'Emits 40 distinct issues per scan.',
+      );
+
+  final List<PerformanceIssue> _issues = [];
+  bool _isEnabled = true;
+
+  @override
+  List<PerformanceIssue> get issues => _issues;
+  @override
+  List<WidgetHighlight> get highlights => const [];
+  @override
+  bool get isEnabled => _isEnabled;
+  @override
+  set isEnabled(bool v) => _isEnabled = v;
+
+  @override
+  void scanTree(BuildContext context) {
+    _issues
+      ..clear()
+      ..addAll([
+        for (var i = 0; i < 40; i++)
+          PerformanceIssue(
+            stableId: 'bench_issue_$i',
+            severity: i.isEven ? IssueSeverity.warning : IssueSeverity.critical,
+            category: IssueCategory.build,
+            confidence: IssueConfidence.possible,
+            title: 'Bench issue $i',
+            detail: 'Detail $i',
+            fixHint: 'Fix $i',
+            observationSource: ObservationSource.structural,
+            detectedAt: DateTime.now(),
+          ),
+      ]);
+  }
+
+  @override
+  void dispose() => _issues.clear();
+}
+
+class _BenchPainter extends CustomPainter {
+  _BenchPainter(Listenable repaint) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(_BenchPainter oldDelegate) => false;
 }

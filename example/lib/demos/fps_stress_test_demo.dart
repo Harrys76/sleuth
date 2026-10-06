@@ -99,12 +99,13 @@ class _FpsStressTestDemoState extends State<FpsStressTestDemo>
     return DemoScaffold(
       title: 'FPS Stress Test',
       description:
-          '❌ BAD: Sorting 50k items + triple BackdropFilter blur every '
-          'frame. FPS should drop to ~20 or lower — watch the FPS chip.\n'
-          '✅ FIX: Pre-compute once in initState, drop the BackdropFilter '
+          'Bad: The screen sorts 50k items and draws a triple '
+          'BackdropFilter blur every frame. FPS should drop to about 20 or '
+          'lower. Watch the FPS chip.\n'
+          'Fix: Pre-compute once in initState, drop the BackdropFilter '
           'stack, and use const widgets. FPS climbs back to 60.\n\n'
-          '▶ Flip to Fixed Pattern and watch the FPS chip climb from '
-          '~20 back to 60.',
+          'Flip to Fixed Pattern and watch the FPS chip climb from '
+          'about 20 back to 60.',
       metricsBar: MetricsBar(
         chips: [
           ValueListenableBuilder<int>(

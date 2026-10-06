@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 19: Shader Jank
+// Demo 10: Shader Jank
 // Triggers: ShaderJank detector (VM-only, ≥100ms shader compile)
 // ─────────────────────────────────────────
 
@@ -19,14 +19,15 @@ class ShaderJankDemo extends StatelessWidget {
     return DemoScaffold(
       title: 'Shader Jank',
       description:
-          '❌ BAD: First-time GPU shader compilation causes frame drops.\n'
-          '✅ FIX: Pre-warm shaders during splash screen, or use Impeller.\n\n'
-          '▶ Tap "Navigate" — the first visit compiles shaders and jank is '
-          'visible. Subsequent visits are smooth (shaders are cached).\n'
-          '▶ Flip to Fixed Pattern to see the architecture-level fix.\n\n'
-          'Note: Impeller (default on iOS since Flutter 3.16, Android since '
-          '3.22) pre-compiles shaders offline. This demo only triggers on '
-          'the Skia backend. Use --no-enable-impeller to test.',
+          'Bad: First-time pipeline and shader builds cause frame drops.\n'
+          'Fix: Trigger heavy effects during a warm-up or splash frame.\n\n'
+          'Tap "Navigate". The first visit builds pipelines, and the jank '
+          'is visible. Later visits are smooth because the pipelines are '
+          'cached.\n'
+          'Flip to Fixed Pattern to see the architecture-level fix.\n\n'
+          'The detector fires on Impeller Vulkan (Android) pipeline builds '
+          'and Skia shader compiles. Impeller Metal (iOS) precompiles '
+          'pipelines, so the detector stays silent there.',
       body: Column(
         children: [
           const Padding(
@@ -48,7 +49,7 @@ class ShaderJankDemo extends StatelessWidget {
                       ),
                     ),
                     icon: const Icon(Icons.open_in_new),
-                    label: const Text('Navigate to Shader-Heavy Screen'),
+                    label: const Text('Navigate to shader-heavy screen'),
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -102,22 +103,21 @@ class _ShaderJankFixedBody extends StatelessWidget {
             icon: Icons.rocket_launch,
             title: 'Option 1: Impeller (recommended)',
             body:
-                'Impeller pre-compiles all shaders offline. Default on iOS '
-                'since Flutter 3.16 and Android since 3.22. If your project '
-                'has opted out of Impeller, remove the opt-out and the '
-                'entire class of jank disappears.',
+                'Impeller precompiles shaders offline. On Metal (iOS) '
+                'pipelines are built ahead of time too; on Vulkan '
+                '(Android) a new effect still builds a pipeline on first '
+                'use, but far faster than a Skia shader compile. If your '
+                'project has opted out of Impeller, remove the opt-out.',
           ),
           const SizedBox(height: 12),
           _FixCard(
             icon: Icons.auto_awesome,
-            title: 'Option 2: Shader warm-up (Skia fallback)',
+            title: 'Option 2: Warm-up frame',
             body:
-                'Generate a bundled SkSL file and pass it via '
-                '`--bundle-sksl-path=flutter_01.sksl.json` at build time. '
-                'Flutter will pre-compile those shaders during splash, so '
-                'the first render is already warm.\n\n'
-                'Capture the SkSL file by running a profile build and '
-                'exercising every visual effect the app uses.',
+                'Draw each heavy effect (BackdropFilter, ShaderMask, '
+                'custom FragmentProgram) once during a splash or warm-up '
+                'frame, so the build lands before the user interacts.\n\n'
+                'Avoid introducing new effect types mid-animation.',
           ),
           const SizedBox(height: 12),
           DecoratedBox(
@@ -128,10 +128,10 @@ class _ShaderJankFixedBody extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Text(
-                'Neither fix can be demonstrated at runtime from within '
-                'the example app — both happen at build/splash time. '
-                'Toggle back to the Bad Pattern and navigate to see the '
-                'problem you are fixing.',
+                'The example app cannot show either fix at runtime, '
+                'because both happen at build or splash time. Toggle back '
+                'to Bad Pattern and navigate to see the problem you are '
+                'fixing.',
                 style: TextStyle(
                   fontSize: 12,
                   color: colorScheme.onPrimaryContainer,
@@ -203,12 +203,12 @@ class _ShaderHeavyPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Shader-Heavy Screen')),
+      appBar: AppBar(title: const Text('Shader-heavy screen')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           // Prominent in-page warning: users who skim the outer demo
-          // description otherwise discover the Impeller incompatibility
+          // description otherwise discover the Metal silence
           // only after clicking buttons and seeing nothing happen.
           const _ImpellerWarningBanner(),
           const SizedBox(height: 16),
@@ -427,14 +427,12 @@ class _ShaderHeavyPage extends StatelessWidget {
 
 /// Warning banner shown at the top of the shader-heavy page.
 ///
-/// Impeller (the default backend on iOS since Flutter 3.16 and Android since
-/// 3.22) pre-compiles shaders offline, so `ShaderCompilation` timeline events
-/// are never emitted on Impeller regardless of how much blur/colorfilter
-/// stacking the page does. Without this banner users run the demo on the
-/// default backend, see zero detector hits, and reasonably conclude the
-/// detector is broken. There is no public Flutter API to detect the active
-/// graphics backend from Dart, so we always show the banner and explain what
-/// the user needs to do to observe detection.
+/// Impeller Metal (iOS) precompiles pipelines, so no build events are
+/// emitted there regardless of how much blur/colorfilter stacking the page
+/// does. Without this banner users run the demo on an iPhone, see zero
+/// detector hits, and reasonably conclude the detector is broken. There is
+/// no public Flutter API to detect the active graphics backend from Dart, so
+/// the banner is always shown.
 class _ImpellerWarningBanner extends StatelessWidget {
   const _ImpellerWarningBanner();
 
@@ -460,12 +458,10 @@ class _ImpellerWarningBanner extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Shader compile events only fire on the Skia backend. '
-                'Impeller (default on iOS since Flutter 3.16 and Android '
-                'since 3.22) pre-compiles shaders offline, so this demo '
-                'will silently produce no detector hits there.\n\n'
-                'To observe detection, relaunch with '
-                '`--no-enable-impeller`.',
+                'Build events fire on Impeller Vulkan (Android) and on '
+                'Skia. Impeller Metal (iOS) precompiles pipelines, so '
+                'this demo produces no detector hits on an iPhone.\n\n'
+                'To observe detection, run on an Android device.',
                 style: TextStyle(
                   fontSize: 12,
                   color: colorScheme.onErrorContainer,

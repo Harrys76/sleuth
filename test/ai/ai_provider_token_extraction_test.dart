@@ -27,10 +27,7 @@ void main() {
     });
 
     test('missing delta field returns empty string', () {
-      final json = jsonEncode({
-        'type': 'content_block_delta',
-        'index': 0,
-      });
+      final json = jsonEncode({'type': 'content_block_delta', 'index': 0});
       expect(extractAnthropicToken(json), '');
     });
   });
@@ -43,7 +40,7 @@ void main() {
           {
             'index': 0,
             'delta': {'content': 'World'},
-          }
+          },
         ],
       });
       expect(extractOpenAiToken(json), 'World');
@@ -55,7 +52,7 @@ void main() {
           {
             'index': 0,
             'delta': {'role': 'assistant'},
-          }
+          },
         ],
       });
       expect(extractOpenAiToken(json), '');
@@ -82,7 +79,7 @@ void main() {
               ],
               'role': 'model',
             },
-          }
+          },
         ],
       });
       expect(extractGoogleToken(json), 'Gemini');
@@ -92,11 +89,8 @@ void main() {
       final json = jsonEncode({
         'candidates': [
           {
-            'content': {
-              'parts': <dynamic>[],
-              'role': 'model',
-            },
-          }
+            'content': {'parts': <dynamic>[], 'role': 'model'},
+          },
         ],
       });
       expect(extractGoogleToken(json), '');

@@ -27,18 +27,18 @@ import 'package:sleuth/src/network/http_monitor.dart';
 import 'package:sleuth/src/network/request_record.dart';
 
 /// How the Layer 2 consumer drains the response body. Each mode exercises
-/// a different `StreamSubscription` code path the v0.16.1 AB1 fix covers:
+/// a different `StreamSubscription` code path the v0.16.1 fix covers:
 /// before the fix, `drain` and `asFuture` silently replaced the proxy's
 /// wrapping `onDone` and the `RequestRecord` never landed.
 enum DrainMode {
   /// `await for (final _ in response) {}` — the subscription's `onDone`
   /// is the one the proxy installed, so the record emission path fires
-  /// naturally. Safe even on the pre-AB1 implementation.
+  /// naturally. Safe even on the pre-v0.16.1 implementation.
   awaitFor,
 
   /// `response.drain<void>()` — internally calls `listen(null,
   /// cancelOnError: true).asFuture(futureValue)`, which replaces the
-  /// inner subscription's `_onDone`. Before AB1, the proxy's record
+  /// inner subscription's `_onDone`. Before v0.16.1, the proxy's record
   /// never emitted on this path.
   drain,
 
@@ -87,8 +87,9 @@ void main() {
 
     test('1000 ms — at slow threshold, warning fires', () {
       detector.processRecord(record(durationMs: 1000));
-      final slow =
-          detector.issues.where((i) => i.stableId == 'slow_request').toList();
+      final slow = detector.issues
+          .where((i) => i.stableId == 'slow_request')
+          .toList();
       expect(slow, hasLength(1));
       expect(slow.first.severity, IssueSeverity.warning);
     });
@@ -121,12 +122,14 @@ void main() {
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
 
-    test('4201 ms — first above the schema critical at-band stays critical',
-        () {
-      detector.processRecord(record(durationMs: 4201));
-      expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.severity, IssueSeverity.critical);
-    });
+    test(
+      '4201 ms — first above the schema critical at-band stays critical',
+      () {
+        detector.processRecord(record(durationMs: 4201));
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity, IssueSeverity.critical);
+      },
+    );
 
     test('6000 ms — schema critical above-ceiling stays critical', () {
       detector.processRecord(record(durationMs: 6000));
@@ -142,20 +145,30 @@ void main() {
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
 
-    test('slow_request emission stamps observedDurationMs in extraTraceArgs',
-        () {
-      // Detector-side observed magnitude written into trace args so the
-      // audit gate can cross-check operator-Stopwatch observed against
-      // the detector's worstMs computation.
-      detector.processRecord(record(durationMs: 1500));
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'slow_request');
-      expect(issue.extraTraceArgs, isNotNull,
-          reason: 'slow_request must stamp extraTraceArgs.');
-      expect(issue.extraTraceArgs!['observedDurationMs'], equals('1500'),
-          reason: 'observedDurationMs equals worstMs from filtered records '
-              '(here: single record at 1500 ms).');
-    });
+    test(
+      'slow_request emission stamps observedDurationMs in extraTraceArgs',
+      () {
+        // Detector-side observed magnitude written into trace args so the
+        // audit gate can cross-check operator-Stopwatch observed against
+        // the detector's worstMs computation.
+        detector.processRecord(record(durationMs: 1500));
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'slow_request',
+        );
+        expect(
+          issue.extraTraceArgs,
+          isNotNull,
+          reason: 'slow_request must stamp extraTraceArgs.',
+        );
+        expect(
+          issue.extraTraceArgs!['observedDurationMs'],
+          equals('1500'),
+          reason:
+              'observedDurationMs equals worstMs from filtered records '
+              '(here: single record at 1500 ms).',
+        );
+      },
+    );
 
     test('reachability invariant: critical must exceed slow', () {
       expect(
@@ -305,8 +318,9 @@ void main() {
         final rec = detector.records.first;
         expect(rec.durationMs, greaterThanOrEqualTo(1000));
         // Proxy measured the duration — not a synthetic record.
-        final slow =
-            detector.issues.where((i) => i.stableId == 'slow_request').toList();
+        final slow = detector.issues
+            .where((i) => i.stableId == 'slow_request')
+            .toList();
         expect(slow, hasLength(1));
         expect(slow.first.severity, IssueSeverity.warning);
         expect(slow.first.confidence, IssueConfidence.confirmed);
@@ -323,84 +337,94 @@ void main() {
         await drive(serverDelay: const Duration(milliseconds: 3500));
         expect(detector.records, hasLength(1));
         expect(detector.records.first.durationMs, greaterThanOrEqualTo(3000));
-        final slow =
-            detector.issues.where((i) => i.stableId == 'slow_request').toList();
+        final slow = detector.issues
+            .where((i) => i.stableId == 'slow_request')
+            .toList();
         expect(slow, hasLength(1));
         expect(slow.first.severity, IssueSeverity.critical);
-        expect(slow.first.extraTraceArgs?['observedDurationMs'], isNotNull,
-            reason: 'Critical emission must stamp observedDurationMs for the '
-                'audit cross-check.');
+        expect(
+          slow.first.extraTraceArgs?['observedDurationMs'],
+          isNotNull,
+          reason:
+              'Critical emission must stamp observedDurationMs for the '
+              'audit cross-check.',
+        );
       },
     );
 
-    // AB1 regression tests (v0.16.1): the proxy must emit a
+    // Regression tests (v0.16.1): the proxy must emit a
     // `RequestRecord` regardless of how the consumer drains the
     // response. Before the `_MonitoringSubscription` wrapper,
     // `Stream.drain()` and `StreamSubscription.asFuture()` each
     // replaced the inner subscription's `_onDone` and silently
     // erased the proxy's record emission. These four parameterised
     // tests pin the fix so a regression fails CI.
-    test(
-      'AB1: drain() still emits RequestRecord',
-      () async {
-        await drive(
-          serverDelay: const Duration(milliseconds: 50),
-          drainMode: DrainMode.drain,
-        );
-        expect(detector.records, hasLength(1),
-            reason: 'drain() used to bypass the proxy. The wrapper '
-                "subscription's asFuture override must preserve the "
-                'terminal-event emission.');
-      },
-    );
+    test('drain() still emits RequestRecord', () async {
+      await drive(
+        serverDelay: const Duration(milliseconds: 50),
+        drainMode: DrainMode.drain,
+      );
+      expect(
+        detector.records,
+        hasLength(1),
+        reason:
+            'drain() used to bypass the proxy. The wrapper '
+            "subscription's asFuture override must preserve the "
+            'terminal-event emission.',
+      );
+    });
 
-    test(
-      'AB1: listen().asFuture() still emits RequestRecord',
-      () async {
-        await drive(
-          serverDelay: const Duration(milliseconds: 50),
-          drainMode: DrainMode.listenAsFuture,
-        );
-        expect(detector.records, hasLength(1),
-            reason: 'explicit listen().asFuture() used to bypass the '
-                'proxy for the same reason drain() did — asFuture '
-                "replaces the inner subscription's _onDone.");
-      },
-    );
+    test('listen().asFuture() still emits RequestRecord', () async {
+      await drive(
+        serverDelay: const Duration(milliseconds: 50),
+        drainMode: DrainMode.listenAsFuture,
+      );
+      expect(
+        detector.records,
+        hasLength(1),
+        reason:
+            'explicit listen().asFuture() used to bypass the '
+            'proxy for the same reason drain() did — asFuture '
+            "replaces the inner subscription's _onDone.",
+      );
+    });
 
-    test(
-      'AB1: early cancel() still emits RequestRecord',
-      () async {
-        await drive(
-          serverDelay: const Duration(milliseconds: 50),
-          drainMode: DrainMode.cancelEarly,
-        );
-        expect(detector.records, hasLength(1),
-            reason: "the wrapper's cancel() override must fire the "
-                'terminal emit before delegating to the inner '
-                'subscription so early-abort consumers still produce '
-                'a RequestRecord.');
-      },
-    );
+    test('early cancel() still emits RequestRecord', () async {
+      await drive(
+        serverDelay: const Duration(milliseconds: 50),
+        drainMode: DrainMode.cancelEarly,
+      );
+      expect(
+        detector.records,
+        hasLength(1),
+        reason:
+            "the wrapper's cancel() override must fire the "
+            'terminal emit before delegating to the inner '
+            'subscription so early-abort consumers still produce '
+            'a RequestRecord.',
+      );
+    });
 
-    test(
-      'AB1: slow response via drain() still escalates to warning',
-      () async {
-        await drive(
-          serverDelay: const Duration(milliseconds: 1100),
-          drainMode: DrainMode.drain,
-        );
-        expect(detector.records, hasLength(1));
-        expect(detector.records.first.durationMs, greaterThanOrEqualTo(1000));
-        final slow =
-            detector.issues.where((i) => i.stableId == 'slow_request').toList();
-        expect(slow, hasLength(1),
-            reason: 'drain() consumers must participate in the full '
-                'detector pipeline — not just emit a record but also '
-                'escalate severity through processRecord.');
-        expect(slow.first.severity, IssueSeverity.warning);
-      },
-    );
+    test('slow response via drain() still escalates to warning', () async {
+      await drive(
+        serverDelay: const Duration(milliseconds: 1100),
+        drainMode: DrainMode.drain,
+      );
+      expect(detector.records, hasLength(1));
+      expect(detector.records.first.durationMs, greaterThanOrEqualTo(1000));
+      final slow = detector.issues
+          .where((i) => i.stableId == 'slow_request')
+          .toList();
+      expect(
+        slow,
+        hasLength(1),
+        reason:
+            'drain() consumers must participate in the full '
+            'detector pipeline — not just emit a record but also '
+            'escalate severity through processRecord.',
+      );
+      expect(slow.first.severity, IssueSeverity.warning);
+    });
 
     // Regression tests for cases beyond happy-path completion and early
     // cancel: post-listen `sub.onDone(newCb)` / `sub.onError(newCb)`
@@ -414,7 +438,7 @@ void main() {
     // emission is invariant under rebinding.
 
     test(
-      'B2: post-listen sub.onDone(newCb) fires newCb AND emits RequestRecord',
+      'post-listen sub.onDone(newCb) fires newCb AND emits RequestRecord',
       () async {
         server.listen((req) async {
           req.response.add(List<int>.filled(64, 0x41));
@@ -425,8 +449,8 @@ void main() {
         var newDoneFired = false;
         try {
           final response = await (await client.getUrl(
-                  Uri.parse('http://${server.address.host}:${server.port}/')))
-              .close();
+            Uri.parse('http://${server.address.host}:${server.port}/'),
+          )).close();
 
           final done = Completer<void>();
           final sub = response.listen((_) {});
@@ -443,17 +467,24 @@ void main() {
         }
 
         await recordEmitted.future.timeout(const Duration(seconds: 5));
-        expect(newDoneFired, isTrue,
-            reason: 'rebound onDone callback must still fire');
-        expect(detector.records, hasLength(1),
-            reason: 'RequestRecord must land even when the caller rebinds '
-                "sub.onDone() after listen() — the proxy's terminal "
-                'handlers are permanent.');
+        expect(
+          newDoneFired,
+          isTrue,
+          reason: 'rebound onDone callback must still fire',
+        );
+        expect(
+          detector.records,
+          hasLength(1),
+          reason:
+              'RequestRecord must land even when the caller rebinds '
+              "sub.onDone() after listen() — the proxy's terminal "
+              'handlers are permanent.',
+        );
       },
     );
 
     test(
-      'B2: post-listen sub.onError(newCb) fires newCb AND emits RequestRecord',
+      'post-listen sub.onError(newCb) fires newCb AND emits RequestRecord',
       () async {
         // Server accepts the connection, writes nothing, then destroys the
         // socket to surface a stream error on the client side.
@@ -466,7 +497,8 @@ void main() {
         var newErrorFired = false;
         try {
           final request = await client.getUrl(
-              Uri.parse('http://${server.address.host}:${server.port}/'));
+            Uri.parse('http://${server.address.host}:${server.port}/'),
+          );
           try {
             final response = await request.close();
 
@@ -479,7 +511,7 @@ void main() {
                 // fired, the test still passes via the rebinding assertion.
               },
             );
-            sub.onError((Object _, [StackTrace? __]) {
+            sub.onError((Object _, [StackTrace? _]) {
               newErrorFired = true;
               if (!done.isCompleted) done.complete();
             });
@@ -497,142 +529,164 @@ void main() {
         }
 
         await recordEmitted.future.timeout(const Duration(seconds: 5));
-        expect(detector.records, hasLength(1),
-            reason: 'RequestRecord must land even when the caller rebinds '
-                "sub.onError() after listen() — the proxy's terminal "
-                'handlers are permanent.');
+        expect(
+          detector.records,
+          hasLength(1),
+          reason:
+              'RequestRecord must land even when the caller rebinds '
+              "sub.onError() after listen() — the proxy's terminal "
+              'handlers are permanent.',
+        );
         // `newErrorFired` is best-effort: on some platforms the socket
         // reset surfaces before listen() returns, so the rebind never has
         // a chance to catch it. The record emission is the load-bearing
         // assertion.
-        expect(newErrorFired || detector.records.first.statusCode <= 0, isTrue,
-            reason: 'either the rebound error handler fires, or the error '
-                'surfaced earlier on the request path — both satisfy B2');
+        expect(
+          newErrorFired || detector.records.first.statusCode <= 0,
+          isTrue,
+          reason:
+              'either the rebound error handler fires, or the error '
+              'surfaced earlier on the request path. Both are acceptable.',
+        );
       },
     );
 
-    test(
-      'B2: mid-stream server-close emits record with partial bytes AND '
-      'asFuture() surfaces the error',
-      () async {
-        // Bind a raw ServerSocket instead of reusing `server` (HttpServer)
-        // so we can hand-write an HTTP response with a content-length
-        // header, ship partial bytes, then destroy the connection. The
-        // stock `HttpServer` guards against Content-Length mismatches and
-        // `detachSocket` errors once headers are flushed, which prevents
-        // the mid-stream-abort pattern we need to reproduce.
-        final rawServer =
-            await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-        const prefixBytes = 32;
-        const declaredLen = 1024;
-        try {
-          rawServer.listen((socket) {
-            // Drain the request so the client finishes sending before we
-            // respond; don't hold onto it.
-            socket.listen((_) {}, onError: (_) {}, onDone: () {});
-            // Defer write slightly to ensure request headers are in
-            // flight before the response lands.
-            Future<void>.delayed(
-              const Duration(milliseconds: 20),
-              () async {
-                socket.add(
-                  'HTTP/1.1 200 OK\r\n'
-                          'Content-Length: $declaredLen\r\n'
-                          'Content-Type: text/plain\r\n'
-                          'Connection: close\r\n'
-                          '\r\n'
-                      .codeUnits,
-                );
-                socket.add(List<int>.filled(prefixBytes, 0x41));
-                await socket.flush();
-                socket.destroy();
-              },
+    test('mid-stream server-close emits record with partial bytes AND '
+        'asFuture() surfaces the error', () async {
+      // Bind a raw ServerSocket instead of reusing `server` (HttpServer)
+      // so we can hand-write an HTTP response with a content-length
+      // header, ship partial bytes, then destroy the connection. The
+      // stock `HttpServer` guards against Content-Length mismatches and
+      // `detachSocket` errors once headers are flushed, which prevents
+      // the mid-stream-abort pattern we need to reproduce.
+      final rawServer = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      const prefixBytes = 32;
+      const declaredLen = 1024;
+      try {
+        rawServer.listen((socket) {
+          // Drain the request so the client finishes sending before we
+          // respond; don't hold onto it.
+          socket.listen((_) {}, onError: (_) {}, onDone: () {});
+          // Defer write slightly to ensure request headers are in
+          // flight before the response lands.
+          Future<void>.delayed(const Duration(milliseconds: 20), () async {
+            socket.add(
+              'HTTP/1.1 200 OK\r\n'
+                      'Content-Length: $declaredLen\r\n'
+                      'Content-Type: text/plain\r\n'
+                      'Connection: close\r\n'
+                      '\r\n'
+                  .codeUnits,
             );
+            socket.add(List<int>.filled(prefixBytes, 0x41));
+            await socket.flush();
+            socket.destroy();
           });
-
-          final client = HttpClient();
-          Object? errorFromAsFuture;
-          try {
-            final response = await (await client.getUrl(Uri.parse(
-                    'http://${rawServer.address.host}:${rawServer.port}/')))
-                .close();
-            try {
-              await response
-                  .listen((_) {}, cancelOnError: false)
-                  .asFuture<void>();
-            } catch (e) {
-              errorFromAsFuture = e;
-            }
-          } finally {
-            client.close(force: true);
-          }
-
-          await recordEmitted.future.timeout(const Duration(seconds: 5));
-          expect(detector.records, hasLength(1),
-              reason: 'mid-stream errors must still produce a record — the '
-                  'proxy emits via its permanent onError handler and '
-                  'completes the terminal Completer with the error.');
-          expect(errorFromAsFuture, isNotNull,
-              reason: 'asFuture() chainers must see the error — the '
-                  'wrapper completes its own Completer with the error '
-                  'before the proxy marks the request done.');
-          // Partial bytes captured — not a completion with zero bytes.
-          expect(detector.records.first.responseBytes, greaterThan(0));
-          expect(detector.records.first.responseBytes,
-              lessThanOrEqualTo(declaredLen));
-        } finally {
-          await rawServer.close();
-        }
-      },
-    );
-
-    test(
-      'B2: cancel-before-first-chunk emits record with bytes=0 and marks '
-      'cancelled=true',
-      () async {
-        // Server delays long enough for the client to cancel before any
-        // data is written.
-        server.listen((req) async {
-          await Future<void>.delayed(const Duration(milliseconds: 300));
-          req.response.add(List<int>.filled(64, 0x41));
-          await req.response.close();
         });
 
         final client = HttpClient();
+        Object? errorFromAsFuture;
         try {
           final response = await (await client.getUrl(
-                  Uri.parse('http://${server.address.host}:${server.port}/')))
-              .close();
-          // Listen but immediately cancel — no chunks should have
-          // arrived. The wrapper's cancel() fires the terminal emit
-          // with `cancelled: true` before delegating to the inner
-          // subscription.
-          final sub = response.listen((_) {});
-          await sub.cancel();
+            Uri.parse('http://${rawServer.address.host}:${rawServer.port}/'),
+          )).close();
+          try {
+            await response
+                .listen((_) {}, cancelOnError: false)
+                .asFuture<void>();
+          } catch (e) {
+            errorFromAsFuture = e;
+          }
         } finally {
           client.close(force: true);
         }
 
         await recordEmitted.future.timeout(const Duration(seconds: 5));
-        expect(detector.records, hasLength(1));
-        final rec = detector.records.first;
-        expect(rec.responseBytes, 0,
-            reason: 'cancel-before-first-chunk must record zero bytes');
-        expect(rec.cancelled, isTrue,
-            reason: 'cancelled flag distinguishes aborts from completions '
-                'so the detector can filter them out of slow_request and '
-                'request_frequency classification');
-        // Idempotence: record count stays 1 even if an additional
-        // terminal event races through the inner subscription.
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        expect(detector.records, hasLength(1),
-            reason: '_emitOnTerminal must be idempotent — a post-cancel '
-                'onDone from the inner subscription must not double-emit');
-      },
-    );
+        expect(
+          detector.records,
+          hasLength(1),
+          reason:
+              'mid-stream errors must still produce a record — the '
+              'proxy emits via its permanent onError handler and '
+              'completes the terminal Completer with the error.',
+        );
+        expect(
+          errorFromAsFuture,
+          isNotNull,
+          reason:
+              'asFuture() chainers must see the error — the '
+              'wrapper completes its own Completer with the error '
+              'before the proxy marks the request done.',
+        );
+        // Partial bytes captured — not a completion with zero bytes.
+        expect(detector.records.first.responseBytes, greaterThan(0));
+        expect(
+          detector.records.first.responseBytes,
+          lessThanOrEqualTo(declaredLen),
+        );
+      } finally {
+        await rawServer.close();
+      }
+    });
+
+    test('cancel-before-first-chunk emits record with bytes=0 and marks '
+        'cancelled=true', () async {
+      // Server delays long enough for the client to cancel before any
+      // data is written.
+      server.listen((req) async {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        req.response.add(List<int>.filled(64, 0x41));
+        await req.response.close();
+      });
+
+      final client = HttpClient();
+      try {
+        final response = await (await client.getUrl(
+          Uri.parse('http://${server.address.host}:${server.port}/'),
+        )).close();
+        // Listen but immediately cancel — no chunks should have
+        // arrived. The wrapper's cancel() fires the terminal emit
+        // with `cancelled: true` before delegating to the inner
+        // subscription.
+        final sub = response.listen((_) {});
+        await sub.cancel();
+      } finally {
+        client.close(force: true);
+      }
+
+      await recordEmitted.future.timeout(const Duration(seconds: 5));
+      expect(detector.records, hasLength(1));
+      final rec = detector.records.first;
+      expect(
+        rec.responseBytes,
+        0,
+        reason: 'cancel-before-first-chunk must record zero bytes',
+      );
+      expect(
+        rec.cancelled,
+        isTrue,
+        reason:
+            'cancelled flag distinguishes aborts from completions '
+            'so the detector can filter them out of slow_request and '
+            'request_frequency classification',
+      );
+      // Idempotence: record count stays 1 even if an additional
+      // terminal event races through the inner subscription.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        detector.records,
+        hasLength(1),
+        reason:
+            '_emitOnTerminal must be idempotent — a post-cancel '
+            'onDone from the inner subscription must not double-emit',
+      );
+    });
 
     test(
-      'B3: cancelled records are excluded from slow_request classification',
+      'cancelled records are excluded from slow_request classification',
       () async {
         // Server delay > 1000 ms so a completion would trip slow_request.
         server.listen((req) async {
@@ -644,8 +698,8 @@ void main() {
         final client = HttpClient();
         try {
           final response = await (await client.getUrl(
-                  Uri.parse('http://${server.address.host}:${server.port}/')))
-              .close();
+            Uri.parse('http://${server.address.host}:${server.port}/'),
+          )).close();
           // Wait past the slow threshold, THEN cancel — the record's
           // durationMs will exceed 1000 ms but cancelled=true.
           await Future<void>.delayed(const Duration(milliseconds: 1050));
@@ -659,13 +713,18 @@ void main() {
         expect(detector.records, hasLength(1));
         final rec = detector.records.first;
         expect(rec.cancelled, isTrue);
-        expect(rec.durationMs, greaterThanOrEqualTo(1000),
-            reason: 'duration should have crossed the slow threshold — '
-                "this is the test's setup, not the assertion");
+        expect(
+          rec.durationMs,
+          greaterThanOrEqualTo(1000),
+          reason:
+              'duration should have crossed the slow threshold — '
+              "this is the test's setup, not the assertion",
+        );
         expect(
           detector.issues.where((i) => i.stableId == 'slow_request'),
           isEmpty,
-          reason: 'a cancelled request past the slow threshold is an '
+          reason:
+              'a cancelled request past the slow threshold is an '
               'intentional abort, not a slow API — it must not fire '
               'slow_request',
         );
@@ -721,48 +780,70 @@ void main() {
       const limit = 1024;
       // threshold-1: silent
       var d = NetworkMonitorDetector(
-          largeResponseBytes: limit, clock: () => fakeNow);
+        largeResponseBytes: limit,
+        clock: () => fakeNow,
+      );
       d.processRecord(record(responseBytes: limit - 1));
-      expect(d.issues.where((i) => i.stableId == 'large_response'), isEmpty,
-          reason: 'responseBytes < largeResponseBytes must be silent.');
+      expect(
+        d.issues.where((i) => i.stableId == 'large_response'),
+        isEmpty,
+        reason: 'responseBytes < largeResponseBytes must be silent.',
+      );
       d.dispose();
       // threshold: fires (>= semantics)
       d = NetworkMonitorDetector(
-          largeResponseBytes: limit, clock: () => fakeNow);
+        largeResponseBytes: limit,
+        clock: () => fakeNow,
+      );
       d.processRecord(record(responseBytes: limit));
-      final atIssues =
-          d.issues.where((i) => i.stableId == 'large_response').toList();
-      expect(atIssues, hasLength(1),
-          reason: 'responseBytes == largeResponseBytes must fire (>=).');
+      final atIssues = d.issues
+          .where((i) => i.stableId == 'large_response')
+          .toList();
+      expect(
+        atIssues,
+        hasLength(1),
+        reason: 'responseBytes == largeResponseBytes must fire (>=).',
+      );
       d.dispose();
       // 2× threshold: fires
       d = NetworkMonitorDetector(
-          largeResponseBytes: limit, clock: () => fakeNow);
+        largeResponseBytes: limit,
+        clock: () => fakeNow,
+      );
       d.processRecord(record(responseBytes: limit * 2));
       expect(
-          d.issues.where((i) => i.stableId == 'large_response'), hasLength(1));
+        d.issues.where((i) => i.stableId == 'large_response'),
+        hasLength(1),
+      );
       d.dispose();
     });
 
     test('request_frequency boundary triad pins `> frequencyLimit`', () {
       const limit = 5;
       // limit records: silent (recordsList.length <= frequencyLimit returns)
-      var d =
-          NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
+      var d = NetworkMonitorDetector(
+        frequencyLimit: limit,
+        clock: () => fakeNow,
+      );
       for (var i = 0; i < limit; i++) {
         d.processRecord(record(url: 'https://example.test/api/$i'));
       }
-      expect(d.issues.where((i) => i.stableId == 'request_frequency'), isEmpty,
-          reason: 'recordsList.length == frequencyLimit must be silent (>).');
+      expect(
+        d.issues.where((i) => i.stableId == 'request_frequency'),
+        isEmpty,
+        reason: 'recordsList.length == frequencyLimit must be silent (>).',
+      );
       d.dispose();
       // limit+1: fires (strict greater)
       d = NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
       for (var i = 0; i < limit + 1; i++) {
         d.processRecord(record(url: 'https://example.test/api/$i'));
       }
-      expect(d.issues.where((i) => i.stableId == 'request_frequency'),
-          hasLength(1),
-          reason: 'recordsList.length > frequencyLimit must fire.');
+      expect(
+        d.issues.where((i) => i.stableId == 'request_frequency'),
+        hasLength(1),
+        reason: 'recordsList.length > frequencyLimit must fire.',
+      );
       d.dispose();
       // 2× limit: fires
       d = NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
@@ -770,69 +851,96 @@ void main() {
         d.processRecord(record(url: 'https://example.test/api/$i'));
       }
       expect(
-          d.issues.where((i) => i.stableId == 'request_frequency'), isNotEmpty);
+        d.issues.where((i) => i.stableId == 'request_frequency'),
+        isNotEmpty,
+      );
       d.dispose();
     });
 
-    test(
-        'large_response stamps observedResponseBytes + dedupIdentityMicros '
+    test('large_response stamps observedResponseBytes + dedupIdentityMicros '
         'on extraTraceArgs', () {
       const limit = 1024;
       const worst = 4096;
       final d = NetworkMonitorDetector(
-          largeResponseBytes: limit, clock: () => fakeNow);
+        largeResponseBytes: limit,
+        clock: () => fakeNow,
+      );
       d.processRecord(record(responseBytes: limit + 100));
       d.processRecord(record(responseBytes: worst));
       d.processRecord(record(responseBytes: limit + 200));
       final issue = d.issues.firstWhere((i) => i.stableId == 'large_response');
-      expect(issue.extraTraceArgs, isNotNull,
-          reason: 'large_response must stamp extraTraceArgs.');
-      expect(issue.extraTraceArgs!['observedResponseBytes'],
-          equals(worst.toString()),
-          reason: 'observedResponseBytes must be the worst (max) byte count.');
-      expect(issue.dedupIdentityMicros, isNotNull,
-          reason: 'dedupIdentityMicros must be set for the audit-gate '
-              'strong uniqueness invariant.');
-      expect(issue.dedupIdentityMicros,
-          equals(issue.detectedAt!.microsecondsSinceEpoch),
-          reason: 'dedupIdentityMicros derives from detectedAt; reuses the '
-              'same instant so audit-gate cross-check sees a stable identity.');
+      expect(
+        issue.extraTraceArgs,
+        isNotNull,
+        reason: 'large_response must stamp extraTraceArgs.',
+      );
+      expect(
+        issue.extraTraceArgs!['observedResponseBytes'],
+        equals(worst.toString()),
+        reason: 'observedResponseBytes must be the worst (max) byte count.',
+      );
+      expect(
+        issue.dedupIdentityMicros,
+        isNotNull,
+        reason:
+            'dedupIdentityMicros must be set for the audit-gate '
+            'strong uniqueness invariant.',
+      );
+      expect(
+        issue.dedupIdentityMicros,
+        equals(issue.detectedAt!.microsecondsSinceEpoch),
+        reason:
+            'dedupIdentityMicros derives from detectedAt; reuses the '
+            'same instant so audit-gate cross-check sees a stable identity.',
+      );
       d.dispose();
     });
 
-    test(
-        'request_frequency stamps observedRequestCount + dedupIdentityMicros '
+    test('request_frequency stamps observedRequestCount + dedupIdentityMicros '
         'on extraTraceArgs', () {
       const limit = 5;
-      final d =
-          NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
+      final d = NetworkMonitorDetector(
+        frequencyLimit: limit,
+        clock: () => fakeNow,
+      );
       for (var i = 0; i < limit + 3; i++) {
         d.processRecord(record(url: 'https://example.test/api/$i'));
       }
-      final issue =
-          d.issues.firstWhere((i) => i.stableId == 'request_frequency');
-      expect(issue.extraTraceArgs, isNotNull,
-          reason: 'request_frequency must stamp extraTraceArgs.');
-      expect(issue.extraTraceArgs!['observedRequestCount'],
-          equals((limit + 3).toString()),
-          reason: 'observedRequestCount must equal the peak 5-second '
-              'window count (8 records inside one window here).');
+      final issue = d.issues.firstWhere(
+        (i) => i.stableId == 'request_frequency',
+      );
+      expect(
+        issue.extraTraceArgs,
+        isNotNull,
+        reason: 'request_frequency must stamp extraTraceArgs.',
+      );
+      expect(
+        issue.extraTraceArgs!['observedRequestCount'],
+        equals((limit + 3).toString()),
+        reason:
+            'observedRequestCount must equal the peak 5-second '
+            'window count (8 records inside one window here).',
+      );
       expect(issue.dedupIdentityMicros, isNotNull);
-      expect(issue.dedupIdentityMicros,
-          equals(issue.detectedAt!.microsecondsSinceEpoch));
+      expect(
+        issue.dedupIdentityMicros,
+        equals(issue.detectedAt!.microsecondsSinceEpoch),
+      );
       d.dispose();
     });
 
-    test(
-        'http_error_spike boundary triad pins `>= 3` errors per 5s '
+    test('http_error_spike boundary triad pins `>= 3` errors per 5s '
         'window', () {
       // 2 errors: silent (errorRecords.length < 3 returns)
       var d = NetworkMonitorDetector(clock: () => fakeNow);
       for (var i = 0; i < 2; i++) {
         d.processRecord(record(statusCode: 500));
       }
-      expect(d.issues.where((i) => i.stableId == 'http_error_spike'), isEmpty,
-          reason: 'errorRecords.length == 2 must be silent (>= 3).');
+      expect(
+        d.issues.where((i) => i.stableId == 'http_error_spike'),
+        isEmpty,
+        reason: 'errorRecords.length == 2 must be silent (>= 3).',
+      );
       d.dispose();
       // 3 errors: fires (>= 3 semantics)
       d = NetworkMonitorDetector(clock: () => fakeNow);
@@ -840,8 +948,10 @@ void main() {
         d.processRecord(record(statusCode: 500));
       }
       expect(
-          d.issues.where((i) => i.stableId == 'http_error_spike'), hasLength(1),
-          reason: 'errorRecords.length == 3 must fire.');
+        d.issues.where((i) => i.stableId == 'http_error_spike'),
+        hasLength(1),
+        reason: 'errorRecords.length == 3 must fire.',
+      );
       d.dispose();
       // 10 errors: fires + critical (peakCount >= 10 || serverErrors >= 5
       // → critical)
@@ -850,13 +960,15 @@ void main() {
         d.processRecord(record(statusCode: 500));
       }
       final crit = d.issues.firstWhere((i) => i.stableId == 'http_error_spike');
-      expect(crit.severity, IssueSeverity.critical,
-          reason: 'peakCount >= 10 must escalate to critical.');
+      expect(
+        crit.severity,
+        IssueSeverity.critical,
+        reason: 'peakCount >= 10 must escalate to critical.',
+      );
       d.dispose();
     });
 
-    test(
-        'high_frequency_same_path boundary triad pins `>= 3` cluster + '
+    test('high_frequency_same_path boundary triad pins `>= 3` cluster + '
         '`>= 10` critical', () {
       // 2 same-URL records: silent (records.length < _duplicateThreshold
       // returns)
@@ -865,11 +977,14 @@ void main() {
         d.processRecord(record());
       }
       expect(
-          d.issues.where((i) =>
+        d.issues.where(
+          (i) =>
               i.stableId != null &&
-              i.stableId!.startsWith('high_frequency_same_path:')),
-          isEmpty,
-          reason: '2 same-URL records < _duplicateThreshold must be silent.');
+              i.stableId!.startsWith('high_frequency_same_path:'),
+        ),
+        isEmpty,
+        reason: '2 same-URL records < _duplicateThreshold must be silent.',
+      );
       d.dispose();
       // 3 same-URL records: fires warning
       d = NetworkMonitorDetector(clock: () => fakeNow);
@@ -877,12 +992,17 @@ void main() {
         d.processRecord(record());
       }
       final warn = d.issues
-          .where((i) =>
-              i.stableId != null &&
-              i.stableId!.startsWith('high_frequency_same_path:'))
+          .where(
+            (i) =>
+                i.stableId != null &&
+                i.stableId!.startsWith('high_frequency_same_path:'),
+          )
           .toList();
-      expect(warn, hasLength(1),
-          reason: '3 same-URL records >= _duplicateThreshold must fire.');
+      expect(
+        warn,
+        hasLength(1),
+        reason: '3 same-URL records >= _duplicateThreshold must fire.',
+      );
       expect(warn.first.severity, IssueSeverity.warning);
       d.dispose();
       // 10 same-URL records: fires critical
@@ -890,17 +1010,22 @@ void main() {
       for (var i = 0; i < 10; i++) {
         d.processRecord(record());
       }
-      final crit = d.issues.firstWhere((i) =>
-          i.stableId != null &&
-          i.stableId!.startsWith('high_frequency_same_path:'));
-      expect(crit.severity, IssueSeverity.critical,
-          reason: 'maxCluster >= _criticalDuplicateThreshold must '
-              'escalate to critical.');
+      final crit = d.issues.firstWhere(
+        (i) =>
+            i.stableId != null &&
+            i.stableId!.startsWith('high_frequency_same_path:'),
+      );
+      expect(
+        crit.severity,
+        IssueSeverity.critical,
+        reason:
+            'maxCluster >= _criticalDuplicateThreshold must '
+            'escalate to critical.',
+      );
       d.dispose();
     });
 
-    test(
-        'request_frequency 5s sliding window: clusters separated by '
+    test('request_frequency 5s sliding window: clusters separated by '
         '>5s do not fire even when total count exceeds limit', () {
       // Pin the time-window logic, not just count threshold. Two
       // clusters of 5 records spaced 6s apart sum to 10 records but
@@ -908,13 +1033,13 @@ void main() {
       final d = NetworkMonitorDetector(frequencyLimit: 5, clock: () => fakeNow);
       addTearDown(d.dispose);
       RequestRecord recAt(DateTime t) => RequestRecord(
-            url: 'https://example.test/api/${t.microsecond}',
-            method: 'GET',
-            statusCode: 200,
-            durationMs: 100,
-            responseBytes: 1024,
-            startedAt: t,
-          );
+        url: 'https://example.test/api/${t.microsecond}',
+        method: 'GET',
+        statusCode: 200,
+        durationMs: 100,
+        responseBytes: 1024,
+        startedAt: t,
+      );
 
       final t0 = DateTime(2026, 1, 1);
       for (var i = 0; i < 5; i++) {
@@ -927,24 +1052,27 @@ void main() {
         fakeNow = t1;
         d.processRecord(recAt(t1.add(Duration(microseconds: i))));
       }
-      expect(d.issues.where((i) => i.stableId == 'request_frequency'), isEmpty,
-          reason: '5+5 records spread across a 6s gap → peak 5s '
-              'window holds only 5 records, equal to limit, silent.');
+      expect(
+        d.issues.where((i) => i.stableId == 'request_frequency'),
+        isEmpty,
+        reason:
+            '5+5 records spread across a 6s gap → peak 5s '
+            'window holds only 5 records, equal to limit, silent.',
+      );
     });
 
-    test(
-        'http_error_spike 5s sliding window: clusters separated by '
+    test('http_error_spike 5s sliding window: clusters separated by '
         '>5s do not aggregate', () {
       final d = NetworkMonitorDetector(clock: () => fakeNow);
       addTearDown(d.dispose);
       RequestRecord recAt(DateTime t) => RequestRecord(
-            url: 'https://example.test/api/endpoint',
-            method: 'GET',
-            statusCode: 500,
-            durationMs: 100,
-            responseBytes: 1024,
-            startedAt: t,
-          );
+        url: 'https://example.test/api/endpoint',
+        method: 'GET',
+        statusCode: 500,
+        durationMs: 100,
+        responseBytes: 1024,
+        startedAt: t,
+      );
 
       final t0 = DateTime(2026, 1, 1);
       // 2 errors at t0 (below the >=3 threshold for any single window).
@@ -958,9 +1086,13 @@ void main() {
         fakeNow = t1;
         d.processRecord(recAt(t1.add(Duration(microseconds: i))));
       }
-      expect(d.issues.where((i) => i.stableId == 'http_error_spike'), isEmpty,
-          reason: '2+2 errors spread across a 6s gap → peak 5s window '
-              'holds only 2 errors, below the >=3 threshold, silent.');
+      expect(
+        d.issues.where((i) => i.stableId == 'http_error_spike'),
+        isEmpty,
+        reason:
+            '2+2 errors spread across a 6s gap → peak 5s window '
+            'holds only 2 errors, below the >=3 threshold, silent.',
+      );
     });
 
     // ----------------------------------------------------------------
@@ -973,8 +1105,7 @@ void main() {
     // certifies a sub-threshold value the detector never observed.
     // Pin the producer's source-of-truth here so a refactor that
     // reverts to plan-not-measured fails CI.
-    test(
-        'producer-wiring: request_frequency capture reads detector peak, '
+    test('producer-wiring: request_frequency capture reads detector peak, '
         'not requestCount', () {
       // Search the example/lib/demos/ tree for the runner so a future
       // refactor that splits the capture-screen file (e.g. extracts
@@ -983,8 +1114,11 @@ void main() {
       // runner lives, it MUST read lastObservedPeakCount and call
       // flushFrequencyEvaluation()" — not "lives in this exact file".
       final demosDir = Directory('example/lib/demos');
-      expect(demosDir.existsSync(), isTrue,
-          reason: 'example/lib/demos/ must exist to enforce the contract');
+      expect(
+        demosDir.existsSync(),
+        isTrue,
+        reason: 'example/lib/demos/ must exist to enforce the contract',
+      );
       final dartFiles = demosDir
           .listSync(recursive: true)
           .whereType<File>()
@@ -1000,29 +1134,42 @@ void main() {
           break;
         }
       }
-      expect(runnerFile, isNotNull,
-          reason: 'request_frequency capture runner not found anywhere '
-              'under example/lib/demos/. Either restore the runner or '
-              'update this contract test if the capture flow has been '
-              'restructured.');
+      expect(
+        runnerFile,
+        isNotNull,
+        reason:
+            'request_frequency capture runner not found anywhere '
+            'under example/lib/demos/. Either restore the runner or '
+            'update this contract test if the capture flow has been '
+            'restructured.',
+      );
       final src = runnerSrc!;
       expect(
         RegExp(r'observedCount\s*=\s*requestCount\s*;').hasMatch(src),
         isFalse,
-        reason: 'request_frequency capture must NOT export the planned send '
+        reason:
+            'request_frequency capture must NOT export the planned send '
             'count. Use Sleuth.networkMonitor?.lastObservedPeakCount after '
             'flushFrequencyEvaluation() so below-leg evidence reflects '
             'what the detector measured. Found in: ${runnerFile!.path}',
       );
-      expect(src.contains('lastObservedPeakCount'), isTrue,
-          reason: 'request_frequency runner must read '
-              'Sleuth.networkMonitor?.lastObservedPeakCount as the source '
-              'of expectedMagnitude.observed. Found in: ${runnerFile.path}');
-      expect(src.contains('flushFrequencyEvaluation()'), isTrue,
-          reason: 'capture runner must call flushFrequencyEvaluation() '
-              'before reading lastObservedPeakCount so peak compute is '
-              'deterministic regardless of timer phase. '
-              'Found in: ${runnerFile.path}');
+      expect(
+        src.contains('lastObservedPeakCount'),
+        isTrue,
+        reason:
+            'request_frequency runner must read '
+            'Sleuth.networkMonitor?.lastObservedPeakCount as the source '
+            'of expectedMagnitude.observed. Found in: ${runnerFile.path}',
+      );
+      expect(
+        src.contains('flushFrequencyEvaluation()'),
+        isTrue,
+        reason:
+            'capture runner must call flushFrequencyEvaluation() '
+            'before reading lastObservedPeakCount so peak compute is '
+            'deterministic regardless of timer phase. '
+            'Found in: ${runnerFile.path}',
+      );
     });
   });
 }

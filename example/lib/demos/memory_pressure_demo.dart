@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 21: Memory Pressure
+// Demo 14: Memory Pressure
 // Triggers: MemoryPressure detector (VM-only, heap growth + GC pressure)
 // ─────────────────────────────────────────
 
@@ -22,8 +22,12 @@ import '../demo_scaffold.dart';
 ///   (`nativeBytes = rss - heapUsage`).
 /// * **GC pressure** — continuously churn short-lived allocations via a
 ///   periodic timer to force the scavenger to run repeatedly, triggering
-///   `gc_pressure` (>60 GC/min default; configurable via
+///   `gc_pressure` (>180 GC/min default; configurable via
 ///   `SleuthConfig.gcRateThresholdPerMin`).
+///
+/// `heap_near_capacity` stays silent here: it measures process RSS
+/// against `DetectorThresholds.memoryBudgetBytes`, which is unset by
+/// default.
 class MemoryPressureDemo extends StatefulWidget {
   const MemoryPressureDemo({super.key});
 
@@ -129,13 +133,14 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
       // In fixed mode, churn is suppressed (the "pool" simulates reuse).
       if (_isFixedMode) return;
       setState(() => _churning = true);
-      // Every 50ms, allocate ~1MB of garbage that immediately becomes
-      // unreachable. Over a few seconds this overflows new-space repeatedly,
-      // producing many scavenger GCs — enough to exceed 30 GC/min.
-      _churnTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      // Every 25 ms, allocate ~4 MB of garbage that immediately becomes
+      // unreachable. New-space overflows several times a second, so the
+      // scavenger runs well above the 180 GC/min floor (an idle app with
+      // the VM service attached already sees 1–2 scavenges per second).
+      _churnTimer = Timer.periodic(const Duration(milliseconds: 25), (_) {
         final garbage = List.generate(
-          2000,
-          (i) => <String, Object>{'i': i, 'data': List.filled(50, i)},
+          4000,
+          (i) => <String, Object>{'i': i, 'data': List.filled(100, i)},
         );
         // Write to a field so the optimizer keeps the allocation.
         _churnBytesSeen += garbage.length;
@@ -270,28 +275,31 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
     return DemoScaffold(
       title: 'Memory Pressure',
       description:
-          '❌ BAD: Allocating large objects without disposal causes heap '
-          'growth, native memory growth, and GC pressure.\n'
-          '✅ FIX: Dispose resources, use object pools, free FFI allocations, '
-          'limit concurrent loads.\n\n'
-          '▶ Tap "Sustained Growth" — allocates ~2 MB/sec of retained Dart '
-          'heap for 20 seconds. This reliably trips `heap_growing` because '
-          'the detector needs the slope to stay above 512 KB/s for 10 '
-          '*consecutive* seconds. A few manual taps is usually too spiky to '
-          'sustain that window.\n'
-          '▶ Tap "Native +10MB" several times over 15 seconds to trigger '
+          'Bad: Allocating large objects without disposal causes heap '
+          'growth, native memory growth and GC pressure.\n'
+          'Fix: Dispose resources, use object pools, free FFI allocations '
+          'and limit concurrent loads.\n\n'
+          'Tap "Sustained Growth" to allocate about 2 MB/sec of retained '
+          'Dart heap for 20 seconds. This reliably trips `heap_growing`, '
+          'because the detector needs the slope to stay above 512 KB/s for '
+          '10 consecutive seconds. A few manual taps are usually too spiky '
+          'to sustain that window.\n'
+          'Tap "Native +10MB" several times over 15 seconds to trigger '
           '`native_memory_growing` (FFI-allocated, outside the Dart heap).\n'
-          '▶ Toggle "GC Churn" on for ~5 seconds to trigger `gc_pressure` '
-          '(>60 GC/min default; configurable). The "Retained (Dart)" '
-          'counter stays at 0 during churn because the allocations are '
-          'intentionally transient.\n\n'
-          '▶ Flip to Fixed Pattern — retained memory is capped at '
-          '${_fixedPoolCapMB}MB, sustained growth is halted, and churn is '
-          'replaced with a reusable pool.\n\n'
-          'Requires VM service connection (profile mode). Heap/native trend '
-          'signals have a 3s warmup before evaluation begins, and '
-          '`heap_growing` fires only after 10 sustained seconds above '
-          'threshold.',
+          'Toggle "GC Churn" on for about 5 seconds to trigger '
+          '`gc_pressure` (more than 180 GCs a minute by default, '
+          'configurable). The "Retained (Dart)" counter stays at 0 during '
+          'churn because the allocations are short-lived by design.\n'
+          '`heap_near_capacity` does not appear, because it compares '
+          'process memory against `memoryBudgetBytes` and this app leaves '
+          'that unset.\n\n'
+          'Flip to Fixed Pattern. Retained memory is capped at '
+          '${_fixedPoolCapMB}MB, sustained growth stops, and a reusable '
+          'pool replaces the churn.\n\n'
+          'Requires a VM service connection (profile mode). Heap and '
+          'native trend signals have a 3 s warmup before evaluation '
+          'begins, and `heap_growing` fires only after 10 sustained '
+          'seconds above the threshold.',
       metricsBar: MetricsBar(
         chips: [
           MetricChip(label: 'Retained (Dart)', value: '$_dartMB', unit: ' MB'),
@@ -313,7 +321,10 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
 
   Widget _buildControls({required bool isFixed}) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
+    // Scrollable so every control stays reachable on a 4.7–6.1" phone
+    // (the fixed-height visualization would otherwise push the last
+    // buttons below the fold).
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
@@ -357,9 +368,9 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Bounded pool active — cap: $_fixedPoolCapMB MB. '
-                        'Allocations beyond the cap auto-release oldest batches '
-                        'and FFI buffers. GC churn is suppressed.',
+                        'Bounded pool active, capped at $_fixedPoolCapMB MB. '
+                        'Allocations beyond the cap release the oldest '
+                        'batches and FFI buffers. GC churn stays off.',
                         style: TextStyle(
                           fontSize: 12,
                           color: colorScheme.onPrimaryContainer,
@@ -420,7 +431,8 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
           const SizedBox(height: 24),
 
           // ── Visual representation ──
-          Expanded(
+          SizedBox(
+            height: 160,
             child: _MemoryVisualization(dartMB: _dartMB, nativeMB: _nativeMB),
           ),
         ],

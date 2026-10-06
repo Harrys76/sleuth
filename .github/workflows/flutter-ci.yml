@@ -15,9 +15,14 @@ concurrency:
 
 jobs:
   quality:
-    name: Flutter quality gate
+    name: Flutter quality gate (${{ matrix.flutter-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.32.8 is the declared floor; 3.47.6 is the development pin.
+        flutter-version: ['3.32.8', '3.47.6']
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -25,31 +30,87 @@ jobs:
       - name: Set up pinned Flutter
         uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
-          flutter-version: 3.41.4
+          flutter-version: ${{ matrix.flutter-version }}
           cache: true
 
       - name: Resolve root dependencies
         run: flutter pub get --no-example
 
+      # The example app requires Dart ^3.11.1, so it only resolves on the
+      # latest lane.
       - name: Resolve example dependencies
+        if: matrix.flutter-version == '3.47.6'
         working-directory: example
         run: flutter pub get
 
       - name: Resolve MCP package dependencies
+        if: matrix.flutter-version == '3.47.6'
         working-directory: packages/sleuth_mcp
         run: dart pub get
 
       - name: Check formatting
+        if: matrix.flutter-version == '3.47.6'
         run: >-
           dart format --output=none --set-exit-if-changed
-          lib test example/lib
-          packages/sleuth_mcp/lib packages/sleuth_mcp/test tool
+          lib test tool example/lib example/test
+          packages/sleuth_mcp/lib packages/sleuth_mcp/test packages/sleuth_mcp/bin
+
+      - name: Analyze package (floor)
+        if: matrix.flutter-version != '3.47.6'
+        run: flutter analyze lib test
 
       - name: Analyze
+        if: matrix.flutter-version == '3.47.6'
         run: flutter analyze
 
       - name: Test
+        run: flutter test --exclude-tags benchmark
+
+      - name: Benchmarks (serial)
+        run: flutter test --tags benchmark --concurrency=1
+
+      - name: Test example
+        if: matrix.flutter-version == '3.47.6'
+        working-directory: example
         run: flutter test
+
+      - name: Publish dry run
+        if: matrix.flutter-version == '3.47.6'
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter pub publish --dry-run 2>&1 | tee "$RUNNER_TEMP/publish.log"
+          grep -Fq "Package has 0 warnings." "$RUNNER_TEMP/publish.log"
+
+  sidecar:
+    name: MCP sidecar (${{ matrix.flutter-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter-version: ['3.32.8', '3.47.6']
+    defaults:
+      run:
+        working-directory: packages/sleuth_mcp
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up pinned Flutter
+        uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: ${{ matrix.flutter-version }}
+          cache: true
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      - name: Analyze
+        run: dart analyze
+
+      - name: Test
+        run: dart test
 
   dartdoc:
     name: Dartdoc audit
@@ -62,7 +123,7 @@ jobs:
       - name: Set up pinned Flutter
         uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
-          flutter-version: 3.41.4
+          flutter-version: 3.47.6
           cache: true
 
       - name: Resolve root dependencies

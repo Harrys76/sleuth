@@ -37,20 +37,22 @@ void main() {
       );
     }
 
-    test('jank frame with VM disconnected produces a fallback FrameVerdict',
-        () {
-      // VM is not connected by default (isVmConnected = false)
-      controller.addFrameForTest(makeFrame(uiMs: 30, rasterMs: 10));
+    test(
+      'jank frame with VM disconnected produces a fallback FrameVerdict',
+      () {
+        // VM is not connected by default (isVmConnected = false)
+        controller.addFrameForTest(makeFrame(uiMs: 30, rasterMs: 10));
 
-      final verdict = controller.verdictNotifier.value;
-      expect(verdict, isNotNull);
-      expect(verdict!.isFullMode, isFalse);
-      expect(verdict.frameNumber, 1);
-      // totalDuration = max(ui, raster), not sum
-      expect(verdict.totalFrameTime, const Duration(milliseconds: 30));
-      expect(verdict.uiThreadTime, const Duration(milliseconds: 30));
-      expect(verdict.rasterThreadTime, const Duration(milliseconds: 10));
-    });
+        final verdict = controller.verdictNotifier.value;
+        expect(verdict, isNotNull);
+        expect(verdict!.isFullMode, isFalse);
+        expect(verdict.frameNumber, 1);
+        // totalDuration = max(ui, raster), not sum
+        expect(verdict.totalFrameTime, const Duration(milliseconds: 30));
+        expect(verdict.uiThreadTime, const Duration(milliseconds: 30));
+        expect(verdict.rasterThreadTime, const Duration(milliseconds: 10));
+      },
+    );
 
     test('suspected phase is build when UI > raster', () {
       controller.addFrameForTest(makeFrame(uiMs: 30, rasterMs: 10));
@@ -113,8 +115,11 @@ void main() {
 
       final verdict = controller.verdictNotifier.value;
       expect(verdict, isNotNull);
-      expect(verdict!.relatedIssues, isNotEmpty,
-          reason: 'Sustained jank should produce FrameTimingDetector issues');
+      expect(
+        verdict!.relatedIssues,
+        isNotEmpty,
+        reason: 'Sustained jank should produce FrameTimingDetector issues',
+      );
     });
 
     test('no fallback verdict for non-jank frames', () {
@@ -129,8 +134,11 @@ void main() {
 
       controller.addFrameForTest(makeFrame(uiMs: 30, rasterMs: 10));
 
-      expect(controller.verdictNotifier.value, isNull,
-          reason: 'Fallback path should be skipped when VM is connected');
+      expect(
+        controller.verdictNotifier.value,
+        isNull,
+        reason: 'Fallback path should be skipped when VM is connected',
+      );
     });
 
     test('fallback verdict resumes after VM disconnects', () {
@@ -143,20 +151,25 @@ void main() {
       controller.addFrameForTest(
         makeFrame(uiMs: 30, rasterMs: 10, frameNumber: 2),
       );
-      expect(controller.verdictNotifier.value, isNotNull,
-          reason: 'Fallback should resume after VM disconnect');
+      expect(
+        controller.verdictNotifier.value,
+        isNotNull,
+        reason: 'Fallback should resume after VM disconnect',
+      );
     });
 
     test('verdict includes totalSpan and gap when provided', () {
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 30),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-        frameBudgetMs: 16,
-        totalSpan: const Duration(milliseconds: 45),
-        buildToRasterGap: const Duration(microseconds: 5000),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 30),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+          totalSpan: const Duration(milliseconds: 45),
+          buildToRasterGap: const Duration(microseconds: 5000),
+        ),
+      );
 
       final verdict = controller.verdictNotifier.value;
       expect(verdict, isNotNull);

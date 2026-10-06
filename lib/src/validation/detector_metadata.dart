@@ -230,7 +230,7 @@ class DetectorMetadata {
   /// `runtimeVerified` imposes requires three captures per claim, so this
   /// field is a `List<String>` rather than a single path. The audit gate
   /// enforces non-empty content when [tier] is [EvidenceTier.runtimeVerified]
-  /// or stronger, closing the AB4 artifact-contract gap: without it, a tier
+  /// or stronger, closing an artifact-contract gap: without it, a tier
   /// raise to `runtimeVerified` would be indistinguishable from
   /// `reproducerOnly`. Each path in the list is additionally run through
   /// `ProfileCaptureSchema.parseFile` so a malformed capture fails the gate.

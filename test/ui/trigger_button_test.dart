@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/overlay_ui_state.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
 import 'package:sleuth/src/ui/trigger_button.dart';
+
+import '../helpers/contrast_helpers.dart';
+import '../helpers/overlay_harness.dart';
 
 void main() {
   Widget wrap(Widget child) {
@@ -18,15 +23,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       expect(findLogo(), findsOneWidget);
 
@@ -41,15 +48,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () => tapped = true,
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () => tapped = true,
+          ),
         ),
-      ));
+      );
 
       await tester.tap(findLogo());
       expect(tapped, isTrue);
@@ -92,15 +101,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       expect(find.text('3'), findsOneWidget);
 
@@ -114,15 +125,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       // Badge count '3' from the previous test case should not appear.
       // '0' does appear as the FPS text, but that's not a badge.
@@ -139,15 +152,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: true,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: true,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       expect(find.text('\u26A0\uFE0F'), findsOneWidget);
 
@@ -161,15 +176,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       // v0.17.0: empty buffer → warm-up placeholder while windowSampleCount
       // is below the 3-frame threshold. The trigger shows '—' instead of
@@ -186,28 +203,34 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       // In test viewport (800x600), the button should be near the right edge.
       final logoPos = tester.getTopLeft(findLogo());
-      expect(logoPos.dx, greaterThan(100),
-          reason: 'Should be right-aligned, not at x=16');
+      expect(
+        logoPos.dx,
+        greaterThan(100),
+        reason: 'Should be right-aligned, not at x=16',
+      );
 
       issues.dispose();
       vm.dispose();
       fps.dispose();
     });
 
-    testWidgets('topRight alignment with default offset matches old position',
-        (tester) async {
+    testWidgets('topRight alignment with default offset matches old position', (
+      tester,
+    ) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
@@ -247,23 +270,26 @@ void main() {
       fps.dispose();
     });
 
-    testWidgets('bottomLeft alignment places button at bottom-left',
-        (tester) async {
+    testWidgets('bottomLeft alignment places button at bottom-left', (
+      tester,
+    ) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
-          initialAlignment: Alignment.bottomLeft,
-          initialOffset: const Offset(16, 64),
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+            initialAlignment: Alignment.bottomLeft,
+            initialOffset: const Offset(16, 64),
+          ),
         ),
-      ));
+      );
 
       final logoPos = tester.getTopLeft(findLogo());
       // Left side: anchorX = offset.dx = 16
@@ -276,23 +302,26 @@ void main() {
       fps.dispose();
     });
 
-    testWidgets('topLeft with zero offset places button at origin',
-        (tester) async {
+    testWidgets('topLeft with zero offset places button at origin', (
+      tester,
+    ) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
-          initialAlignment: Alignment.topLeft,
-          initialOffset: Offset.zero,
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+            initialAlignment: Alignment.topLeft,
+            initialOffset: Offset.zero,
+          ),
         ),
-      ));
+      );
 
       final logoPos = tester.getTopLeft(findLogo());
       // Should be at (0, 0) — top-left corner
@@ -309,15 +338,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       await tester.drag(findLogo(), const Offset(50, 50));
       await tester.pump();
@@ -326,6 +357,360 @@ void main() {
       issues.dispose();
       vm.dispose();
       fps.dispose();
+    });
+  });
+
+  group('TriggerButton safe area', () {
+    late ValueNotifier<List<PerformanceIssue>> issues;
+    late ValueNotifier<bool> vm;
+    late ValueNotifier<FrameStatsBuffer> fps;
+    late OverlayUiState state;
+
+    setUp(() {
+      issues = ValueNotifier<List<PerformanceIssue>>([]);
+      vm = ValueNotifier<bool>(false);
+      fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
+      state = OverlayUiState();
+    });
+
+    tearDown(() {
+      issues.dispose();
+      vm.dispose();
+      fps.dispose();
+      state.dispose();
+    });
+
+    void setView(
+      WidgetTester tester, {
+      Size size = const Size(400, 800),
+      double top = 0,
+      double bottom = 0,
+      double keyboard = 0,
+    }) {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = size;
+      tester.view.padding = FakeViewPadding(top: top, bottom: bottom);
+      tester.view.viewPadding = FakeViewPadding(top: top, bottom: bottom);
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+      addTearDown(tester.view.reset);
+    }
+
+    Widget app({Alignment alignment = Alignment.topRight}) => MaterialApp(
+      home: TriggerButton(
+        issuesNotifier: issues,
+        vmConnectedNotifier: vm,
+        frameStatsNotifier: fps,
+        isDebugMode: false,
+        uiState: state,
+        initialAlignment: alignment,
+        onTap: () {},
+      ),
+    );
+
+    Rect buttonRect(WidgetTester tester) =>
+        tester.getRect(find.byType(GestureDetector).first);
+
+    testWidgets('drags past the insets stay clear of notch, home indicator '
+        'and keyboard', (tester) async {
+      setView(tester, top: 59, bottom: 34, keyboard: 100);
+      await tester.pumpWidget(app());
+
+      await tester.drag(find.byIcon(Icons.pets), const Offset(0, -2000));
+      await tester.pump();
+      expect(buttonRect(tester).top, greaterThanOrEqualTo(59));
+
+      await tester.drag(find.byIcon(Icons.pets), const Offset(0, 4000));
+      await tester.pump();
+      expect(buttonRect(tester).bottom, lessThanOrEqualTo(800 - 100));
+    });
+
+    for (final alignment in [Alignment.topRight, Alignment.bottomLeft]) {
+      testWidgets('$alignment placement stays inside the view padding', (
+        tester,
+      ) async {
+        setView(tester, top: 59, bottom: 34);
+        await tester.pumpWidget(app(alignment: alignment));
+        final rect = buttonRect(tester);
+        expect(rect.top, greaterThanOrEqualTo(59));
+        expect(rect.bottom, lessThanOrEqualTo(800 - 34));
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(400));
+        // Inset by the configured offset from the padded edges.
+        if (alignment == Alignment.topRight) {
+          expect(rect.top, 59 + 64);
+          expect(rect.right, 400 - 16);
+        } else {
+          expect(rect.bottom, 800 - 34 - 64);
+          expect(rect.left, 16);
+        }
+      });
+    }
+
+    test('the stored anchor does not depend on the keyboard', () {
+      TriggerBounds bounds(double keyboard) => TriggerBounds(
+        area: const Size(400, 800),
+        button: const Size(56, 80),
+        viewPadding: const EdgeInsets.only(top: 59, bottom: 34),
+        keyboardInset: keyboard,
+        margin: 16,
+      );
+      for (final p in const [Offset(150, 300), Offset(180, 500)]) {
+        expect(bounds(300).anchorFor(p), bounds(0).anchorFor(p));
+      }
+      // Edge split at the middle of the anchored (keyboard-free) rect.
+      final b = bounds(0);
+      final mid = b.anchored.center.dx;
+      expect(b.anchorFor(Offset(mid - 1, 300)).edge, TriggerEdge.left);
+      expect(b.anchorFor(Offset(mid + 1, 300)).edge, TriggerEdge.right);
+    });
+
+    testWidgets('drag end snaps to the nearest horizontal edge', (
+      tester,
+    ) async {
+      setView(tester);
+      await tester.pumpWidget(app());
+
+      // Default placement is top-right; drag well past the middle.
+      await tester.drag(find.byIcon(Icons.pets), const Offset(-300, 200));
+      await tester.pump();
+      expect(state.triggerAnchor!.edge, TriggerEdge.left);
+      expect(buttonRect(tester).left, 16);
+    });
+
+    testWidgets('a tiny viewport with large insets does not throw', (
+      tester,
+    ) async {
+      setView(
+        tester,
+        size: const Size(300, 300),
+        top: 100,
+        bottom: 100,
+        keyboard: 100,
+      );
+      await tester.pumpWidget(app());
+      await tester.drag(find.byIcon(Icons.pets), const Offset(-500, 500));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(state.triggerAnchor!.fraction.isFinite, isTrue);
+    });
+
+    testWidgets('rotation keeps the edge and the fraction', (tester) async {
+      setView(tester, size: const Size(400, 800));
+      state.triggerAnchor = (edge: TriggerEdge.left, fraction: 0.5);
+      await tester.pumpWidget(app());
+      final portrait = buttonRect(tester);
+      expect(portrait.left, 16);
+
+      tester.view.physicalSize = const Size(800, 400);
+      await tester.pump();
+      final landscape = buttonRect(tester);
+      expect(landscape.left, 16);
+      expect(state.triggerAnchor, (edge: TriggerEdge.left, fraction: 0.5));
+      // Same fraction of the anchored vertical range in both orientations.
+      double fractionOf(Rect r, double height) =>
+          (r.top - 16) / (height - r.height - 32);
+      expect(fractionOf(portrait, 800), closeTo(0.5, 0.01));
+      expect(fractionOf(landscape, 400), closeTo(0.5, 0.01));
+    });
+
+    testWidgets('semantics label carries the visible issue and critical '
+        'counts', (tester) async {
+      setView(tester);
+      issues.value = const [
+        PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'one',
+          detail: 'd',
+          fixHint: 'f',
+          stableId: 'one',
+        ),
+        PerformanceIssue(
+          severity: IssueSeverity.critical,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'two',
+          detail: 'd',
+          fixHint: 'f',
+          stableId: 'two',
+        ),
+      ];
+      await tester.pumpWidget(app());
+      // The red fill shows a critical issue; the label says so too.
+      expect(
+        find.bySemanticsLabel('Open Sleuth, 2 issues, 1 critical'),
+        findsOneWidget,
+      );
+      expect(find.text('2'), findsOneWidget);
+
+      state.hide(OverlayUiState.hideKeyFor(issues.value[1]));
+      await tester.pump();
+      expect(find.bySemanticsLabel('Open Sleuth, 1 issue'), findsOneWidget);
+      expect(find.text('1'), findsOneWidget);
+    });
+
+    testWidgets('the overlay keeps the trigger position across open and '
+        'close', (tester) async {
+      final controller = await pumpOverlay(tester);
+      await tester.drag(find.byIcon(Icons.pets), const Offset(-400, 150));
+      await tester.pump();
+      final before = tester.getTopLeft(find.byIcon(Icons.pets));
+      expect(controller.overlayUiState.triggerAnchor, isNotNull);
+
+      await openDashboard(tester, controller);
+      expect(find.byIcon(Icons.pets), findsWidgets); // card header paw
+      controller.overlayUiState.dashboardOpen = false;
+      await tester.pump();
+      expect(tester.getTopLeft(find.byIcon(Icons.pets)), before);
+    });
+  });
+
+  group('TriggerButton accessibility', () {
+    PerformanceIssue issue(IssueSeverity severity) => PerformanceIssue(
+      severity: severity,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.confirmed,
+      title: severity.name,
+      detail: 'd',
+      fixHint: 'f',
+      stableId: severity.name,
+    );
+
+    for (final (severity, dark) in [
+      (IssueSeverity.critical, false),
+      (IssueSeverity.warning, true),
+      (IssueSeverity.ok, true),
+    ]) {
+      testWidgets('icon on the ${severity.name} fill is '
+          '${dark ? 'dark' : 'white'}', (tester) async {
+        final issues = ValueNotifier([issue(severity)]);
+        final vm = ValueNotifier(false);
+        final fps = ValueNotifier(FrameStatsBuffer());
+        addTearDown(() {
+          issues.dispose();
+          vm.dispose();
+          fps.dispose();
+        });
+        await tester.pumpWidget(
+          wrap(
+            TriggerButton(
+              issuesNotifier: issues,
+              vmConnectedNotifier: vm,
+              frameStatsNotifier: fps,
+              isDebugMode: false,
+              onTap: () {},
+            ),
+          ),
+        );
+        const theme = SleuthThemeData();
+        expect(
+          tester.widget<Icon>(findLogo()).color,
+          dark ? theme.triggerIconOnLightFill : theme.triggerIconColor,
+        );
+      });
+    }
+
+    /// Three frames at [fps], or none for the warm-up dash.
+    FrameStatsBuffer frames(double? fps) {
+      final buffer = FrameStatsBuffer();
+      if (fps == null) return buffer;
+      for (var i = 0; i < 3; i++) {
+        buffer.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: Duration.zero,
+            rasterDuration: Duration.zero,
+            timestamp: DateTime(2026),
+            totalSpan: Duration(microseconds: 1000000 ~/ fps),
+          ),
+        );
+      }
+      return buffer;
+    }
+
+    for (final (name, theme) in [
+      ('dark', const SleuthThemeData()),
+      ('light', const SleuthThemeData.light()),
+      ('highContrastDark', const SleuthThemeData.highContrastDark()),
+      ('highContrastLight', const SleuthThemeData.highContrastLight()),
+    ]) {
+      testWidgets('$name: the FPS number sits on an opaque surface it '
+          'contrasts with', (tester) async {
+        final issues = ValueNotifier(<PerformanceIssue>[]);
+        final vm = ValueNotifier(false);
+        final fps = ValueNotifier(FrameStatsBuffer());
+        addTearDown(() {
+          issues.dispose();
+          vm.dispose();
+          fps.dispose();
+        });
+        await tester.pumpWidget(
+          wrap(
+            SleuthTheme(
+              data: theme,
+              child: TriggerButton(
+                issuesNotifier: issues,
+                vmConnectedNotifier: vm,
+                frameStatsNotifier: fps,
+                isDebugMode: false,
+                onTap: () {},
+              ),
+            ),
+          ),
+        );
+        for (final (value, label) in [
+          (60.0, '60'),
+          (40.0, '40'),
+          (10.0, '10'),
+          (null, '—'),
+        ]) {
+          fps.value = frames(value);
+          await tester.pump();
+          final number = find.text(label);
+          final color = tester.widget<Text>(number).style!.color!;
+          final backing = find.ancestor(
+            of: number,
+            matching: find.descendant(
+              of: find.byType(TriggerButton),
+              matching: find.byType(DecoratedBox),
+            ),
+          );
+          expect(backing, findsWidgets, reason: label);
+          final decoration =
+              tester.widget<DecoratedBox>(backing.first).decoration
+                  as BoxDecoration;
+          final surface = decoration.color!;
+          expect(surface.a, 1, reason: '$label surface is opaque');
+          expect(
+            wcagContrast(color, surface),
+            greaterThanOrEqualTo(4.5),
+            reason: label,
+          );
+          // The severity accent stays visible on the border.
+          if (value != null) {
+            expect(
+              (decoration.border! as Border).top.color,
+              theme.fpsColor(value),
+            );
+          }
+        }
+      });
+    }
+
+    testWidgets('edge custom actions move the button', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpOverlay(tester);
+      final trigger = find.bySemanticsLabel(RegExp('^Open Sleuth'));
+
+      await performCustomAction(tester, trigger, 'Move to left edge');
+      expect(controller.overlayUiState.triggerAnchor?.edge, TriggerEdge.left);
+      final left = tester.getTopLeft(findLogo()).dx;
+
+      await performCustomAction(tester, trigger, 'Move to right edge');
+      expect(controller.overlayUiState.triggerAnchor?.edge, TriggerEdge.right);
+      expect(tester.getTopLeft(findLogo()).dx, greaterThan(left));
+      handle.dispose();
     });
   });
 }

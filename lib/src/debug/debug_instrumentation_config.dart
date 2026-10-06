@@ -16,12 +16,14 @@ class DebugInstrumentationConfig {
     this.layoutProfiling = false,
     this.paintProfiling = false,
     this.timelineEnrichment = false,
+    this.userWidgetsOnly = true,
   });
 
   /// Track per-widget rebuild counts via `debugOnRebuildDirtyWidget`.
   final bool rebuildAttribution;
 
-  /// Track per-widget paint counts via `debugOnProfilePaint`.
+  /// Track per-widget paint counts and likely repaint origins via
+  /// `debugOnProfilePaint`.
   final bool paintAttribution;
 
   /// Enable `debugProfileBuildsEnabledUserWidgets` for per-widget build
@@ -58,4 +60,25 @@ class DebugInstrumentationConfig {
   /// Enable `debugEnhance*TimelineArguments` flags for richer timeline data.
   /// Highest overhead — disabled by default.
   final bool timelineEnrichment;
+
+  /// Count only widgets your code creates in the per-widget debug rebuild
+  /// and paint counts ([rebuildAttribution], [paintAttribution]).
+  ///
+  /// A widget counts when the framework's creation tracking (on in debug
+  /// builds) places it outside the Flutter SDK, which includes widgets
+  /// other packages create; once DevTools has set the project's root
+  /// directories, only widgets created in the project count. Without
+  /// creation tracking every widget counts.
+  ///
+  /// A paint is counted for the widget that created the painting render
+  /// object. Your `CustomPaint`, `Padding`, `DecoratedBox` or `Row` count
+  /// as themselves; `Text`, `Icon` and `Image` paint through render
+  /// objects the framework creates (`RichText`, `RawImage`), so they get
+  /// no per-widget paint count, and framework widgets such as
+  /// `_InkFeatures` are left out. Their paints stay in the aggregate
+  /// count. A likely repaint origin goes to the nearest widget your code
+  /// created at or above the render object where the repaint started, so
+  /// a `Text` whose content changes reports as that `Text`. Set false to
+  /// count framework widgets too.
+  final bool userWidgetsOnly;
 }

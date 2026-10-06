@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
+
+import 'capture_driver.dart';
 
 /// Capture helper for the runtimeVerified tier raise on three
 /// `NetworkMonitorDetector` warning families:
@@ -22,15 +25,17 @@ import 'package:sleuth/sleuth.dart';
 ///
 /// **Procedure (USB iPhone, in-app export — no DevTools needed):**
 ///
-///  1. `cd example && fvm flutter run --profile -d "iPhone 12" \
-///        --dart-define=SLEUTH_CAPTURE_MODE=true`. First build attaches
-///     DevTools (FRAME mode for Sleuth — capture won't work yet).
-///  2. Quit `flutter run` (`q`). DevTools detaches.
-///  3. Re-open the app from the iPhone home screen. No DevTools
-///     attached → SleuthController.VmServiceClient connects → VM+
-///     mode active → real `NetworkMonitorDetector` observes HTTP
-///     completions and emits the three target trace records.
-///  4. Navigate to "NetworkMonitor capture helper" → pick a mode →
+///  1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+///        --dart-define=SLEUTH_CAPTURE_MODE=true \
+///        --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
+///  2. Sleuth's VmServiceClient connects to the app's own VM service
+///     (VM+ mode), so the real `NetworkMonitorDetector` observes HTTP
+///     completions and emits the three target trace records. Without
+///     `--no-dds`, `flutter run` starts DDS, which keeps the VM service
+///     as its only client and leaves Sleuth in FRAME mode. In that case
+///     quit `flutter run` (`q`) and re-open the app from the home
+///     screen, so no DDS attaches.
+///  3. Navigate to "NetworkMonitor capture helper" → pick a mode →
 ///     tap a leg → wait for "tap Export now" log line → tap **Export
 ///     last leg**.
 ///
@@ -138,6 +143,9 @@ class _NetworkMonitorCaptureScreenState
   // export an out-of-band run from an earlier session.
   String? _lastCompletedLeg;
   _CaptureMode? _lastCompletedMode;
+  // Bracket the last completed leg was judged against; the export
+  // checks its records against the same one.
+  CaptureBracket? _lastCompletedBracket;
   // slow_request: tier of the completed leg (warning or critical).
   _Tier? _lastCompletedTier;
   // slow_request: ms wall-clock from Stopwatch.
@@ -268,6 +276,7 @@ class _NetworkMonitorCaptureScreenState
   void _resetLastLeg() {
     _lastCompletedLeg = null;
     _lastCompletedMode = null;
+    _lastCompletedBracket = null;
     _lastCompletedTier = null;
     _lastMeasuredMs = null;
     _lastObservedBytes = null;
@@ -283,6 +292,84 @@ class _NetworkMonitorCaptureScreenState
       ? 'slow_request_$leg'
       : 'slow_request_critical_$leg';
 
+  /// Checks what a leg labelled [logLabel] needs before its workload: a
+  /// build that can stamp an approved provenance and the detector's
+  /// bracket for [mode] at [severityLabel]. Returns the bracket, or null
+  /// after logging why the leg is refused.
+  CaptureBracket? _preflight(
+    String logLabel,
+    _CaptureMode mode,
+    String severityLabel,
+  ) {
+    final refusal = provenanceRefusal(logLabel);
+    if (refusal != null) {
+      setState(() => _log.add(refusal));
+      return null;
+    }
+    final monitor = Sleuth.networkMonitor;
+    if (monitor == null) {
+      setState(() {
+        _log.add(
+          '[$logLabel] FAILED: Sleuth.networkMonitor is null. '
+          'Verify Sleuth.init() ran with captureMode=true and '
+          '--dart-define=SLEUTH_CAPTURE_MODE=true.',
+        );
+      });
+      return null;
+    }
+    final bracket = CaptureBracket.fromMetadata(
+      monitor.validationMetadata,
+      stableId: mode.stableId,
+      severityLabel: severityLabel,
+    );
+    if (bracket == null) {
+      setState(() {
+        _log.add(
+          '[$logLabel] FAILED: NetworkMonitorDetector declares no '
+          '${mode.stableId}.$severityLabel bracket.',
+        );
+      });
+    }
+    return bracket;
+  }
+
+  /// Ends a leg labelled [logLabel] whose own measurement is [value]:
+  /// returns true when [bracket] accepts it, else logs why nothing can
+  /// be exported (`UNMEASURED` or `OUT-OF-BAND`), clears the busy flag
+  /// and returns false.
+  bool _acceptMeasurement(
+    String logLabel,
+    num value, {
+    required String role,
+    required CaptureBracket bracket,
+    required String what,
+    required String unit,
+    required ScaffoldMessengerState messenger,
+  }) {
+    final refusal = measurementRefusal(
+      value,
+      role: role,
+      bracket: bracket,
+      what: what,
+      unit: unit,
+    );
+    if (refusal == null) return true;
+    setState(() {
+      _busy = false;
+      _log.add(
+        '[$logLabel] ${refusal.verdict}: ${refusal.reason}. Nothing to '
+        'export; re-run the leg.',
+      );
+    });
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('$logLabel ${refusal.verdict} (see log)'),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+    return false;
+  }
+
   Future<void> _runSlowRequestCapture({
     required _Tier tier,
     required String label,
@@ -291,11 +378,17 @@ class _NetworkMonitorCaptureScreenState
     final server = _server;
     final client = _client;
     if (server == null || client == null || _busy) return;
+    final bracket = _preflight(
+      '${tier.label}/$label',
+      _CaptureMode.slowRequest,
+      tier.label,
+    );
+    if (bracket == null) return;
     setState(() {
       _busy = true;
       _resetLastLeg();
       _log.add(
-        '[${tier.label}/$label] scenario.begin → GET /slow?delay=$delayMs',
+        '[${tier.label}/$label] scenario.begin, then GET /slow?delay=$delayMs',
       );
     });
 
@@ -339,15 +432,27 @@ class _NetworkMonitorCaptureScreenState
       await Future<void>.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
+      if (!_acceptMeasurement(
+        '${tier.label}/$label',
+        measuredMs,
+        role: label,
+        bracket: bracket,
+        what: 'measured duration',
+        unit: 'ms',
+        messenger: messenger,
+      )) {
+        return;
+      }
       setState(() {
         _busy = false;
         _lastCompletedLeg = label;
         _lastCompletedMode = _CaptureMode.slowRequest;
+        _lastCompletedBracket = bracket;
         _lastCompletedTier = tier;
         _lastMeasuredMs = measuredMs;
         _log.add(
-          '[${tier.label}/$label] scenario.end (${measuredMs}ms, ${bytes}B) — '
-          'tap "Export last leg" to write the wrapped capture.',
+          '[${tier.label}/$label] scenario.end (${measuredMs}ms, ${bytes}B). '
+          'Tap "Export last leg" to write the wrapped capture.',
         );
       });
       messenger.showSnackBar(
@@ -381,10 +486,12 @@ class _NetworkMonitorCaptureScreenState
     final server = _server;
     final client = _client;
     if (server == null || client == null || _busy) return;
+    final bracket = _preflight(label, _CaptureMode.largeResponse, 'warning');
+    if (bracket == null) return;
     setState(() {
       _busy = true;
       _resetLastLeg();
-      _log.add('[$label] scenario.begin → GET /sized?bytes=$responseBytes');
+      _log.add('[$label] scenario.begin, then GET /sized?bytes=$responseBytes');
     });
 
     final scenarioName = 'large_response_$label';
@@ -408,14 +515,26 @@ class _NetworkMonitorCaptureScreenState
       await Future<void>.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
+      if (!_acceptMeasurement(
+        label,
+        bytes,
+        role: label,
+        bracket: bracket,
+        what: 'response size',
+        unit: 'bytes',
+        messenger: messenger,
+      )) {
+        return;
+      }
       setState(() {
         _busy = false;
         _lastCompletedLeg = label;
         _lastCompletedMode = _CaptureMode.largeResponse;
+        _lastCompletedBracket = bracket;
         _lastObservedBytes = bytes;
         _log.add(
           '[$label] scenario.end (${bytes}B observed, target '
-          '${responseBytes}B) — tap "Export last leg" to write the '
+          '${responseBytes}B). Tap "Export last leg" to write the '
           'wrapped capture.',
         );
       });
@@ -450,12 +569,14 @@ class _NetworkMonitorCaptureScreenState
     final server = _server;
     final client = _client;
     if (server == null || client == null || _busy) return;
+    final bracket = _preflight(label, _CaptureMode.requestFrequency, 'warning');
+    if (bracket == null) return;
     setState(() {
       _busy = true;
       _resetLastLeg();
       _log.add(
-        '[$label] scenario.begin → $requestCount× GET /ping over 4 s '
-        '(scenario span 5.5 s)',
+        '[$label] scenario.begin, then $requestCount GET /ping requests over '
+        '4 s (scenario span 5.5 s)',
       );
     });
 
@@ -548,15 +669,27 @@ class _NetworkMonitorCaptureScreenState
       Sleuth.resumeAllTimelineStreams();
 
       if (!mounted) return;
+      if (!_acceptMeasurement(
+        label,
+        observedCount,
+        role: label,
+        bracket: bracket,
+        what: 'detector peak count',
+        unit: 'events',
+        messenger: messenger,
+      )) {
+        return;
+      }
       setState(() {
         _busy = false;
         _lastCompletedLeg = label;
         _lastCompletedMode = _CaptureMode.requestFrequency;
+        _lastCompletedBracket = bracket;
         _lastObservedCount = observedCount;
         _log.add(
           '[$label] scenario.end ($observedCount requests sent across '
-          '${DateTime.now().difference(scenarioStart).inMilliseconds}ms) '
-          '— tap "Export last leg" to write the wrapped capture.',
+          '${DateTime.now().difference(scenarioStart).inMilliseconds}ms). '
+          'Tap "Export last leg" to write the wrapped capture.',
         );
       });
       messenger.showSnackBar(
@@ -589,8 +722,9 @@ class _NetworkMonitorCaptureScreenState
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
     final mode = _lastCompletedMode;
+    final bracket = _lastCompletedBracket;
     final messenger = ScaffoldMessenger.of(context);
-    if (leg == null || mode == null) {
+    if (leg == null || mode == null || bracket == null) {
       setState(() {
         _log.add(
           'Export: no completed leg yet. Tap a leg button and wait '
@@ -606,10 +740,10 @@ class _NetworkMonitorCaptureScreenState
     final scenarioName = (mode == _CaptureMode.slowRequest && tier != null)
         ? _slowRequestScenarioName(tier, leg)
         : '${mode.stableId}_$leg';
-    final bracketSeverityLabel =
-        (mode == _CaptureMode.slowRequest && tier != null)
-        ? tier.label
-        : 'warning';
+    final bracketSeverityLabel = bracket.severityLabel;
+    // The window around the observed value is `expectedMagnitude.min`
+    // and `max`. The leg only completes with a positive measurement, and
+    // the schema needs a positive min no larger than observed.
     final (
       int magnitudeMin,
       int magnitudeObserved,
@@ -624,26 +758,21 @@ class _NetworkMonitorCaptureScreenState
           setState(() => _log.add('Export: missing slow_request ms.'));
           return;
         }
-        magnitude = ((ms - 50).clamp(0, 1 << 30), ms, ms + 50, 'ms');
+        magnitude = (math.max(1, ms - 50), ms, ms + 50, 'ms');
       case _CaptureMode.largeResponse:
         final bytes = _lastObservedBytes;
         if (bytes == null) {
           setState(() => _log.add('Export: missing large_response bytes.'));
           return;
         }
-        magnitude = (
-          (bytes - 1024).clamp(0, 1 << 30),
-          bytes,
-          bytes + 1024,
-          'bytes',
-        );
+        magnitude = (math.max(1, bytes - 1024), bytes, bytes + 1024, 'bytes');
       case _CaptureMode.requestFrequency:
         final count = _lastObservedCount;
         if (count == null) {
           setState(() => _log.add('Export: missing request_frequency count.'));
           return;
         }
-        magnitude = ((count - 2).clamp(0, 1 << 30), count, count + 2, 'events');
+        magnitude = (math.max(1, count - 2), count, count + 2, 'events');
     }
 
     setState(() {
@@ -652,7 +781,10 @@ class _NetworkMonitorCaptureScreenState
     });
 
     String? json;
+    String? localFailure;
     try {
+      // Checked when the leg started; this is a safety net.
+      final provenance = requireCaptureProvenance();
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg, // 'below' | 'at' | 'above'
@@ -660,12 +792,10 @@ class _NetworkMonitorCaptureScreenState
         magnitudeObserved: magnitude.$2,
         magnitudeMax: magnitude.$3,
         unit: magnitude.$4,
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterVersion: '3.41.4',
-        captureCommand:
-            'fvm flutter run --profile -d "iPhone 12" '
-            '--dart-define=SLEUTH_CAPTURE_MODE=true',
+        device: provenance.device,
+        deviceOsVersion: provenance.deviceOsVersion,
+        flutterVersion: provenance.flutterVersion,
+        captureCommand: provenance.captureCommand,
         // Magnitude is measured directly from request observations
         // (Stopwatch ms, response bytes, peak count). No matching
         // named timeline event the schema can derive from, so pass
@@ -681,23 +811,50 @@ class _NetworkMonitorCaptureScreenState
         bracketSeverityLabel: bracketSeverityLabel,
       );
     } catch (e) {
+      // A failure before or inside the export call; its own text says
+      // why, and `lastCaptureExportFailure` does not describe it.
       json = null;
-      if (mounted) {
-        setState(() {
-          _log.add('[$leg] Export FAILED: $e');
-        });
-      }
+      localFailure = '$e';
     }
     if (!mounted) return;
+    if (localFailure != null) {
+      final failure = localFailure;
+      setState(() {
+        _busy = false;
+        _log.add('[$leg] Export FAILED: $failure');
+      });
+      return;
+    }
     if (json == null) {
+      final reason =
+          Sleuth.lastCaptureExportFailure ?? 'exportCaptureJson gave no reason';
+      setState(() {
+        _busy = false;
+        _log.add('[$leg] Export FAILED: returned null. Reason: $reason');
+      });
+      return;
+    }
+    // The composed capture must pass what the audit checks: no in-span
+    // record for below; for at and above, stamped records whose reduced
+    // value lies in the role band and within the bracket's tolerance of
+    // the measured value.
+    final recordsRefusal = recordRefusal(
+      checkCaptureJson(
+        json,
+        bracket: bracket,
+        role: leg,
+        observed: magnitude.$2,
+        unit: magnitude.$4,
+      ),
+      role: leg,
+      bracket: bracket,
+    );
+    if (recordsRefusal != null) {
       setState(() {
         _busy = false;
         _log.add(
-          '[$leg] Export FAILED: returned null. Common causes: VM '
-          'service disconnected (FRAME mode — kill the app from Xcode '
-          'and re-open from the home screen so VM+ mode activates), '
-          'or scenario markers missing from the trace buffer (re-tap '
-          'the leg and Export within 30 s).',
+          '[$leg] ${recordsRefusal.verdict}: ${recordsRefusal.reason}. '
+          'Nothing copied; re-run the leg.',
         );
       });
       return;
@@ -709,12 +866,12 @@ class _NetworkMonitorCaptureScreenState
       setState(() {
         _busy = false;
         _log.add(
-          '[$leg] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[$leg] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[$leg] Paste into Notes / Mail / AirDrop note → send to '
-          'Mac. Save the pasted JSON as $scenarioName.json under '
+          '[$leg] Paste it into Notes, Mail or an AirDrop note and send it '
+          'to the Mac. Save the pasted JSON as $scenarioName.json under '
           'test/validation/captures/network_monitor/.',
         );
       });
@@ -791,9 +948,9 @@ class _NetworkMonitorCaptureScreenState
                             _slowRequestTier = next;
                             _resetLastLeg();
                             _log.add(
-                              'Switched slow_request tier → ${next.label} '
+                              'Switched slow_request tier to ${next.label} '
                               '(threshold ${next.thresholdMs} ms). '
-                              'Leg targets retuned.',
+                              'Retuned the leg targets.',
                             );
                           });
                         },
@@ -848,13 +1005,13 @@ class _NetworkMonitorCaptureScreenState
             'ambiently bracket the 3000 ms critical tier.';
       case _CaptureMode.largeResponse:
         return 'large_response WARNING tier (1 MB threshold). No '
-            'critical tier on this family — above-leg ceiling is '
+            'critical tier on this family. The above-leg ceiling is '
             '2.0× threshold (2 MB).';
       case _CaptureMode.requestFrequency:
         return 'request_frequency WARNING tier (> 30 req per 5 s '
             'sliding window). At-band [30, 45] (atTolerance 0.50 '
             'absorbs iOS scheduling jitter on Dart HttpClient). '
-            'Above-ceiling 60 (2.0×) — no critical tier.';
+            'Above-ceiling 60 (2.0×). No critical tier.';
     }
   }
 
@@ -867,11 +1024,11 @@ class _NetworkMonitorCaptureScreenState
         final above = _slowRequestLegSpec(tier, 'above');
         final belowSubtitle = tier == _Tier.warning
             ? 'Under 1000 ms slow threshold; detector silent'
-            : 'Between 1000 ms and 3000 ms — fires .warning, NOT .critical';
+            : 'Between 1000 ms and 3000 ms, so .warning fires but not .critical';
         return [
           _CaptureButton(
             label:
-                'Below (${below.delayMs} ms) — '
+                'Below (${below.delayMs} ms), '
                 '${tier == _Tier.warning ? "silent" : "warning fires"}',
             subtitle: belowSubtitle,
             enabled: ready && !_busy,
@@ -883,7 +1040,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'At (${at.delayMs} ms) — ${tier.label}',
+            label: 'At (${at.delayMs} ms), ${tier.label}',
             subtitle:
                 'In [${at.msMin}, ${at.msMax}] at-band '
                 '(${tier == _Tier.warning ? "10% tolerance" : "40% tolerance"})',
@@ -896,10 +1053,10 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'Above (${above.delayMs} ms) — ${tier.label}',
+            label: 'Above (${above.delayMs} ms), ${tier.label}',
             subtitle:
                 'In (${above.msMin}, ${above.msMax}] above-band'
-                '${tier == _Tier.warning ? "; stays under 3000 ms crit" : "; ceiling 6000 ms (2.0×)"}',
+                '${tier == _Tier.warning ? "; stays under the 3000 ms critical" : "; ceiling 6000 ms (2.0×)"}',
             enabled: ready && !_busy,
             onTap: () => _runSlowRequestCapture(
               tier: tier,
@@ -911,7 +1068,7 @@ class _NetworkMonitorCaptureScreenState
       case _CaptureMode.largeResponse:
         return [
           _CaptureButton(
-            label: 'Below (800 KB) — passes',
+            label: 'Below (800 KB), passes',
             subtitle: 'Under 1 MB large_response threshold',
             enabled: ready && !_busy,
             onTap: () => _runLargeResponseCapture(
@@ -921,7 +1078,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'At (1.05 MB) — warning',
+            label: 'At (1.05 MB), warning',
             subtitle: 'In [1 MB, 1.1 MB] at-band (10% tolerance)',
             enabled: ready && !_busy,
             onTap: () =>
@@ -929,7 +1086,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'Above (1.5 MB) — warning',
+            label: 'Above (1.5 MB), warning',
             subtitle: 'In (1 MB, 2 MB) above-band; ceiling 2 MB (2.0×)',
             enabled: ready && !_busy,
             onTap: () => _runLargeResponseCapture(
@@ -941,7 +1098,7 @@ class _NetworkMonitorCaptureScreenState
       case _CaptureMode.requestFrequency:
         return [
           _CaptureButton(
-            label: 'Below (25 req) — passes',
+            label: 'Below (25 req), passes',
             subtitle: 'Under 30-req/5s frequency threshold',
             enabled: ready && !_busy,
             onTap: () =>
@@ -949,7 +1106,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'At (38 req) — warning',
+            label: 'At (38 req), warning',
             subtitle: 'In [30, 45] at-band (50% tolerance for iOS jitter)',
             enabled: ready && !_busy,
             onTap: () =>
@@ -957,7 +1114,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'Above (52 req) — warning',
+            label: 'Above (52 req), warning',
             subtitle: 'In (45, 60] above-band; ceiling 60 (2.0×)',
             enabled: ready && !_busy,
             onTap: () =>

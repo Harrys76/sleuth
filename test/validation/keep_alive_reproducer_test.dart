@@ -1,6 +1,6 @@
 // Hermetic reproducer for [KeepAliveDetector].
 //
-// Pins the parameterised `excessive_keep_alive:<i>` family via the real
+// Pins the parameterised `excessive_keep_alive:<TypeName>~<part>` family via the real
 // `scanTree(root)` entry point on a materialised `PageView` with
 // `AutomaticKeepAliveClientMixin` pages. Threshold: 1 so small counts
 // cross. `_isActiveKeepAlive` reads render-object parent-data — pages
@@ -80,35 +80,45 @@ void main() {
     // --- excessive_keep_alive (parameterised) --------------------------
 
     testWidgets(
-        'excessive_keep_alive:<i>: 4-page PageView above threshold=1 '
-        'fires (all pages opt in)', (tester) async {
-      final detector = KeepAliveDetector(threshold: 1);
-      final controller = PageController();
-      addTearDown(controller.dispose);
-      await _buildAndVisitPageView(tester, controller,
-          pageCount: 4, keepAliveFlags: const [true, true, true, true]);
-      detector.scanTree(tester.element(find.byType(Directionality)));
-      final keepAliveIssues = detector.issues
-          .where((i) => (i.stableId ?? '').startsWith('excessive_keep_alive'))
-          .toList();
-      expect(keepAliveIssues, isNotEmpty,
-          reason: 'PageView with 4 visited opt-in pages > threshold=1 '
-              'must emit excessive_keep_alive:<i>.');
-      // Every emitted stableId starts with the family prefix.
-      for (final issue in keepAliveIssues) {
-        expect(issue.stableId, startsWith('excessive_keep_alive:'));
-      }
-      // count=4 > threshold*2 (=2) → critical; structural-only path →
-      // possible confidence.
-      final first = keepAliveIssues.first;
-      expect(first.severity, IssueSeverity.critical);
-      expect(first.confidence, IssueConfidence.possible);
-    });
+      'excessive_keep_alive:<TypeName>~<part>: 4-page PageView above threshold=1 '
+      'fires (all pages opt in)',
+      (tester) async {
+        final detector = KeepAliveDetector(threshold: 1);
+        final controller = PageController();
+        addTearDown(controller.dispose);
+        await _buildAndVisitPageView(
+          tester,
+          controller,
+          pageCount: 4,
+          keepAliveFlags: const [true, true, true, true],
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        final keepAliveIssues = detector.issues
+            .where((i) => (i.stableId ?? '').startsWith('excessive_keep_alive'))
+            .toList();
+        expect(
+          keepAliveIssues,
+          isNotEmpty,
+          reason:
+              'PageView with 4 visited opt-in pages > threshold=1 '
+              'must emit excessive_keep_alive:<TypeName>~<part>.',
+        );
+        // Every emitted stableId starts with the family prefix.
+        for (final issue in keepAliveIssues) {
+          expect(issue.stableId, startsWith('excessive_keep_alive:'));
+        }
+        // count=4 > threshold*2 (=2) → critical; structural-only path →
+        // possible confidence.
+        final first = keepAliveIssues.first;
+        expect(first.severity, IssueSeverity.critical);
+        expect(first.confidence, IssueConfidence.possible);
+      },
+    );
 
-    testWidgets(
-        'excessive_keep_alive: no PageView → silent '
-        '(ListView keep-alives are framework-normal and suppressed)',
-        (tester) async {
+    testWidgets('excessive_keep_alive: no PageView → silent '
+        '(ListView keep-alives are framework-normal and suppressed)', (
+      tester,
+    ) async {
       final detector = KeepAliveDetector(threshold: 1);
       await tester.pumpWidget(
         Directionality(
@@ -127,12 +137,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'Only PageView / TabBarView count; ListView ignored.');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'Only PageView / TabBarView count; ListView ignored.',
+      );
     });
 
-    testWidgets(
-        'excessive_keep_alive: PageView with all pages opt-OUT silent '
+    testWidgets('excessive_keep_alive: PageView with all pages opt-OUT silent '
         '(_isActiveKeepAlive returns false)', (tester) async {
       // wantKeepAlive=false across all pages — AutomaticKeepAlive wraps
       // each page's child in a KeepAlive node but the parent-data flag
@@ -140,26 +152,40 @@ void main() {
       final detector = KeepAliveDetector(threshold: 1);
       final controller = PageController();
       addTearDown(controller.dispose);
-      await _buildAndVisitPageView(tester, controller,
-          pageCount: 4, keepAliveFlags: const [false, false, false, false]);
+      await _buildAndVisitPageView(
+        tester,
+        controller,
+        pageCount: 4,
+        keepAliveFlags: const [false, false, false, false],
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'wantKeepAlive=false → parent-data.keepAlive stays '
-              'false → _isActiveKeepAlive rejects.');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason:
+            'wantKeepAlive=false → parent-data.keepAlive stays '
+            'false → _isActiveKeepAlive rejects.',
+      );
     });
 
-    testWidgets(
-        'excessive_keep_alive: PageView with mixed opt-in at threshold '
+    testWidgets('excessive_keep_alive: PageView with mixed opt-in at threshold '
         'stays silent (strict-greater: `> threshold`)', (tester) async {
       // threshold=2, only 2 opt-in pages → count is exactly 2, not > 2.
       final detector = KeepAliveDetector(threshold: 2);
       final controller = PageController();
       addTearDown(controller.dispose);
-      await _buildAndVisitPageView(tester, controller,
-          pageCount: 4, keepAliveFlags: const [true, true, false, false]);
+      await _buildAndVisitPageView(
+        tester,
+        controller,
+        pageCount: 4,
+        keepAliveFlags: const [true, true, false, false],
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'Detector uses count > threshold (2 > 2 is false).');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'Detector uses count > threshold (2 > 2 is false).',
+      );
     });
   });
 }

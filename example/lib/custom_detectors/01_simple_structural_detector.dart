@@ -115,8 +115,8 @@ class TooltipUsageDetector extends SimpleStructuralDetector {
           ? 'A Tooltip widget is present in the build tree.'
           : 'Tooltip "$message" is present in the build tree.',
       fixHint:
-          'Tooltips are usually fine — this detector is a cookbook example. '
-          'A real detector would flag a more specific anti-pattern.',
+          'Tooltips are usually fine. This detector is a cookbook example, '
+          'and a real detector would flag a more specific anti-pattern.',
       element: element,
     );
   }

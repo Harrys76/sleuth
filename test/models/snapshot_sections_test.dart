@@ -7,26 +7,30 @@ import 'package:flutter_test/flutter_test.dart';
 /// Resolve `doc/mcp_schema.json` from cwd (repo root when `flutter test`
 /// runs) — mirrors the resolution used by the schema audit.
 File _schemaFile() {
-  for (final p in [
-    'doc/mcp_schema.json',
-    '../doc/mcp_schema.json',
-  ]) {
+  for (final p in ['doc/mcp_schema.json', '../doc/mcp_schema.json']) {
     final f = File(p);
     if (f.existsSync()) return f;
   }
   throw StateError(
-      'doc/mcp_schema.json not found from ${Directory.current.path}');
+    'doc/mcp_schema.json not found from ${Directory.current.path}',
+  );
 }
 
 void main() {
   group('SnapshotSection', () {
     test('fromString is case-insensitive + whitespace-tolerant', () {
-      expect(SnapshotSection.fromString('currentIssues'),
-          SnapshotSection.currentIssues);
-      expect(SnapshotSection.fromString('  CURRENTISSUES '),
-          SnapshotSection.currentIssues);
-      expect(SnapshotSection.fromString('routesessions'),
-          SnapshotSection.routeSessions);
+      expect(
+        SnapshotSection.fromString('currentIssues'),
+        SnapshotSection.currentIssues,
+      );
+      expect(
+        SnapshotSection.fromString('  CURRENTISSUES '),
+        SnapshotSection.currentIssues,
+      );
+      expect(
+        SnapshotSection.fromString('routesessions'),
+        SnapshotSection.routeSessions,
+      );
       expect(SnapshotSection.fromString('bogus'), isNull);
       expect(SnapshotSection.fromString(''), isNull);
       expect(SnapshotSection.fromString('   '), isNull);
@@ -38,34 +42,42 @@ void main() {
       expect(keys.every((k) => k.isNotEmpty), isTrue);
     });
 
-    test('enum jsonKeys match the projectable section keys in mcp_schema.json',
-        () {
-      // Bidirectional drift guard against the schema doc, which is itself
-      // validated against the live handler by mcp_schema_audit_test. A
-      // section added to toJson + schema but not the enum (or vice versa)
-      // trips here.
-      final schema =
-          jsonDecode(_schemaFile().readAsStringSync()) as Map<String, Object?>;
-      final handlers = schema['handlers'] as Map<String, Object?>;
-      final snapshot = handlers['ext.sleuth.snapshot'] as Map<String, Object?>;
-      final data = snapshot['data'] as Map<String, Object?>;
+    test(
+      'enum jsonKeys match the projectable section keys in mcp_schema.json',
+      () {
+        // Bidirectional drift guard against the schema doc, which is itself
+        // validated against the live handler by mcp_schema_audit_test. A
+        // section added to toJson + schema but not the enum (or vice versa)
+        // trips here.
+        final schema =
+            jsonDecode(_schemaFile().readAsStringSync())
+                as Map<String, Object?>;
+        final handlers = schema['handlers'] as Map<String, Object?>;
+        final snapshot =
+            handlers['ext.sleuth.snapshot'] as Map<String, Object?>;
+        final data = snapshot['data'] as Map<String, Object?>;
 
-      // Documented payload keys = data keys that are real specs (Map),
-      // minus always-on metadata, minus `_`-prefixed projection/meta.
-      final documentedPayload = <String>{
-        for (final entry in data.entries)
-          if (entry.value is Map &&
-              !entry.key.startsWith('_') &&
-              !SnapshotSection.alwaysOnKeys.contains(entry.key))
-            entry.key,
-      };
-      final enumKeys = SnapshotSection.values.map((s) => s.jsonKey).toSet();
-      expect(enumKeys, equals(documentedPayload),
-          reason: 'SnapshotSection enum drifted from mcp_schema.json '
+        // Documented payload keys = data keys that are real specs (Map),
+        // minus always-on metadata, minus `_`-prefixed projection/meta.
+        final documentedPayload = <String>{
+          for (final entry in data.entries)
+            if (entry.value is Map &&
+                !entry.key.startsWith('_') &&
+                !SnapshotSection.alwaysOnKeys.contains(entry.key))
+              entry.key,
+        };
+        final enumKeys = SnapshotSection.values.map((s) => s.jsonKey).toSet();
+        expect(
+          enumKeys,
+          equals(documentedPayload),
+          reason:
+              'SnapshotSection enum drifted from mcp_schema.json '
               'ext.sleuth.snapshot payload keys.\n'
               'enum-only: ${enumKeys.difference(documentedPayload)}\n'
-              'schema-only: ${documentedPayload.difference(enumKeys)}');
-    });
+              'schema-only: ${documentedPayload.difference(enumKeys)}',
+        );
+      },
+    );
 
     test('projection: include omits unlisted payload sections', () {
       final json = _snapshot().toJson(include: {SnapshotSection.currentIssues});

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/ui/overlay_ui_state.dart';
+
+import '../helpers/overlay_harness.dart';
 
 void main() {
   group('FloatingIssuesCard resize', () {
@@ -45,9 +48,7 @@ void main() {
     ConstrainedBox findCardConstrainedBox(WidgetTester tester) {
       return tester.widget<ConstrainedBox>(
         find.ancestor(
-          of: find.byWidgetPredicate(
-            (w) => w is Material && w.elevation == 8,
-          ),
+          of: find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
           matching: find.byType(ConstrainedBox),
         ),
       );
@@ -68,6 +69,33 @@ void main() {
       await gesture.up();
       await tester.pump();
     }
+
+    testWidgets('resize custom actions step by 48 px', (tester) async {
+      final handle = tester.ensureSemantics();
+      controller.overlayUiState.setCardGeometry(
+        offset: const Offset(100, 100),
+        width: 300,
+        height: null,
+        windowState: CardWindowState.normal,
+      );
+      await tester.pumpWidget(buildCard());
+      final resize = find.bySemanticsLabel('Resize card');
+      // 48 x 48 hit box.
+      expect(tester.getSize(findResizeHandle()), const Size(48, 48));
+
+      await performCustomAction(tester, resize, 'Wider');
+      expect(controller.overlayUiState.cardWidth, 348);
+      await performCustomAction(tester, resize, 'Narrower');
+      expect(controller.overlayUiState.cardWidth, 300);
+      await performCustomAction(tester, resize, 'Taller');
+      expect(controller.overlayUiState.cardHeight, 330 + 48);
+      await performCustomAction(tester, resize, 'Shorter');
+      expect(controller.overlayUiState.cardHeight, 330);
+      // Never below the minimum.
+      await performCustomAction(tester, resize, 'Shorter');
+      expect(controller.overlayUiState.cardHeight, 300);
+      handle.dispose();
+    });
 
     testWidgets('resize handle is present', (tester) async {
       await tester.pumpWidget(buildCard());
@@ -123,7 +151,7 @@ void main() {
       await tester.pumpWidget(buildCard());
 
       final initial = findCardConstrainedBox(tester).constraints.maxHeight;
-      // Default: 600 * 0.55 = 330 (above 250 min floor)
+      // Default: 600 * 0.55 = 330 (above 300 min floor)
       expect(initial, 330.0);
 
       await dragHandle(tester, const Offset(0, 50));
@@ -139,8 +167,8 @@ void main() {
       await dragHandle(tester, const Offset(0, -500));
 
       final box = findCardConstrainedBox(tester);
-      // Static min height = 250px
-      expect(box.constraints.maxHeight, 250.0);
+      // Static min height = 300px
+      expect(box.constraints.maxHeight, 300.0);
     });
 
     testWidgets('maximize button expands width', (tester) async {
@@ -155,8 +183,9 @@ void main() {
       expect(box.constraints.maxWidth, 768.0);
     });
 
-    testWidgets('restore after maximize returns to default width',
-        (tester) async {
+    testWidgets('restore after maximize returns to default width', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildCard());
 
       // Maximize
@@ -171,5 +200,275 @@ void main() {
 
       expect(findCardConstrainedBox(tester).constraints.maxWidth, 300.0);
     });
+  });
+  group('Card geometry in the overlay', () {
+    /// The overlay on a [size] view with the mixed issue set; [keyboard]
+    /// is the bottom view inset and [padding] the safe area.
+    Future<SleuthController> pumpView(
+      WidgetTester tester,
+      Size size, {
+      double keyboard = 0,
+      FakeViewPadding padding = FakeViewPadding.zero,
+    }) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+      tester.view.padding = padding;
+      tester.view.viewPadding = padding;
+      addTearDown(tester.view.reset);
+      final controller = await pumpOverlay(
+        tester,
+        config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+      );
+      controller.issuesNotifier.value = mixedOverlayIssues();
+      return controller;
+    }
+
+    Rect cardRect(WidgetTester tester) => tester.getRect(
+      find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
+    );
+
+    testWidgets('a maximized card refits after the screen rotates', (
+      tester,
+    ) async {
+      final controller = await pumpView(tester, const Size(400, 800));
+      await openDashboard(tester, controller);
+      await tester.tap(find.byIcon(Icons.crop_square));
+      await tester.pump();
+      expect(cardRect(tester).width, 400 - 32);
+
+      // Landscape, with the notch on the left and its mirror on the right.
+      const notch = FakeViewPadding(left: 44, right: 44);
+      tester.view.physicalSize = const Size(800, 400);
+      tester.view.padding = notch;
+      tester.view.viewPadding = notch;
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      final card = cardRect(tester);
+      expect(card.left, 44 + 16);
+      expect(card.width, 800 - 88 - 32);
+      expect(card.top, 16);
+    });
+
+    testWidgets('a stored maximized state is fitted on the first build', (
+      tester,
+    ) async {
+      final controller = await pumpView(tester, const Size(400, 800));
+      // As read from the store: maximized, with a width and offset from
+      // another screen.
+      controller.overlayUiState.setCardGeometry(
+        offset: const Offset(120, 300),
+        width: 250,
+        height: 400,
+        windowState: CardWindowState.maximized,
+      );
+      await openDashboard(tester, controller);
+
+      final card = cardRect(tester);
+      expect(card.left, 16);
+      expect(card.top, 16);
+      expect(card.width, 400 - 32);
+    });
+
+    testWidgets('geometry read after the card opened is adopted, and a drag '
+        'moves the card from there', (tester) async {
+      final controller = await pumpView(tester, const Size(400, 800));
+      await openDashboard(tester, controller);
+      final ui = controller.overlayUiState;
+      expect(ui.cardOffset, isNull);
+
+      // A store read that finishes after the dashboard opened.
+      ui.loadJson({
+        'schemaVersion': 1,
+        'cardOffset': {'dx': 20.0, 'dy': 100.0},
+        'cardWidth': 240.0,
+        'cardHeight': 420.0,
+        'windowState': 'normal',
+      });
+      await tester.pump();
+      expect(cardRect(tester), const Rect.fromLTWH(20, 100, 240, 420));
+
+      await tester.drag(find.text('Sleuth'), const Offset(0, 150));
+      await tester.pumpAndSettle();
+      expect(ui.cardWidth, 240);
+      expect(ui.cardHeight, 420);
+      expect(ui.cardOffset!.dx, 20);
+      expect(ui.cardOffset!.dy, inExclusiveRange(100, 250 + 1));
+      final card = cardRect(tester);
+      expect(card.left, 20);
+      expect(card.top, ui.cardOffset!.dy);
+      expect(card.width, 240);
+    });
+
+    /// Opens the dashboard with a normal card of [height] at [offset].
+    Future<SleuthController> pumpCard(
+      WidgetTester tester, {
+      double keyboard = 0,
+      Offset offset = const Offset(40, 0),
+      double height = 400,
+      CardWindowState windowState = CardWindowState.normal,
+    }) async {
+      final controller = await pumpView(
+        tester,
+        const Size(320, 568),
+        keyboard: keyboard,
+      );
+      controller.overlayUiState.setCardGeometry(
+        offset: offset,
+        width: 260,
+        height: height,
+        windowState: windowState,
+      );
+      await openDashboard(tester, controller);
+      return controller;
+    }
+
+    Finder header() => find.bySemanticsLabel('Sleuth');
+    Finder grip() => find.bySemanticsLabel('Resize card');
+
+    /// The card, its footer and its resize grip lie inside the view above
+    /// [usableBottom].
+    void expectCardOnScreen(WidgetTester tester, double usableBottom) {
+      final card = cardRect(tester);
+      expect(card.top, greaterThanOrEqualTo(0));
+      expect(card.bottom, lessThanOrEqualTo(usableBottom));
+      for (final finder in [find.bySemanticsLabel('Guide'), grip()]) {
+        final rect = tester.getRect(finder);
+        expect(rect.top, greaterThanOrEqualTo(0));
+        expect(rect.bottom, lessThanOrEqualTo(usableBottom));
+        expect(rect.right, lessThanOrEqualTo(320));
+      }
+    }
+
+    testWidgets('Move down keeps the footer and grip on screen', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(tester);
+      for (var i = 0; i < 5; i++) {
+        await performCustomAction(tester, header(), 'Move down');
+      }
+      expect(tester.takeException(), isNull);
+      expectCardOnScreen(tester, 568);
+      // The stored geometry fits too: the 400 px card ends at the bottom.
+      final ui = controller.overlayUiState;
+      expect(ui.cardHeight, 400);
+      expect(ui.cardOffset!.dy, 568 - 400);
+      handle.dispose();
+    });
+
+    testWidgets('Move down stops above the keyboard', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(tester, keyboard: 253, height: 300);
+      await performCustomAction(tester, header(), 'Move down');
+      expectCardOnScreen(tester, 568 - 253);
+      expect(controller.overlayUiState.cardOffset!.dy, 568 - 253 - 300);
+      handle.dispose();
+    });
+
+    testWidgets('Taller stops at the usable bottom', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(
+        tester,
+        offset: const Offset(40, 100),
+        height: 300,
+      );
+      for (var i = 0; i < 6; i++) {
+        await performCustomAction(tester, grip(), 'Taller');
+      }
+      expectCardOnScreen(tester, 568);
+      // The top edge stays; the height stops at the bottom of the view.
+      expect(cardRect(tester).top, 100);
+      expect(controller.overlayUiState.cardHeight, 568 - 100);
+      handle.dispose();
+    });
+
+    testWidgets('Taller with the keyboard up moves the card up to fit', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(
+        tester,
+        keyboard: 253,
+        offset: const Offset(40, 100),
+        height: 300,
+      );
+      await performCustomAction(tester, grip(), 'Taller');
+      // 315 px above the keyboard: the card moves up to fit.
+      expectCardOnScreen(tester, 568 - 253);
+      expect(controller.overlayUiState.cardHeight, 568 - 253);
+      expect(controller.overlayUiState.cardOffset!.dy, 0);
+      handle.dispose();
+    });
+
+    testWidgets('a drag past the bottom edge ends with the card on screen', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(tester);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('Sleuth')),
+      );
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(const Offset(0, 50));
+        await tester.pump();
+      }
+      // While the finger is down the title bar stays on screen.
+      expect(cardRect(tester).top, lessThanOrEqualTo(568 - 100));
+      await gesture.up();
+      await tester.pump();
+      expectCardOnScreen(tester, 568);
+      expect(controller.overlayUiState.cardOffset!.dy, 568 - 400);
+      handle.dispose();
+    });
+
+    testWidgets('a maximized card neither moves nor drags', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(
+        tester,
+        windowState: CardWindowState.maximized,
+      );
+      final before = cardRect(tester);
+      final stored = controller.overlayUiState.cardOffset;
+      final data = tester.getSemantics(header()).getSemanticsData();
+      expect(data.customSemanticsActionIds ?? const <int>[], isEmpty);
+
+      await tester.drag(find.text('Sleuth'), const Offset(0, 120));
+      await tester.pumpAndSettle();
+      expect(cardRect(tester), before);
+      expect(controller.overlayUiState.cardOffset, stored);
+      expectCardOnScreen(tester, 568);
+      handle.dispose();
+    });
+
+    for (final keyboard in [150.0, 300.0]) {
+      testWidgets('a maximized card above a $keyboard px keyboard keeps a '
+          'list under the summary bar', (tester) async {
+        final controller = await pumpView(
+          tester,
+          const Size(844, 390),
+          keyboard: keyboard,
+        );
+        controller.overlayUiState.setCardGeometry(
+          offset: null,
+          width: null,
+          height: null,
+          windowState: CardWindowState.maximized,
+        );
+        await openDashboard(tester, controller);
+        expect(tester.takeException(), isNull);
+
+        final list = tester.getRect(find.byType(ListView));
+        expect(list.height, greaterThan(0));
+        // The summary bar's 36 px sit over the top of the list's area,
+        // which keeps at least the chips' 48 px hit height.
+        expect(list.height + 36, greaterThanOrEqualTo(48));
+        if (keyboard == 150) {
+          // Room for the bar and a row: the banners give it to the list.
+          expect(list.height, greaterThanOrEqualTo(48));
+        }
+      });
+    }
   });
 }

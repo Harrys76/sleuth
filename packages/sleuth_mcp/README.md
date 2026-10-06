@@ -1,211 +1,230 @@
 # sleuth_mcp
 
-MCP stdio sidecar for [sleuth](https://github.com/Harrys76/sleuth).
-Bridges the `ext.sleuth.*` VM service extensions to AI clients
-(Claude Code, Cursor, Zed) over the Model Context Protocol, so your
-assistant can query a running Flutter app's live performance data in
-conversation.
+`sleuth_mcp` lets an AI assistant read live performance data from a
+running Flutter app. It is an MCP stdio server for Claude Code, Cursor,
+Zed and other MCP clients. It talks to the app over the Dart VM service
+and calls the `ext.sleuth.*` extensions that
+[sleuth](https://pub.dev/packages/sleuth) registers, so the app must
+depend on `sleuth` and wrap itself in `Sleuth.track`. The sidecar itself
+does not depend on `sleuth`.
 
-The in-app overlay remains sleuth's primary UX. This sidecar is opt-in.
+The sidecar is optional. The in-app overlay shows the same issues.
 
 ## Quickstart
 
 ```bash
 dart pub global activate sleuth_mcp
-sleuth_mcp install        # writes mcpServers.sleuth to ~/.claude.json
+sleuth_mcp install        # adds mcpServers.sleuth to ~/.claude.json
 ```
 
 1. Reload your MCP client.
-2. Run your app: `flutter run` (debug or profile).
-3. In conversation: **"attach to my Flutter app and explore"** — the
-   agent calls `list_devices` → `attach_app`, which spawns
-   `flutter attach --machine`, discovers the VM service URI, and connects.
-4. Ask away: *"what's causing jank on the checkout route?"* The agent
-   calls the tools below against the live session.
+2. Run your app with `flutter run --profile --no-dds`. Without `--no-dds`
+   Sleuth cannot reach the VM service, so its memory, CPU and repaint
+   detectors stay off (see [Connection modes](#connection-modes)).
+3. Ask the assistant to "attach to my Flutter app and explore". It calls
+   `list_devices` and then `attach_app`, which runs
+   `flutter attach --machine` and connects.
+4. Ask a question such as "what's causing jank on the checkout route?".
 
-`install` is idempotent (advisory lock + atomic rename + `.bak`). For a
-project-local install instead, add `sleuth_mcp: ^0.7.2` to
-`dev_dependencies`.
+You can run `install` again. It takes a lock, writes the config through
+an atomic rename and keeps a `.bak` copy. For a project-local install, add
+`sleuth_mcp: ^0.8.0` to `dev_dependencies` instead. The server also sends
+this workflow to the client in the `instructions` field of its
+`initialize` result.
 
-**Cursor / Zed** (or manual config) — same `command`, point it at a
-known VM service URI:
+## Options
+
+Cursor, Zed and hand-written configs use the same `command`. To connect at
+startup instead of through `attach_app`, pass the app's VM service URI:
 
 ```json
 {
   "mcpServers": {
     "sleuth": {
       "command": "sleuth_mcp",
-      "args": ["--uri", "ws://127.0.0.1:55555/<token>=/ws"]
+      "args": ["--uri", "http://127.0.0.1:55555/<token>=/"]
     }
   }
 }
 ```
 
+| Option | Effect |
+| --- | --- |
+| `--uri <uri>` | Connects at startup. It takes the http URI that `flutter run` prints or the ws form. The server answers `initialize` at once, and tool calls wait up to 15 seconds for the connect. |
+| `--tool-timeout <seconds>` | Time limit for each tool call, a whole number of 1 or more (default 10). Any other value exits with code 64. |
+| `-v`, `--verbose` | Logs details to stderr. |
+| `--version` | Prints the sidecar version and the sleuth version it was built against. |
+
+When the client closes stdin, or the sidecar gets SIGINT or SIGTERM, it
+detaches and exits within about 12 seconds. It stops any `flutter attach`
+child or `iproxy` tunnel it started.
+
+## Version compatibility
+
+sleuth_mcp 0.8.0 is built against sleuth 0.37.0. When it connects, it
+reads the app's `packageVersion` from `ext.sleuth.diagnose`. Another 0.37
+version connects with `warning: version_skew_minor`, and a 0.36 app with
+`warning: version_skew_prior_lineage`. The sidecar refuses any other
+lineage (`version_skew_major`) and a version that is not
+`major.minor.patch` (`version_skew_unknown`), and disconnects.
+
 ## Tools
 
-| Tool | Args | Purpose |
-| --- | --- | --- |
-| `list_devices` | `mobileOnly?` | `flutter devices --machine`, mobile-only by default (android + ios). |
-| `attach_app` | `device?`, `debugUrl?`, `udid?`, `bundle?`, `transport?`, `authOverride?` | Attach. Three modes — see [Attaching](#attaching). |
-| `connect` | `uri` | Attach to a known VM service URI. Returns `connectionMode`, `sessionUuid`, and a `warning` on version skew. |
-| `get_snapshot` | `sections?`, `maxIssueCount?`, `maxRouteCount?`, `diskHandoff?`, `verbose?` | Full performance snapshot (issues, frame stats, route history). Issues are compact by default — pass `verbose: true` for full fields. |
-| `get_issues` | `route?`, `severityAtLeast?`, `maxIssueCount?`, `verbose?` | Currently-aggregated issues. Optional route filter + case-insensitive severity gate (`ok` / `warning` / `critical`). Compact + capped to 50 by default; `verbose: true` for full fields, `maxIssueCount` to change the cap (`0` = unbounded). |
-| `get_route_health` | `route?` | Per-route health score + FPS + issue counts. |
-| `explain_issue` | `stableId` | Encyclopedia entry; parametric stableIds resolve through canonical form. |
-| `compare_snapshots` | `before`, `after` | Client-side diff of two snapshots — added / removed / elevated issues, fps delta. |
-| `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Compare the live snapshot against thresholds. For CI exit codes use `sleuth_check`. |
-| `diagnose` | — | Operational health: package version, VM connection, unbound extensions. Use when other tools return empty. |
-| `app_status` | — | `{attached, state, device, appId, sessionUuid, launchMode, mode, lastError}`. |
-| `detach_app` | — | Stop the daemon child + disconnect the bridge. Idempotent. |
-| `hot_reload` | — | Hot reload (preserves state + sessionUuid). Daemon-spawn sessions only. |
+| Tool | What it does |
+| --- | --- |
+| `list_devices` | Lists connected Android and iOS devices. `mobileOnly: false` adds desktop, web and embedded devices. |
+| `attach_app` | Attaches to a running app by device, debug URL or iOS UDID. See [Attaching](#attaching). |
+| `connect` | Connects to a VM service URI you already have. While an `attach_app` session is live it refuses with `attached_session`. |
+| `detach_app` | Ends the session in any state and stops an attach in progress. You can call it when nothing is attached. |
+| `app_status` | Reports whether a session is attached, which tool connected it, and its device, app and session ids. |
+| `hot_reload` | Hot reloads an app attached with `attach_app(device:)` and keeps its state. Other sessions get `hot_reload_unsupported`. |
+| `diagnose` | Reports the package version and the VM link (`vmConnected`), and on sleuth 0.37 the frame budget and VM poll timings. Call it first when other tools return nothing. |
+| `get_issues` | Returns the current issues in rank order, optionally filtered by `route` or `severityAtLeast`. |
+| `get_snapshot` | Returns the performance snapshot: issues, frame stats, route history, session summary and recurrence trends. |
+| `get_route_health` | Returns the health score, FPS and issue counts for each route. |
+| `explain_issue` | Returns the encyclopedia entry for a stableId, with the route, widget and counts of the live issue. |
+| `compare_snapshots` | Diffs two snapshots: added, removed and more severe issues, count changes and the FPS change. It refuses snapshots from different sleuth lineages, from the warm-up, or with different VM coverage. |
+| `check_budgets` | Checks the live session against FPS and issue-count budgets, with the same defaults as `sleuth_check`. It refuses with `coverage_degraded` when the app has no VM link. |
+| `get_logs` | Returns the app's recent `print`, stderr and `dart:developer` lines. The sidecar keeps the last 500. |
 
-The read tools (everything except `connect`, `attach_app`, `detach_app`, `hot_reload`) carry `annotations.readOnlyHint: true`, so MCP clients that honor it can auto-approve them instead of prompting per call. Descriptors also carry the other MCP behavior hints — `destructiveHint`, `idempotentHint`, `openWorldHint` — locked per tool and audit-enforced. Tools whose output reflects the live app or host (`get_snapshot`, `get_issues`, `get_route_health`, `diagnose`, `check_budgets`, `list_devices`) are `openWorldHint:true`; `detach_app` is `destructiveHint:true` (it tears down the session and deletes disk-handoff files).
+[`doc/mcp_tool_schema.md`](doc/mcp_tool_schema.md) lists every argument,
+return shape and error code.
 
-**Compact issues (default).** `get_issues` and `get_snapshot` trim each issue to an actionable subset (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`) so responses stay readable and smaller. Pass `verbose: true` for the full ~22-field shape. Compaction drops fields, not field contents — hard size bounds come from `maxIssueCount` (issue count) and `diskHandoff` (large snapshots), not from field compaction. `get_issues` also caps to the top 50 ranked issues by default and stamps `_truncated` + `_totalCount` when it drops any — raise or disable with `maxIssueCount` (`0` = unbounded; negative is rejected with `arg_invalid_int`). The cap is independent of `verbose`. Compaction keeps `stableId` + `severity`, so `compare_snapshots` and `check_budgets` still work on compact snapshots.
+### Reading results
 
-**Structured content (MCP `2025-06-18`+).** Clients that negotiate protocol `2025-06-18` or later get a top-level `structuredContent` field on every **success** `tools/call` result — the same JSON the text block carries, as an object — so there's no need to re-parse the text. Older clients (`2024-11-05`, `2025-03-26`) receive the text content only. `structuredContent` is never set on error results.
+- **Snapshot size.** On an iPhone 12 a full snapshot grew to 528 KB after
+  a few minutes, mostly per-frame data, and Claude Code caps a tool result
+  at 25,000 tokens by default. `get_snapshot` therefore leaves out the
+  seven per-frame and raw-sample sections and lists them in
+  `data._omittedSections`, which keeps it at about 3 to 15 KB. Pass
+  `full: true` for everything, `sections` to pick sections, or
+  `diskHandoff: true` to write the whole snapshot to a temp file and get
+  its path.
+- **Compact issues.** `get_issues` and `get_snapshot` return 12 fields per
+  issue, including `stableId` and `severity`, and `verbose: true` returns
+  all of them. `get_issues` returns the top 50 and adds `_truncated` and
+  `_totalCount` when it drops any. `maxIssueCount` changes the cap, and
+  `0` removes it.
+- **Errors.** An error message starts with a code and says what to do next.
+  `not_connected` means no app is attached. `timeout_after_<ms>ms` means
+  the app did not answer in time; the connection stays, so retry.
+  `app_busy` means 8 earlier calls are still unanswered; retry in a few
+  seconds. `session_changed` means the app restarted; the sidecar follows
+  the new session, so call the tool again.
+- **Client features.** Read-only tools set `readOnlyHint`, so a client can
+  run them without asking each time. A client on MCP `2025-06-18` also gets
+  each result as `structuredContent`.
 
-### Resources
+### Resources and prompts
 
-- `sleuth://encyclopedia` — every `IssueExplanation` keyed by canonical stableId.
-- `sleuth://causal-graph` — rule set linking trigger stableIds to downstream effects.
-
-Both cache per `sessionUuid` and refresh inline on hot-restart of the
-target app. Wire shapes are locked in
-[`doc/mcp_tool_schema.md`](doc/mcp_tool_schema.md) (tool returns) and
-[`doc/mcp_schema.md`](doc/mcp_schema.md) (`ext.sleuth.*` envelopes).
-
-### Prompts
-
-Guided-diagnostic templates surfaced via `prompts/list` + `prompts/get`. Each is argument-free and instructs the client's model to chain the tools above:
-
-- `triage_performance` — snapshot → top-ranked issues → explain the worst → worst route.
-- `audit_memory` — memory-class issues (heap growth, retained streams, tracked resources) → explain → remediations.
-- `release_check` — `check_budgets` + critical issues → PASS/FAIL verdict.
+The resources `sleuth://encyclopedia` (every issue explanation, keyed by
+stableId) and `sleuth://causal-graph` (the rules that link causes to
+effects) are cached per app session. The prompts `triage_performance`,
+`audit_memory` and `release_check` tell the client's model which tools to
+call in order, and end with ranked fixes, memory fixes, or a PASS, FAIL or
+NOT RUN verdict.
 
 ## Attaching
 
-`attach_app` has three routing modes:
+`attach_app` has three modes:
 
-- **`device`** — spawns `flutter attach --machine` (the Quickstart path).
-- **`debugUrl`** — connects to a WebSocket URI you already have.
-- **`udid` + `bundle`** — drives the iOS real-device pipeline directly.
+- `device` runs `flutter attach --machine` and connects to the VM service
+  it reports. It is the Quickstart path and the only mode where
+  `hot_reload` works. `flutter attach` runs in the sidecar's working
+  directory, so start your MCP client from the Flutter project.
+- `debugUrl` connects to a ws URI you already have.
+- `udid` with `bundle` attaches to an iOS device directly, on macOS only.
+  Install the app once first (`flutter run --profile -d <udid>`, then
+  quit). The sidecar finds the app's VM service over Bonjour, launches the
+  app with `xcrun devicectl` if it is not running, and connects through an
+  `iproxy` tunnel on USB (`brew install libimobiledevice`) or the device's
+  `.local` host on Wi-Fi.
 
-**iOS real device — one call.** Prerequisite once:
-`brew install libimobiledevice` (provides `iproxy` for USB-tethered
-attach; not needed for wireless pairings). Build + install the app once
-(`flutter run --profile -d <udid>`, then quit), then:
+An attach reports each stage as progress when the client sends a
+`progressToken`. A client cancel, `detach_app` or shutdown stops it along
+with every process it started. When `flutter attach` exits early, for
+example because two devices are connected and `device` is not set,
+`attach_app` fails at once with flutter's last lines.
 
-```
-attach_app(udid: "<udid>", bundle: "com.example.example")
-→ {attached: true, state: "ready", launchMode: "ios-direct",
-   transportMode: "wired"|"wireless", wsUri: "ws://...", sessionUuid: ...}
-```
-
-The sidecar runs the full pipeline (devicectl launch → Bonjour resolve →
-iproxy tunnel on USB, or direct `.local` host on wireless → bridge
-connect). `detach_app()` tears down the bridge and iproxy child in order.
-
-Transport defaults to `auto`. Override with `transport: "usb"` /
-`"wireless"`. On multi-pairing USB ambiguity, pass `authOverride: "<code>"`
-from the `ios_ambiguous_pairings` error's `distinctAuthCodes`.
-
-**Standalone CLI** (CI bootstrap or shells with no MCP client):
+Without an MCP client, for example in a shell or CI, open the iOS tunnel
+yourself and pass the printed URI to `attach_app(debugUrl:)` or
+`sleuth_check`:
 
 ```bash
 sleuth_mcp attach-ios <udid> --bundle com.example.example
-# → wsUri: ws://127.0.0.1:<port>/<token>=/ws ; iproxy running (Ctrl-C to tear down)
-# then in your agent: attach_app(debugUrl: "<paste wsUri>")
+# Prints wsUri: ws://127.0.0.1:<port>/<token>=/ws and keeps iproxy running until Ctrl-C.
 ```
 
-If WebSocket attach is refused (403 / closed), re-run with `--auth <code>`
-— USB-vs-WiFi Bonjour ordering is non-deterministic and the WiFi-bridged
-authCode is refused through the USB tunnel.
+If the WebSocket attach is refused (403 or closed), run it again with
+`--auth <code>`. Bonjour can list the Wi-Fi pairing before the USB one,
+and the USB tunnel refuses the Wi-Fi code.
 
-### Scope
+[`doc/mcp_tool_schema.md`](doc/mcp_tool_schema.md#attach_app) covers the
+transport choice, pairing codes and recovery from a stale Bonjour record.
 
-- Android + iOS only. `list_devices` filters by `category == 'mobile'`;
-  pass `mobileOnly: false` for desktop / web / embedded.
-- One sidecar process owns one `flutter attach --machine` child; each MCP
-  client spawns its own sidecar.
-- Min Flutter daemon protocol version `0.6.0`.
+## Connection modes
 
-## Connection modes — `basic` vs `full`
+Every `ext.sleuth.*` response carries `connectionMode`, and `diagnose`
+returns it:
 
-`diagnose` reports a `connectionMode`. It reflects whether the **app's
-own** in-process VM connection is live, independent of the sidecar bridge:
+- `warmup`: the first seconds after Sleuth starts.
+- `basic`: no frame has a VM-tier verdict yet.
+- `full`: a jank frame got a verdict from VM timeline data.
+- `correlated`: as `full`, with the timeline events matched to the frame.
+- `disconnected`: Sleuth is not initialized, or it was disposed.
 
-- **`basic`** — sleuth couldn't self-connect to the host VM service.
-  FrameTiming + structural detectors fire; vmOnly detectors
-  (`excessive_repaint`, `gc_pressure`, `heap_growing`, `heavy_compute`,
-  `stream_resource_growth`) stay silent; causal-graph links inactive;
-  structural confidence stays `possible`.
-- **`full` / `correlated`** — VM connected. vmOnly detectors fire,
-  confidence escalates to `likely` / `confirmed`, causal-graph links wire.
+`basic` does not mean the VM link is down. A connected session on a smooth
+screen stays `basic` until a frame janks, so check `vmConnected` (in
+`diagnose`, `connect` and `get_issues`). Without a VM link Sleuth never
+reports `heap_growing`, `gc_pressure`, `heap_near_capacity`,
+`native_memory_growing`, `heavy_compute`, `shader_compilation`,
+`platform_channel_traffic`, `stream_resource_growth`, `rebuild_activity`
+or `excessive_repaint`. In that case, and during warm-up or after a
+disconnect, `connect`, `attach_app`, `diagnose`, `get_snapshot` and
+`get_issues` add a `launchModeAdvisory` that says what is missing and what
+to do.
 
-`connect`, `attach_app`, `diagnose`, `get_snapshot`, and `get_issues` stamp an
-optional `launchModeAdvisory` string when the session is degraded — `warmup`,
-`disconnected`, or `basic` without a live VM self-connect — so an AI client is
-nudged to relaunch with `--no-dds` (below) instead of silently trusting a
-degraded issue list. Stamping the data tools, not just the connection tools,
-means every issue read carries the warning when VM-only detectors are
-suppressed. `warmup` asks the client to re-run `diagnose` once the mode
-settles; a `basic` session whose VM *is* connected gets no nudge.
+`flutter run` starts DDS (Dart Development Service) by default. DDS becomes
+the only client of the app's VM service, so Sleuth cannot connect. Run
+with `--no-dds` and Sleuth polls the VM every 500 ms on the app isolate.
+On an iPhone 12 a poll costs about 1.5 ms on an idle screen and about
+32 ms on a screen that writes 10k timeline events per poll. Emulators and
+simulators can lose FPS to polling, so measure on a real device. To keep
+DDS and DevTools as well, launch the installed app yourself and call
+`attach_app(debugUrl:)`.
+[Sleuth internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#vm-connection)
+has the Android and iOS simulator commands.
 
-`flutter run` defaults to **DDS** (Dart Development Service), which claims
-the device's VM service as its sole client and forces `basic` for the
-session. Reach `full` on the first run with `--no-dds`:
+## CI gate with `sleuth_check`
 
-```bash
-flutter run --profile --no-dds
-```
-
-The VM service stays multi-client, so sleuth self-connects. Full mode runs
-periodic VM polling on the app isolate — negligible on real devices,
-but it can depress FPS on emulators/simulators; measure frame rates on
-real hardware. Hot reload/restart are unaffected; you lose DDS-only
-niceties (multi-client DevTools, log history).
-
-Fallback (when you need DDS + DevTools too): launch the installed binary
-directly, then `attach_app(debugUrl: …)`:
+The stdio server cannot fail a CI job through its exit code, so CI uses
+the one-shot `sleuth_check` binary:
 
 ```bash
-# Android — relaunch the installed APK, read the URI, forward the port:
-adb -s <id> shell am start -n com.example.example/.MainActivity
-adb -s <id> logcat -d | grep "Dart VM service"   # → http://127.0.0.1:PORT/<token>=/
-adb -s <id> forward tcp:PORT tcp:PORT
-# attach_app(debugUrl: "ws://127.0.0.1:PORT/<token>=/ws")
-
-# iOS simulator — shares localhost, no forward needed:
-xcrun simctl launch booted com.example.example
-xcrun simctl spawn booted log stream --predicate 'process == "Runner"' | grep "Dart VM service"
-# attach_app(debugUrl: "ws://127.0.0.1:PORT/<token>=/ws")
-```
-
-`diagnose` then reports `full` (or `correlated` once the per-frame
-timeline correlator warms up).
-
-## `sleuth_check` — CI gate
-
-The stdio server can't signal CI failure via exit code, so use the
-one-shot binary:
-
-```bash
-sleuth_check --uri "ws://127.0.0.1:55555/<token>=/ws" \
+sleuth_check --uri "http://127.0.0.1:55555/<token>=/" \
   --min-fps 55 --max-issues 10 --max-critical-issues 0 --json
 ```
 
-Exits `0` pass, `1` budget violation, `2` connect / handler failure.
+It exits `0` on a pass and `1` on a budget violation. It exits `2` when
+the check could not run: a connect failure, a version refusal, a malformed
+snapshot, or `coverage_degraded` because Sleuth had no VM link. A bad
+command line exits `64`. Without flags the budgets are `--min-fps 55`,
+`--max-critical-issues 0` and no limit on the total issue count.
 
-For live programmatic inspection from a custom Dart tool, call
-`ext.sleuth.*` directly via `package:vm_service` — no sidecar needed.
+To read the app from your own Dart tool instead, call the `ext.sleuth.*`
+extensions with `package:vm_service`. They are described in
+[`doc/mcp_schema.md`](doc/mcp_schema.md).
 
-## Known limitations
+## Limitations
 
-- Android + iOS only; `attach_app` rejects non-mobile devices.
-- One `flutter attach --machine` child per sidecar process.
-- `compare_snapshots` returns its diff as a JSON-stringified `text`
-  content block — parse `content[0].text`.
-- `hot_restart` not supported: Android profile-mode doesn't re-register
-  the new main isolate within the bridge's reconnect window after
-  `app.restart`. Use `detach_app` + `attach_app`. `hot_reload` is fine.
+- Android and iOS apps only. `list_devices` hides other devices unless you
+  pass `mobileOnly: false`, and `attach_app` rejects them.
+- One `flutter attach` child per sidecar. Each MCP client starts its own
+  sidecar.
+- There is no `hot_restart` tool. In Android profile builds the restarted
+  isolate does not register again in time, so use `detach_app` and then
+  `attach_app`. The sidecar does follow a hot restart started from
+  `flutter run`.
+- JSON-RPC batches work only for clients on MCP `2025-03-26`, the one
+  version that defines them.
+- The flutter daemon must speak protocol `0.6.0` or later.

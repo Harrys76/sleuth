@@ -1,3 +1,4 @@
+import 'dart:developer' show Timeline;
 import 'dart:ui' show FrameTiming;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -42,33 +43,27 @@ void main() {
 
     void addGoodFrames(int count) {
       for (var i = 0; i < count; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 8,
-          rasterMs: 6,
-          frameNumber: i + 1,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 8, rasterMs: 6, frameNumber: i + 1),
+        );
       }
     }
 
     test('no issues when disabled', () {
       detector.isEnabled = false;
       for (var i = 0; i < 10; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 40,
-          rasterMs: 40,
-          frameNumber: i + 1,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 40, rasterMs: 40, frameNumber: i + 1),
+        );
       }
       expect(detector.issues, isEmpty);
     });
 
     test('no issues with fewer than 5 frames', () {
       for (var i = 0; i < 4; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 40,
-          rasterMs: 40,
-          frameNumber: i + 1,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 40, rasterMs: 40, frameNumber: i + 1),
+        );
       }
       expect(detector.issues, isEmpty);
     });
@@ -82,11 +77,9 @@ void main() {
       // 10 good frames + 3 janky = 13 frames, 23% janky
       addGoodFrames(10);
       for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 20,
-          rasterMs: 8,
-          frameNumber: 11 + i,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 20, rasterMs: 8, frameNumber: 11 + i),
+        );
       }
 
       expect(detector.issues, hasLength(1));
@@ -98,64 +91,64 @@ void main() {
       // 17 good + 3 janky = 20 frames, 15% janky — boundary, should not trigger
       addGoodFrames(17);
       for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 20,
-          rasterMs: 8,
-          frameNumber: 18 + i,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 20, rasterMs: 8, frameNumber: 18 + i),
+        );
       }
 
       expect(detector.issues, isEmpty);
     });
 
-    test('critical when >=3 severe jank frames (parallel-emission v0.19.6)',
-        () {
-      addGoodFrames(10);
-      // 3 severe frames (>33ms). Severe frames also satisfy the
-      // jankPercent > 15 gate (3/13 = 23% janky), so under the v0.19.6
-      // parallel-emission semantics BOTH stableIds fire concurrently.
-      // Pre-v0.19.6 the detector used `if/else if` and suppressed
-      // jank_detected — but on devices with ambient severeCount >= 3
-      // that made warning-tier signal structurally unreachable.
-      for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 40,
-          rasterMs: 8,
-          frameNumber: 11 + i,
-        ));
-      }
+    test(
+      'critical when >=3 severe jank frames (parallel-emission v0.19.6)',
+      () {
+        addGoodFrames(10);
+        // 3 severe frames (>33ms). Severe frames also satisfy the
+        // jankPercent > 15 gate (3/13 = 23% janky), so under the v0.19.6
+        // parallel-emission semantics BOTH stableIds fire concurrently.
+        // Pre-v0.19.6 the detector used `if/else if` and suppressed
+        // jank_detected — but on devices with ambient severeCount >= 3
+        // that made warning-tier signal structurally unreachable.
+        for (var i = 0; i < 3; i++) {
+          detector.addFrameForTest(
+            makeFrame(uiMs: 40, rasterMs: 8, frameNumber: 11 + i),
+          );
+        }
 
-      expect(detector.issues, hasLength(2),
-          reason: 'parallel emission: both sustained_jank and jank_detected '
-              'fire when both gates true');
-      expect(
-        detector.issues
-            .where((i) => i.stableId == 'sustained_jank')
-            .map((i) => i.severity),
-        equals([IssueSeverity.critical]),
-      );
-      expect(
-        detector.issues
-            .where((i) => i.stableId == 'jank_detected')
-            .map((i) => i.severity),
-        equals([IssueSeverity.warning]),
-      );
-      // Existing assertion shape: at least one issue carries the
-      // "Sustained Jank" prefix in title.
-      expect(
-        detector.issues.any((i) => i.title.contains('Sustained Jank')),
-        isTrue,
-      );
-    });
+        expect(
+          detector.issues,
+          hasLength(2),
+          reason:
+              'parallel emission: both sustained_jank and jank_detected '
+              'fire when both gates true',
+        );
+        expect(
+          detector.issues
+              .where((i) => i.stableId == 'sustained_jank')
+              .map((i) => i.severity),
+          equals([IssueSeverity.critical]),
+        );
+        expect(
+          detector.issues
+              .where((i) => i.stableId == 'jank_detected')
+              .map((i) => i.severity),
+          equals([IssueSeverity.warning]),
+        );
+        // Existing assertion shape: at least one issue carries the
+        // "Sustained Jank" prefix in title.
+        expect(
+          detector.issues.any((i) => i.title.contains('Sustained Jank')),
+          isTrue,
+        );
+      },
+    );
 
     test('issue confidence is confirmed', () {
       addGoodFrames(10);
       for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 40,
-          rasterMs: 8,
-          frameNumber: 11 + i,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 40, rasterMs: 8, frameNumber: 11 + i),
+        );
       }
 
       expect(detector.issues.first.confidence, IssueConfidence.confirmed);
@@ -164,11 +157,9 @@ void main() {
     test('detail includes bottleneck hint (UI dominant)', () {
       addGoodFrames(10);
       for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 40,
-          rasterMs: 8,
-          frameNumber: 11 + i,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 40, rasterMs: 8, frameNumber: 11 + i),
+        );
       }
 
       expect(detector.issues.first.detail, contains('UI thread'));
@@ -177,30 +168,28 @@ void main() {
     test('detail includes bottleneck hint (raster dominant)', () {
       addGoodFrames(10);
       for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 8,
-          rasterMs: 40,
-          frameNumber: 11 + i,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 8, rasterMs: 40, frameNumber: 11 + i),
+        );
       }
 
       expect(detector.issues.first.detail, contains('Raster thread'));
     });
 
     test('detail includes VM timeline sub-breakdown when available', () {
-      detector.updateTimelineData(ParsedTimelineData(
-        buildScopeDurations: [5000],
-        flushLayoutDurations: [3000],
-        flushPaintDurations: [2000],
-      ));
+      detector.updateTimelineData(
+        ParsedTimelineData(
+          buildScopeDurations: [5000],
+          flushLayoutDurations: [3000],
+          flushPaintDurations: [2000],
+        ),
+      );
 
       addGoodFrames(10);
       for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 40,
-          rasterMs: 8,
-          frameNumber: 11 + i,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 40, rasterMs: 8, frameNumber: 11 + i),
+        );
       }
 
       expect(detector.issues.first.detail, contains('buildScope'));
@@ -218,12 +207,14 @@ void main() {
 
       // Frames at 12ms — not janky at 60fps but janky at 120fps
       for (var i = 0; i < 20; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 12,
-          rasterMs: 4,
-          frameNumber: i + 1,
-          frameBudgetMs: 8,
-        ));
+        detector.addFrameForTest(
+          makeFrame(
+            uiMs: 12,
+            rasterMs: 4,
+            frameNumber: i + 1,
+            frameBudgetMs: 8,
+          ),
+        );
       }
 
       // All frames are janky at 120fps (12ms > 8ms budget)
@@ -239,11 +230,9 @@ void main() {
     test('dispose clears state', () {
       addGoodFrames(10);
       for (var i = 0; i < 3; i++) {
-        detector.addFrameForTest(makeFrame(
-          uiMs: 40,
-          rasterMs: 8,
-          frameNumber: 11 + i,
-        ));
+        detector.addFrameForTest(
+          makeFrame(uiMs: 40, rasterMs: 8, frameNumber: 11 + i),
+        );
       }
       expect(detector.issues, isNotEmpty);
 
@@ -257,15 +246,17 @@ void main() {
     group('Raster Cache Trends', () {
       test('no cache issues with stable cache metrics', () {
         for (var i = 0; i < 20; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-            pictureCacheCount: 10,
-            pictureCacheBytes: 50000,
-            layerCacheCount: 5,
-            layerCacheBytes: 20000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 1,
+              pictureCacheCount: 10,
+              pictureCacheBytes: 50000,
+              layerCacheCount: 5,
+              layerCacheBytes: 20000,
+            ),
+          );
         }
 
         final cacheIssues = detector.issues
@@ -277,13 +268,15 @@ void main() {
       test('no thrashing when variation <= 20%', () {
         // pictureCacheCount alternates between 10 and 12 → 20% variation (boundary)
         for (var i = 0; i < 20; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-            pictureCacheCount: i.isEven ? 10 : 12,
-            pictureCacheBytes: 50000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 1,
+              pictureCacheCount: i.isEven ? 10 : 12,
+              pictureCacheBytes: 50000,
+            ),
+          );
         }
 
         final thrashing = detector.issues
@@ -296,13 +289,15 @@ void main() {
         // pictureCacheCount alternates between 2 and 3 → 50% variation
         // but count <= 5 should be ignored as noise
         for (var i = 0; i < 20; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-            pictureCacheCount: i.isEven ? 2 : 3,
-            pictureCacheBytes: 5000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 1,
+              pictureCacheCount: i.isEven ? 2 : 3,
+              pictureCacheBytes: 5000,
+            ),
+          );
         }
 
         final thrashing = detector.issues
@@ -311,67 +306,79 @@ void main() {
         expect(thrashing, isEmpty);
       });
 
-      test('detects cache thrashing after 15 consecutive fluctuating frames',
-          () {
-        // Seed with one stable frame first
-        detector.addFrameForTest(makeFrame(
-          uiMs: 8,
-          rasterMs: 6,
-          frameNumber: 1,
-          pictureCacheCount: 10,
-          pictureCacheBytes: 50000,
-        ));
+      test(
+        'detects cache thrashing after 15 consecutive fluctuating frames',
+        () {
+          // Seed with one stable frame first
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: 1,
+              pictureCacheCount: 10,
+              pictureCacheBytes: 50000,
+            ),
+          );
 
-        // 16 frames alternating between 10 and 15 → 50% variation
-        for (var i = 0; i < 16; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 2,
-            pictureCacheCount: i.isEven ? 15 : 10,
-            pictureCacheBytes: 50000,
-          ));
-        }
+          // 16 frames alternating between 10 and 15 → 50% variation
+          for (var i = 0; i < 16; i++) {
+            detector.addFrameForTest(
+              makeFrame(
+                uiMs: 8,
+                rasterMs: 6,
+                frameNumber: i + 2,
+                pictureCacheCount: i.isEven ? 15 : 10,
+                pictureCacheBytes: 50000,
+              ),
+            );
+          }
 
-        final thrashing = detector.issues
-            .where((i) => i.stableId == 'raster_cache_thrashing')
-            .toList();
-        expect(thrashing, hasLength(1));
-        expect(thrashing.first.severity, IssueSeverity.warning);
-        expect(thrashing.first.category, IssueCategory.raster);
-        expect(thrashing.first.confidence, IssueConfidence.confirmed);
-      });
+          final thrashing = detector.issues
+              .where((i) => i.stableId == 'raster_cache_thrashing')
+              .toList();
+          expect(thrashing, hasLength(1));
+          expect(thrashing.first.severity, IssueSeverity.warning);
+          expect(thrashing.first.category, IssueCategory.raster);
+          expect(thrashing.first.confidence, IssueConfidence.confirmed);
+        },
+      );
 
       test('thrashing counter resets when variation drops', () {
         // Seed frame
-        detector.addFrameForTest(makeFrame(
-          uiMs: 8,
-          rasterMs: 6,
-          frameNumber: 1,
-          pictureCacheCount: 10,
-          pictureCacheBytes: 50000,
-        ));
+        detector.addFrameForTest(
+          makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: 1,
+            pictureCacheCount: 10,
+            pictureCacheBytes: 50000,
+          ),
+        );
 
         // 10 thrashing frames (not enough for threshold of 15)
         for (var i = 0; i < 10; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 2,
-            pictureCacheCount: i.isEven ? 15 : 10,
-            pictureCacheBytes: 50000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 2,
+              pictureCacheCount: i.isEven ? 15 : 10,
+              pictureCacheBytes: 50000,
+            ),
+          );
         }
 
         // Then stable frames → counter resets
         for (var i = 0; i < 20; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 12,
-            pictureCacheCount: 10,
-            pictureCacheBytes: 50000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 12,
+              pictureCacheCount: 10,
+              pictureCacheBytes: 50000,
+            ),
+          );
         }
 
         final thrashing = detector.issues
@@ -382,13 +389,15 @@ void main() {
 
       test('no growth when cache bytes fluctuate', () {
         for (var i = 0; i < 40; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-            pictureCacheBytes: i.isEven ? 50000 : 48000,
-            layerCacheBytes: 20000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 1,
+              pictureCacheBytes: i.isEven ? 50000 : 48000,
+              layerCacheBytes: 20000,
+            ),
+          );
         }
 
         final growth = detector.issues
@@ -399,13 +408,15 @@ void main() {
 
       test('detects cache growth after 30 consecutive monotonic frames', () {
         for (var i = 0; i < 32; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-            pictureCacheBytes: 50000 + i * 1024,
-            layerCacheBytes: 20000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 1,
+              pictureCacheBytes: 50000 + i * 1024,
+              layerCacheBytes: 20000,
+            ),
+          );
         }
 
         final growth = detector.issues
@@ -420,33 +431,39 @@ void main() {
       test('growth counter resets on decrease', () {
         // 25 growing frames
         for (var i = 0; i < 25; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-            pictureCacheBytes: 50000 + i * 1024,
-            layerCacheBytes: 20000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 1,
+              pictureCacheBytes: 50000 + i * 1024,
+              layerCacheBytes: 20000,
+            ),
+          );
         }
 
         // One decrease
-        detector.addFrameForTest(makeFrame(
-          uiMs: 8,
-          rasterMs: 6,
-          frameNumber: 26,
-          pictureCacheBytes: 40000,
-          layerCacheBytes: 20000,
-        ));
+        detector.addFrameForTest(
+          makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: 26,
+            pictureCacheBytes: 40000,
+            layerCacheBytes: 20000,
+          ),
+        );
 
         // Then 25 more growing
         for (var i = 0; i < 25; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: 27 + i,
-            pictureCacheBytes: 50000 + i * 1024,
-            layerCacheBytes: 20000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: 27 + i,
+              pictureCacheBytes: 50000 + i * 1024,
+              layerCacheBytes: 20000,
+            ),
+          );
         }
 
         final growth = detector.issues
@@ -459,32 +476,32 @@ void main() {
         // layerCacheBytes increasing monotonically for 35 frames
         // (growth window is 30 frames)
         for (var i = 0; i < 35; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-            pictureCacheCount: 10,
-            pictureCacheBytes: 50000, // stable
-            layerCacheCount: 5 + i,
-            layerCacheBytes: 20000 + i * 2048, // growing
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 1,
+              pictureCacheCount: 10,
+              pictureCacheBytes: 50000, // stable
+              layerCacheCount: 5 + i,
+              layerCacheBytes: 20000 + i * 2048, // growing
+            ),
+          );
         }
 
         final growth = detector.issues
             .where((i) => i.stableId == 'raster_cache_growing')
             .toList();
         expect(growth, hasLength(1));
-        expect(growth.first.detail, contains('Layer cache'));
+        expect(growth.first.detail, contains('the layer cache'));
       });
 
       test('suppresses cache analysis when all metrics zero for 30 frames', () {
         // 31 frames with all-zero cache → Impeller detected
         for (var i = 0; i < 31; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-          ));
+          detector.addFrameForTest(
+            makeFrame(uiMs: 8, rasterMs: 6, frameNumber: i + 1),
+          );
         }
 
         final cacheIssues = detector.issues
@@ -496,31 +513,33 @@ void main() {
       test('Impeller suppression resets on non-zero frame', () {
         // 35 zero frames → Impeller detected
         for (var i = 0; i < 35; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-          ));
+          detector.addFrameForTest(
+            makeFrame(uiMs: 8, rasterMs: 6, frameNumber: i + 1),
+          );
         }
 
         // Non-zero frame → suppression lifted, then thrashing frames
-        detector.addFrameForTest(makeFrame(
-          uiMs: 8,
-          rasterMs: 6,
-          frameNumber: 36,
-          pictureCacheCount: 10,
-          pictureCacheBytes: 50000,
-        ));
+        detector.addFrameForTest(
+          makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: 36,
+            pictureCacheCount: 10,
+            pictureCacheBytes: 50000,
+          ),
+        );
 
         // Followed by enough thrashing frames to trigger
         for (var i = 0; i < 16; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: 37 + i,
-            pictureCacheCount: i.isEven ? 15 : 10,
-            pictureCacheBytes: 50000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: 37 + i,
+              pictureCacheCount: i.isEven ? 15 : 10,
+              pictureCacheBytes: 50000,
+            ),
+          );
         }
 
         final thrashing = detector.issues
@@ -531,24 +550,28 @@ void main() {
 
       test('cache issues coexist with jank issues', () {
         // Seed with one stable frame
-        detector.addFrameForTest(makeFrame(
-          uiMs: 8,
-          rasterMs: 6,
-          frameNumber: 1,
-          pictureCacheCount: 10,
-          pictureCacheBytes: 50000,
-        ));
+        detector.addFrameForTest(
+          makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: 1,
+            pictureCacheCount: 10,
+            pictureCacheBytes: 50000,
+          ),
+        );
 
         // 17 severe jank frames with alternating cache count (50% variation)
         // All frames alternate: 15, 10, 15, 10... ensuring continuous thrashing
         for (var i = 0; i < 17; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 40,
-            rasterMs: 40,
-            frameNumber: 2 + i,
-            pictureCacheCount: i.isEven ? 15 : 10,
-            pictureCacheBytes: 50000,
-          ));
+          detector.addFrameForTest(
+            makeFrame(
+              uiMs: 40,
+              rasterMs: 40,
+              frameNumber: 2 + i,
+              pictureCacheCount: i.isEven ? 15 : 10,
+              pictureCacheBytes: 50000,
+            ),
+          );
         }
 
         // Jank: 17 severe frames in 18 total → critical sustained jank
@@ -583,107 +606,110 @@ void main() {
       test('no jank issues during warmup period despite severe frames', () {
         // Feed 179 severe jank frames (just below warmupFrameCount=180)
         for (var i = 0; i < 179; i++) {
-          warmupDetector.addFrameForTest(makeFrame(
-            uiMs: 40,
-            rasterMs: 40,
-            frameNumber: i + 1,
-          ));
+          warmupDetector.addFrameForTest(
+            makeFrame(uiMs: 40, rasterMs: 40, frameNumber: i + 1),
+          );
         }
 
-        expect(warmupDetector.issues, isEmpty,
-            reason: 'Warmup period should suppress jank evaluation');
+        expect(
+          warmupDetector.issues,
+          isEmpty,
+          reason: 'Warmup period should suppress jank evaluation',
+        );
       });
 
       test('jank issues fire after warmup period ends', () {
         // Fill warmup with good frames
         for (var i = 0; i < 180; i++) {
-          warmupDetector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-          ));
+          warmupDetector.addFrameForTest(
+            makeFrame(uiMs: 8, rasterMs: 6, frameNumber: i + 1),
+          );
         }
         expect(warmupDetector.issues, isEmpty);
 
         // Now add severe jank frames — should be evaluated
         for (var i = 0; i < 5; i++) {
-          warmupDetector.addFrameForTest(makeFrame(
-            uiMs: 40,
-            rasterMs: 40,
-            frameNumber: 181 + i,
-          ));
+          warmupDetector.addFrameForTest(
+            makeFrame(uiMs: 40, rasterMs: 40, frameNumber: 181 + i),
+          );
         }
 
-        expect(warmupDetector.issues, isNotEmpty,
-            reason: 'Jank should be detected after warmup');
+        expect(
+          warmupDetector.issues,
+          isNotEmpty,
+          reason: 'Jank should be detected after warmup',
+        );
       });
 
       test('warmup boundary: frame 180 triggers evaluation', () {
         // 179 severe frames during warmup — no issues
         for (var i = 0; i < 179; i++) {
-          warmupDetector.addFrameForTest(makeFrame(
-            uiMs: 40,
-            rasterMs: 40,
-            frameNumber: i + 1,
-          ));
+          warmupDetector.addFrameForTest(
+            makeFrame(uiMs: 40, rasterMs: 40, frameNumber: i + 1),
+          );
         }
         expect(warmupDetector.issues, isEmpty);
 
         // Frame 180 exits warmup — evaluation starts
-        warmupDetector.addFrameForTest(makeFrame(
-          uiMs: 40,
-          rasterMs: 40,
-          frameNumber: 180,
-        ));
-        expect(warmupDetector.issues, isNotEmpty,
-            reason: 'Frame 180 should exit warmup and trigger evaluation');
+        warmupDetector.addFrameForTest(
+          makeFrame(uiMs: 40, rasterMs: 40, frameNumber: 180),
+        );
+        expect(
+          warmupDetector.issues,
+          isNotEmpty,
+          reason: 'Frame 180 should exit warmup and trigger evaluation',
+        );
       });
 
       test('cache trends also suppressed during warmup', () {
         // Feed monotonically growing cache during warmup
         for (var i = 0; i < 179; i++) {
-          warmupDetector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-            pictureCacheBytes: 50000 + i * 1024,
-            layerCacheBytes: 20000,
-          ));
+          warmupDetector.addFrameForTest(
+            makeFrame(
+              uiMs: 8,
+              rasterMs: 6,
+              frameNumber: i + 1,
+              pictureCacheBytes: 50000 + i * 1024,
+              layerCacheBytes: 20000,
+            ),
+          );
         }
 
         final cacheIssues = warmupDetector.issues
             .where((i) => i.category == IssueCategory.raster)
             .toList();
-        expect(cacheIssues, isEmpty,
-            reason: 'Cache trends should be suppressed during warmup');
+        expect(
+          cacheIssues,
+          isEmpty,
+          reason: 'Cache trends should be suppressed during warmup',
+        );
       });
 
       test('dispose resets warmup counter', () {
         // Advance past warmup
         for (var i = 0; i < 185; i++) {
-          warmupDetector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 6,
-            frameNumber: i + 1,
-          ));
+          warmupDetector.addFrameForTest(
+            makeFrame(uiMs: 8, rasterMs: 6, frameNumber: i + 1),
+          );
         }
 
         warmupDetector.dispose();
 
         // After dispose, warmup starts fresh — severe frames should be suppressed
         for (var i = 0; i < 5; i++) {
-          warmupDetector.addFrameForTest(makeFrame(
-            uiMs: 40,
-            rasterMs: 40,
-            frameNumber: i + 1,
-          ));
+          warmupDetector.addFrameForTest(
+            makeFrame(uiMs: 40, rasterMs: 40, frameNumber: i + 1),
+          );
         }
-        expect(warmupDetector.issues, isEmpty,
-            reason: 'Warmup counter should reset on dispose');
+        expect(
+          warmupDetector.issues,
+          isEmpty,
+          reason: 'Warmup counter should reset on dispose',
+        );
       });
     });
 
-    // -- v0.16.0 C1 regression: duration-based warmup gate --
+    // -- v0.16.0 regression: duration-based warmup gate --
     //
     // The pre-v0.16.0 default suppressed jank for 180 frames, which ends
     // warmup in 1.5 s on 120 Hz displays rather than the documented ~3 s.
@@ -708,8 +734,7 @@ void main() {
         );
       }
 
-      test(
-          'duration gate suppresses jank during 3s wall-clock window '
+      test('duration gate suppresses jank during 3s wall-clock window '
           'regardless of frame count (120Hz regression)', () {
         // Simulate 120Hz: 360 frames fit into 3 seconds. The pre-fix
         // default of warmupFrameCount=180 would have exited warmup at
@@ -723,68 +748,87 @@ void main() {
 
         // 180 severe-jank frames across 1.5 s (8.33 ms spacing @ 120Hz)
         for (var i = 0; i < 180; i++) {
-          detector.addFrameForTest(frameAt(
-            uiMs: 40,
-            rasterMs: 40,
-            timestamp: start.add(Duration(microseconds: i * 8333)),
-            frameNumber: i + 1,
-          ));
+          detector.addFrameForTest(
+            frameAt(
+              uiMs: 40,
+              rasterMs: 40,
+              timestamp: start.add(Duration(microseconds: i * 8333)),
+              frameNumber: i + 1,
+            ),
+          );
         }
-        expect(detector.issues, isEmpty,
-            reason: '180 frames at 120Hz = 1.5 s — duration gate still '
-                'active at default 3 s');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason:
+              '180 frames at 120Hz = 1.5 s — duration gate still '
+              'active at default 3 s',
+        );
 
         // Another 180 frames spanning the remaining 1.5 s — total 3.0 s
         for (var i = 180; i < 360; i++) {
-          detector.addFrameForTest(frameAt(
-            uiMs: 40,
-            rasterMs: 40,
-            timestamp: start.add(Duration(microseconds: i * 8333)),
-            frameNumber: i + 1,
-          ));
+          detector.addFrameForTest(
+            frameAt(
+              uiMs: 40,
+              rasterMs: 40,
+              timestamp: start.add(Duration(microseconds: i * 8333)),
+              frameNumber: i + 1,
+            ),
+          );
         }
 
         // One frame just beyond 3 s to exit the duration window
-        detector.addFrameForTest(frameAt(
-          uiMs: 40,
-          rasterMs: 40,
-          timestamp: start.add(const Duration(seconds: 3, milliseconds: 10)),
-          frameNumber: 361,
-        ));
-        expect(detector.issues, isNotEmpty,
-            reason: 'Past 3 s wall-clock, jank evaluation should fire');
-      });
-
-      test('custom short warmupDuration exits quickly regardless of frames',
-          () {
-        final detector = FrameTimingDetector(
-          warmupFrameCount: 0,
-          warmupDuration: const Duration(milliseconds: 500),
+        detector.addFrameForTest(
+          frameAt(
+            uiMs: 40,
+            rasterMs: 40,
+            timestamp: start.add(const Duration(seconds: 3, milliseconds: 10)),
+            frameNumber: 361,
+          ),
         );
-        final start = DateTime(2026, 4, 17, 12);
-
-        // 5 frames within 500 ms — still warming up
-        for (var i = 0; i < 5; i++) {
-          detector.addFrameForTest(frameAt(
-            uiMs: 40,
-            rasterMs: 40,
-            timestamp: start.add(Duration(milliseconds: i * 80)),
-            frameNumber: i + 1,
-          ));
-        }
-        expect(detector.issues, isEmpty);
-
-        // One frame past 500 ms — duration gate open
-        for (var i = 5; i < 10; i++) {
-          detector.addFrameForTest(frameAt(
-            uiMs: 40,
-            rasterMs: 40,
-            timestamp: start.add(Duration(milliseconds: 550 + i * 16)),
-            frameNumber: i + 1,
-          ));
-        }
-        expect(detector.issues, isNotEmpty);
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'Past 3 s wall-clock, jank evaluation should fire',
+        );
       });
+
+      test(
+        'custom short warmupDuration exits quickly regardless of frames',
+        () {
+          final detector = FrameTimingDetector(
+            warmupFrameCount: 0,
+            warmupDuration: const Duration(milliseconds: 500),
+          );
+          final start = DateTime(2026, 4, 17, 12);
+
+          // 5 frames within 500 ms — still warming up
+          for (var i = 0; i < 5; i++) {
+            detector.addFrameForTest(
+              frameAt(
+                uiMs: 40,
+                rasterMs: 40,
+                timestamp: start.add(Duration(milliseconds: i * 80)),
+                frameNumber: i + 1,
+              ),
+            );
+          }
+          expect(detector.issues, isEmpty);
+
+          // One frame past 500 ms — duration gate open
+          for (var i = 5; i < 10; i++) {
+            detector.addFrameForTest(
+              frameAt(
+                uiMs: 40,
+                rasterMs: 40,
+                timestamp: start.add(Duration(milliseconds: 550 + i * 16)),
+                frameNumber: i + 1,
+              ),
+            );
+          }
+          expect(detector.issues, isNotEmpty);
+        },
+      );
 
       test('explicit Duration.zero disables duration gate entirely', () {
         final detector = FrameTimingDetector(
@@ -794,16 +838,22 @@ void main() {
         final start = DateTime(2026, 4, 17, 12);
 
         for (var i = 0; i < 10; i++) {
-          detector.addFrameForTest(frameAt(
-            uiMs: 40,
-            rasterMs: 40,
-            timestamp: start.add(Duration(microseconds: i * 100)),
-            frameNumber: i + 1,
-          ));
+          detector.addFrameForTest(
+            frameAt(
+              uiMs: 40,
+              rasterMs: 40,
+              timestamp: start.add(Duration(microseconds: i * 100)),
+              frameNumber: i + 1,
+            ),
+          );
         }
-        expect(detector.issues, isNotEmpty,
-            reason: 'With duration gate disabled and frame-count gate 0, '
-                'evaluation runs from frame 1');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason:
+              'With duration gate disabled and frame-count gate 0, '
+              'evaluation runs from frame 1',
+        );
       });
 
       // The wall-clock fallback path uses `DateTime.now()` which is
@@ -812,8 +862,7 @@ void main() {
       // `addTimingsCallback` invocation — if the gate read batch wall
       // time instead of per-frame vsync, a 500 ms monotonic-timestamp
       // batch would look like 0 ms elapsed and keep suppressing jank.
-      test(
-          'batched FrameTiming delivery uses monotonic vsync for elapsed '
+      test('batched FrameTiming delivery uses monotonic vsync for elapsed '
           'time', () {
         final detector = FrameTimingDetector(
           warmupFrameCount: 0,
@@ -840,10 +889,14 @@ void main() {
             ),
         ];
         detector.handleTimingsForTest(batch);
-        expect(detector.issues, isEmpty,
-            reason: '200 frames spanning 500 ms of engine time is still '
-                'well inside the 3 s warmup gate. Gate must consult '
-                'monotonic vsync, not per-callback wall clock.');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason:
+              '200 frames spanning 500 ms of engine time is still '
+              'well inside the 3 s warmup gate. Gate must consult '
+              'monotonic vsync, not per-callback wall clock.',
+        );
 
         // Second batch pushes elapsed vsync past 3 s → gate opens.
         const pastWarmupUs = baseVsyncUs + 3100000;
@@ -858,8 +911,11 @@ void main() {
             frameNumber: 201,
           ),
         ]);
-        expect(detector.issues, isNotEmpty,
-            reason: 'Past 3 s of engine time, jank evaluation must fire');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'Past 3 s of engine time, jank evaluation must fire',
+        );
       });
     });
 
@@ -871,11 +927,9 @@ void main() {
         addGoodFrames(5);
         // Add UI-dominant jank frames (>15% to trigger warning)
         for (var i = 0; i < 10; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 25,
-            rasterMs: 8,
-            frameNumber: 100 + i,
-          ));
+          detector.addFrameForTest(
+            makeFrame(uiMs: 25, rasterMs: 8, frameNumber: 100 + i),
+          );
         }
         final jankIssue = detector.issues.firstWhere(
           (i) =>
@@ -890,11 +944,9 @@ void main() {
         addGoodFrames(5);
         // Add raster-dominant jank frames
         for (var i = 0; i < 10; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 25,
-            frameNumber: 100 + i,
-          ));
+          detector.addFrameForTest(
+            makeFrame(uiMs: 8, rasterMs: 25, frameNumber: 100 + i),
+          );
         }
         final jankIssue = detector.issues.firstWhere(
           (i) =>
@@ -909,15 +961,17 @@ void main() {
         // Add frames with pipeline stall: both threads under budget but
         // large buildToRasterGap. Use FrameStats directly for gap control.
         for (var i = 0; i < 10; i++) {
-          detector.addFrameForTest(FrameStats(
-            frameNumber: 100 + i,
-            uiDuration: const Duration(milliseconds: 10),
-            rasterDuration: const Duration(milliseconds: 10),
-            timestamp: DateTime.now(),
-            frameBudgetMs: 16,
-            buildToRasterGap: const Duration(milliseconds: 20),
-            totalSpan: const Duration(milliseconds: 40),
-          ));
+          detector.addFrameForTest(
+            FrameStats(
+              frameNumber: 100 + i,
+              uiDuration: const Duration(milliseconds: 10),
+              rasterDuration: const Duration(milliseconds: 10),
+              timestamp: DateTime.now(),
+              frameBudgetMs: 16,
+              buildToRasterGap: const Duration(milliseconds: 20),
+              totalSpan: const Duration(milliseconds: 40),
+            ),
+          );
         }
         final jankIssue = detector.issues.firstWhere(
           (i) =>
@@ -931,18 +985,14 @@ void main() {
         addGoodFrames(5);
         // Add equal UI and raster jank frames
         for (var i = 0; i < 5; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 25,
-            rasterMs: 8,
-            frameNumber: 100 + i,
-          ));
+          detector.addFrameForTest(
+            makeFrame(uiMs: 25, rasterMs: 8, frameNumber: 100 + i),
+          );
         }
         for (var i = 0; i < 5; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 8,
-            rasterMs: 25,
-            frameNumber: 200 + i,
-          ));
+          detector.addFrameForTest(
+            makeFrame(uiMs: 8, rasterMs: 25, frameNumber: 200 + i),
+          );
         }
         final jankIssue = detector.issues.firstWhere(
           (i) =>
@@ -954,11 +1004,9 @@ void main() {
       test('attribution detail includes thread counts', () {
         addGoodFrames(5);
         for (var i = 0; i < 10; i++) {
-          detector.addFrameForTest(makeFrame(
-            uiMs: 25,
-            rasterMs: 8,
-            frameNumber: 100 + i,
-          ));
+          detector.addFrameForTest(
+            makeFrame(uiMs: 25, rasterMs: 8, frameNumber: 100 + i),
+          );
         }
         final jankIssue = detector.issues.firstWhere(
           (i) =>
@@ -980,6 +1028,425 @@ void main() {
           isEmpty,
         );
       });
+    });
+  });
+
+  group('FrameTimingDetector route epoch', () {
+    late FrameTimingDetector detector;
+    String? route;
+
+    setUp(() {
+      route = '/a';
+      detector = FrameTimingDetector(
+        warmupDuration: Duration.zero,
+        sourceRouteProvider: () => route,
+      );
+    });
+
+    FrameStats frame(int uiMs) => FrameStats(
+      frameNumber: 0,
+      uiDuration: Duration(milliseconds: uiMs),
+      rasterDuration: const Duration(milliseconds: 6),
+      timestamp: DateTime.now(),
+    );
+
+    void janky(int count) {
+      // 40 ms UI: over 2x the 16.7 ms budget, so every frame is severe.
+      for (var i = 0; i < count; i++) {
+        detector.addFrameForTest(frame(40));
+      }
+    }
+
+    void good(int count) {
+      for (var i = 0; i < count; i++) {
+        detector.addFrameForTest(frame(8));
+      }
+    }
+
+    Set<String?> jankIds() => detector.issues
+        .map((i) => i.stableId)
+        .where((id) => id == 'sustained_jank' || id == 'jank_detected')
+        .toSet();
+
+    test('markRouteEpoch removes both jank issues immediately', () {
+      janky(60);
+      expect(jankIds(), {'sustained_jank', 'jank_detected'});
+
+      detector.markRouteEpoch();
+      expect(jankIds(), isEmpty);
+      expect(
+        detector.frameBuffer.frames,
+        hasLength(60),
+        reason: 'The buffer is kept for FPS, verdicts and exports.',
+      );
+    });
+
+    test('fewer than 5 frames after the epoch stay silent', () {
+      janky(60);
+      detector.markRouteEpoch();
+      good(4);
+      expect(jankIds(), isEmpty);
+    });
+
+    test('good frames after the epoch are judged without the old jank', () {
+      janky(60);
+      detector.markRouteEpoch();
+      good(40);
+      expect(
+        jankIds(),
+        isEmpty,
+        reason: 'The whole buffer is 60 % janky; the slice is clean.',
+      );
+    });
+
+    test('jank after the epoch is judged on the slice and carries the '
+        'route', () {
+      good(100);
+      detector.markRouteEpoch();
+      route = '/b';
+      janky(60);
+      final sustained = detector.issues.singleWhere(
+        (i) => i.stableId == 'sustained_jank',
+      );
+      final jank = detector.issues.singleWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(sustained.extraTraceArgs!['bufferSize'], '60');
+      expect(sustained.extraTraceArgs!['observedSevereCount'], '60');
+      expect(jank.extraTraceArgs!['bufferSize'], '60');
+      expect(jank.extraTraceArgs!['observedJankPercent'], '100.00');
+      expect(sustained.sourceRoute, '/b');
+      expect(jank.sourceRoute, '/b');
+      expect(detector.frameBuffer.frames, hasLength(160));
+    });
+
+    test('percent is computed on the slice', () {
+      janky(100);
+      detector.markRouteEpoch();
+      // 16 good + 4 janky: 20 % of the slice; the whole buffer would be
+      // 87 %.
+      good(16);
+      janky(4);
+      final jank = detector.issues.singleWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(jank.extraTraceArgs!['bufferSize'], '20');
+      expect(jank.extraTraceArgs!['observedJankPercent'], '20.00');
+    });
+
+    test('issues without an epoch read the whole buffer', () {
+      good(30);
+      janky(10);
+      final jank = detector.issues.singleWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(jank.extraTraceArgs!['bufferSize'], '40');
+      expect(jank.sourceRoute, '/a');
+    });
+
+    test('reset clears the epoch', () {
+      good(100);
+      detector.markRouteEpoch();
+      detector.reset();
+      // A stale epoch of 100 against a counter restarted at 0 would hide
+      // every frame below.
+      janky(10);
+      expect(jankIds(), {'sustained_jank', 'jank_detected'});
+      expect(detector.issues.first.extraTraceArgs!['bufferSize'], '10');
+    });
+
+    test('dispose clears the epoch', () {
+      good(100);
+      detector.markRouteEpoch();
+      detector.dispose();
+      janky(10);
+      expect(jankIds(), {'sustained_jank', 'jank_detected'});
+    });
+
+    test('capture scenario (reset at begin) keeps the bufferSize '
+        'arithmetic', () {
+      final capture = FrameTimingDetector(captureMode: true);
+      for (var i = 0; i < 50; i++) {
+        capture.addFrameForTest(frame(8));
+      }
+      capture.markRouteEpoch();
+      capture.reset();
+      for (var i = 0; i < 15; i++) {
+        capture.addFrameForTest(frame(8));
+      }
+      for (var i = 0; i < 5; i++) {
+        capture.addFrameForTest(frame(20));
+      }
+      final jank = capture.issues.singleWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(jank.extraTraceArgs!['bufferSize'], '20');
+      expect(jank.extraTraceArgs!['observedJankCount'], '5');
+      expect(jank.extraTraceArgs!['observedJankPercent'], '25.00');
+    });
+
+    test('the epoch does not re-arm warmup', () {
+      final warm = FrameTimingDetector(
+        warmupDuration: const Duration(seconds: 3),
+      );
+      final start = DateTime(2026, 1, 1);
+      var t = start;
+      void add(int uiMs) {
+        t = t.add(const Duration(milliseconds: 100));
+        warm.addFrameForTest(
+          FrameStats(
+            frameNumber: 0,
+            uiDuration: Duration(milliseconds: uiMs),
+            rasterDuration: const Duration(milliseconds: 6),
+            timestamp: t,
+          ),
+        );
+      }
+
+      for (var i = 0; i < 40; i++) {
+        add(8); // 4 s: warmup over
+      }
+      warm.markRouteEpoch();
+      for (var i = 0; i < 10; i++) {
+        add(40);
+      }
+      expect(
+        warm.issues.map((i) => i.stableId),
+        containsAll(['sustained_jank', 'jank_detected']),
+      );
+    });
+
+    test('lifecyclePhase is unaffected by the epoch', () {
+      for (final (ageUs, phase) in [
+        (1000000, 'startup'),
+        (60000000, 'steady'),
+      ]) {
+        final d = FrameTimingDetector(
+          warmupDuration: Duration.zero,
+          appStartMonotonicUsForTest: () => Timeline.now - ageUs,
+        );
+        for (var i = 0; i < 20; i++) {
+          d.addFrameForTest(frame(8));
+        }
+        d.markRouteEpoch();
+        for (var i = 0; i < 10; i++) {
+          d.addFrameForTest(frame(40));
+        }
+        for (final issue in d.issues) {
+          expect(issue.extraTraceArgs!['lifecyclePhase'], phase);
+        }
+        expect(d.issues, isNotEmpty);
+      }
+    });
+
+    test('real FrameTiming batches honour the epoch', () {
+      const base = 1000000000;
+      List<FrameTiming> batch(int from, int count, int buildUs) => [
+        for (var i = from; i < from + count; i++)
+          FrameTiming(
+            vsyncStart: base + i * 16667,
+            buildStart: base + i * 16667 + 100,
+            buildFinish: base + i * 16667 + 100 + buildUs,
+            rasterStart: base + i * 16667 + 200 + buildUs,
+            rasterFinish: base + i * 16667 + 2200 + buildUs,
+            rasterFinishWallTime: base + i * 16667 + 2200 + buildUs,
+            frameNumber: i + 1,
+          ),
+      ];
+      detector.handleTimingsForTest(batch(0, 60, 40000));
+      expect(jankIds(), {'sustained_jank', 'jank_detected'});
+      detector.markRouteEpoch();
+      detector.handleTimingsForTest(batch(60, 30, 4000));
+      expect(jankIds(), isEmpty);
+    });
+  });
+
+  group('FrameTimingDetector vsync cadence', () {
+    const baseUs = 1000000000;
+
+    List<FrameTiming> timingsFromDeltas(List<int> deltas) {
+      var vsync = baseUs;
+      final out = <FrameTiming>[];
+      void add(int i) {
+        out.add(
+          FrameTiming(
+            vsyncStart: vsync,
+            buildStart: vsync + 100,
+            buildFinish: vsync + 2100,
+            rasterStart: vsync + 2200,
+            rasterFinish: vsync + 4200,
+            rasterFinishWallTime: vsync + 4200,
+            frameNumber: i + 1,
+          ),
+        );
+      }
+
+      add(0);
+      for (var i = 0; i < deltas.length; i++) {
+        vsync += deltas[i];
+        add(i + 1);
+      }
+      return out;
+    }
+
+    FrameTimingDetector build() =>
+        FrameTimingDetector(warmupDuration: Duration.zero);
+
+    test('60 deltas of 8333 us estimate ~120 Hz', () {
+      final d = build();
+      d.handleTimingsForTest(timingsFromDeltas(List.filled(60, 8333)));
+      expect(d.validCadenceSampleCount, 60);
+      expect(d.measuredCadenceHz, closeTo(120, 0.1));
+    });
+
+    test('10th percentile picks the fast frames under steady jank', () {
+      final d = build();
+      d.handleTimingsForTest(
+        timingsFromDeltas([
+          ...List.filled(30, 8333),
+          ...List.filled(30, 25000),
+        ]),
+      );
+      expect(d.measuredCadenceHz, closeTo(120, 0.1));
+    });
+
+    test('idle gaps are ignored', () {
+      final d = build();
+      d.handleTimingsForTest(
+        timingsFromDeltas([
+          ...List.filled(20, 16667),
+          400000,
+          ...List.filled(20, 16667),
+        ]),
+      );
+      expect(d.validCadenceSampleCount, 40);
+      expect(d.measuredCadenceHz, closeTo(60, 0.1));
+    });
+
+    test('null until 30 valid deltas', () {
+      final d = build();
+      d.handleTimingsForTest(timingsFromDeltas(List.filled(29, 8333)));
+      expect(d.validCadenceSampleCount, 29);
+      expect(d.measuredCadenceHz, isNull);
+    });
+
+    test('deltas across callbacks are joined', () {
+      final d = build();
+      final timings = timingsFromDeltas(List.filled(40, 8333));
+      d.handleTimingsForTest(timings.sublist(0, 20));
+      d.handleTimingsForTest(timings.sublist(20));
+      expect(d.validCadenceSampleCount, 40);
+    });
+
+    test('ring keeps only the last 120 deltas', () {
+      final d = build();
+      d.handleTimingsForTest(
+        timingsFromDeltas([
+          ...List.filled(120, 8333),
+          ...List.filled(120, 16667),
+        ]),
+      );
+      expect(d.validCadenceSampleCount, 120);
+      expect(d.measuredCadenceHz, closeTo(60, 0.1));
+    });
+
+    test('reset clears the estimate', () {
+      final d = build();
+      d.handleTimingsForTest(timingsFromDeltas(List.filled(60, 8333)));
+      expect(d.measuredCadenceHz, isNotNull);
+      d.reset();
+      expect(d.validCadenceSampleCount, 0);
+      expect(d.measuredCadenceHz, isNull);
+    });
+
+    test('disabling the detector keeps the estimate', () {
+      final d = build();
+      d.handleTimingsForTest(timingsFromDeltas(List.filled(60, 8333)));
+      d.isEnabled = false;
+      expect(d.measuredCadenceHz, closeTo(120, 0.1));
+    });
+  });
+
+  group('FrameTimingDetector frame budget', () {
+    var nextVsync = 1000000000;
+    FrameTiming timing(int totalUs) {
+      final vsync = nextVsync;
+      nextVsync += 50000;
+      return FrameTiming(
+        vsyncStart: vsync,
+        buildStart: vsync,
+        buildFinish: vsync + totalUs ~/ 2,
+        rasterStart: vsync + totalUs ~/ 2,
+        rasterFinish: vsync + totalUs,
+        rasterFinishWallTime: vsync + totalUs,
+      );
+    }
+
+    bool isJank(FrameTimingDetector d, int totalUs) {
+      d.handleTimingsForTest([timing(totalUs)]);
+      return d.frameBuffer.latest!.isJank;
+    }
+
+    test('default budget is 1e6 / fpsTarget', () {
+      expect(FrameTimingDetector().warningBudgetUs, 16667);
+      expect(FrameTimingDetector().criticalBudgetUs, 33334);
+      expect(FrameTimingDetector(fpsTarget: 120).warningBudgetUs, 8333);
+      expect(FrameTimingDetector(fpsTarget: 90).warningBudgetUs, 11111);
+    });
+
+    test('real frames carry the microsecond budget', () {
+      final d = FrameTimingDetector(warmupDuration: Duration.zero);
+      expect(isJank(d, 17000), isTrue);
+      expect(isJank(d, 16500), isFalse);
+      expect(d.frameBuffer.latest!.frameBudgetUs, 16667);
+      expect(d.frameBuffer.latest!.frameBudgetMs, 16);
+    });
+
+    test('severe starts above 2x the microsecond budget', () {
+      final d = FrameTimingDetector(warmupDuration: Duration.zero);
+      d.handleTimingsForTest([timing(33000)]);
+      expect(d.frameBuffer.latest!.isSevereJank, isFalse);
+      d.handleTimingsForTest([timing(34000)]);
+      expect(d.frameBuffer.latest!.isSevereJank, isTrue);
+    });
+
+    test('updateFrameBudget tightens to 120 Hz', () {
+      final d = FrameTimingDetector(warmupDuration: Duration.zero)
+        ..updateFrameBudget(8333);
+      expect(d.warningBudgetUs, 8333);
+      expect(d.criticalBudgetUs, 16666);
+      expect(d.warningThresholdMs, 8);
+      expect(isJank(d, 8500), isTrue);
+      expect(isJank(d, 8000), isFalse);
+    });
+
+    test('captureMode ignores updateFrameBudget', () {
+      final d = FrameTimingDetector(captureMode: true)..updateFrameBudget(8333);
+      expect(d.warningBudgetUs, 16667);
+    });
+
+    test('explicit thresholds ignore updateFrameBudget', () {
+      final d = FrameTimingDetector(warningThresholdMs: 20)
+        ..updateFrameBudget(8333);
+      expect(d.warningBudgetUs, 20000);
+      expect(d.criticalBudgetUs, 40000);
+    });
+
+    test('addFrameForTest spaces rasterFinishUs by the current budget', () {
+      final d = FrameTimingDetector(warmupDuration: Duration.zero)
+        ..updateFrameBudget(8333);
+      for (var i = 0; i < 2; i++) {
+        d.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 4),
+            rasterDuration: const Duration(milliseconds: 4),
+            timestamp: DateTime(2026),
+          ),
+        );
+      }
+      final frames = d.frameBuffer.frames;
+      expect(frames[1].rasterFinishUs! - frames[0].rasterFinishUs!, 8333);
     });
   });
 }

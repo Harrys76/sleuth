@@ -25,7 +25,7 @@
 //   - If a `reproducerPath` is present AND the test is running from the
 //     repo root, the file is inside the repo (no absolute paths / `..`
 //     traversal / symlink escapes), it contains `test(` /
-//     `testWidgets(` outside of line AND block comments (CLAUDE-R4-1),
+//     `testWidgets(` outside of line AND block comments,
 //     and it references the detector's runtimeType by name.
 //   - If `profileCapturePaths` is declared, every path is inside the
 //     repo and parses cleanly via `ProfileCaptureSchema.parseFile`.
@@ -50,12 +50,15 @@ import 'package:sleuth/sleuth.dart'
     show
         BracketSpec,
         DetectorMetadata,
+        DetectorThresholds,
         DetectorMetadataProvider,
         EvidenceTier,
         ProfileCaptureSchema;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
+import 'package:sleuth/src/detectors/rebuild_detector.dart';
+import 'package:sleuth/src/detectors/repaint_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 
 import '_support/audit_invariants.dart';
@@ -76,6 +79,7 @@ const _v0163Expectations = <DetectorType, (String, Set<String>)>{
       'non_lazy_sliver_list',
       'non_lazy_sliver_grid',
       'non_lazy_list',
+      'non_lazy_shrinkwrap',
       'sliver_to_box_adapter_large',
       'sliver_to_box_adapter_shrinkwrap',
       'sliver_fill_remaining_scrollable',
@@ -154,15 +158,14 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   // base reproducerOnly. See the dedicated `MemoryPressureDetector
   // pinned at runtimeVerified for heap_growing (v0.19.3)` anchor block
   // below for the per-family-tier invariants.
-  // RebuildDetector lifted out of the v0.17.4 reproducerOnly batch in
-  // v0.19.12 — `rebuild_activity` family raised to runtimeVerified via
-  // perStableIdTier with three on-device captures bracketing 11
-  // BUILDs/sec under baseline-subtraction (capture-mode operator
-  // measures ambient inline before each leg and calls
-  // `setBaseline(int)`). Other family `stateful_density` remains at
-  // base reproducerOnly. See the dedicated `RebuildDetector pinned at
-  // runtimeVerified for rebuild_activity (v0.19.12)` anchor block
-  // below for the per-family-tier + bracket-field invariants.
+  // RebuildDetector lifted out of the v0.17.4 reproducerOnly batch —
+  // `rebuild_activity` family raised to runtimeVerified via
+  // perStableIdTier with on-device capture triads bracketing the 10 %
+  // (warning) and 30 % (critical) build-time share. Other family
+  // `stateful_density` remains at base reproducerOnly. See the
+  // dedicated `RebuildDetector pinned at runtimeVerified for
+  // rebuild_activity` anchor block below for the per-family-tier +
+  // bracket-field invariants.
   DetectorType.gpuPressure: (
     'test/validation/gpu_pressure_reproducer_test.dart',
     {'raster_dominance', 'expensive_gpu_nodes'},
@@ -174,7 +177,7 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   // RepaintDetector lifted out of the v0.17.4 reproducerOnly batch:
   // base stays reproducerOnly but the `excessive_repaint.warning`
   // family is raised to runtimeVerified via perStableIdTier on top of
-  // an iPhone 12 / iOS 17.5 / Flutter 3.41.4 capture triad. The
+  // an iPhone 12 / iOS 17.5 / Flutter 3.47.x capture triad. The
   // remaining families (`excessive_repaint_debug`,
   // `repaint_debug_<typeName>`) stay reproducerOnly. See the dedicated
   // `RepaintDetector pinned at runtimeVerified for excessive_repaint`
@@ -223,9 +226,13 @@ void main() {
 
     test('every shipped detector mixes in DetectorMetadataProvider', () {
       final detectors = controller.detectorsForAudit;
-      expect(detectors, isNotEmpty,
-          reason: 'Default SleuthController should register built-in '
-              'detectors via initializeDetectorsForTest().');
+      expect(
+        detectors,
+        isNotEmpty,
+        reason:
+            'Default SleuthController should register built-in '
+            'detectors via initializeDetectorsForTest().',
+      );
 
       final failures = <String>[];
       for (final d in detectors) {
@@ -234,27 +241,37 @@ void main() {
         }
       }
 
-      expect(failures, isEmpty,
-          reason: 'These detectors are missing `with '
-              'DetectorMetadataProvider`: $failures. Every shipped '
-              'detector must declare its validation metadata — add the '
-              'mixin and a const DetectorMetadata(...) getter.');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'These detectors are missing `with '
+            'DetectorMetadataProvider`: $failures. Every shipped '
+            'detector must declare its validation metadata — add the '
+            'mixin and a const DetectorMetadata(...) getter.',
+      );
     });
 
-    test('every detector returns non-null metadata with non-empty rationale',
-        () {
-      final failures = <String>[];
-      for (final d in controller.detectorsForAudit) {
-        if (d is! DetectorMetadataProvider) continue;
-        final DetectorMetadata meta =
-            (d as DetectorMetadataProvider).validationMetadata;
-        failures.addAll(checkRationale('${d.runtimeType}', meta.rationale));
-      }
-      expect(failures, isEmpty,
-          reason: 'Metadata rationale must describe what was validated. '
+    test(
+      'every detector returns non-null metadata with non-empty rationale',
+      () {
+        final failures = <String>[];
+        for (final d in controller.detectorsForAudit) {
+          if (d is! DetectorMetadataProvider) continue;
+          final DetectorMetadata meta =
+              (d as DetectorMetadataProvider).validationMetadata;
+          failures.addAll(checkRationale('${d.runtimeType}', meta.rationale));
+        }
+        expect(
+          failures,
+          isEmpty,
+          reason:
+              'Metadata rationale must describe what was validated. '
               'Placeholders, empty strings, or one-word fragments are '
-              'rejected: $failures');
-    });
+              'rejected: $failures',
+        );
+      },
+    );
 
     // CI audit gate for runtimeVerified `profileCapturePaths`. The
     // `checkBracketValidation(... requireTraceRecord: true)` invocation
@@ -294,35 +311,41 @@ void main() {
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
-            failures.addAll(runRuntimeTierAudit(
-              label: label,
-              meta: meta,
-              legacyObservedAxisAllowlist:
-                  legacyObservedAxisAllowlist.keys.toSet(),
-            ));
+            failures.addAll(
+              runRuntimeTierAudit(
+                label: label,
+                meta: meta,
+                legacyObservedAxisAllowlist: legacyObservedAxisAllowlist.keys
+                    .toSet(),
+              ),
+            );
             break;
           case EvidenceTier.externallyCited:
             failures.addAll(
-                checkCitationUrl(label, meta.citationUrl, required: true));
+              checkCitationUrl(label, meta.citationUrl, required: true),
+            );
             if (meta.reproducerPath == null ||
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
-            failures.addAll(runRuntimeTierAudit(
-              label: label,
-              meta: meta,
-              legacyObservedAxisAllowlist:
-                  legacyObservedAxisAllowlist.keys.toSet(),
-            ));
+            failures.addAll(
+              runRuntimeTierAudit(
+                label: label,
+                meta: meta,
+                legacyObservedAxisAllowlist: legacyObservedAxisAllowlist.keys
+                    .toSet(),
+              ),
+            );
             break;
         }
 
-        // CLAUDE-R1-2 tightening also runs on non-externallyCited tiers
+        // The citation URL check also runs on non-externallyCited tiers
         // whenever a citationUrl is set voluntarily — a malformed URL in a
         // `reproducerOnly` metadata is still a bug.
         if (meta.tier != EvidenceTier.externallyCited) {
           failures.addAll(
-              checkCitationUrl(label, meta.citationUrl, required: false));
+            checkCitationUrl(label, meta.citationUrl, required: false),
+          );
         }
 
         // Any effective tier stronger than `unvalidated` must pin the set
@@ -342,18 +365,22 @@ void main() {
           final hasCovered = covered != null && covered.isNotEmpty;
           final hasParametric = parametric != null && parametric.isNotEmpty;
           if (!hasCovered && !hasParametric) {
-            failures.add('$label: missing coveredStableIds AND '
-                'parametricFamilies — effective tier > unvalidated must '
-                'declare at least one non-empty namespace of stable IDs '
-                'the evidence covers (exact / `<family>:<param>` in '
-                'coveredStableIds, or `<family>_<typeName>` prefix in '
-                'parametricFamilies)');
+            failures.add(
+              '$label: missing coveredStableIds AND '
+              'parametricFamilies — effective tier > unvalidated must '
+              'declare at least one non-empty namespace of stable IDs '
+              'the evidence covers (exact / `<family>:<param>` in '
+              'coveredStableIds, or `<family>_<typeName>` prefix in '
+              'parametricFamilies)',
+            );
           }
           if (covered != null) {
             for (final id in covered) {
               if (id.trim().isEmpty) {
-                failures.add('$label: coveredStableIds contains an empty '
-                    'or whitespace-only entry');
+                failures.add(
+                  '$label: coveredStableIds contains an empty '
+                  'or whitespace-only entry',
+                );
                 break;
               }
             }
@@ -361,8 +388,10 @@ void main() {
           if (parametric != null) {
             for (final fam in parametric) {
               if (fam.trim().isEmpty) {
-                failures.add('$label: parametricFamilies contains an empty '
-                    'or whitespace-only entry');
+                failures.add(
+                  '$label: parametricFamilies contains an empty '
+                  'or whitespace-only entry',
+                );
                 break;
               }
             }
@@ -370,10 +399,12 @@ void main() {
           if (covered != null && parametric != null) {
             final overlap = covered.intersection(parametric);
             if (overlap.isNotEmpty) {
-              failures.add('$label: coveredStableIds and parametricFamilies '
-                  'share entries $overlap — declaring the same name in '
-                  'both namespaces is rejected; pick one (exact/`:` for '
-                  'bare families, `_` prefix for underscore-parametric)');
+              failures.add(
+                '$label: coveredStableIds and parametricFamilies '
+                'share entries $overlap — declaring the same name in '
+                'both namespaces is rejected; pick one (exact/`:` for '
+                'bare families, `_` prefix for underscore-parametric)',
+              );
             }
           }
           // Reject prefix-collision within parametricFamilies. When two
@@ -395,11 +426,13 @@ void main() {
               }
             }
             if (collisions.isNotEmpty) {
-              failures.add('$label: parametricFamilies entries collide on '
-                  '`_`-prefix: $collisions. A literal matching the longer '
-                  'family necessarily matches the shorter too, letting '
-                  'one assertion credit both. Narrow the declaration so '
-                  'no entry is a prefix of another.');
+              failures.add(
+                '$label: parametricFamilies entries collide on '
+                '`_`-prefix: $collisions. A literal matching the longer '
+                'family necessarily matches the shorter too, letting '
+                'one assertion credit both. Narrow the declaration so '
+                'no entry is a prefix of another.',
+              );
             }
           }
         }
@@ -411,36 +444,41 @@ void main() {
         // switch routes to the raised tier's branch and runs the
         // bracket / capture-path checks; this block enforces the
         // per-family raise contract itself via checkPerStableIdTier.
-        failures.addAll(checkPerStableIdTier(
-          label: label,
-          tier: meta.tier,
-          perStableIdTier: meta.perStableIdTier,
-          coveredStableIds: meta.coveredStableIds,
-          bracketStableId: meta.bracketStableId,
-          additionalBrackets: meta.additionalBrackets,
-          topLevelCoveredThresholds: meta.coveredThresholds,
-        ));
-        failures.addAll(checkCanonicalCoveredThresholdBacking(
-          label: label,
-          tier: meta.effectiveMaxTier,
-          topLevelStableId: meta.bracketStableId,
-          topLevelSeverityLabel: meta.bracketSeverityLabel,
-          topLevelCoveredThresholds: meta.coveredThresholds,
-          additionalBrackets: meta.additionalBrackets,
-        ));
-        failures.addAll(checkRuntimeVerifiedRequiresObservedAxisArgKey(
-          label: label,
-          tier: meta.effectiveMaxTier,
-          topLevelStableId: meta.bracketStableId,
-          topLevelObservedAxisArgKey: meta.observedAxisArgKey,
-          additionalBrackets: meta.additionalBrackets,
-        ));
+        failures.addAll(
+          checkPerStableIdTier(
+            label: label,
+            tier: meta.tier,
+            perStableIdTier: meta.perStableIdTier,
+            coveredStableIds: meta.coveredStableIds,
+            bracketStableId: meta.bracketStableId,
+            additionalBrackets: meta.additionalBrackets,
+            topLevelCoveredThresholds: meta.coveredThresholds,
+          ),
+        );
+        failures.addAll(
+          checkCanonicalCoveredThresholdBacking(
+            label: label,
+            tier: meta.effectiveMaxTier,
+            topLevelStableId: meta.bracketStableId,
+            topLevelSeverityLabel: meta.bracketSeverityLabel,
+            topLevelCoveredThresholds: meta.coveredThresholds,
+            additionalBrackets: meta.additionalBrackets,
+          ),
+        );
+        failures.addAll(
+          checkRuntimeVerifiedRequiresObservedAxisArgKey(
+            label: label,
+            tier: meta.effectiveMaxTier,
+            topLevelStableId: meta.bracketStableId,
+            topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+            additionalBrackets: meta.additionalBrackets,
+          ),
+        );
       }
       expect(failures, isEmpty, reason: 'Tier invariants violated: $failures');
     });
 
-    test(
-        'declared reproducer + capture files are inside the repo, exist, '
+    test('declared reproducer + capture files are inside the repo, exist, '
         'and satisfy the reproducer / schema contracts', () {
       if (!File('pubspec.yaml').existsSync()) {
         markTestSkipped(
@@ -457,36 +495,46 @@ void main() {
         final label = '${d.runtimeType}';
         final path = meta.reproducerPath;
         if (path != null && path.trim().isNotEmpty) {
-          failures.addAll(checkReproducerFile(
-            label: label,
-            reproducerPath: path,
-            requiredTokens: [d.runtimeType.toString()],
-            coveredStableIds: meta.coveredStableIds,
-            parametricFamilies: meta.parametricFamilies,
-          ));
+          failures.addAll(
+            checkReproducerFile(
+              label: label,
+              reproducerPath: path,
+              requiredTokens: [d.runtimeType.toString()],
+              coveredStableIds: meta.coveredStableIds,
+              parametricFamilies: meta.parametricFamilies,
+            ),
+          );
         }
-        failures.addAll(checkCapturePaths(
-          label: label,
-          capturePaths: meta.profileCapturePaths,
-        ));
+        failures.addAll(
+          checkCapturePaths(
+            label: label,
+            capturePaths: meta.profileCapturePaths,
+          ),
+        );
       }
-      expect(failures, isEmpty,
-          reason: 'Declared reproducer / capture artifacts failed the '
-              'repo-containment + existence + parse contracts. Fix the '
-              'metadata or the artifact — a runtimeVerified claim backed '
-              'by a malformed capture loses all audit value: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Declared reproducer / capture artifacts failed the '
+            'repo-containment + existence + parse contracts. Fix the '
+            'metadata or the artifact — a runtimeVerified claim backed '
+            'by a malformed capture loses all audit value: $failures',
+      );
     });
 
-    test(
-        'filesystem walk: every `class X extends BaseDetector` in '
-        'lib/src/detectors/ is registered on the controller (CLAUDE-R6-1)', () {
+    test('filesystem walk: every `class X extends BaseDetector` in '
+        'lib/src/detectors/ is registered on the controller', () {
       if (!File('pubspec.yaml').existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
         return;
       }
       final detectorsDir = Directory('lib/src/detectors');
-      expect(detectorsDir.existsSync(), isTrue,
-          reason: 'lib/src/detectors/ must exist for the walk to make sense.');
+      expect(
+        detectorsDir.existsSync(),
+        isTrue,
+        reason: 'lib/src/detectors/ must exist for the walk to make sense.',
+      );
       final declaredOnDisk = <String>{};
       final classDeclRe = RegExp(
         // Matches `class X extends BaseDetector` or
@@ -515,16 +563,19 @@ void main() {
           .map((d) => d.runtimeType.toString())
           .toSet();
       final missing = declaredOnDisk.difference(registeredNames);
-      expect(missing, isEmpty,
-          reason: 'These detector classes are declared in lib/src/detectors/ '
-              'but are NOT registered on SleuthController.detectorsForAudit. '
-              'A detector file that ships without being registered never '
-              'runs and never appears in the reliability ledger — add it to '
-              'the controller or delete the file. Missing: $missing');
+      expect(
+        missing,
+        isEmpty,
+        reason:
+            'These detector classes are declared in lib/src/detectors/ '
+            'but are NOT registered on SleuthController.detectorsForAudit. '
+            'A detector file that ships without being registered never '
+            'runs and never appears in the reliability ledger — add it to '
+            'the controller or delete the file. Missing: $missing',
+      );
     });
 
-    test(
-        'NetworkMonitorDetector pinned at reproducerOnly base + '
+    test('NetworkMonitorDetector pinned at reproducerOnly base + '
         'slow_request tier-stack (warning + critical) raise', () {
       // Anti-tautology anchor. NetworkMonitor base tier stays
       // `reproducerOnly` so the two unraised families
@@ -547,98 +598,149 @@ void main() {
           .where((d) => d.type == DetectorType.networkMonitor)
           .cast<BaseDetector?>()
           .firstWhere((_) => true, orElse: () => null);
-      expect(nm, isNotNull,
-          reason: 'NetworkMonitorDetector should be registered by default.');
+      expect(
+        nm,
+        isNotNull,
+        reason: 'NetworkMonitorDetector should be registered by default.',
+      );
       expect(nm, isA<DetectorMetadataProvider>());
       final meta = (nm as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'Base tier stays reproducerOnly. The 3 raised families '
-              'live in perStableIdTier so the two still-unraised families '
-              '(http_error_spike, high_frequency_same_path) are not '
-              'mechanically over-claimed at runtimeVerified.');
       expect(
-          meta.perStableIdTier?['slow_request'], EvidenceTier.runtimeVerified,
-          reason: 'v0.18.0 slow_request raise; canonical bracket axis.');
+        meta.tier,
+        EvidenceTier.reproducerOnly,
+        reason:
+            'Base tier stays reproducerOnly. The 3 raised families '
+            'live in perStableIdTier so the two still-unraised families '
+            '(http_error_spike, high_frequency_same_path) are not '
+            'mechanically over-claimed at runtimeVerified.',
+      );
       expect(
-          meta.perStableIdTier?['large_response'], EvidenceTier.runtimeVerified,
-          reason: 'v0.19.9 raises large_response warning via on-device '
-              'captures on the bytes axis; backed by additionalBrackets[0].');
-      expect(meta.perStableIdTier?['request_frequency'],
-          EvidenceTier.runtimeVerified,
-          reason: 'v0.19.9 raises request_frequency warning via on-device '
-              'captures on the events-per-window axis; backed by '
-              'additionalBrackets[1].');
+        meta.perStableIdTier?['slow_request'],
+        EvidenceTier.runtimeVerified,
+        reason: 'v0.18.0 slow_request raise; canonical bracket axis.',
+      );
       expect(
-          meta.effectiveTierFor('slow_request'), EvidenceTier.runtimeVerified,
-          reason: 'Effective tier per family must surface runtimeVerified '
-              'for slow_request; the audit gate routes off effectiveMaxTier '
-              'so the bracket fields still trigger their checks.');
-      expect(meta.effectiveTierFor('large_response'),
-          EvidenceTier.runtimeVerified);
-      expect(meta.effectiveTierFor('request_frequency'),
-          EvidenceTier.runtimeVerified);
-      expect(meta.effectiveTierFor('http_error_spike'),
-          EvidenceTier.reproducerOnly,
-          reason: 'http_error_spike stays at base reproducerOnly; not '
-              'covered by any BracketSpec.');
-      expect(meta.effectiveTierFor('high_frequency_same_path'),
-          EvidenceTier.reproducerOnly,
-          reason: 'high_frequency_same_path stays at base reproducerOnly; '
-              'not covered by any BracketSpec.');
-      expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified,
-          reason: 'effectiveMaxTier drives the audit switch; must remain '
-              'runtimeVerified after the v0.18.3 base-tier drop so '
-              'profileCapturePaths/bracketThreshold continue to be enforced.');
-      expect(meta.reproducerPath,
-          equals('test/validation/network_monitor_reproducer_test.dart'));
-      expect(meta.citationUrl, isNull,
-          reason: 'runtimeVerified does not require an external citation; '
-              'evidence is the captured detector behaviour itself.');
+        meta.perStableIdTier?['large_response'],
+        EvidenceTier.runtimeVerified,
+        reason:
+            'v0.19.9 raises large_response warning via on-device '
+            'captures on the bytes axis; backed by additionalBrackets[0].',
+      );
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/network_monitor/slow_request_below.json',
-            'test/validation/captures/network_monitor/slow_request_at.json',
-            'test/validation/captures/network_monitor/slow_request_above.json',
-          ]),
-          reason: 'Three on-device captures back the runtimeVerified raise.');
+        meta.perStableIdTier?['request_frequency'],
+        EvidenceTier.runtimeVerified,
+        reason:
+            'v0.19.9 raises request_frequency warning via on-device '
+            'captures on the events-per-window axis; backed by '
+            'additionalBrackets[1].',
+      );
+      expect(
+        meta.effectiveTierFor('slow_request'),
+        EvidenceTier.runtimeVerified,
+        reason:
+            'Effective tier per family must surface runtimeVerified '
+            'for slow_request; the audit gate routes off effectiveMaxTier '
+            'so the bracket fields still trigger their checks.',
+      );
+      expect(
+        meta.effectiveTierFor('large_response'),
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.effectiveTierFor('request_frequency'),
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.effectiveTierFor('http_error_spike'),
+        EvidenceTier.reproducerOnly,
+        reason:
+            'http_error_spike stays at base reproducerOnly; not '
+            'covered by any BracketSpec.',
+      );
+      expect(
+        meta.effectiveTierFor('high_frequency_same_path'),
+        EvidenceTier.reproducerOnly,
+        reason:
+            'high_frequency_same_path stays at base reproducerOnly; '
+            'not covered by any BracketSpec.',
+      );
+      expect(
+        meta.effectiveMaxTier,
+        EvidenceTier.runtimeVerified,
+        reason:
+            'effectiveMaxTier drives the audit switch; must remain '
+            'runtimeVerified after the v0.18.3 base-tier drop so '
+            'profileCapturePaths/bracketThreshold continue to be enforced.',
+      );
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/network_monitor_reproducer_test.dart'),
+      );
+      expect(
+        meta.citationUrl,
+        isNull,
+        reason:
+            'runtimeVerified does not require an external citation; '
+            'evidence is the captured detector behaviour itself.',
+      );
+      expect(
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/network_monitor/slow_request_below.json',
+          'test/validation/captures/network_monitor/slow_request_at.json',
+          'test/validation/captures/network_monitor/slow_request_above.json',
+        ]),
+        reason: 'Three on-device captures back the runtimeVerified raise.',
+      );
       expect(meta.bracketThreshold, equals(1000));
       expect(meta.bracketUnit, equals('ms'));
       expect(meta.bracketStableId, equals('slow_request'));
       expect(meta.bracketSeverityLabel, equals('warning'));
       expect(
-          meta.coveredThresholds,
-          equals(const {
-            'slow_request.warning',
-            'slow_request.critical',
-          }),
-          reason: 'Severity-scoped: warning covered by canonical bracket, '
-              'critical covered by additionalBrackets[2]. Tier-stack raise '
-              'expands coveredThresholds union to both severities.');
-      expect(meta.aboveCeilingMultiplier, equals(2.0),
-          reason: 'Canonical bracket above-band (1000, 2000] sits well below '
-              'the 3000 ms critical threshold so it cannot ambiently bracket '
-              'the critical tier; explicit declaration required by the '
-              'severity-scoped-coveredThresholds invariant.');
-      expect(meta.observedAxisArgKey, equals('observedDurationMs'),
-          reason: 'Detector stamps worstMs into `extraTraceArgs` so the audit '
-              'gate cross-checks operator-Stopwatch observed against '
-              'detector-side measurement on the canonical bracket.');
-      expect(meta.parametricFamilies, isNull,
-          reason: 'NetworkMonitor does not declare parametric families.');
+        meta.coveredThresholds,
+        equals(const {'slow_request.warning', 'slow_request.critical'}),
+        reason:
+            'Severity-scoped: warning covered by canonical bracket, '
+            'critical covered by additionalBrackets[2]. Tier-stack raise '
+            'expands coveredThresholds union to both severities.',
+      );
       expect(
-          meta.coveredStableIds,
-          equals(const {
-            'slow_request',
-            'large_response',
-            'request_frequency',
-            'http_error_spike',
-            'high_frequency_same_path',
-          }),
-          reason: 'v0.18.3: coveredStableIds expanded to all five emitted '
-              'families since the base tier (reproducerOnly) honestly '
-              'covers them via the layer-2 reproducer. perStableIdTier '
-              'raises only slow_request to runtimeVerified.');
+        meta.aboveCeilingMultiplier,
+        equals(2.0),
+        reason:
+            'Canonical bracket above-band (1000, 2000] sits well below '
+            'the 3000 ms critical threshold so it cannot ambiently bracket '
+            'the critical tier; explicit declaration required by the '
+            'severity-scoped-coveredThresholds invariant.',
+      );
+      expect(
+        meta.observedAxisArgKey,
+        equals('observedDurationMs'),
+        reason:
+            'Detector stamps worstMs into `extraTraceArgs` so the audit '
+            'gate cross-checks operator-Stopwatch observed against '
+            'detector-side measurement on the canonical bracket.',
+      );
+      expect(
+        meta.parametricFamilies,
+        isNull,
+        reason: 'NetworkMonitor does not declare parametric families.',
+      );
+      expect(
+        meta.coveredStableIds,
+        equals(const {
+          'slow_request',
+          'large_response',
+          'request_frequency',
+          'http_error_spike',
+          'high_frequency_same_path',
+        }),
+        reason:
+            'v0.18.3: coveredStableIds expanded to all five emitted '
+            'families since the base tier (reproducerOnly) honestly '
+            'covers them via the layer-2 reproducer. perStableIdTier '
+            'raises only slow_request to runtimeVerified.',
+      );
 
       // Critical-tier bracket evidence is now captured in
       // additionalBrackets[2] (slow_request critical at threshold 3000).
@@ -646,18 +748,22 @@ void main() {
       // mentions is retired alongside the legitimate critical bracket
       // backed by its own capture triad below.
 
-      // AB4 default-drift cross-check: when `bracketThreshold`
+      // Default-drift cross-check: when `bracketThreshold`
       // is set, it must match the detector's runtime default — otherwise
       // a change adjusting one but not the other creates silent drift.
       // Dormant at reproducerOnly; fires on v0.16.7 re-raise.
       if (meta.bracketThreshold != null) {
         final detector = NetworkMonitorDetector();
-        expect(detector.slowThresholdMs, equals(meta.bracketThreshold),
-            reason: 'AB4: metadata bracketThreshold (${meta.bracketThreshold} '
-                '${meta.bracketUnit}) must track the detector\'s runtime '
-                'default (slowThresholdMs = ${detector.slowThresholdMs}). A '
-                'mismatch means the externally-cited bracket claims a '
-                'different threshold than the detector actually uses.');
+        expect(
+          detector.slowThresholdMs,
+          equals(meta.bracketThreshold),
+          reason:
+              'Metadata bracketThreshold (${meta.bracketThreshold} '
+              '${meta.bracketUnit}) must track the detector\'s runtime '
+              'default (slowThresholdMs = ${detector.slowThresholdMs}). A '
+              'mismatch means the externally-cited bracket claims a '
+              'different threshold than the detector actually uses.',
+        );
       }
       // additionalBrackets pin. Three BracketSpec entries cover the
       // bytes axis (large_response.warning at index 0), the
@@ -667,74 +773,116 @@ void main() {
       // pinned literally so a future diff that drops or rewires a spec
       // must update this anchor.
       expect(meta.additionalBrackets, isNotNull);
-      expect(meta.additionalBrackets, hasLength(3),
-          reason: 'Three additional brackets: large_response[0], '
-              'request_frequency[1], slow_request critical-tier[2]. '
-              'http_error_spike and high_frequency_same_path stay at '
-              'base reproducerOnly until they have their own captures.');
+      expect(
+        meta.additionalBrackets,
+        hasLength(3),
+        reason:
+            'Three additional brackets: large_response[0], '
+            'request_frequency[1], slow_request critical-tier[2]. '
+            'http_error_spike and high_frequency_same_path stay at '
+            'base reproducerOnly until they have their own captures.',
+      );
 
-      final largeSpec = meta.additionalBrackets!
-          .firstWhere((s) => s.stableId == 'large_response');
+      final largeSpec = meta.additionalBrackets!.firstWhere(
+        (s) => s.stableId == 'large_response',
+      );
       expect(largeSpec.severityLabel, equals('warning'));
-      expect(largeSpec.threshold, equals(1048576),
-          reason: '1 MiB warning threshold tracks NetworkMonitorDetector\'s '
-              'largeResponseBytes default.');
+      expect(
+        largeSpec.threshold,
+        equals(1048576),
+        reason:
+            '1 MiB warning threshold tracks NetworkMonitorDetector\'s '
+            'largeResponseBytes default.',
+      );
       expect(largeSpec.unit, equals('bytes'));
       expect(
-          largeSpec.coveredThresholds, equals(const {'large_response.warning'}),
-          reason: 'Severity-scoped to warning; critical stays '
-              'reproducerOnly.');
+        largeSpec.coveredThresholds,
+        equals(const {'large_response.warning'}),
+        reason:
+            'Severity-scoped to warning; critical stays '
+            'reproducerOnly.',
+      );
       expect(
-          largeSpec.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/network_monitor/large_response_below.json',
-            'test/validation/captures/network_monitor/large_response_at.json',
-            'test/validation/captures/network_monitor/large_response_above.json',
-          ]));
-      expect(largeSpec.atTolerance, equals(0.10),
-          reason: 'Bytes axis is deterministic on loopback HTTP; default '
-              '±10% band is reachable.');
-      expect(largeSpec.aboveCeilingMultiplier, equals(2.0),
-          reason: 'Above-band ceiling 2 MiB is well below the 5 MiB '
-              'critical threshold.');
+        largeSpec.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/network_monitor/large_response_below.json',
+          'test/validation/captures/network_monitor/large_response_at.json',
+          'test/validation/captures/network_monitor/large_response_above.json',
+        ]),
+      );
+      expect(
+        largeSpec.atTolerance,
+        equals(0.10),
+        reason:
+            'Bytes axis is deterministic on loopback HTTP; default '
+            '±10% band is reachable.',
+      );
+      expect(
+        largeSpec.aboveCeilingMultiplier,
+        equals(2.0),
+        reason:
+            'Above-band ceiling 2 MiB is well below the 5 MiB '
+            'critical threshold.',
+      );
       expect(largeSpec.observedAxisArgKey, equals('observedResponseBytes'));
       expect(largeSpec.requireUniqueDetectedAtMicros, isTrue);
-      expect(largeSpec.requireDetectorTraceRecord, isTrue,
-          reason: 'BracketSpec defaults requireDetectorTraceRecord to true; '
-              'audit gate enforces presence of detector trace record per '
-              'spec.');
-
-      final freqSpec = meta.additionalBrackets!
-          .firstWhere((s) => s.stableId == 'request_frequency');
-      expect(freqSpec.severityLabel, equals('warning'));
-      expect(freqSpec.threshold, equals(30),
-          reason: 'NetworkMonitorDetector frequency warning threshold is '
-              '30 requests per 5s sliding window; raise pins the same '
-              'value to prevent silent drift.');
-      expect(freqSpec.unit, equals('events'));
-      expect(freqSpec.coveredThresholds,
-          equals(const {'request_frequency.warning'}),
-          reason: 'Severity-scoped to warning; 50/window critical stays '
-              'reproducerOnly.');
       expect(
-          freqSpec.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/network_monitor/request_frequency_below.json',
-            'test/validation/captures/network_monitor/request_frequency_at.json',
-            'test/validation/captures/network_monitor/request_frequency_above.json',
-          ]));
-      expect(freqSpec.atTolerance, equals(0.50),
-          reason: 'iOS scheduling jitter widens the band; mirrors '
-              'PlatformChannel frequency axis (v0.19.4).');
-      expect(freqSpec.aboveCeilingMultiplier, equals(2.0),
-          reason: 'Above-band ceiling 60 for the warning tier. '
-              'NetworkMonitorDetector emits request_frequency at warning '
-              'severity only — there is no critical emission today. The '
-              'schema filters trace records by event-name match '
-              '(`sleuth.issue.<stableId>.<severity>`) so a future '
-              'detector update that adds critical-severity emission '
-              'would correctly scope warning-only events into this '
-              'bracket without metadata change.');
+        largeSpec.requireDetectorTraceRecord,
+        isTrue,
+        reason:
+            'BracketSpec defaults requireDetectorTraceRecord to true; '
+            'audit gate enforces presence of detector trace record per '
+            'spec.',
+      );
+
+      final freqSpec = meta.additionalBrackets!.firstWhere(
+        (s) => s.stableId == 'request_frequency',
+      );
+      expect(freqSpec.severityLabel, equals('warning'));
+      expect(
+        freqSpec.threshold,
+        equals(30),
+        reason:
+            'NetworkMonitorDetector frequency warning threshold is '
+            '30 requests per 5s sliding window; raise pins the same '
+            'value to prevent silent drift.',
+      );
+      expect(freqSpec.unit, equals('events'));
+      expect(
+        freqSpec.coveredThresholds,
+        equals(const {'request_frequency.warning'}),
+        reason:
+            'Severity-scoped to warning; 50/window critical stays '
+            'reproducerOnly.',
+      );
+      expect(
+        freqSpec.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/network_monitor/request_frequency_below.json',
+          'test/validation/captures/network_monitor/request_frequency_at.json',
+          'test/validation/captures/network_monitor/request_frequency_above.json',
+        ]),
+      );
+      expect(
+        freqSpec.atTolerance,
+        equals(0.50),
+        reason:
+            'iOS scheduling jitter widens the band; mirrors '
+            'PlatformChannel frequency axis (v0.19.4).',
+      );
+      expect(
+        freqSpec.aboveCeilingMultiplier,
+        equals(2.0),
+        reason:
+            'Above-band ceiling 60 for the warning tier. '
+            'NetworkMonitorDetector emits request_frequency at warning '
+            'severity only — there is no critical emission today. The '
+            'schema filters trace records by event-name match '
+            '(`sleuth.issue.<stableId>.<severity>`) so a future '
+            'detector update that adds critical-severity emission '
+            'would correctly scope warning-only events into this '
+            'bracket without metadata change.',
+      );
       expect(freqSpec.observedAxisArgKey, equals('observedRequestCount'));
       expect(freqSpec.requireUniqueDetectedAtMicros, isTrue);
       expect(freqSpec.requireDetectorTraceRecord, isTrue);
@@ -742,39 +890,59 @@ void main() {
       final criticalSpec = meta.additionalBrackets!.firstWhere(
         (s) => s.stableId == 'slow_request' && s.severityLabel == 'critical',
       );
-      expect(criticalSpec.threshold, equals(3000),
-          reason: '3× warning threshold; matches NetworkMonitorDetector\'s '
-              'criticalSlowThresholdMs default.');
-      expect(criticalSpec.unit, equals('ms'));
-      expect(criticalSpec.coveredThresholds,
-          equals(const {'slow_request.critical'}),
-          reason: 'Severity-scoped to critical only.');
       expect(
-          criticalSpec.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/network_monitor/slow_request_critical_below.json',
-            'test/validation/captures/network_monitor/slow_request_critical_at.json',
-            'test/validation/captures/network_monitor/slow_request_critical_above.json',
-          ]),
-          reason: 'Critical capture triad lives at distinct file paths so '
-              'capture-path disjointness check passes against the warning '
-              'triad.');
-      expect(criticalSpec.atTolerance, equals(0.40),
-          reason: 'Wider than warning\'s 0.10 because the operator targets '
-              '3000+ ms on a stub HTTP server with iOS scheduler + network '
-              'RTT variance; ±15% drift on at-target=3600 lands [3060, 4140] '
-              '— both edges in band [3000, 4200]. Tighter than HeavyCompute\'s '
-              '0.60 critical because network-bound work is more deterministic '
-              'than CPU-bound thermal drift. Forward-compat re-record '
-              'headroom, NOT a device-physics claim.');
-      expect(criticalSpec.aboveCeilingMultiplier, equals(2.0),
-          reason: 'Above-ceiling 6000 ms; no super-critical tier above so '
-              'the above-leg has no adjacent threshold to ambient-bracket. '
-              'iOS NSURLSession 60 s default leaves comfortable margin.');
-      expect(criticalSpec.observedAxisArgKey, equals('observedDurationMs'),
-          reason: 'Same arg key as canonical warning bracket; cross-spec '
-              'uniqueness tuple (stableId, severityLabel, argKey) '
-              'distinguishes the pair via severityLabel.');
+        criticalSpec.threshold,
+        equals(3000),
+        reason:
+            '3× warning threshold; matches NetworkMonitorDetector\'s '
+            'criticalSlowThresholdMs default.',
+      );
+      expect(criticalSpec.unit, equals('ms'));
+      expect(
+        criticalSpec.coveredThresholds,
+        equals(const {'slow_request.critical'}),
+        reason: 'Severity-scoped to critical only.',
+      );
+      expect(
+        criticalSpec.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/network_monitor/slow_request_critical_below.json',
+          'test/validation/captures/network_monitor/slow_request_critical_at.json',
+          'test/validation/captures/network_monitor/slow_request_critical_above.json',
+        ]),
+        reason:
+            'Critical capture triad lives at distinct file paths so '
+            'capture-path disjointness check passes against the warning '
+            'triad.',
+      );
+      expect(
+        criticalSpec.atTolerance,
+        equals(0.40),
+        reason:
+            'Wider than warning\'s 0.10 because the operator targets '
+            '3000+ ms on a stub HTTP server with iOS scheduler + network '
+            'RTT variance; ±15% drift on at-target=3600 lands [3060, 4140] '
+            '— both edges in band [3000, 4200]. Tighter than HeavyCompute\'s '
+            '0.60 critical because network-bound work is more deterministic '
+            'than CPU-bound thermal drift. Forward-compat re-record '
+            'headroom, NOT a device-physics claim.',
+      );
+      expect(
+        criticalSpec.aboveCeilingMultiplier,
+        equals(2.0),
+        reason:
+            'Above-ceiling 6000 ms; no super-critical tier above so '
+            'the above-leg has no adjacent threshold to ambient-bracket. '
+            'iOS NSURLSession 60 s default leaves comfortable margin.',
+      );
+      expect(
+        criticalSpec.observedAxisArgKey,
+        equals('observedDurationMs'),
+        reason:
+            'Same arg key as canonical warning bracket; cross-spec '
+            'uniqueness tuple (stableId, severityLabel, argKey) '
+            'distinguishes the pair via severityLabel.',
+      );
       expect(criticalSpec.requireUniqueDetectedAtMicros, isTrue);
       expect(criticalSpec.requireDetectorTraceRecord, isTrue);
 
@@ -797,13 +965,16 @@ void main() {
           '|${spec.observedAxisArgKey ?? ''}',
         );
       }
-      expect(tuples, hasLength(4),
-          reason: '4 distinct (stableId, severityLabel, argKey) tuples '
-              'across canonical + 3 additionalBrackets.');
+      expect(
+        tuples,
+        hasLength(4),
+        reason:
+            '4 distinct (stableId, severityLabel, argKey) tuples '
+            'across canonical + 3 additionalBrackets.',
+      );
     });
 
-    test(
-        'HeavyComputeDetector pinned at runtimeVerified for warning + '
+    test('HeavyComputeDetector pinned at runtimeVerified for warning + '
         'critical (v0.19.13 tier-stack raise)', () {
       // Anti-tautology anchor for the tier-stack raise. HeavyCompute
       // brackets both the 8 ms warning threshold (canonical bracket) and
@@ -824,64 +995,89 @@ void main() {
           .where((d) => d.type == DetectorType.heavyCompute)
           .cast<BaseDetector?>()
           .firstWhere((_) => true, orElse: () => null);
-      expect(hc, isNotNull,
-          reason: 'HeavyComputeDetector should be registered by default.');
+      expect(
+        hc,
+        isNotNull,
+        reason: 'HeavyComputeDetector should be registered by default.',
+      );
       expect(hc, isA<DetectorMetadataProvider>());
       final meta = (hc as DetectorMetadataProvider).validationMetadata;
 
       // Pin 1: base tier remains runtimeVerified (single-stableId
       // detector — both severity tiers ship at the same evidence level).
-      expect(meta.tier, EvidenceTier.runtimeVerified,
-          reason: 'Single-stableId detector with both severities '
-              'runtimeVerified-backed; base tier carries it directly.');
+      expect(
+        meta.tier,
+        EvidenceTier.runtimeVerified,
+        reason:
+            'Single-stableId detector with both severities '
+            'runtimeVerified-backed; base tier carries it directly.',
+      );
 
       // Pin 2: reproducer path unchanged.
-      expect(meta.reproducerPath,
-          equals('test/validation/heavy_compute_reproducer_test.dart'));
-      expect(meta.citationUrl, isNull,
-          reason: 'runtimeVerified does not require an external citation; '
-              'evidence is the captured detector behaviour itself.');
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/heavy_compute_reproducer_test.dart'),
+      );
+      expect(
+        meta.citationUrl,
+        isNull,
+        reason:
+            'runtimeVerified does not require an external citation; '
+            'evidence is the captured detector behaviour itself.',
+      );
 
       // Pin 3: canonical bracket capture triad (warning tier, 8 ms).
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/heavy_compute/heavy_compute_below.json',
-            'test/validation/captures/heavy_compute/heavy_compute_at.json',
-            'test/validation/captures/heavy_compute/heavy_compute_above.json',
-          ]),
-          reason: 'Canonical bracket triad backs the warning tier (8 ms).');
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/heavy_compute/heavy_compute_below.json',
+          'test/validation/captures/heavy_compute/heavy_compute_at.json',
+          'test/validation/captures/heavy_compute/heavy_compute_above.json',
+        ]),
+        reason: 'Canonical bracket triad backs the warning tier (8 ms).',
+      );
       expect(meta.bracketThreshold, equals(8));
       expect(meta.bracketUnit, equals('ms'));
       expect(meta.bracketStableId, equals('heavy_compute'));
       expect(meta.bracketSeverityLabel, equals('warning'));
-      expect(meta.bracketAtTolerance, equals(0.50),
-          reason: 'iPhone CPU/thermal variance makes the default ±10% band '
-              'unreachable; ±50% gives at-band [8, 12] ms.');
-      expect(meta.aboveCeilingMultiplier, equals(1.875),
-          reason: 'Above-ceiling 15 ms (1.875 × 8) clears the 16 ms '
-              'critical threshold so above-leg cannot ambiently bracket '
-              'critical.');
+      expect(
+        meta.bracketAtTolerance,
+        equals(0.50),
+        reason:
+            'iPhone CPU/thermal variance makes the default ±10% band '
+            'unreachable; ±50% gives at-band [8, 12] ms.',
+      );
+      expect(
+        meta.aboveCeilingMultiplier,
+        equals(1.875),
+        reason:
+            'Above-ceiling 15 ms (1.875 × 8) clears the 16 ms '
+            'critical threshold so above-leg cannot ambiently bracket '
+            'critical.',
+      );
 
       // Pin 4: severity-scoped coverage union — both warning + critical
       // are explicitly covered; any future add must expand this set.
       expect(
-          meta.coveredThresholds,
-          equals(const {
-            'heavy_compute.warning',
-            'heavy_compute.critical',
-          }),
-          reason: 'Both severity tiers covered: warning by canonical '
-              'bracket (v0.18.2) + critical by additionalBrackets[0] '
-              '(v0.19.13). perStableIdTier coverage check requires '
-              'every runtimeVerified family appear in either canonical '
-              'or additional coveredThresholds.');
+        meta.coveredThresholds,
+        equals(const {'heavy_compute.warning', 'heavy_compute.critical'}),
+        reason:
+            'Both severity tiers covered: warning by canonical '
+            'bracket (v0.18.2) + critical by additionalBrackets[0] '
+            '(v0.19.13). perStableIdTier coverage check requires '
+            'every runtimeVerified family appear in either canonical '
+            'or additional coveredThresholds.',
+      );
 
       // Pin 5: producer-dedup uniqueness opt-in on canonical bracket.
-      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
-          reason: 'Captures recorded under v0.18.1+ producer dedup with '
-              'stable per-BUILD detectedAt; opt into the strong invariant '
-              'so audit gate rejects single-issue replay forgery.');
+      expect(
+        meta.bracketRequireUniqueDetectedAtMicros,
+        isTrue,
+        reason:
+            'Captures recorded under v0.18.1+ producer dedup with '
+            'stable per-BUILD detectedAt; opt into the strong invariant '
+            'so audit gate rejects single-issue replay forgery.',
+      );
 
       // Pin 6: observedAxisArgKey on canonical bracket. HeavyCompute
       // stamps BUILD ms via extraTraceArgs so the audit gate cross-checks
@@ -890,21 +1086,33 @@ void main() {
       // would otherwise leave open. Cross-spec uniqueness tuple
       // (stableId, severityLabel, argKey) distinguishes warning + critical
       // by severityLabel even though both share the same argKey.
-      expect(meta.observedAxisArgKey, equals('observedDurationMs'),
-          reason: 'HeavyCompute stamps BUILD `ms` into `extraTraceArgs` '
-              'as `observedDurationMs`; the schema cross-checks this '
-              'against `expectedMagnitude.observed` so a detector-side '
-              'duration miscompute cannot certify the wrong magnitude.');
+      expect(
+        meta.observedAxisArgKey,
+        equals('observedDurationMs'),
+        reason:
+            'HeavyCompute stamps BUILD `ms` into `extraTraceArgs` '
+            'as `observedDurationMs`; the schema cross-checks this '
+            'against `expectedMagnitude.observed` so a detector-side '
+            'duration miscompute cannot certify the wrong magnitude.',
+      );
 
       // Pin 7: additionalBrackets non-null with exactly one entry.
-      expect(meta.additionalBrackets, isNotNull,
-          reason: 'v0.19.13 raises critical tier via additionalBrackets[0]. '
-              'A null here would mean the critical bracket is not declared '
-              'and the perStableIdTier coverage check would reject the '
-              'critical entry in coveredThresholds.');
-      expect(meta.additionalBrackets, hasLength(1),
-          reason: 'Exactly one additional bracket: critical tier. Future '
-              'multi-axis raises on the same family would extend this.');
+      expect(
+        meta.additionalBrackets,
+        isNotNull,
+        reason:
+            'v0.19.13 raises critical tier via additionalBrackets[0]. '
+            'A null here would mean the critical bracket is not declared '
+            'and the perStableIdTier coverage check would reject the '
+            'critical entry in coveredThresholds.',
+      );
+      expect(
+        meta.additionalBrackets,
+        hasLength(1),
+        reason:
+            'Exactly one additional bracket: critical tier. Future '
+            'multi-axis raises on the same family would extend this.',
+      );
 
       final critical = meta.additionalBrackets!.single;
 
@@ -913,23 +1121,29 @@ void main() {
       expect(critical.severityLabel, equals('critical'));
 
       // Pin 9: critical bracket threshold + unit pin the 16 ms boundary.
-      expect(critical.threshold, equals(16),
-          reason: '2× warning threshold; matches the strict-greater '
-              'critical fire condition in `_createIssue`.');
+      expect(
+        critical.threshold,
+        equals(16),
+        reason:
+            '2× warning threshold; matches the strict-greater '
+            'critical fire condition in `_createIssue`.',
+      );
       expect(critical.unit, equals('ms'));
 
       // Pin 10: critical bracket capture triad lives in critical-named
       // files, distinct from canonical warning triad.
       expect(
-          critical.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/heavy_compute/heavy_compute_critical_below.json',
-            'test/validation/captures/heavy_compute/heavy_compute_critical_at.json',
-            'test/validation/captures/heavy_compute/heavy_compute_critical_above.json',
-          ]),
-          reason: 'Distinct triad files — capture-path disjointness check '
-              'enforces independence between canonical and additional '
-              'brackets.');
+        critical.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/heavy_compute/heavy_compute_critical_below.json',
+          'test/validation/captures/heavy_compute/heavy_compute_critical_at.json',
+          'test/validation/captures/heavy_compute/heavy_compute_critical_above.json',
+        ]),
+        reason:
+            'Distinct triad files — capture-path disjointness check '
+            'enforces independence between canonical and additional '
+            'brackets.',
+      );
 
       // Pin 11: critical bracket band tolerances. atTolerance widened
       // beyond the warning bracket's 0.50 because higher-magnitude
@@ -937,25 +1151,36 @@ void main() {
       // envelope than the warning band — recordings landed +30 % above
       // the calibration-derived target. 0.60 → at-band [16, 25.6].
       // above-ceiling 30 ms (no super-critical tier above).
-      expect(critical.atTolerance, equals(0.60),
-          reason: 'Wider iPhone variance budget than warning tier (0.60 vs '
-              '0.50) because higher-magnitude compute drifts further past '
-              'calibration; ±60% gives at-band [16, 25.6] ms.');
-      expect(critical.aboveCeilingMultiplier, equals(1.875),
-          reason: 'Above-ceiling 30 ms (1.875 × 16). No super-critical '
-              'tier above so the above-leg has no adjacent threshold to '
-              'ambient-bracket; the multiplier mirrors the warning '
-              'bracket for symmetry.');
+      expect(
+        critical.atTolerance,
+        equals(0.60),
+        reason:
+            'Wider iPhone variance budget than warning tier (0.60 vs '
+            '0.50) because higher-magnitude compute drifts further past '
+            'calibration; ±60% gives at-band [16, 25.6] ms.',
+      );
+      expect(
+        critical.aboveCeilingMultiplier,
+        equals(1.875),
+        reason:
+            'Above-ceiling 30 ms (1.875 × 16). No super-critical '
+            'tier above so the above-leg has no adjacent threshold to '
+            'ambient-bracket; the multiplier mirrors the warning '
+            'bracket for symmetry.',
+      );
 
       // Pin 12: critical bracket coveredThresholds is severity-scoped to
       // critical only — declares what `perStableIdTier` coverage proof
       // this spec contributes.
       expect(
-          critical.coveredThresholds, equals(const {'heavy_compute.critical'}),
-          reason: 'Severity-scoped coverage. The audit gate matches this '
-              'against any perStableIdTier raise on heavy_compute.critical '
-              '(here: implicit via base-tier runtimeVerified + canonical '
-              'coveredThresholds union including .critical).');
+        critical.coveredThresholds,
+        equals(const {'heavy_compute.critical'}),
+        reason:
+            'Severity-scoped coverage. The audit gate matches this '
+            'against any perStableIdTier raise on heavy_compute.critical '
+            '(here: implicit via base-tier runtimeVerified + canonical '
+            'coveredThresholds union including .critical).',
+      );
 
       // Pin 13: critical bracket schema strictness. observedAxisArgKey
       // matches canonical bracket; cross-spec tuple (stableId, severity,
@@ -963,22 +1188,33 @@ void main() {
       // requireUniqueDetectedAtMicros true (v0.18.1+ dedup);
       // requireDetectorTraceRecord true (default for BracketSpec — proves
       // detector actually fired at .critical).
-      expect(critical.observedAxisArgKey, equals('observedDurationMs'),
-          reason: 'Same arg key as canonical warning bracket; severityLabel '
-              'disambiguates the cross-spec uniqueness tuple. Audit cross-'
-              'checks operator-Stopwatch observed against detector-stamped '
-              '`observedDurationMs` for both warning + critical brackets.');
-      expect(critical.requireUniqueDetectedAtMicros, isTrue,
-          reason: 'Captures recorded under v0.18.1+ producer dedup; opt '
-              'into the strong replay-forgery rejection on critical too.');
-      expect(critical.requireDetectorTraceRecord, isTrue,
-          reason: 'BracketSpec default; proves detector actually emitted '
-              '.critical inside the scenario span. Without this the at + '
-              'above captures could pass without an actual critical fire.');
+      expect(
+        critical.observedAxisArgKey,
+        equals('observedDurationMs'),
+        reason:
+            'Same arg key as canonical warning bracket; severityLabel '
+            'disambiguates the cross-spec uniqueness tuple. Audit cross-'
+            'checks operator-Stopwatch observed against detector-stamped '
+            '`observedDurationMs` for both warning + critical brackets.',
+      );
+      expect(
+        critical.requireUniqueDetectedAtMicros,
+        isTrue,
+        reason:
+            'Captures recorded under v0.18.1+ producer dedup; opt '
+            'into the strong replay-forgery rejection on critical too.',
+      );
+      expect(
+        critical.requireDetectorTraceRecord,
+        isTrue,
+        reason:
+            'BracketSpec default; proves detector actually emitted '
+            '.critical inside the scenario span. Without this the at + '
+            'above captures could pass without an actual critical fire.',
+      );
     });
 
-    test(
-        'MemoryPressureDetector pinned at runtimeVerified for heap_growing '
+    test('MemoryPressureDetector pinned at runtimeVerified for heap_growing '
         '(v0.19.3)', () {
       // Anti-tautology anchor: heap_growing raised from base reproducerOnly
       // to runtimeVerified via perStableIdTier (warning tier, 512 KB/s
@@ -992,90 +1228,139 @@ void main() {
           .where((d) => d.type == DetectorType.memoryPressure)
           .cast<BaseDetector?>()
           .firstWhere((_) => true, orElse: () => null);
-      expect(mp, isNotNull,
-          reason: 'MemoryPressureDetector should be registered by default.');
+      expect(
+        mp,
+        isNotNull,
+        reason: 'MemoryPressureDetector should be registered by default.',
+      );
       expect(mp, isA<DetectorMetadataProvider>());
       final meta = (mp as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'Base tier stays reproducerOnly — heap_growing raise '
-              'lives in perStableIdTier so unraised families are not '
-              'mechanically over-claimed at runtimeVerified.');
       expect(
-          meta.perStableIdTier?['heap_growing'], EvidenceTier.runtimeVerified,
-          reason: 'v0.19.3 raises heap_growing warning via on-device '
-              'captures; the raise lives in perStableIdTier so the audit '
-              'gate routes off effectiveMaxTier.');
+        meta.tier,
+        EvidenceTier.reproducerOnly,
+        reason:
+            'Base tier stays reproducerOnly — heap_growing raise '
+            'lives in perStableIdTier so unraised families are not '
+            'mechanically over-claimed at runtimeVerified.',
+      );
       expect(
-          meta.effectiveTierFor('heap_growing'), EvidenceTier.runtimeVerified);
-      expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified,
-          reason: 'effectiveMaxTier drives the audit switch; must surface '
-              'runtimeVerified so profileCapturePaths/bracketThreshold '
-              'continue to be enforced.');
-      expect(meta.reproducerPath,
-          equals('test/validation/memory_pressure_reproducer_test.dart'));
+        meta.perStableIdTier?['heap_growing'],
+        EvidenceTier.runtimeVerified,
+        reason:
+            'v0.19.3 raises heap_growing warning via on-device '
+            'captures; the raise lives in perStableIdTier so the audit '
+            'gate routes off effectiveMaxTier.',
+      );
+      expect(
+        meta.effectiveTierFor('heap_growing'),
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.effectiveMaxTier,
+        EvidenceTier.runtimeVerified,
+        reason:
+            'effectiveMaxTier drives the audit switch; must surface '
+            'runtimeVerified so profileCapturePaths/bracketThreshold '
+            'continue to be enforced.',
+      );
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/memory_pressure_reproducer_test.dart'),
+      );
       expect(meta.citationUrl, isNull);
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/memory_pressure/heap_growing_below.json',
-            'test/validation/captures/memory_pressure/heap_growing_at.json',
-            'test/validation/captures/memory_pressure/heap_growing_above.json',
-          ]),
-          reason: 'Three on-device captures back the heap_growing raise.');
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/memory_pressure/heap_growing_below.json',
+          'test/validation/captures/memory_pressure/heap_growing_at.json',
+          'test/validation/captures/memory_pressure/heap_growing_above.json',
+        ]),
+        reason: 'Three on-device captures back the heap_growing raise.',
+      );
       expect(meta.bracketThreshold, equals(512000));
       expect(meta.bracketUnit, equals('bytes/sec'));
       expect(meta.bracketStableId, equals('heap_growing'));
       expect(meta.bracketSeverityLabel, equals('warning'));
-      expect(meta.bracketAtTolerance, equals(0.50),
-          reason: 'iPhone GC variance widens band; ±50% gives at-band '
-              '[512000, 768000] bytes/sec.');
-      expect(meta.aboveCeilingMultiplier, equals(2.0),
-          reason: 'heap_growing has only a warning tier (no critical), so '
-              'above-ceiling 2.0× threshold has no critical-tier collision '
-              'risk; explicit declaration required by the severity-scoped-'
-              'coveredThresholds invariant.');
-      expect(meta.coveredThresholds, equals(const {'heap_growing.warning'}),
-          reason: 'Severity-scoped to warning; the only severity '
-              'heap_growing emits at.');
-      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
-          reason: 'Captures recorded with dedupIdentityMicros derived from '
-              '_sustainedGrowthStart.microsecondsSinceEpoch; opt into the '
-              'strong invariant so audit gate rejects sustained-window-'
-              'break forgery (multiple trace records inside one scenario '
-              'span with distinct identities).');
-      expect(meta.observedAxisArgKey, equals('observedSlopeBytesPerSec'),
-          reason: 'Canonical heap_growing bracket carries the observed-'
-              'axis cross-check. Captures must stamp '
-              'observedSlopeBytesPerSec on every in-span warning event; '
-              'the schema rejects bracket triads without it once the '
-              'detector is runtimeVerified.');
+      expect(
+        meta.bracketAtTolerance,
+        equals(0.50),
+        reason:
+            'iPhone GC variance widens band; ±50% gives at-band '
+            '[512000, 768000] bytes/sec.',
+      );
+      expect(
+        meta.aboveCeilingMultiplier,
+        equals(2.0),
+        reason:
+            'heap_growing has only a warning tier (no critical), so '
+            'above-ceiling 2.0× threshold has no critical-tier collision '
+            'risk; explicit declaration required by the severity-scoped-'
+            'coveredThresholds invariant.',
+      );
+      expect(
+        meta.coveredThresholds,
+        equals(const {'heap_growing.warning'}),
+        reason:
+            'Severity-scoped to warning; the only severity '
+            'heap_growing emits at.',
+      );
+      expect(
+        meta.bracketRequireUniqueDetectedAtMicros,
+        isTrue,
+        reason:
+            'Captures recorded with dedupIdentityMicros derived from '
+            '_sustainedGrowthStart.microsecondsSinceEpoch; opt into the '
+            'strong invariant so audit gate rejects sustained-window-'
+            'break forgery (multiple trace records inside one scenario '
+            'span with distinct identities).',
+      );
+      expect(
+        meta.observedAxisArgKey,
+        equals('observedSlopeBytesPerSec'),
+        reason:
+            'Canonical heap_growing bracket carries the observed-'
+            'axis cross-check. Captures must stamp '
+            'observedSlopeBytesPerSec on every in-span warning event; '
+            'the schema rejects bracket triads without it once the '
+            'detector is runtimeVerified.',
+      );
       // Pin the schema-default tolerance. The capture-screen post-
       // process step rewrites `expectedMagnitude.observed` to the
       // detector-stamped slope so the cross-check has near-zero
       // divergence by construction; anchor catches any future drift
       // away from the default that would re-introduce operator-vs-
       // detector slack.
-      expect(meta.observedAxisTolerance, equals(0.25),
-          reason: 'Schema default 0.25; capture screen makes operator '
-              'value identical to detector slope so wider tolerance is '
-              'unnecessary.');
+      expect(
+        meta.observedAxisTolerance,
+        equals(0.25),
+        reason:
+            'Schema default 0.25; capture screen makes operator '
+            'value identical to detector slope so wider tolerance is '
+            'unnecessary.',
+      );
       // Pinning the reduction DEFAULT — falls through from spec
       // (BracketSpec default 'max'). Anchor catches schema-default
       // drift; intentional if the contract ever changes.
-      expect(meta.observedAxisReduction, equals('max'),
-          reason: 'Default reduction; detector emits at most one issue per '
-              'sustained-growth window, so MAX picks the single in-span '
-              'sample.');
       expect(
-          meta.coveredStableIds,
-          equals(const {
-            'gc_pressure',
-            'heap_growing',
-            'heap_near_capacity',
-            'native_memory_growing',
-          }),
-          reason: 'All four emitted families covered by the layer-2 '
-              'reproducer; perStableIdTier raises only heap_growing.');
+        meta.observedAxisReduction,
+        equals('max'),
+        reason:
+            'Default reduction; detector emits at most one issue per '
+            'sustained-growth window, so MAX picks the single in-span '
+            'sample.',
+      );
+      expect(
+        meta.coveredStableIds,
+        equals(const {
+          'gc_pressure',
+          'heap_growing',
+          'heap_near_capacity',
+          'native_memory_growing',
+        }),
+        reason:
+            'All four emitted families covered by the layer-2 '
+            'reproducer; perStableIdTier raises only heap_growing.',
+      );
 
       // Prose-drift guard. heap_growing currently emits ONLY warning
       // severity in the detector code (no critical branch). A future
@@ -1084,131 +1369,152 @@ void main() {
       // evidence. This guard rejects rationale prose claiming a
       // critical-tier raise without the corresponding metadata
       // (coveredThresholds entry).
-      final stripped =
-          meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+      final stripped = meta.rationale.replaceAll(
+        RegExp(r'/\*.*?\*/', dotAll: true),
+        '',
+      );
       final collapsed = stripped.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
       final claimsHeapGrowingCritical =
           collapsed.contains('heap_growing.critical') ||
-              collapsed.contains('heap_growing critical');
-      expect(claimsHeapGrowingCritical, isFalse,
-          reason: 'Rationale prose claims a heap_growing critical-tier '
-              'raise. Critical cannot piggyback on the warning raise — '
-              'add coveredThresholds entry + dedicated capture triad, or '
-              'remove the prose claim.');
+          collapsed.contains('heap_growing critical');
+      expect(
+        claimsHeapGrowingCritical,
+        isFalse,
+        reason:
+            'Rationale prose claims a heap_growing critical-tier '
+            'raise. Critical cannot piggyback on the warning raise — '
+            'add coveredThresholds entry + dedicated capture triad, or '
+            'remove the prose claim.',
+      );
       final hasCriticalThresholdEntry =
-          (meta.coveredThresholds ?? const <String>{})
-              .contains('heap_growing.critical');
-      expect(hasCriticalThresholdEntry, isFalse,
-          reason: 'heap_growing.critical not yet a covered threshold; '
-              'detector emits only warning severity. Adding this entry '
-              'requires a critical-tier capture campaign + bracket triad.');
-      expect(meta.additionalBrackets, isNull,
-          reason: 'heap_growing brackets a single axis (slope bytes/sec); '
-              'other 3 families (gc_pressure, heap_near_capacity, '
-              'native_memory_growing) stay base reproducerOnly. Multi-axis '
-              'raises across families would populate additionalBrackets.');
-      expect(meta.perStableIdTier?['gc_pressure'], isNull,
-          reason: 'gc_pressure stays at base reproducerOnly. Detector '
-              'emission carries observedGcEvents + dedupIdentityMicros '
-              'as preparatory plumbing (improves dedup quality of ambient '
-              'gc_pressure noise in unrelated captures) but no '
-              'runtimeVerified bracket evidence is committed.');
+          (meta.coveredThresholds ?? const <String>{}).contains(
+            'heap_growing.critical',
+          );
+      expect(
+        hasCriticalThresholdEntry,
+        isFalse,
+        reason:
+            'heap_growing.critical not yet a covered threshold; '
+            'detector emits only warning severity. Adding this entry '
+            'requires a critical-tier capture campaign + bracket triad.',
+      );
+      expect(
+        meta.additionalBrackets,
+        isNull,
+        reason:
+            'heap_growing brackets a single axis (slope bytes/sec); '
+            'other 3 families (gc_pressure, heap_near_capacity, '
+            'native_memory_growing) stay base reproducerOnly. Multi-axis '
+            'raises across families would populate additionalBrackets.',
+      );
+      expect(
+        meta.perStableIdTier?['gc_pressure'],
+        isNull,
+        reason:
+            'gc_pressure stays at base reproducerOnly. Detector '
+            'emission carries observedGcEvents + dedupIdentityMicros '
+            'as preparatory plumbing (improves dedup quality of ambient '
+            'gc_pressure noise in unrelated captures) but no '
+            'runtimeVerified bracket evidence is committed.',
+      );
     });
 
-    test(
-        'RebuildDetector pinned at runtimeVerified for rebuild_activity '
-        '(v0.19.12)', () {
+    test('RebuildDetector pinned at runtimeVerified for rebuild_activity', () {
       // Anti-tautology anchor: rebuild_activity raised from base
-      // reproducerOnly to runtimeVerified via perStableIdTier (warning
-      // tier, 11 BUILDs/sec under baseline-subtraction) backed by three
-      // on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x).
+      // reproducerOnly to runtimeVerified via perStableIdTier. The axis
+      // is the share of UI-thread wall time inside BUILD scopes per ~1 s
+      // window (`percent`), warning > 10 %, critical > 30 %, each backed
+      // by an on-device triad (iPhone 12 / iOS 17.5 / Flutter 3.47.x).
       // Other family `stateful_density` stays at base reproducerOnly.
-      // Captures use the detector's adjusted (raw - baseline) BUILD
-      // count so iOS profile-mode framework ambient (~10–15/sec from
-      // Material animations) does not inflate the magnitude.
       final BaseDetector? rb = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.rebuild)
           .cast<BaseDetector?>()
           .firstWhere((_) => true, orElse: () => null);
-      expect(rb, isNotNull,
-          reason: 'RebuildDetector should be registered by default.');
+      expect(
+        rb,
+        isNotNull,
+        reason: 'RebuildDetector should be registered by default.',
+      );
       expect(rb, isA<DetectorMetadataProvider>());
       final meta = (rb as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'Base tier stays reproducerOnly — rebuild_activity raise '
-              'lives in perStableIdTier so stateful_density is not '
-              'mechanically over-claimed at runtimeVerified.');
-      expect(meta.perStableIdTier?['rebuild_activity'],
-          EvidenceTier.runtimeVerified,
-          reason: 'v0.19.12 raises rebuild_activity warning via on-device '
-              'captures; the raise lives in perStableIdTier so the audit '
-              'gate routes off effectiveMaxTier.');
-      expect(meta.effectiveTierFor('rebuild_activity'),
-          EvidenceTier.runtimeVerified);
+      expect(
+        meta.tier,
+        EvidenceTier.reproducerOnly,
+        reason:
+            'Base tier stays reproducerOnly — rebuild_activity raise '
+            'lives in perStableIdTier so stateful_density is not '
+            'mechanically over-claimed at runtimeVerified.',
+      );
+      expect(
+        meta.perStableIdTier?['rebuild_activity'],
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.effectiveTierFor('rebuild_activity'),
+        EvidenceTier.runtimeVerified,
+      );
       expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
-      expect(meta.reproducerPath,
-          equals('test/validation/rebuild_reproducer_test.dart'));
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/rebuild_reproducer_test.dart'),
+      );
       expect(meta.citationUrl, isNull);
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/rebuild_detector/below.json',
-            'test/validation/captures/rebuild_detector/at.json',
-            'test/validation/captures/rebuild_detector/above.json',
-          ]));
-      expect(meta.bracketThreshold, equals(11),
-          reason: 'Detector gate is `buildCount > 10` (default '
-              'rebuildsPerSecThreshold); first integer firing is 11.');
-      expect(meta.bracketUnit, equals('rebuilds'));
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/rebuild_detector/below.json',
+          'test/validation/captures/rebuild_detector/at.json',
+          'test/validation/captures/rebuild_detector/above.json',
+        ]),
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(10),
+        reason: 'Detector gate is `percent > buildTimePercentThreshold`.',
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(const DetectorThresholds().buildTimePercentThreshold),
+        reason:
+            'Bracket threshold must track the DetectorThresholds default '
+            'the controller wires into the detector.',
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(RebuildDetector().buildTimePercentThreshold),
+      );
+      expect(meta.bracketUnit, equals('percent'));
       expect(meta.bracketStableId, equals('rebuild_activity'));
       expect(meta.bracketSeverityLabel, equals('warning'));
-      expect(meta.bracketAtTolerance, equals(0.65),
-          reason: 'at-band [11, 18.15]; wider than v0.19.7 jank (0.50) '
-              'because Material framework noise plus baseline-subtraction '
-              'jitter widens variance even with `setBaseline` applied.');
-      expect(meta.aboveCeilingMultiplier, equals(2.7),
-          reason: 'above-band ceiling 11 × 2.7 = 29.7 strictly under the '
-              '`> threshold * 3 = 30` critical-tier fire boundary so the '
-              'above leg cannot ambiently bracket critical. The 2.7 '
-              'multiplier (vs 2.5) gives re-record headroom: window '
-              'variance on this metric is ±3-4 units, so a tighter '
-              'ceiling rejects on day-to-day noise. 0.3 unit margin to '
-              'critical is intentional.');
-      expect(meta.observedAxisArgKey, equals('observedRebuildRate'),
-          reason: 'Detector stamps `extraTraceArgs.observedRebuildRate` '
-              '(the adjusted, baseline-subtracted value) on every '
-              'rebuild_activity emission for the schema cross-check.');
-      expect(meta.observedAxisReduction, equals('max'),
-          reason: 'Multiple in-span emissions per leg (one per 1s window '
-              'crossing threshold); max-reduction picks the worst signal '
-              'rather than the tail-off final window.');
+      expect(
+        meta.bracketAtTolerance,
+        equals(0.5),
+        reason:
+            'at-band [10, 15]; build duration drifts with device '
+            'temperature across a 6 s leg.',
+      );
+      expect(
+        meta.aboveCeilingMultiplier,
+        equals(2.7),
+        reason:
+            'above-band ceiling 10 × 2.7 = 27 stays under the '
+            '`> threshold * 3 = 30` critical boundary so the above leg '
+            'emits warning only.',
+      );
+      expect(meta.observedAxisArgKey, equals('observedBuildPercent'));
+      expect(meta.observedAxisTolerance, equals(0.25));
+      expect(meta.observedAxisReduction, equals('max'));
       expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
       expect(
-          meta.coveredThresholds,
-          equals(
-              const {'rebuild_activity.warning', 'rebuild_activity.critical'}),
-          reason: 'Warning covered by canonical bracket; critical covered '
-              'by additionalBrackets[0] (>30 BUILDs/sec) backed by a '
-              'dedicated capture triad under critical_*.json.');
-      expect(meta.coveredStableIds,
-          equals(const {'stateful_density', 'rebuild_activity'}),
-          reason: 'Both layer-2 reproducer-covered families; '
-              'perStableIdTier raises only rebuild_activity.');
-      expect(meta.parametricFamilies, equals(const {'rebuild_debug'}),
-          reason: 'Parametric `rebuild_debug_<typeName>` family '
-              'unchanged — debug-callback path stays at base '
-              'reproducerOnly.');
-      // Critical-tier bracket pin. additionalBrackets[0] adds the
-      // tier-stack raise without disturbing the canonical warning bracket.
-      expect(meta.additionalBrackets, isNotNull,
-          reason: 'additionalBrackets carries the critical tier raise; '
-              'a future PR removing it would silently drop critical '
-              'from audit coverage.');
-      // Look up by (stableId, severityLabel) so a future PR adding a
-      // second additionalBrackets entry (e.g. a different stableId
-      // raise) does not fail this anchor with a misleading length
-      // mismatch — the field-literal assertions below would be the
-      // real diagnostic surface.
+        meta.coveredThresholds,
+        equals(const {'rebuild_activity.warning', 'rebuild_activity.critical'}),
+      );
+      expect(
+        meta.coveredStableIds,
+        equals(const {'stateful_density', 'rebuild_activity'}),
+      );
+      expect(meta.parametricFamilies, equals(const {'rebuild_debug'}));
+      expect(meta.additionalBrackets, isNotNull);
       final critical = meta.additionalBrackets!.firstWhere(
         (b) =>
             b.stableId == 'rebuild_activity' && b.severityLabel == 'critical',
@@ -1218,120 +1524,128 @@ void main() {
           '${meta.additionalBrackets!.map((b) => "${b.stableId}.${b.severityLabel}").join(", ")}.',
         ),
       );
-      expect(critical.stableId, equals('rebuild_activity'));
-      expect(critical.severityLabel, equals('critical'));
-      expect(critical.threshold, equals(31),
-          reason: 'Detector gate is `adjusted > 30` (rebuildsPerSecThreshold '
-              '* 3); first integer firing critical is 31.');
-      expect(critical.unit, equals('rebuilds'));
-      expect(critical.atTolerance, equals(0.65));
+      expect(
+        critical.threshold,
+        equals(30),
+        reason: 'Detector gate is `percent > buildTimePercentThreshold * 3`.',
+      );
+      expect(
+        critical.threshold,
+        equals(const DetectorThresholds().buildTimePercentThreshold * 3),
+      );
+      expect(critical.unit, equals('percent'));
+      expect(critical.atTolerance, equals(0.5));
       expect(critical.aboveCeilingMultiplier, equals(2.7));
-      expect(critical.observedAxisArgKey, equals('observedRebuildRate'));
+      expect(critical.observedAxisArgKey, equals('observedBuildPercent'));
+      expect(critical.observedAxisTolerance, equals(0.25));
       expect(critical.observedAxisReduction, equals('max'));
       expect(critical.requireUniqueDetectedAtMicros, isTrue);
-      expect(critical.coveredThresholds,
-          equals(const {'rebuild_activity.critical'}));
+      expect(critical.requireDetectorTraceRecord, isTrue);
       expect(
-          critical.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/rebuild_detector/critical_below.json',
-            'test/validation/captures/rebuild_detector/critical_at.json',
-            'test/validation/captures/rebuild_detector/critical_above.json',
-          ]));
-      expect(critical.minInBandSamples, equals(2),
-          reason: 'critical bracket requires >=2 in-band detector samples '
-              'per leg (at + above). iPhone thermal throttling on a 6 s '
-              'sustained leg routinely produces a mix of in-band + '
-              'sub-band emissions; opting in turns the redundancy '
-              'property of the committed capture into an enforced '
-              'contract — a future re-record with only one in-band peak '
-              'fails the audit gate instead of silently shipping fragile '
-              'evidence.');
+        critical.coveredThresholds,
+        equals(const {'rebuild_activity.critical'}),
+      );
+      expect(
+        critical.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/rebuild_detector/critical_below.json',
+          'test/validation/captures/rebuild_detector/critical_at.json',
+          'test/validation/captures/rebuild_detector/critical_above.json',
+        ]),
+      );
+      expect(
+        critical.minInBandSamples,
+        equals(2),
+        reason:
+            'critical bracket requires >=2 in-band detector samples per '
+            'leg so a single in-band window cannot certify the bracket.',
+      );
     });
 
-    test(
-        'RepaintDetector pinned at runtimeVerified for excessive_repaint '
-        '(v0.21.0)', () {
+    test('RepaintDetector pinned at runtimeVerified for excessive_repaint', () {
       // Anti-tautology anchor: excessive_repaint raised from base
-      // reproducerOnly to runtimeVerified via perStableIdTier (warning
-      // tier, > 30 paints/sec aggregate over a 1 s VM window) backed
-      // by three on-device captures (iPhone 12 / iOS 17.5 /
-      // Flutter 3.41.4). Other families `excessive_repaint_debug` and
-      // parametric `repaint_debug_<typeName>` stay at base
-      // reproducerOnly. Captures use a 32-distinct-CustomPainter
-      // workload so the per-widget debug gate stays sub-threshold and
-      // emission flows through the VM aggregate path.
+      // reproducerOnly to runtimeVerified via perStableIdTier. The axis
+      // is the share of UI-thread wall time inside PAINT scopes per ~1 s
+      // window (`percent`), warning > 10 %, backed by an on-device triad
+      // (iPhone 12 / iOS 17.5 / Flutter 3.47.x). Other families
+      // `excessive_repaint_debug` and parametric
+      // `repaint_debug_<typeName>` stay at base reproducerOnly.
       final BaseDetector? rp = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.repaint)
           .cast<BaseDetector?>()
           .firstWhere((_) => true, orElse: () => null);
-      expect(rp, isNotNull,
-          reason: 'RepaintDetector should be registered by default.');
+      expect(
+        rp,
+        isNotNull,
+        reason: 'RepaintDetector should be registered by default.',
+      );
       expect(rp, isA<DetectorMetadataProvider>());
       final meta = (rp as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'Base tier stays reproducerOnly — excessive_repaint raise '
-              'lives in perStableIdTier so the debug-path families are not '
-              'mechanically over-claimed at runtimeVerified.');
-      expect(meta.perStableIdTier?['excessive_repaint'],
-          EvidenceTier.runtimeVerified,
-          reason: 'v0.21.0 raises excessive_repaint warning via on-device '
-              'captures; the raise lives in perStableIdTier so the audit '
-              'gate routes off effectiveMaxTier.');
-      expect(meta.effectiveTierFor('excessive_repaint'),
-          EvidenceTier.runtimeVerified);
+      expect(meta.tier, EvidenceTier.reproducerOnly);
+      expect(
+        meta.perStableIdTier?['excessive_repaint'],
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.effectiveTierFor('excessive_repaint'),
+        EvidenceTier.runtimeVerified,
+      );
       expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
-      expect(meta.reproducerPath,
-          equals('test/validation/repaint_reproducer_test.dart'));
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/repaint_reproducer_test.dart'),
+      );
       expect(meta.citationUrl, isNull);
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/repaint/excessive_repaint_below.json',
-            'test/validation/captures/repaint/excessive_repaint_at.json',
-            'test/validation/captures/repaint/excessive_repaint_above.json',
-          ]));
-      expect(meta.bracketThreshold, equals(30),
-          reason: 'Detector gate is `paintCount > paintFrequencyThreshold` '
-              '(default 30); first integer firing is 31.');
-      expect(meta.bracketUnit, equals('paints'));
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/repaint/excessive_repaint_below.json',
+          'test/validation/captures/repaint/excessive_repaint_at.json',
+          'test/validation/captures/repaint/excessive_repaint_above.json',
+        ]),
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(10),
+        reason: 'Detector gate is `percent > paintTimePercentThreshold`.',
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(const DetectorThresholds().paintTimePercentThreshold),
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(RepaintDetector().paintTimePercentThreshold),
+      );
+      expect(meta.bracketUnit, equals('percent'));
       expect(meta.bracketStableId, equals('excessive_repaint'));
       expect(meta.bracketSeverityLabel, equals('warning'));
-      expect(meta.bracketAtTolerance, equals(0.50),
-          reason: 'at-band [30, 45]; matches the 0.50 atTolerance used by '
-              'jank_detected and request_frequency. iOS 60Hz scheduler '
-              'jitter on staggered Timer ticks across 32 widget types '
-              'varies by ±10 paints/sec window-to-window — the band must '
-              'be wide enough to absorb that variance without overlapping '
-              'the above-band.');
-      expect(meta.aboveCeilingMultiplier, equals(2.0),
-          reason: 'above-band ceiling 30 × 2.0 = 60 strictly under the '
-              '`> threshold * 2 = 60` critical-tier fire boundary; above '
-              'leg targets warning emissions in (45, 60) so the audit '
-              'sees pure warning evidence without ambient critical fire.');
-      expect(meta.observedAxisArgKey, equals('observedPaintCount'),
-          reason: 'Detector stamps `extraTraceArgs.observedPaintCount` (the '
-              '1 s window aggregate count) on every excessive_repaint '
-              'emission for the schema cross-check.');
-      expect(meta.observedAxisReduction, equals('max'),
-          reason: 'Multiple in-span emissions per leg (one per 1 s window '
-              'crossing threshold); max-reduction picks the worst signal '
-              'rather than the tail-off final window when widgets unmount.');
+      expect(meta.bracketAtTolerance, equals(0.5));
       expect(
-          meta.coveredThresholds, equals(const {'excessive_repaint.warning'}),
-          reason: 'Severity-scoped to warning only; critical (>60 paints/sec) '
-              'stays implicitly reproducerOnly.');
-      expect(meta.coveredStableIds,
-          equals(const {'excessive_repaint', 'excessive_repaint_debug'}),
-          reason: 'Both VM and debug-aggregate families exist on the '
-              'detector; perStableIdTier raises only excessive_repaint.');
-      expect(meta.parametricFamilies, equals(const {'repaint_debug'}),
-          reason: 'Parametric `repaint_debug_<typeName>` family unchanged — '
-              'debug per-widget path stays at base reproducerOnly.');
+        meta.aboveCeilingMultiplier,
+        equals(2.7),
+        reason:
+            'above-band ceiling 10 × 2.7 = 27 stays under the '
+            '`> threshold * 3 = 30` critical boundary.',
+      );
+      expect(meta.observedAxisArgKey, equals('observedPaintPercent'));
+      expect(meta.observedAxisTolerance, equals(0.25));
+      expect(meta.observedAxisReduction, equals('max'));
+      expect(
+        meta.coveredThresholds,
+        equals(const {'excessive_repaint.warning'}),
+        reason:
+            'Severity-scoped to warning only; critical (>30 % paint '
+            'share) stays implicitly reproducerOnly.',
+      );
+      expect(
+        meta.coveredStableIds,
+        equals(const {'excessive_repaint', 'excessive_repaint_debug'}),
+      );
+      expect(meta.parametricFamilies, equals(const {'repaint_debug'}));
     });
 
-    test(
-        'StreamResourceDetector pinned at runtimeVerified for '
+    test('StreamResourceDetector pinned at runtimeVerified for '
         'stream_resource_growth', () {
       // Base reproducerOnly + perStableIdTier raise on warning. Single-
       // family — perStableIdTier sits beside the canonical tier so the
@@ -1344,42 +1658,58 @@ void main() {
       expect(sr, isA<DetectorMetadataProvider>());
       final meta = (sr as DetectorMetadataProvider).validationMetadata;
       expect(meta.tier, EvidenceTier.reproducerOnly);
-      expect(meta.perStableIdTier?['stream_resource_growth'],
-          EvidenceTier.runtimeVerified);
-      expect(meta.effectiveTierFor('stream_resource_growth'),
-          EvidenceTier.runtimeVerified);
+      expect(
+        meta.perStableIdTier?['stream_resource_growth'],
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.effectiveTierFor('stream_resource_growth'),
+        EvidenceTier.runtimeVerified,
+      );
       expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
-      expect(meta.reproducerPath,
-          equals('test/validation/stream_resource_reproducer_test.dart'));
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/stream_resource_reproducer_test.dart'),
+      );
       expect(meta.citationUrl, isNull);
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/stream_resource_growth/below.json',
-            'test/validation/captures/stream_resource_growth/at.json',
-            'test/validation/captures/stream_resource_growth/above.json',
-          ]));
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/stream_resource_growth/below.json',
+          'test/validation/captures/stream_resource_growth/at.json',
+          'test/validation/captures/stream_resource_growth/above.json',
+        ]),
+      );
       expect(meta.bracketThreshold, equals(50));
       expect(meta.bracketUnit, equals('instances'));
       expect(meta.bracketStableId, equals('stream_resource_growth'));
       expect(meta.bracketSeverityLabel, equals('warning'));
-      expect(meta.bracketAtTolerance, equals(0.6),
-          reason: 'at-band [50, 80] absorbs in-scenario heap_growing '
-              'readiness-wait variance without overlapping ceiling.');
-      expect(meta.aboveCeilingMultiplier, equals(3.0),
-          reason: 'ceiling 150; single-tier family bounds via schema '
-              'sanity bound, not adjacent severity.');
+      expect(
+        meta.bracketAtTolerance,
+        equals(0.6),
+        reason:
+            'at-band [50, 80] absorbs in-scenario heap_growing '
+            'readiness-wait variance without overlapping ceiling.',
+      );
+      expect(
+        meta.aboveCeilingMultiplier,
+        equals(3.0),
+        reason:
+            'ceiling 150; single-tier family bounds via schema '
+            'sanity bound, not adjacent severity.',
+      );
       expect(meta.observedAxisArgKey, equals('topGrowthDelta'));
-      expect(meta.coveredThresholds,
-          equals(const {'stream_resource_growth.warning'}));
+      expect(
+        meta.coveredThresholds,
+        equals(const {'stream_resource_growth.warning'}),
+      );
       expect(meta.coveredStableIds, equals(const {'stream_resource_growth'}));
       expect(meta.parametricFamilies, isNull);
       expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
       expect(meta.additionalBrackets, isNull);
     });
 
-    test(
-        'TrackedResourceDetector pinned at runtimeVerified for both '
+    test('TrackedResourceDetector pinned at runtimeVerified for both '
         'concurrent + long_lived', () {
       // Base reproducerOnly + perStableIdTier raises on BOTH families.
       // Concurrent canonical bracket: threshold 6 (smallest count >
@@ -1395,20 +1725,27 @@ void main() {
       expect(tr, isNotNull);
       expect(tr, isA<DetectorMetadataProvider>());
       final meta = (tr as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'Base tier stays reproducerOnly; both families lifted '
-              'via perStableIdTier + additionalBrackets.');
+      expect(
+        meta.tier,
+        EvidenceTier.reproducerOnly,
+        reason:
+            'Base tier stays reproducerOnly; both families lifted '
+            'via perStableIdTier + additionalBrackets.',
+      );
       expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
-      expect(meta.reproducerPath,
-          equals('test/validation/tracked_resource_reproducer_test.dart'));
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/tracked_resource_reproducer_test.dart'),
+      );
       expect(meta.citationUrl, isNull);
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/tracked_resource_concurrent/below.json',
-            'test/validation/captures/tracked_resource_concurrent/at.json',
-            'test/validation/captures/tracked_resource_concurrent/above.json',
-          ]));
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/tracked_resource_concurrent/below.json',
+          'test/validation/captures/tracked_resource_concurrent/at.json',
+          'test/validation/captures/tracked_resource_concurrent/above.json',
+        ]),
+      );
       expect(meta.bracketStableId, equals('tracked_resource_concurrent'));
       expect(meta.bracketSeverityLabel, equals('warning'));
       expect(meta.bracketThreshold, equals(6));
@@ -1417,21 +1754,25 @@ void main() {
       expect(meta.aboveCeilingMultiplier, equals(3.0));
       expect(meta.observedAxisArgKey, equals('liveInstanceCount'));
       expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
-      expect(meta.coveredThresholds,
-          equals(const {'tracked_resource_concurrent.warning'}));
       expect(
-          meta.coveredStableIds,
-          equals(const {
-            'tracked_resource_concurrent',
-            'tracked_resource_long_lived',
-          }));
+        meta.coveredThresholds,
+        equals(const {'tracked_resource_concurrent.warning'}),
+      );
+      expect(
+        meta.coveredStableIds,
+        equals(const {
+          'tracked_resource_concurrent',
+          'tracked_resource_long_lived',
+        }),
+      );
       expect(meta.parametricFamilies, isNull);
       expect(
-          meta.perStableIdTier,
-          equals(const {
-            'tracked_resource_concurrent': EvidenceTier.runtimeVerified,
-            'tracked_resource_long_lived': EvidenceTier.runtimeVerified,
-          }));
+        meta.perStableIdTier,
+        equals(const {
+          'tracked_resource_concurrent': EvidenceTier.runtimeVerified,
+          'tracked_resource_long_lived': EvidenceTier.runtimeVerified,
+        }),
+      );
       expect(meta.additionalBrackets, isNotNull);
       expect(meta.additionalBrackets!.length, equals(1));
       final longLivedSpec = meta.additionalBrackets!.first;
@@ -1442,16 +1783,21 @@ void main() {
       expect(longLivedSpec.atTolerance, equals(0.5));
       expect(longLivedSpec.aboveCeilingMultiplier, equals(3.0));
       expect(
-          longLivedSpec.observedAxisArgKey, equals('oldestInstanceAgeSeconds'));
-      expect(longLivedSpec.coveredThresholds,
-          equals(const {'tracked_resource_long_lived.warning'}));
+        longLivedSpec.observedAxisArgKey,
+        equals('oldestInstanceAgeSeconds'),
+      );
       expect(
-          longLivedSpec.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/tracked_resource_long_lived/below.json',
-            'test/validation/captures/tracked_resource_long_lived/at.json',
-            'test/validation/captures/tracked_resource_long_lived/above.json',
-          ]));
+        longLivedSpec.coveredThresholds,
+        equals(const {'tracked_resource_long_lived.warning'}),
+      );
+      expect(
+        longLivedSpec.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/tracked_resource_long_lived/below.json',
+          'test/validation/captures/tracked_resource_long_lived/at.json',
+          'test/validation/captures/tracked_resource_long_lived/above.json',
+        ]),
+      );
       expect(longLivedSpec.requireUniqueDetectedAtMicros, isTrue);
       expect(longLivedSpec.requireDetectorTraceRecord, isTrue);
     });
@@ -1472,55 +1818,87 @@ void main() {
           .where((d) => d.type == DetectorType.platformChannel)
           .cast<BaseDetector?>()
           .firstWhere((_) => true, orElse: () => null);
-      expect(pc, isNotNull,
-          reason: 'PlatformChannelDetector should be registered by default.');
+      expect(
+        pc,
+        isNotNull,
+        reason: 'PlatformChannelDetector should be registered by default.',
+      );
       expect(pc, isA<DetectorMetadataProvider>());
       final meta = (pc as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.runtimeVerified,
-          reason: 'v0.19.4 raises platform_channel_traffic warning to '
-              'runtimeVerified with three on-device captures backing the '
-              'frequency-axis bracket. debugProfilePlatformChannels=true '
-              'per-leg routes real MethodChannel.invokeMethod calls '
-              'through the parser-accepted lowercase async path.');
-      expect(meta.reproducerPath,
-          equals('test/validation/platform_channel_reproducer_test.dart'));
-      expect(meta.citationUrl, isNull,
-          reason: 'runtimeVerified does not require an external citation; '
-              'evidence is the captured detector behaviour itself.');
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/platform_channel/'
-                'platform_channel_traffic_below.json',
-            'test/validation/captures/platform_channel/'
-                'platform_channel_traffic_at.json',
-            'test/validation/captures/platform_channel/'
-                'platform_channel_traffic_above.json',
-          ]),
-          reason: 'Three on-device captures back the runtimeVerified raise.');
+        meta.tier,
+        EvidenceTier.runtimeVerified,
+        reason:
+            'v0.19.4 raises platform_channel_traffic warning to '
+            'runtimeVerified with three on-device captures backing the '
+            'frequency-axis bracket. debugProfilePlatformChannels=true '
+            'per-leg routes real MethodChannel.invokeMethod calls '
+            'through the parser-accepted lowercase async path.',
+      );
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/platform_channel_reproducer_test.dart'),
+      );
+      expect(
+        meta.citationUrl,
+        isNull,
+        reason:
+            'runtimeVerified does not require an external citation; '
+            'evidence is the captured detector behaviour itself.',
+      );
+      expect(
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/platform_channel/'
+              'platform_channel_traffic_below.json',
+          'test/validation/captures/platform_channel/'
+              'platform_channel_traffic_at.json',
+          'test/validation/captures/platform_channel/'
+              'platform_channel_traffic_above.json',
+        ]),
+        reason: 'Three on-device captures back the runtimeVerified raise.',
+      );
       expect(meta.bracketThreshold, equals(20));
       expect(meta.bracketUnit, equals('events'));
       expect(meta.bracketStableId, equals('platform_channel_traffic'));
       expect(meta.bracketSeverityLabel, equals('warning'));
-      expect(meta.bracketAtTolerance, equals(0.50),
-          reason: 'iOS scheduling jitter on platform-channel send path '
-              'widens default ±10% band unreachable; ±50% gives at-band '
-              '[20, 30] calls/sec.');
-      expect(meta.aboveCeilingMultiplier, equals(1.95),
-          reason: 'Above-ceiling 39 calls/sec (1.95 × 20) stays strictly '
-              'under the 41-call (>20×2) critical-escalation boundary so '
-              'above-leg cannot ambiently bracket the critical tier.');
-      expect(meta.coveredThresholds,
-          equals(const {'platform_channel_traffic.warning'}),
-          reason: 'Severity-scoped to warning; critical (41 calls/sec) '
-              'stays implicitly reproducerOnly.');
-      expect(meta.coveredStableIds, equals(const {'platform_channel_traffic'}),
-          reason: 'Single-family detector — only platform_channel_traffic.');
-      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
-          reason: 'Captures recorded with dedupIdentityMicros derived from '
-              '_windowStart.microsecondsSinceEpoch; opt into the strong '
-              'invariant so audit gate rejects single-issue replay '
-              'forgery and multi-fire-window forgery.');
+      expect(
+        meta.bracketAtTolerance,
+        equals(0.50),
+        reason:
+            'iOS scheduling jitter on platform-channel send path '
+            'widens default ±10% band unreachable; ±50% gives at-band '
+            '[20, 30] calls/sec.',
+      );
+      expect(
+        meta.aboveCeilingMultiplier,
+        equals(1.95),
+        reason:
+            'Above-ceiling 39 calls/sec (1.95 × 20) stays strictly '
+            'under the 41-call (>20×2) critical-escalation boundary so '
+            'above-leg cannot ambiently bracket the critical tier.',
+      );
+      expect(
+        meta.coveredThresholds,
+        equals(const {'platform_channel_traffic.warning'}),
+        reason:
+            'Severity-scoped to warning; critical (41 calls/sec) '
+            'stays implicitly reproducerOnly.',
+      );
+      expect(
+        meta.coveredStableIds,
+        equals(const {'platform_channel_traffic'}),
+        reason: 'Single-family detector — only platform_channel_traffic.',
+      );
+      expect(
+        meta.bracketRequireUniqueDetectedAtMicros,
+        isTrue,
+        reason:
+            'Captures recorded with dedupIdentityMicros derived from '
+            '_windowStart.microsecondsSinceEpoch; opt into the strong '
+            'invariant so audit gate rejects single-issue replay '
+            'forgery and multi-fire-window forgery.',
+      );
 
       // Prose-drift guards. Two implicit-tier axes must NOT be claimed
       // as bracketed by captures without backing metadata:
@@ -1537,8 +1915,10 @@ void main() {
       //     "captures bracket the critical band" (no
       //     `platform_channel_traffic` qualifier). Positive check
       //     ensures any "captured-bracket" claim has matching metadata.
-      final stripped =
-          meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+      final stripped = meta.rationale.replaceAll(
+        RegExp(r'/\*.*?\*/', dotAll: true),
+        '',
+      );
       final collapsed = stripped.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
 
       // Phrase fragments that indicate a CAPTURED-bracket claim
@@ -1559,7 +1939,8 @@ void main() {
       bool mentions(List<String> phrases) => phrases.any(collapsed.contains);
 
       // Critical-tier guard (positive).
-      final claimsCriticalCaptured = mentions(capturedBracketPhrases) &&
+      final claimsCriticalCaptured =
+          mentions(capturedBracketPhrases) &&
           (collapsed.contains('critical tier') ||
               collapsed.contains('critical band') ||
               collapsed.contains('critical threshold') ||
@@ -1567,27 +1948,37 @@ void main() {
               collapsed.contains('2× threshold') ||
               collapsed.contains('platform_channel_traffic.critical'));
       final hasCriticalThresholdEntry =
-          (meta.coveredThresholds ?? const <String>{})
-              .contains('platform_channel_traffic.critical');
+          (meta.coveredThresholds ?? const <String>{}).contains(
+            'platform_channel_traffic.critical',
+          );
       if (claimsCriticalCaptured) {
-        expect(hasCriticalThresholdEntry, isTrue,
-            reason: 'Rationale claims captures bracket the critical tier '
-                'but `coveredThresholds` does not include '
-                '`platform_channel_traffic.critical`. Add the threshold '
-                'entry + capture triad bracketing 41 calls/sec, or rewrite '
-                'the prose to explicitly say the critical tier remains '
-                'reproducer-pinned.');
+        expect(
+          hasCriticalThresholdEntry,
+          isTrue,
+          reason:
+              'Rationale claims captures bracket the critical tier '
+              'but `coveredThresholds` does not include '
+              '`platform_channel_traffic.critical`. Add the threshold '
+              'entry + capture triad bracketing 41 calls/sec, or rewrite '
+              'the prose to explicitly say the critical tier remains '
+              'reproducer-pinned.',
+        );
       }
       // Independent of prose: critical-threshold metadata entry must
       // not appear unless a critical-tier capture campaign exists.
       // Currently no such captures → entry must remain absent.
-      expect(hasCriticalThresholdEntry, isFalse,
-          reason: 'platform_channel_traffic.critical not yet a covered '
-              'threshold. Adding this entry requires a critical-tier '
-              'capture campaign bracketing 41 calls/sec.');
+      expect(
+        hasCriticalThresholdEntry,
+        isFalse,
+        reason:
+            'platform_channel_traffic.critical not yet a covered '
+            'threshold. Adding this entry requires a critical-tier '
+            'capture campaign bracketing 41 calls/sec.',
+      );
 
       // Duration-axis guard (positive).
-      final claimsDurationAxisCaptured = mentions(capturedBracketPhrases) &&
+      final claimsDurationAxisCaptured =
+          mentions(capturedBracketPhrases) &&
           (collapsed.contains('duration axis') ||
               collapsed.contains('cumulative duration') ||
               collapsed.contains('cumulative-duration') ||
@@ -1603,23 +1994,30 @@ void main() {
         'ns',
       }.contains(meta.bracketUnit);
       if (claimsDurationAxisCaptured) {
-        expect(bracketUnitIsDuration, isTrue,
-            reason: 'Rationale claims captures bracket the duration axis '
-                'but `bracketUnit` (${meta.bracketUnit}) is not a duration '
-                'unit. Either record a duration-axis capture triad '
-                '(unit: ms / us) and update bracket fields, or rewrite '
-                'the prose to explicitly say the duration axis remains '
-                'reproducer-pinned.');
+        expect(
+          bracketUnitIsDuration,
+          isTrue,
+          reason:
+              'Rationale claims captures bracket the duration axis '
+              'but `bracketUnit` (${meta.bracketUnit}) is not a duration '
+              'unit. Either record a duration-axis capture triad '
+              '(unit: ms / us) and update bracket fields, or rewrite '
+              'the prose to explicitly say the duration axis remains '
+              'reproducer-pinned.',
+        );
       }
-      expect(meta.additionalBrackets, isNull,
-          reason: 'PlatformChannel currently brackets only the frequency '
-              'axis (20 calls/sec). The 8 ms cumulative-duration axis stays '
-              'implicitly reproducerOnly — a future raise of that axis '
-              'would populate additionalBrackets with a second BracketSpec.');
+      expect(
+        meta.additionalBrackets,
+        isNull,
+        reason:
+            'PlatformChannel currently brackets only the frequency '
+            'axis (20 calls/sec). The 8 ms cumulative-duration axis stays '
+            'implicitly reproducerOnly — a future raise of that axis '
+            'would populate additionalBrackets with a second BracketSpec.',
+      );
     });
 
-    test(
-        'FrameTimingDetector pinned: base reproducerOnly + jank_detected '
+    test('FrameTimingDetector pinned: base reproducerOnly + jank_detected '
         'runtimeVerified via perStableIdTier (v0.19.7); sustained_jank '
         'stays reproducerOnly (v0.19.17 raise withdrawn)', () {
       // Anti-tautology anchor. Base tier stays reproducerOnly — the
@@ -1634,127 +2032,195 @@ void main() {
           .where((d) => d.type == DetectorType.frameTiming)
           .cast<BaseDetector?>()
           .firstWhere((_) => true, orElse: () => null);
-      expect(ft, isNotNull,
-          reason: 'FrameTimingDetector should be registered by default.');
+      expect(
+        ft,
+        isNotNull,
+        reason: 'FrameTimingDetector should be registered by default.',
+      );
       expect(ft, isA<DetectorMetadataProvider>());
       final meta = (ft as DetectorMetadataProvider).validationMetadata;
 
       // Base tier stays reproducerOnly.
-      expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'v0.19.7 raises jank_detected via perStableIdTier; the '
-              'base detector tier stays reproducerOnly so the other 3 '
-              'stableIds and non-bracketed jank_detected paths remain '
-              'reproducer-pinned.');
-      expect(meta.reproducerPath,
-          equals('test/validation/frame_timing_reproducer_test.dart'));
-      expect(meta.citationUrl, isNull,
-          reason: 'runtimeVerified does not require an external citation; '
-              'evidence is the captured detector behaviour itself.');
+      expect(
+        meta.tier,
+        EvidenceTier.reproducerOnly,
+        reason:
+            'v0.19.7 raises jank_detected via perStableIdTier; the '
+            'base detector tier stays reproducerOnly so the other 3 '
+            'stableIds and non-bracketed jank_detected paths remain '
+            'reproducer-pinned.',
+      );
+      expect(
+        meta.reproducerPath,
+        equals('test/validation/frame_timing_reproducer_test.dart'),
+      );
+      expect(
+        meta.citationUrl,
+        isNull,
+        reason:
+            'runtimeVerified does not require an external citation; '
+            'evidence is the captured detector behaviour itself.',
+      );
 
       // perStableIdTier raise — single family (jank_detected only).
       expect(
-          meta.perStableIdTier,
-          equals(const {
-            'jank_detected': EvidenceTier.runtimeVerified,
-          }),
-          reason: 'v0.19.7 raises jank_detected.warning. sustained_jank '
-              'stays at base reproducerOnly: a v0.19.17 raise via '
-              'additionalBrackets[0] was withdrawn before ship after the '
-              'severeCount axis was found non-composable with operator-'
-              'claimed K under any current schema reduction.');
+        meta.perStableIdTier,
+        equals(const {'jank_detected': EvidenceTier.runtimeVerified}),
+        reason:
+            'v0.19.7 raises jank_detected.warning. sustained_jank '
+            'stays at base reproducerOnly: a v0.19.17 raise via '
+            'additionalBrackets[0] was withdrawn before ship after the '
+            'severeCount axis was found non-composable with operator-'
+            'claimed K under any current schema reduction.',
+      );
       expect(
-          meta.effectiveTierFor('jank_detected'), EvidenceTier.runtimeVerified,
-          reason:
-              'effectiveTierFor must reflect the perStableIdTier override.');
+        meta.effectiveTierFor('jank_detected'),
+        EvidenceTier.runtimeVerified,
+        reason: 'effectiveTierFor must reflect the perStableIdTier override.',
+      );
       expect(
-          meta.effectiveTierFor('sustained_jank'), EvidenceTier.reproducerOnly,
-          reason: 'sustained_jank stays at the detector\'s base tier.');
+        meta.effectiveTierFor('sustained_jank'),
+        EvidenceTier.reproducerOnly,
+        reason: 'sustained_jank stays at the detector\'s base tier.',
+      );
 
       // Three on-device captures.
       expect(
-          meta.profileCapturePaths,
-          equals(const [
-            'test/validation/captures/frame_timing/jank_detected_below.json',
-            'test/validation/captures/frame_timing/jank_detected_at.json',
-            'test/validation/captures/frame_timing/jank_detected_above.json',
-          ]),
-          reason: 'Three on-device captures back the runtimeVerified raise '
-              'on jank_detected.warning.');
+        meta.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/frame_timing/jank_detected_below.json',
+          'test/validation/captures/frame_timing/jank_detected_at.json',
+          'test/validation/captures/frame_timing/jank_detected_above.json',
+        ]),
+        reason:
+            'Three on-device captures back the runtimeVerified raise '
+            'on jank_detected.warning.',
+      );
 
       // Bracket axis — denominator-independent jankPercent.
       expect(meta.bracketStableId, equals('jank_detected'));
-      expect(meta.bracketSeverityLabel, equals('warning'),
-          reason: 'Trace-record check matches the bracket axis (jankPercent '
-              'gate fires at warning severity); a sustained_jank.critical '
-              'event must NOT satisfy the warning audit.');
-      expect(meta.bracketThreshold, equals(16),
-          reason: 'Detector rounds jankPercent to int + uses strict > 15. '
-              'First reachable observed value is 16 — bracketThreshold=15 '
-              'would accept a 15.x% capture the detector cannot emit.');
-      expect(meta.bracketUnit, equals('percent'),
-          reason: 'Denominator-independent axis — robust to buffer underfill '
-              'on rate-based jank injection. AB-1 cross-check skips for '
-              'non-time units; the percent axis is certified instead via '
-              'observedAxisArgKey.');
-      expect(meta.bracketAtTolerance, equals(0.50),
-          reason: 'Wide ±50% band absorbs frame-delivery jitter. '
-              'At-band [16, 24].');
-      expect(meta.aboveCeilingMultiplier, equals(1.85),
-          reason: 'Above-band (24, 29.6]; ceiling stays well under any '
-              'critical co-fire boundary.');
       expect(
-          meta.coveredThresholds,
-          equals(const {
-            'jank_detected.warning',
-          }),
-          reason: 'Single severity-scoped entry — canonical jank_detected '
-              'warning. The v0.19.17 sustained_jank.critical raise was '
-              'withdrawn; the entry was removed from coveredThresholds.');
-      expect(meta.observedAxisArgKey, equals('observedJankPercent'),
-          reason: 'Audit gate cross-checks operator-claimed magnitude '
-              'against detector-emitted observedJankPercent within ±25%.');
+        meta.bracketSeverityLabel,
+        equals('warning'),
+        reason:
+            'Trace-record check matches the bracket axis (jankPercent '
+            'gate fires at warning severity); a sustained_jank.critical '
+            'event must NOT satisfy the warning audit.',
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(16),
+        reason:
+            'Detector rounds jankPercent to int + uses strict > 15. '
+            'First reachable observed value is 16 — bracketThreshold=15 '
+            'would accept a 15.x% capture the detector cannot emit.',
+      );
+      expect(
+        meta.bracketUnit,
+        equals('percent'),
+        reason:
+            'Denominator-independent axis — robust to buffer underfill '
+            'on rate-based jank injection. The trace-vs-observed '
+            'cross-check skips for '
+            'non-time units; the percent axis is certified instead via '
+            'observedAxisArgKey.',
+      );
+      expect(
+        meta.bracketAtTolerance,
+        equals(0.50),
+        reason:
+            'Wide ±50% band absorbs frame-delivery jitter. '
+            'At-band [16, 24].',
+      );
+      expect(
+        meta.aboveCeilingMultiplier,
+        equals(1.85),
+        reason:
+            'Above-band (24, 29.6]; ceiling stays well under any '
+            'critical co-fire boundary.',
+      );
+      expect(
+        meta.coveredThresholds,
+        equals(const {'jank_detected.warning'}),
+        reason:
+            'Single severity-scoped entry — canonical jank_detected '
+            'warning. The v0.19.17 sustained_jank.critical raise was '
+            'withdrawn; the entry was removed from coveredThresholds.',
+      );
+      expect(
+        meta.observedAxisArgKey,
+        equals('observedJankPercent'),
+        reason:
+            'Audit gate cross-checks operator-claimed magnitude '
+            'against detector-emitted observedJankPercent within ±25%.',
+      );
       expect(meta.observedAxisTolerance, equals(0.25));
-      expect(meta.observedAxisReduction, equals('last'),
-          reason: 'jankPercent over a rolling buffer is non-monotone — '
-              'early small-sample-size ratios spike high before settling. '
-              'MAX picks early transient instead of operator-intended '
-              'steady-state band; LAST picks terminal observation.');
-      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
-          reason: 'Captures recorded with `_emissionSeq` tie-broken '
-              'dedupIdentityMicros; opt into the strong invariant so audit '
-              'gate rejects single-issue replay forgery.');
-      expect(meta.parametricFamilies, isNull,
-          reason: 'FrameTiming does not declare parametric families.');
+      expect(
+        meta.observedAxisReduction,
+        equals('last'),
+        reason:
+            'jankPercent over a rolling buffer is non-monotone — '
+            'early small-sample-size ratios spike high before settling. '
+            'MAX picks early transient instead of operator-intended '
+            'steady-state band; LAST picks terminal observation.',
+      );
+      expect(
+        meta.bracketRequireUniqueDetectedAtMicros,
+        isTrue,
+        reason:
+            'Captures recorded with `_emissionSeq` tie-broken '
+            'dedupIdentityMicros; opt into the strong invariant so audit '
+            'gate rejects single-issue replay forgery.',
+      );
+      expect(
+        meta.parametricFamilies,
+        isNull,
+        reason: 'FrameTiming does not declare parametric families.',
+      );
 
       // Coverage of the 4 stableIds is unchanged.
       expect(
-          meta.coveredStableIds,
-          equals(const {
-            'sustained_jank',
-            'jank_detected',
-            'raster_cache_thrashing',
-            'raster_cache_growing',
-          }),
-          reason: 'v0.16.6 pins exactly four FrameTiming stableIds. Any '
-              'addition or removal must land alongside a reproducer change.');
+        meta.coveredStableIds,
+        equals(const {
+          'sustained_jank',
+          'jank_detected',
+          'raster_cache_thrashing',
+          'raster_cache_growing',
+        }),
+        reason:
+            'v0.16.6 pins exactly four FrameTiming stableIds. Any '
+            'addition or removal must land alongside a reproducer change.',
+      );
 
       // Constructor side-effect check.
-      expect(() => FrameTimingDetector(), returnsNormally,
-          reason: 'FrameTimingDetector() must be side-effect-free so the '
-              'audit can construct it in isolation.');
-      expect(() => FrameTimingDetector(captureMode: true), returnsNormally,
-          reason: 'captureMode constructor surface must remain wired; the '
-              'in-app capture screen depends on it short-circuiting warmup.');
+      expect(
+        () => FrameTimingDetector(),
+        returnsNormally,
+        reason:
+            'FrameTimingDetector() must be side-effect-free so the '
+            'audit can construct it in isolation.',
+      );
+      expect(
+        () => FrameTimingDetector(captureMode: true),
+        returnsNormally,
+        reason:
+            'captureMode constructor surface must remain wired; the '
+            'in-app capture screen depends on it short-circuiting warmup.',
+      );
 
       // No additionalBrackets — the v0.19.17 sustained_jank.critical
       // bracket was removed before ship.
-      expect(meta.additionalBrackets, isNull,
-          reason: 'v0.19.17 attempted a sustained_jank.critical raise via '
-              'additionalBrackets[0]; the bracket was removed before ship '
-              'because sliding-window severeCount cannot be cross-checked '
-              'against operator-claimed K under any current schema '
-              'reduction. Captures retained as reproducer-tier provisional '
-              'evidence; bracket spec withdrawn.');
+      expect(
+        meta.additionalBrackets,
+        isNull,
+        reason:
+            'v0.19.17 attempted a sustained_jank.critical raise via '
+            'additionalBrackets[0]; the bracket was removed before ship '
+            'because sliding-window severeCount cannot be cross-checked '
+            'against operator-claimed K under any current schema '
+            'reduction. Captures retained as reproducer-tier provisional '
+            'evidence; bracket spec withdrawn.',
+      );
     });
 
     test('v0.17.1 structural batch pinned at reproducerOnly', () {
@@ -1784,54 +2250,78 @@ void main() {
         }
         final meta = (d as DetectorMetadataProvider).validationMetadata;
         if (meta.tier != EvidenceTier.reproducerOnly) {
-          failures.add('${type.name}: tier=${meta.tier.name}, expected '
-              'reproducerOnly');
+          failures.add(
+            '${type.name}: tier=${meta.tier.name}, expected '
+            'reproducerOnly',
+          );
         }
         if (meta.reproducerPath != expectedPath) {
-          failures.add('${type.name}: reproducerPath='
-              '${meta.reproducerPath}, expected $expectedPath');
+          failures.add(
+            '${type.name}: reproducerPath='
+            '${meta.reproducerPath}, expected $expectedPath',
+          );
         }
         if (meta.coveredStableIds == null ||
             !setEquals(meta.coveredStableIds, expectedIds)) {
-          failures.add('${type.name}: coveredStableIds='
-              '${meta.coveredStableIds}, expected $expectedIds');
+          failures.add(
+            '${type.name}: coveredStableIds='
+            '${meta.coveredStableIds}, expected $expectedIds',
+          );
         }
         if (meta.citationUrl != null) {
-          failures.add('${type.name}: citationUrl=${meta.citationUrl}, '
-              'expected null at reproducerOnly');
+          failures.add(
+            '${type.name}: citationUrl=${meta.citationUrl}, '
+            'expected null at reproducerOnly',
+          );
         }
         if (meta.profileCapturePaths != null) {
-          failures.add('${type.name}: profileCapturePaths='
-              '${meta.profileCapturePaths}, expected null at reproducerOnly');
+          failures.add(
+            '${type.name}: profileCapturePaths='
+            '${meta.profileCapturePaths}, expected null at reproducerOnly',
+          );
         }
         if (meta.bracketThreshold != null) {
-          failures.add('${type.name}: bracketThreshold='
-              '${meta.bracketThreshold}, expected null at reproducerOnly');
+          failures.add(
+            '${type.name}: bracketThreshold='
+            '${meta.bracketThreshold}, expected null at reproducerOnly',
+          );
         }
         if (meta.bracketUnit != null) {
-          failures.add('${type.name}: bracketUnit=${meta.bracketUnit}, '
-              'expected null at reproducerOnly');
+          failures.add(
+            '${type.name}: bracketUnit=${meta.bracketUnit}, '
+            'expected null at reproducerOnly',
+          );
         }
         if (meta.coveredThresholds != null) {
-          failures.add('${type.name}: coveredThresholds='
-              '${meta.coveredThresholds}, expected null at reproducerOnly');
+          failures.add(
+            '${type.name}: coveredThresholds='
+            '${meta.coveredThresholds}, expected null at reproducerOnly',
+          );
         }
         if (meta.aboveCeilingMultiplier != null) {
-          failures.add('${type.name}: aboveCeilingMultiplier='
-              '${meta.aboveCeilingMultiplier}, expected null at '
-              'reproducerOnly');
+          failures.add(
+            '${type.name}: aboveCeilingMultiplier='
+            '${meta.aboveCeilingMultiplier}, expected null at '
+            'reproducerOnly',
+          );
         }
         if (meta.parametricFamilies != null) {
-          failures.add('${type.name}: parametricFamilies='
-              '${meta.parametricFamilies}, expected null — v0.17.1 '
-              'structural batch does not declare parametric families');
+          failures.add(
+            '${type.name}: parametricFamilies='
+            '${meta.parametricFamilies}, expected null — v0.17.1 '
+            'structural batch does not declare parametric families',
+          );
         }
       }
 
-      expect(failures, isEmpty,
-          reason: 'v0.17.1 structural batch anchor drift — one of the 9 '
-              'bulk-raised detectors has diverged from the pinned triple '
-              '(tier, reproducerPath, coveredStableIds): $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'v0.17.1 structural batch anchor drift — one of the 9 '
+            'bulk-raised detectors has diverged from the pinned triple '
+            '(tier, reproducerPath, coveredStableIds): $failures',
+      );
     });
 
     test('v0.16.3 pre-ratchet anchor block', () {
@@ -1860,17 +2350,23 @@ void main() {
         }
         final meta = (d as DetectorMetadataProvider).validationMetadata;
         if (meta.tier != EvidenceTier.reproducerOnly) {
-          failures.add('${type.name}: tier=${meta.tier.name}, expected '
-              'reproducerOnly');
+          failures.add(
+            '${type.name}: tier=${meta.tier.name}, expected '
+            'reproducerOnly',
+          );
         }
         if (meta.reproducerPath != expectedPath) {
-          failures.add('${type.name}: reproducerPath=${meta.reproducerPath}, '
-              'expected $expectedPath');
+          failures.add(
+            '${type.name}: reproducerPath=${meta.reproducerPath}, '
+            'expected $expectedPath',
+          );
         }
         if (meta.coveredStableIds == null ||
             !setEquals(meta.coveredStableIds, expectedIds)) {
-          failures.add('${type.name}: coveredStableIds='
-              '${meta.coveredStableIds}, expected $expectedIds');
+          failures.add(
+            '${type.name}: coveredStableIds='
+            '${meta.coveredStableIds}, expected $expectedIds',
+          );
         }
         if (meta.citationUrl != null ||
             meta.profileCapturePaths != null ||
@@ -1878,18 +2374,25 @@ void main() {
             meta.bracketUnit != null ||
             meta.coveredThresholds != null ||
             meta.aboveCeilingMultiplier != null) {
-          failures.add('${type.name}: extended-claim field populated but '
-              'tier is reproducerOnly');
+          failures.add(
+            '${type.name}: extended-claim field populated but '
+            'tier is reproducerOnly',
+          );
         }
         if (meta.parametricFamilies != null) {
-          failures.add('${type.name}: parametricFamilies='
-              '${meta.parametricFamilies}, expected null — v0.16.3 '
-              'pre-ratchet batch does not declare parametric families');
+          failures.add(
+            '${type.name}: parametricFamilies='
+            '${meta.parametricFamilies}, expected null — v0.16.3 '
+            'pre-ratchet batch does not declare parametric families',
+          );
         }
       }
 
-      expect(failures, isEmpty,
-          reason: 'v0.16.3 pre-ratchet anchor drift: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason: 'v0.16.3 pre-ratchet anchor drift: $failures',
+      );
     });
 
     test('v0.17.4+ reproducer-rewrite batch pinned at reproducerOnly', () {
@@ -1920,21 +2423,29 @@ void main() {
         }
         final meta = (d as DetectorMetadataProvider).validationMetadata;
         if (meta.tier != EvidenceTier.reproducerOnly) {
-          failures.add('${type.name}: tier=${meta.tier.name}, expected '
-              'reproducerOnly');
+          failures.add(
+            '${type.name}: tier=${meta.tier.name}, expected '
+            'reproducerOnly',
+          );
         }
         if (meta.reproducerPath != expectedPath) {
-          failures.add('${type.name}: reproducerPath=${meta.reproducerPath}, '
-              'expected $expectedPath');
+          failures.add(
+            '${type.name}: reproducerPath=${meta.reproducerPath}, '
+            'expected $expectedPath',
+          );
         }
         if (meta.coveredStableIds == null ||
             !setEquals(meta.coveredStableIds, expectedIds)) {
-          failures.add('${type.name}: coveredStableIds='
-              '${meta.coveredStableIds}, expected $expectedIds');
+          failures.add(
+            '${type.name}: coveredStableIds='
+            '${meta.coveredStableIds}, expected $expectedIds',
+          );
         }
         if (!setEquals(meta.parametricFamilies, expectedParametric)) {
-          failures.add('${type.name}: parametricFamilies='
-              '${meta.parametricFamilies}, expected $expectedParametric');
+          failures.add(
+            '${type.name}: parametricFamilies='
+            '${meta.parametricFamilies}, expected $expectedParametric',
+          );
         }
         if (meta.citationUrl != null ||
             meta.profileCapturePaths != null ||
@@ -1942,14 +2453,20 @@ void main() {
             meta.bracketUnit != null ||
             meta.coveredThresholds != null ||
             meta.aboveCeilingMultiplier != null) {
-          failures.add('${type.name}: extended-claim field populated but '
-              'tier is reproducerOnly');
+          failures.add(
+            '${type.name}: extended-claim field populated but '
+            'tier is reproducerOnly',
+          );
         }
       }
 
-      expect(failures, isEmpty,
-          reason: 'v0.17.4+ reproducer-rewrite batch anchor drift: '
-              '$failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'v0.17.4+ reproducer-rewrite batch anchor drift: '
+            '$failures',
+      );
     });
 
     test('every reproducerOnly+ detector appears in an anchor block', () {
@@ -1976,25 +2493,34 @@ void main() {
       }
 
       final unanchored = shippedAboveUnvalidated.difference(anchoredTypes);
-      expect(unanchored, isEmpty,
-          reason: 'These detectors are shipped above `unvalidated` but no '
-              'anchor block in detector_metadata_audit_test.dart names them '
-              'by `DetectorType.<value>`. An anchor block pins the '
-              '(type, reproducerPath, coveredStableIds) triple so silent '
-              'rename / path churn / stableId drift fails CI. Add an anchor '
-              'block and extend the `anchoredTypes` set to include: '
-              '$unanchored');
+      expect(
+        unanchored,
+        isEmpty,
+        reason:
+            'These detectors are shipped above `unvalidated` but no '
+            'anchor block in detector_metadata_audit_test.dart names them '
+            'by `DetectorType.<value>`. An anchor block pins the '
+            '(type, reproducerPath, coveredStableIds) triple so silent '
+            'rename / path churn / stableId drift fails CI. Add an anchor '
+            'block and extend the `anchoredTypes` set to include: '
+            '$unanchored',
+      );
 
       // Symmetric check: anchors referencing detectors NOT registered on
       // the controller would indicate a stale allowlist (detector was
       // removed but anchor kept).
-      final registeredTypes =
-          controller.detectorsForAudit.map((d) => d.type).toSet();
+      final registeredTypes = controller.detectorsForAudit
+          .map((d) => d.type)
+          .toSet();
       final stale = anchoredTypes.difference(registeredTypes);
-      expect(stale, isEmpty,
-          reason: 'These anchored DetectorTypes are no longer registered on '
-              'the controller — remove the stale anchor allowlist entry: '
-              '$stale');
+      expect(
+        stale,
+        isEmpty,
+        reason:
+            'These anchored DetectorTypes are no longer registered on '
+            'the controller — remove the stale anchor allowlist entry: '
+            '$stale',
+      );
     });
 
     test('audit gate is wired for every runtimeVerified detector', () {
@@ -2010,22 +2536,38 @@ void main() {
         final meta = (d as DetectorMetadataProvider).validationMetadata;
         if (meta.tier != EvidenceTier.runtimeVerified) continue;
         runtimeVerifiedDetectors.add(d.runtimeType.toString());
-        expect(meta.profileCapturePaths, isNotNull,
-            reason: '${d.runtimeType}: runtimeVerified detector must declare '
-                'profileCapturePaths so the CI audit gate can run '
-                'validateBracket against the captures on disk.');
-        expect(meta.profileCapturePaths!.length, 3,
-            reason: '${d.runtimeType}: runtimeVerified evidence requires the '
-                'below/at/above triad — the audit gate iterates all three '
-                'and the trace-record check applies to the at + above legs.');
-        expect(meta.bracketStableId, isNotNull,
-            reason: '${d.runtimeType}: runtimeVerified detector must declare '
-                'bracketStableId so the audit gate knows which '
-                'sleuth.issue.<id>.<severity> trace record to require.');
-        expect(meta.bracketSeverityLabel, isNotNull,
-            reason: '${d.runtimeType}: runtimeVerified detector must declare '
-                'bracketSeverityLabel — a `.critical` event does not '
-                'satisfy a `warning`-tier audit and vice versa.');
+        expect(
+          meta.profileCapturePaths,
+          isNotNull,
+          reason:
+              '${d.runtimeType}: runtimeVerified detector must declare '
+              'profileCapturePaths so the CI audit gate can run '
+              'validateBracket against the captures on disk.',
+        );
+        expect(
+          meta.profileCapturePaths!.length,
+          3,
+          reason:
+              '${d.runtimeType}: runtimeVerified evidence requires the '
+              'below/at/above triad — the audit gate iterates all three '
+              'and the trace-record check applies to the at + above legs.',
+        );
+        expect(
+          meta.bracketStableId,
+          isNotNull,
+          reason:
+              '${d.runtimeType}: runtimeVerified detector must declare '
+              'bracketStableId so the audit gate knows which '
+              'sleuth.issue.<id>.<severity> trace record to require.',
+        );
+        expect(
+          meta.bracketSeverityLabel,
+          isNotNull,
+          reason:
+              '${d.runtimeType}: runtimeVerified detector must declare '
+              'bracketSeverityLabel — a `.critical` event does not '
+              'satisfy a `warning`-tier audit and vice versa.',
+        );
         // Replay protection (v0.18.1+): runtimeVerified captures recorded
         // under producer-side dedup must opt into the strong uniqueness
         // invariant. Without this assertion a future tier raise could
@@ -2033,21 +2575,29 @@ void main() {
         // the audit gate would still accept N records sharing one
         // `detectedAtMicros`. Pin the opt-in here so the strongest new
         // hardening guarantee cannot regress unnoticed.
-        expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
-            reason: '${d.runtimeType}: runtimeVerified detector must opt '
-                'into bracketRequireUniqueDetectedAtMicros: true. The '
-                'audit gate then rejects any capture whose in-span trace '
-                'records are inflated (single-issue replay). v0.18.0 '
-                'captures recorded before producer dedup landed must be '
-                're-recorded under v0.18.1+ before opting in.');
+        expect(
+          meta.bracketRequireUniqueDetectedAtMicros,
+          isTrue,
+          reason:
+              '${d.runtimeType}: runtimeVerified detector must opt '
+              'into bracketRequireUniqueDetectedAtMicros: true. The '
+              'audit gate then rejects any capture whose in-span trace '
+              'records are inflated (single-issue replay). v0.18.0 '
+              'captures recorded before producer dedup landed must be '
+              're-recorded under v0.18.1+ before opting in.',
+        );
       }
       // Sanity: the v0.18.x ledger has at least NetworkMonitor at this
       // tier. If this list is empty the regression guard is vacuous.
-      expect(runtimeVerifiedDetectors, isNotEmpty,
-          reason: 'No runtimeVerified detectors found. Either every '
-              'detector regressed to a lower tier (real bug — investigate) '
-              'or the audit walker is broken (delete this test if the '
-              'tier was intentionally retired).');
+      expect(
+        runtimeVerifiedDetectors,
+        isNotEmpty,
+        reason:
+            'No runtimeVerified detectors found. Either every '
+            'detector regressed to a lower tier (real bug — investigate) '
+            'or the audit walker is broken (delete this test if the '
+            'tier was intentionally retired).',
+      );
     });
   });
 
@@ -2057,31 +2607,53 @@ void main() {
     // captures so the audit-gate logic stays honest even when no real
     // detector is at `runtimeVerified`.
 
-    test('malformedCapture detection: bad_iso_date fixture fails parseFile',
-        () {
-      final file = File('test/validation/captures/_fixtures/bad_iso_date.json');
-      expect(file.existsSync(), isTrue,
-          reason: 'Negative fixture must exist for this regression to be '
-              'meaningful.');
-      expect(
+    test(
+      'malformedCapture detection: bad_iso_date fixture fails parseFile',
+      () {
+        final file = File(
+          'test/validation/captures/_fixtures/bad_iso_date.json',
+        );
+        expect(
+          file.existsSync(),
+          isTrue,
+          reason:
+              'Negative fixture must exist for this regression to be '
+              'meaningful.',
+        );
+        expect(
           () => ProfileCaptureSchema.parseFile(file),
-          throwsA(isA<FormatException>()
-              .having((e) => e.message, 'message', contains('captureDate'))));
-    });
-
-    test('malformedCapture detection: min_gt_observed fixture fails parseFile',
-        () {
-      final file =
-          File('test/validation/captures/_fixtures/min_gt_observed.json');
-      expect(file.existsSync(), isTrue);
-      expect(
-          () => ProfileCaptureSchema.parseFile(file),
-          throwsA(isA<FormatException>().having(
-              (e) => e.message, 'message', contains('expectedMagnitude'))));
-    });
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              contains('captureDate'),
+            ),
+          ),
+        );
+      },
+    );
 
     test(
-        'checkCapturePaths populates a failure entry on a malformed capture '
+      'malformedCapture detection: min_gt_observed fixture fails parseFile',
+      () {
+        final file = File(
+          'test/validation/captures/_fixtures/min_gt_observed.json',
+        );
+        expect(file.existsSync(), isTrue);
+        expect(
+          () => ProfileCaptureSchema.parseFile(file),
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              contains('expectedMagnitude'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('checkCapturePaths populates a failure entry on a malformed capture '
         '(bucket-then-assert pattern)', () {
       final failures = checkCapturePaths(
         label: 'FakeDetector',
@@ -2089,10 +2661,14 @@ void main() {
           'test/validation/captures/_fixtures/bad_iso_date.json',
         ],
       );
-      expect(failures, isNotEmpty,
-          reason: 'checkCapturePaths must surface FormatException as a '
-              'failure entry — otherwise malformed captures silently '
-              'pass CI.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'checkCapturePaths must surface FormatException as a '
+            'failure entry — otherwise malformed captures silently '
+            'pass CI.',
+      );
       expect(failures.single, contains('bad_iso_date.json'));
     });
 
@@ -2104,7 +2680,7 @@ void main() {
         coveredStableIds: {'fake_family'},
         profileCapturePaths: [
           'test/validation/captures/_fixtures/'
-              'dormant_bracket_at.json'
+              'dormant_bracket_at.json',
         ],
       );
       final failures = checkBracketCount(
@@ -2153,9 +2729,8 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test(
-        'checkBracketValidation rejects runtimeVerified without '
-        'bracketThreshold / bracketUnit (CODEX-R1-2)', () {
+    test('checkBracketValidation rejects runtimeVerified without '
+        'bracketThreshold / bracketUnit', () {
       const triadNoThreshold = DetectorMetadata(
         tier: EvidenceTier.runtimeVerified,
         rationale: 'Synthetic — valid triad but no bracketThreshold/Unit.',
@@ -2176,12 +2751,13 @@ void main() {
       );
       expect(failures, isNotEmpty);
       expect(
-          failures.any((f) => f.contains('missing bracketThreshold')), isTrue);
+        failures.any((f) => f.contains('missing bracketThreshold')),
+        isTrue,
+      );
       expect(failures.any((f) => f.contains('missing bracketUnit')), isTrue);
     });
 
-    test(
-        'checkBracketValidation passes on dormant-bracket triad around '
+    test('checkBracketValidation passes on dormant-bracket triad around '
         'threshold=1000 ms', () {
       const triad = DetectorMetadata(
         tier: EvidenceTier.runtimeVerified,
@@ -2206,8 +2782,7 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test(
-        'checkBracketValidation fails when triad does not bracket threshold '
+    test('checkBracketValidation fails when triad does not bracket threshold '
         '(swap below and above)', () {
       // Same fixtures, but below and above files swapped — the observed
       // values no longer bracket the 1000 ms threshold, so
@@ -2236,30 +2811,34 @@ void main() {
       expect(failures.first, contains('bracket validation failed'));
     });
 
-    test('checkBracketValidation is a no-op for unvalidated / reproducerOnly',
-        () {
-      for (final tier in [
-        EvidenceTier.unvalidated,
-        EvidenceTier.reproducerOnly
-      ]) {
-        final failures = checkBracketValidation(
-          label: 'FakeDetector',
-          tier: tier,
-          capturePaths: null,
-          bracketThreshold: null,
-          bracketUnit: null,
-        );
-        expect(failures, isEmpty,
-            reason: 'Tier $tier should not require bracket validation.');
-      }
-    });
+    test(
+      'checkBracketValidation is a no-op for unvalidated / reproducerOnly',
+      () {
+        for (final tier in [
+          EvidenceTier.unvalidated,
+          EvidenceTier.reproducerOnly,
+        ]) {
+          final failures = checkBracketValidation(
+            label: 'FakeDetector',
+            tier: tier,
+            capturePaths: null,
+            bracketThreshold: null,
+            bracketUnit: null,
+          );
+          expect(
+            failures,
+            isEmpty,
+            reason: 'Tier $tier should not require bracket validation.',
+          );
+        }
+      },
+    );
 
     // When requireTraceRecord is true the gate must reject
     // runtimeVerified metadata that omits bracketStableId or
     // bracketSeverityLabel — without those, the schema cannot prove the
     // detector fired at the claimed severity.
-    test(
-        'checkBracketValidation with requireTraceRecord rejects '
+    test('checkBracketValidation with requireTraceRecord rejects '
         'missing bracketStableId / bracketSeverityLabel', () {
       final failures = checkBracketValidation(
         label: 'FakeDetector',
@@ -2352,20 +2931,23 @@ void main() {
           // `checkSnapshotCapturesMatchSchema` invariant.
           excludedSubdirectoryNames: const {'_fixtures', 'mcp_snapshots'},
         );
-        expect(failures, isEmpty,
-            reason: 'Orphan captures found on disk. If the capture is '
-                'deliberately retained for a future milestone, add it '
-                'to `retainedOrphans` above with a rationale linking '
-                'to the milestone. Otherwise delete the file or wire '
-                'it into a detector\'s profileCapturePaths. Orphans: '
-                '$failures');
+        expect(
+          failures,
+          isEmpty,
+          reason:
+              'Orphan captures found on disk. If the capture is '
+              'deliberately retained for a future milestone, add it '
+              'to `retainedOrphans` above with a rationale linking '
+              'to the milestone. Otherwise delete the file or wire '
+              'it into a detector\'s profileCapturePaths. Orphans: '
+              '$failures',
+        );
       } finally {
         controller.dispose();
       }
     });
 
-    test(
-        'per-directory capture-name pattern is uniform '
+    test('per-directory capture-name pattern is uniform '
         '(scenario ↔ basename relationship)', () {
       if (!File('pubspec.yaml').existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
@@ -2379,13 +2961,17 @@ void main() {
         // apply.
         excludedSubdirectoryNames: const {'_fixtures', 'mcp_snapshots'},
       );
-      expect(failures, isEmpty,
-          reason: 'Mixed scenario-name patterns within a capture directory. '
-              'Every file under captures/<dir> must use the same '
-              'relationship between sleuthMetadata.scenario and the file '
-              'basename (either scenario == basename, or scenario == '
-              '"<dir>_<basename>"). Mixing patterns inside one directory '
-              'is unmaintainable. Drift: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Mixed scenario-name patterns within a capture directory. '
+            'Every file under captures/<dir> must use the same '
+            'relationship between sleuthMetadata.scenario and the file '
+            'basename (either scenario == basename, or scenario == '
+            '"<dir>_<basename>"). Mixing patterns inside one directory '
+            'is unmaintainable. Drift: $failures',
+      );
     });
 
     test('retained-orphan allowlist entries actually exist on disk', () {
@@ -2403,11 +2989,15 @@ void main() {
           missing.add(relative);
         }
       }
-      expect(missing, isEmpty,
-          reason: 'Retained-orphan allowlist entries reference missing '
-              'files. A deleted file no longer needs an allowlist '
-              'entry — either restore the file (if it was deleted in '
-              'error) or remove the allowlist entry. Missing: $missing');
+      expect(
+        missing,
+        isEmpty,
+        reason:
+            'Retained-orphan allowlist entries reference missing '
+            'files. A deleted file no longer needs an allowlist '
+            'entry — either restore the file (if it was deleted in '
+            'error) or remove the allowlist entry. Missing: $missing',
+      );
     });
 
     test('retained-orphan manifest parses + cross-checks + lifecycle', () {
@@ -2419,23 +3009,32 @@ void main() {
       // compares it against each entry's `consumeBy` and fails
       // entries whose consume release has been reached or passed.
       final pubspecText = File('pubspec.yaml').readAsStringSync();
-      final versionMatch = RegExp(r'^version:\s*(\S+)\s*$', multiLine: true)
-          .firstMatch(pubspecText);
-      expect(versionMatch, isNotNull,
-          reason: 'pubspec.yaml is missing a top-level `version:` line');
+      final versionMatch = RegExp(
+        r'^version:\s*(\S+)\s*$',
+        multiLine: true,
+      ).firstMatch(pubspecText);
+      expect(
+        versionMatch,
+        isNotNull,
+        reason: 'pubspec.yaml is missing a top-level `version:` line',
+      );
       final currentVersion = versionMatch!.group(1)!;
       final failures = checkRetainedOrphanManifest(
         manifest: retainedOrphans,
         currentReleaseVersion: currentVersion,
       );
-      expect(failures, isEmpty,
-          reason: 'Retained-orphan manifest audit failed. Either (a) '
-              'fix the capture on disk so it matches the manifest '
-              'declaration, (b) update the manifest entry to match '
-              'the true recording, (c) consume the capture in its '
-              'owning claim, or (d) remove the file + manifest entry '
-              'together if the multi-release was skipped. Failures: '
-              '$failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Retained-orphan manifest audit failed. Either (a) '
+            'fix the capture on disk so it matches the manifest '
+            'declaration, (b) update the manifest entry to match '
+            'the true recording, (c) consume the capture in its '
+            'owning claim, or (d) remove the file + manifest entry '
+            'together if the multi-release was skipped. Failures: '
+            '$failures',
+      );
     });
 
     test('legacy observed-axis allowlist manifest lifecycle', () {
@@ -2448,20 +3047,29 @@ void main() {
       // passed. Forces re-record (or explicit allowlist extension)
       // by the named release.
       final pubspecText = File('pubspec.yaml').readAsStringSync();
-      final versionMatch = RegExp(r'^version:\s*(\S+)\s*$', multiLine: true)
-          .firstMatch(pubspecText);
-      expect(versionMatch, isNotNull,
-          reason: 'pubspec.yaml is missing a top-level `version:` line');
+      final versionMatch = RegExp(
+        r'^version:\s*(\S+)\s*$',
+        multiLine: true,
+      ).firstMatch(pubspecText);
+      expect(
+        versionMatch,
+        isNotNull,
+        reason: 'pubspec.yaml is missing a top-level `version:` line',
+      );
       final currentVersion = versionMatch!.group(1)!;
       final failures = checkLegacyObservedAxisManifest(
         manifest: legacyObservedAxisAllowlist,
         currentReleaseVersion: currentVersion,
       );
-      expect(failures, isEmpty,
-          reason: 'Legacy observed-axis allowlist audit failed. Either '
-              're-record the relevant captures so the per-record cross-'
-              'check activates, or extend the consumeBy with a documented '
-              'reason. Failures: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Legacy observed-axis allowlist audit failed. Either '
+            're-record the relevant captures so the per-record cross-'
+            'check activates, or extend the consumeBy with a documented '
+            'reason. Failures: $failures',
+      );
     });
   });
 
@@ -2530,22 +3138,22 @@ void main() {
       List<String>? paths,
       double? aboveCeilingMultiplier = 1.5,
       Set<String>? coveredThresholds,
-    }) =>
-        BracketSpec(
-          stableId: stableId,
-          severityLabel: severityLabel,
-          threshold: 8,
-          unit: 'ms',
-          coveredThresholds: coveredThresholds ?? {'$stableId.$severityLabel'},
-          profileCapturePaths: paths ??
-              const [
-                'test/validation/captures/x/below.json',
-                'test/validation/captures/x/at.json',
-                'test/validation/captures/x/above.json',
-              ],
-          observedAxisArgKey: argKey,
-          aboveCeilingMultiplier: aboveCeilingMultiplier,
-        );
+    }) => BracketSpec(
+      stableId: stableId,
+      severityLabel: severityLabel,
+      threshold: 8,
+      unit: 'ms',
+      coveredThresholds: coveredThresholds ?? {'$stableId.$severityLabel'},
+      profileCapturePaths:
+          paths ??
+          const [
+            'test/validation/captures/x/below.json',
+            'test/validation/captures/x/at.json',
+            'test/validation/captures/x/above.json',
+          ],
+      observedAxisArgKey: argKey,
+      aboveCeilingMultiplier: aboveCeilingMultiplier,
+    );
 
     DetectorMetadata mkMeta({
       Set<String>? coveredStableIds,
@@ -2554,59 +3162,66 @@ void main() {
       List<BracketSpec>? additionalBrackets,
       String? bracketStableId = 'foo',
       String? observedAxisArgKey = 'observedCount',
-    }) =>
-        DetectorMetadata(
-          tier: EvidenceTier.reproducerOnly,
-          rationale: 'fake rationale that is long enough to satisfy gate.',
-          reproducerPath: 'test/validation/fake.dart',
-          bracketStableId: bracketStableId,
-          bracketSeverityLabel: 'warning',
-          bracketThreshold: 20,
-          bracketUnit: 'events',
-          aboveCeilingMultiplier: 1.5,
-          observedAxisArgKey: observedAxisArgKey,
-          coveredStableIds: coveredStableIds ?? const {'foo'},
-          coveredThresholds: coveredThresholds ?? const {'foo.warning'},
-          perStableIdTier: perStableIdTier,
-          additionalBrackets: additionalBrackets,
-          profileCapturePaths: const [
-            'test/validation/captures/canonical/below.json',
-            'test/validation/captures/canonical/at.json',
-            'test/validation/captures/canonical/above.json',
+    }) => DetectorMetadata(
+      tier: EvidenceTier.reproducerOnly,
+      rationale: 'fake rationale that is long enough to satisfy gate.',
+      reproducerPath: 'test/validation/fake.dart',
+      bracketStableId: bracketStableId,
+      bracketSeverityLabel: 'warning',
+      bracketThreshold: 20,
+      bracketUnit: 'events',
+      aboveCeilingMultiplier: 1.5,
+      observedAxisArgKey: observedAxisArgKey,
+      coveredStableIds: coveredStableIds ?? const {'foo'},
+      coveredThresholds: coveredThresholds ?? const {'foo.warning'},
+      perStableIdTier: perStableIdTier,
+      additionalBrackets: additionalBrackets,
+      profileCapturePaths: const [
+        'test/validation/captures/canonical/below.json',
+        'test/validation/captures/canonical/at.json',
+        'test/validation/captures/canonical/above.json',
+      ],
+    );
+
+    test(
+      'properly-configured multi-axis metadata passes structural helpers',
+      () {
+        final meta = mkMeta(
+          coveredStableIds: const {'foo', 'bar'},
+          coveredThresholds: const {'foo.warning', 'bar.warning'},
+          perStableIdTier: const {
+            'foo': EvidenceTier.runtimeVerified,
+            'bar': EvidenceTier.runtimeVerified,
+          },
+          additionalBrackets: [
+            mkSpec(stableId: 'bar', argKey: 'cumulativeDurationUs'),
           ],
         );
-
-    test('properly-configured multi-axis metadata passes structural helpers',
-        () {
-      final meta = mkMeta(
-        coveredStableIds: const {'foo', 'bar'},
-        coveredThresholds: const {'foo.warning', 'bar.warning'},
-        perStableIdTier: const {
-          'foo': EvidenceTier.runtimeVerified,
-          'bar': EvidenceTier.runtimeVerified,
-        },
-        additionalBrackets: [
-          mkSpec(stableId: 'bar', argKey: 'cumulativeDurationUs'),
-        ],
-      );
-      final failures = walkRuntimeVerifiedHelpers(meta);
-      expect(failures, isEmpty,
-          reason: 'A correctly-shaped multi-axis declaration must clear '
+        final failures = walkRuntimeVerifiedHelpers(meta);
+        expect(
+          failures,
+          isEmpty,
+          reason:
+              'A correctly-shaped multi-axis declaration must clear '
               'the structural helpers (no collision, every raised family '
               'covered by canonical bracket OR additionalBrackets spec). '
-              'Failures: $failures');
-    });
+              'Failures: $failures',
+        );
+      },
+    );
 
     test('cross-spec collision in additionalBrackets surfaces failure', () {
       final meta = mkMeta(
-        additionalBrackets: [
-          mkSpec(stableId: 'foo', argKey: 'observedCount'),
-        ],
+        additionalBrackets: [mkSpec(stableId: 'foo', argKey: 'observedCount')],
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
-      expect(failures.any((f) => f.contains('cross-spec collision')), isTrue,
-          reason: 'top-level (spec #0) and additionalBrackets[0] both target '
-              '("foo", "observedCount") and must collide.');
+      expect(
+        failures.any((f) => f.contains('cross-spec collision')),
+        isTrue,
+        reason:
+            'top-level (spec #0) and additionalBrackets[0] both target '
+            '("foo", "observedCount") and must collide.',
+      );
     });
 
     test('mixed-mode: top-level + spec with distinct argKeys passes', () {
@@ -2616,9 +3231,13 @@ void main() {
         ],
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
-      expect(failures, isEmpty,
-          reason: 'Same stableId with distinct argKeys is the intended '
-              'multi-axis pattern. Failures: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Same stableId with distinct argKeys is the intended '
+            'multi-axis pattern. Failures: $failures',
+      );
     });
 
     test('perStableIdTier raise without bracket coverage surfaces failure', () {
@@ -2633,12 +3252,16 @@ void main() {
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
       expect(
-          failures.any((f) =>
+        failures.any(
+          (f) =>
               f.contains('"unmoored"') &&
-              f.contains('no coveredThresholds entry')),
-          isTrue,
-          reason: 'A runtimeVerified raise on "unmoored" not covered by any '
-              'coveredThresholds entry must fail. Failures: $failures');
+              f.contains('no coveredThresholds entry'),
+        ),
+        isTrue,
+        reason:
+            'A runtimeVerified raise on "unmoored" not covered by any '
+            'coveredThresholds entry must fail. Failures: $failures',
+      );
     });
 
     test('perStableIdTier raise covered ONLY by additionalBrackets passes', () {
@@ -2652,20 +3275,21 @@ void main() {
           'foo': EvidenceTier.runtimeVerified,
           'bar': EvidenceTier.runtimeVerified,
         },
-        additionalBrackets: [
-          mkSpec(stableId: 'bar', argKey: 'observedSlope'),
-        ],
+        additionalBrackets: [mkSpec(stableId: 'bar', argKey: 'observedSlope')],
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
-      expect(failures, isEmpty,
-          reason: 'A spec whose coveredThresholds contains "bar.warning" '
-              'must satisfy the perStableIdTier coverage rule for "bar" '
-              'even when canonical bracket targets a different family. '
-              'Failures: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'A spec whose coveredThresholds contains "bar.warning" '
+            'must satisfy the perStableIdTier coverage rule for "bar" '
+            'even when canonical bracket targets a different family. '
+            'Failures: $failures',
+      );
     });
 
-    test(
-        'spec.coveredThresholds with cross-family entry rejected (drift '
+    test('spec.coveredThresholds with cross-family entry rejected (drift '
         'guard)', () {
       // Spec declares stableId='bar' but its coveredThresholds claims
       // foo.warning — the schema field that exists for severity-scoping
@@ -2687,12 +3311,16 @@ void main() {
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
       expect(
-          failures.any((f) =>
+        failures.any(
+          (f) =>
               f.contains('coveredThresholds entry') &&
-              f.contains('does not match spec.stableId')),
-          isTrue,
-          reason: 'Cross-family coveredThresholds entry must fail. '
-              'Failures: $failures');
+              f.contains('does not match spec.stableId'),
+        ),
+        isTrue,
+        reason:
+            'Cross-family coveredThresholds entry must fail. '
+            'Failures: $failures',
+      );
     });
 
     test('spec.coveredThresholds with malformed entry rejected', () {
@@ -2707,17 +3335,22 @@ void main() {
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
       expect(
-          failures.any((f) =>
-              f.contains('unrecognised severity') && f.contains('"warn"')),
-          isTrue,
-          reason: 'Severity typo must be rejected. Failures: $failures');
+        failures.any(
+          (f) => f.contains('unrecognised severity') && f.contains('"warn"'),
+        ),
+        isTrue,
+        reason: 'Severity typo must be rejected. Failures: $failures',
+      );
     });
 
     test('empty additionalBrackets list rejected by structural helper', () {
       final meta = mkMeta(additionalBrackets: const <BracketSpec>[]);
       final failures = walkRuntimeVerifiedHelpers(meta);
-      expect(failures.any((f) => f.contains('empty list')), isTrue,
-          reason: 'Encode "no additional axes" as null, not [].');
+      expect(
+        failures.any((f) => f.contains('empty list')),
+        isTrue,
+        reason: 'Encode "no additional axes" as null, not [].',
+      );
     });
 
     test('per-spec wrong-length profileCapturePaths surfaces failure', () {
@@ -2732,14 +3365,15 @@ void main() {
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
       expect(
-          failures.any(
-              (f) => f.contains('profileCapturePaths must contain exactly 3')),
-          isTrue,
-          reason: 'A spec with 1 path must fail the structural check.');
+        failures.any(
+          (f) => f.contains('profileCapturePaths must contain exactly 3'),
+        ),
+        isTrue,
+        reason: 'A spec with 1 path must fail the structural check.',
+      );
     });
 
-    test(
-        'per-spec aboveCeilingMultiplier null with severity-scoped scope '
+    test('per-spec aboveCeilingMultiplier null with severity-scoped scope '
         'surfaces failure', () {
       final meta = mkMeta(
         additionalBrackets: [
@@ -2752,40 +3386,49 @@ void main() {
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
       expect(
-          failures.any((f) =>
+        failures.any(
+          (f) =>
               f.contains('additionalBrackets[0]') &&
-              f.contains('explicit aboveCeilingMultiplier')),
-          isTrue,
-          reason: 'Severity-scoped spec with null aboveCeilingMultiplier '
-              'must fail to prevent default-2.0 inheritance. Failures: '
-              '$failures');
+              f.contains('explicit aboveCeilingMultiplier'),
+        ),
+        isTrue,
+        reason:
+            'Severity-scoped spec with null aboveCeilingMultiplier '
+            'must fail to prevent default-2.0 inheritance. Failures: '
+            '$failures',
+      );
     });
 
-    test('capture-path overlap between top-level and spec surfaces failure',
-        () {
-      final meta = mkMeta(
-        coveredStableIds: const {'foo', 'bar'},
-        coveredThresholds: const {'foo.warning', 'bar.warning'},
-        additionalBrackets: [
-          mkSpec(
-            stableId: 'bar',
-            argKey: 'observedSlope',
-            paths: const [
-              'test/validation/captures/canonical/below.json',
-              'test/validation/captures/canonical/at.json',
-              'test/validation/captures/canonical/above.json',
-            ],
+    test(
+      'capture-path overlap between top-level and spec surfaces failure',
+      () {
+        final meta = mkMeta(
+          coveredStableIds: const {'foo', 'bar'},
+          coveredThresholds: const {'foo.warning', 'bar.warning'},
+          additionalBrackets: [
+            mkSpec(
+              stableId: 'bar',
+              argKey: 'observedSlope',
+              paths: const [
+                'test/validation/captures/canonical/below.json',
+                'test/validation/captures/canonical/at.json',
+                'test/validation/captures/canonical/above.json',
+              ],
+            ),
+          ],
+        );
+        final failures = walkRuntimeVerifiedHelpers(meta);
+        expect(
+          failures.any(
+            (f) => f.contains('capture path') && f.contains('shared between'),
           ),
-        ],
-      );
-      final failures = walkRuntimeVerifiedHelpers(meta);
-      expect(
-          failures.any((f) =>
-              f.contains('capture path') && f.contains('shared between')),
           isTrue,
-          reason: 'Spec sharing canonical triad must fail path-overlap '
-              'check. Failures: $failures');
-    });
+          reason:
+              'Spec sharing canonical triad must fail path-overlap '
+              'check. Failures: $failures',
+        );
+      },
+    );
 
     test('whitespace argKey collision detected after canonicalization', () {
       final meta = mkMeta(
@@ -2795,9 +3438,13 @@ void main() {
         ],
       );
       final failures = walkRuntimeVerifiedHelpers(meta);
-      expect(failures.any((f) => f.contains('cross-spec collision')), isTrue,
-          reason: 'Whitespace-padded argKey must canonicalize and collide '
-              'with same stableId+argKey on top-level. Failures: $failures');
+      expect(
+        failures.any((f) => f.contains('cross-spec collision')),
+        isTrue,
+        reason:
+            'Whitespace-padded argKey must canonicalize and collide '
+            'with same stableId+argKey on top-level. Failures: $failures',
+      );
     });
   });
 }

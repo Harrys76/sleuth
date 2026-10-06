@@ -107,6 +107,26 @@ void main() {
       expect(json['interactionContext'], 'navigating');
     });
 
+    test('frameTiming observation source round-trips', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.raster,
+        confidence: IssueConfidence.likely,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        observationSource: ObservationSource.frameTiming,
+      );
+
+      final json = issue.toJson();
+      expect(json['observationSource'], 'frameTiming');
+      expect(
+        PerformanceIssue.fromJson(json).observationSource,
+        ObservationSource.frameTiming,
+      );
+      expect(ObservationSource.frameTiming.displayName, 'frame timing');
+    });
+
     test('fixEffort serializes as .name string', () {
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
@@ -754,8 +774,11 @@ void main() {
       );
 
       final json = attr.toJson();
-      expect(json['callChain'],
-          ['MyWidget.build', 'performLayout', 'RenderFlex.layout']);
+      expect(json['callChain'], [
+        'MyWidget.build',
+        'performLayout',
+        'RenderFlex.layout',
+      ]);
       expect(json['inclusivePercentage'], 58.3);
     });
 
@@ -849,23 +872,25 @@ void main() {
       expect(restored.worstFrameTimeUs, 45000);
     });
 
-    test('v4 fromJson — actualFps and throughputFps backfill from averageFps',
-        () {
-      // v4 snapshot: only averageFps is present. New reader must synthesize
-      // actualFps and throughputFps from that single field so no v4 export
-      // comes back with NaN or a silent zero.
-      final v4Json = {
-        'totalFrames': 60,
-        'jankFrames': 5,
-        'averageFps': 58.3,
-        'worstFrameTimeUs': 45000,
-      };
-      final restored = FrameStatsSummary.fromJson(v4Json);
-      expect(restored.averageFps, 58.3);
-      expect(restored.actualFps, 58.3);
-      expect(restored.throughputFps, 58.3);
-      expect(restored.actualFpsRaw, 58.3);
-    });
+    test(
+      'v4 fromJson — actualFps and throughputFps backfill from averageFps',
+      () {
+        // v4 snapshot: only averageFps is present. New reader must synthesize
+        // actualFps and throughputFps from that single field so no v4 export
+        // comes back with NaN or a silent zero.
+        final v4Json = {
+          'totalFrames': 60,
+          'jankFrames': 5,
+          'averageFps': 58.3,
+          'worstFrameTimeUs': 45000,
+        };
+        final restored = FrameStatsSummary.fromJson(v4Json);
+        expect(restored.averageFps, 58.3);
+        expect(restored.actualFps, 58.3);
+        expect(restored.throughputFps, 58.3);
+        expect(restored.actualFpsRaw, 58.3);
+      },
+    );
 
     test('v5 round-trip preserves all three FPS fields', () {
       const original = FrameStatsSummary(
@@ -927,11 +952,16 @@ void main() {
     // SessionSnapshot without updating the v5 golden fixture fails here.
     // Forces an intentional schema decision instead of silent drift.
     test('v5 golden file gate', () {
-      final fixture =
-          File('test/models/_fixtures/session_snapshot_v5_golden.json');
-      expect(fixture.existsSync(), isTrue,
-          reason: 'v5 golden fixture missing — create it alongside any '
-              'snapshot field addition');
+      final fixture = File(
+        'test/models/_fixtures/session_snapshot_v5_golden.json',
+      );
+      expect(
+        fixture.existsSync(),
+        isTrue,
+        reason:
+            'v5 golden fixture missing — create it alongside any '
+            'snapshot field addition',
+      );
       final json =
           jsonDecode(fixture.readAsStringSync()) as Map<String, dynamic>;
       final snapshot = SessionSnapshot.fromJson(json);
@@ -950,13 +980,17 @@ void main() {
       final roundTripped = snapshot.toJson();
       final summary = roundTripped['frameStatsSummary'] as Map<String, dynamic>;
       final goldenSummary = json['frameStatsSummary'] as Map<String, dynamic>;
-      expect(summary, equals(goldenSummary),
-          reason: 'FrameStatsSummary.toJson drifted from the v5 golden — '
-              'either a new field was added without updating the golden '
-              'fixture, or an existing field value changed');
+      expect(
+        summary,
+        equals(goldenSummary),
+        reason:
+            'FrameStatsSummary.toJson drifted from the v5 golden — '
+            'either a new field was added without updating the golden '
+            'fixture, or an existing field value changed',
+      );
     });
 
-    // v0.17.0 C1 regression: v4 → fromJson → toJson must NOT produce a
+    // v0.17.0 regression: v4 → fromJson → toJson must NOT produce a
     // schemaVersion=4 payload wrapping v5 field shape. Upgrade-on-read
     // normalises schemaVersion to 5 so the declared version matches the
     // actual emitted shape.
@@ -1016,23 +1050,25 @@ void main() {
 
     // v6+ (hypothetical future schema) flows through untouched — don't
     // clobber forward schemaVersions.
-    test('v6 JSON → fromJson preserves schemaVersion (no clobber on future)',
-        () {
-      final v6 = <String, dynamic>{
-        'schemaVersion': 6,
-        'exportedAt': DateTime.utc(2026, 4, 24).toIso8601String(),
-        'frameStatsSummary': <String, dynamic>{
-          'totalFrames': 0,
-          'jankFrames': 0,
-          'averageFps': 0,
-          'worstFrameTimeUs': 0,
-        },
-        'capturedFrames': <dynamic>[],
-        'currentIssues': <dynamic>[],
-      };
-      final snapshot = SessionSnapshot.fromJson(v6);
-      expect(snapshot.schemaVersion, 6);
-    });
+    test(
+      'v6 JSON → fromJson preserves schemaVersion (no clobber on future)',
+      () {
+        final v6 = <String, dynamic>{
+          'schemaVersion': 6,
+          'exportedAt': DateTime.utc(2026, 4, 24).toIso8601String(),
+          'frameStatsSummary': <String, dynamic>{
+            'totalFrames': 0,
+            'jankFrames': 0,
+            'averageFps': 0,
+            'worstFrameTimeUs': 0,
+          },
+          'capturedFrames': <dynamic>[],
+          'currentIssues': <dynamic>[],
+        };
+        final snapshot = SessionSnapshot.fromJson(v6);
+        expect(snapshot.schemaVersion, 6);
+      },
+    );
   });
 
   group('SessionSnapshot serialization', () {
@@ -1340,7 +1376,7 @@ void main() {
           'severity': 200,
           'confidence': 10,
           'frameImpact': 0,
-          'recurrence': 5
+          'recurrence': 5,
         },
       );
 
@@ -1416,7 +1452,7 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      // v0.17.0 C1 fix: upgrade-on-read normalises schemaVersion<5 to 5
+      // v0.17.0: upgrade-on-read normalises schemaVersion<5 to 5
       // so the in-memory shape matches what toJson unconditionally emits.
       // Historical behaviour (schemaVersion=1 default for absent key) is
       // preserved only in terms of which input path was taken.
@@ -1478,7 +1514,7 @@ void main() {
       expect(json.containsKey('platformChannelEvents'), isTrue);
       expect(json.containsKey('recentFrames'), isTrue);
 
-      // v0.17.0 C1 fix: fromJson upgrades schemaVersion<5 → 5 on read so
+      // v0.17.0: fromJson upgrades schemaVersion<5 → 5 on read so
       // the in-memory object advertises the v5 shape it actually carries.
       final restored = SessionSnapshot.fromJson(json);
       expect(restored.schemaVersion, 5);
@@ -1507,7 +1543,7 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      // v0.17.0 C1 upgrade-on-read: 2 → 5.
+      // v0.17.0 upgrade-on-read: 2 → 5.
       expect(snapshot.schemaVersion, 5);
       expect(snapshot.phaseEvents, isNull);
       expect(snapshot.gcEvents, isNull);
@@ -1550,7 +1586,10 @@ void main() {
         ),
         phaseEvents: const [
           PhaseEvent(
-              phase: TimelinePhase.layout, timestampUs: 0, durationUs: 100),
+            phase: TimelinePhase.layout,
+            timestampUs: 0,
+            durationUs: 100,
+          ),
         ],
       );
 
@@ -1558,7 +1597,7 @@ void main() {
       final decoded = jsonDecode(jsonString) as Map<String, dynamic>;
       final restored = SessionSnapshot.fromJson(decoded);
 
-      // v0.17.0 C1 upgrade-on-read: v2 normalises to v5 because toJson
+      // v0.17.0 upgrade-on-read: v2 normalises to v5 because toJson
       // always emits v5 frameStatsSummary shape.
       expect(restored.schemaVersion, 5);
       expect(restored.phaseEvents, hasLength(1));
@@ -1642,8 +1681,7 @@ void main() {
       expect(issue.rootCauseIds, isNull);
     });
 
-    test(
-        'fromJson coerces all-non-string rootCauseIds list to null '
+    test('fromJson coerces all-non-string rootCauseIds list to null '
         '(whereType<String> filters everything out)', () {
       final json = {
         'severity': 'warning',
@@ -1660,8 +1698,7 @@ void main() {
       expect(issue.rootCauseIds, isNull);
     });
 
-    test(
-        'fromJson preserves valid string entries, drops mixed-type invalid '
+    test('fromJson preserves valid string entries, drops mixed-type invalid '
         'entries from rootCauseIds', () {
       final json = {
         'severity': 'warning',
@@ -2017,72 +2054,74 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // E1 regression: fromJson must not throw on non-int values for
+    // Regression: fromJson must not throw on non-int values for
     // scaffoldHashKey / tabVisitIndex. A JavaScript consumer (v0.15 MCP
     // server) can round-trip large ints as strings due to 53-bit Number
     // precision, and hand-rolled payloads may encode ordinals as doubles.
     // Coerce to null rather than crashing the whole snapshot.
     // -----------------------------------------------------------------------
 
-    test('fromJson coerces non-int scaffoldHashKey / tabVisitIndex to null',
-        () {
-      final base = {
-        'severity': 'warning',
-        'category': 'build',
-        'confidence': 'possible',
-        'title': 'T',
-        'detail': 'D',
-        'fixHint': 'F',
-        'debugModeDisclaimer': false,
-      };
+    test(
+      'fromJson coerces non-int scaffoldHashKey / tabVisitIndex to null',
+      () {
+        final base = {
+          'severity': 'warning',
+          'category': 'build',
+          'confidence': 'possible',
+          'title': 'T',
+          'detail': 'D',
+          'fixHint': 'F',
+          'debugModeDisclaimer': false,
+        };
 
-      // Strings (e.g. from a JS consumer that stringified a large int).
-      final fromString = PerformanceIssue.fromJson({
-        ...base,
-        'scaffoldHashKey': '123456789',
-        'tabVisitIndex': '3',
-      });
-      expect(fromString.scaffoldHashKey, isNull);
-      expect(fromString.tabVisitIndex, isNull);
+        // Strings (e.g. from a JS consumer that stringified a large int).
+        final fromString = PerformanceIssue.fromJson({
+          ...base,
+          'scaffoldHashKey': '123456789',
+          'tabVisitIndex': '3',
+        });
+        expect(fromString.scaffoldHashKey, isNull);
+        expect(fromString.tabVisitIndex, isNull);
 
-      // Doubles (e.g. a hand-rolled payload with `3.0`).
-      final fromDouble = PerformanceIssue.fromJson({
-        ...base,
-        'scaffoldHashKey': 3.14,
-        'tabVisitIndex': 2.0,
-      });
-      expect(fromDouble.scaffoldHashKey, isNull);
-      expect(fromDouble.tabVisitIndex, isNull);
+        // Doubles (e.g. a hand-rolled payload with `3.0`).
+        final fromDouble = PerformanceIssue.fromJson({
+          ...base,
+          'scaffoldHashKey': 3.14,
+          'tabVisitIndex': 2.0,
+        });
+        expect(fromDouble.scaffoldHashKey, isNull);
+        expect(fromDouble.tabVisitIndex, isNull);
 
-      // Boolean, object — anything non-int falls to null.
-      final fromJunk = PerformanceIssue.fromJson({
-        ...base,
-        'scaffoldHashKey': true,
-        'tabVisitIndex': {'not': 'an int'},
-      });
-      expect(fromJunk.scaffoldHashKey, isNull);
-      expect(fromJunk.tabVisitIndex, isNull);
+        // Boolean, object — anything non-int falls to null.
+        final fromJunk = PerformanceIssue.fromJson({
+          ...base,
+          'scaffoldHashKey': true,
+          'tabVisitIndex': {'not': 'an int'},
+        });
+        expect(fromJunk.scaffoldHashKey, isNull);
+        expect(fromJunk.tabVisitIndex, isNull);
 
-      // Valid ints still parse correctly alongside the defensive path.
-      final valid = PerformanceIssue.fromJson({
-        ...base,
-        'scaffoldHashKey': 42,
-        'tabVisitIndex': 5,
-      });
-      expect(valid.scaffoldHashKey, 42);
-      expect(valid.tabVisitIndex, 5);
-    });
+        // Valid ints still parse correctly alongside the defensive path.
+        final valid = PerformanceIssue.fromJson({
+          ...base,
+          'scaffoldHashKey': 42,
+          'tabVisitIndex': 5,
+        });
+        expect(valid.scaffoldHashKey, 42);
+        expect(valid.tabVisitIndex, 5);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
-  // C3 regression: PerformanceIssue.routeName must stay RAW (no `(tab-N)`
+  // Regression: PerformanceIssue.routeName must stay RAW (no `(tab-N)`
   // suffix baked in). Display surfaces derive the disambiguated label via
   // routeDisplayName so group-by-route keys remain stable and a route
   // literally named '"/x (tab-2)"' stays distinguishable from a disambiguated
   // tab-2 of "/x".
   // ---------------------------------------------------------------------------
 
-  group('PerformanceIssue.routeDisplayName (C3)', () {
+  group('PerformanceIssue.routeDisplayName', () {
     PerformanceIssue make({String? routeName, int? tabVisitIndex}) =>
         PerformanceIssue(
           severity: IssueSeverity.warning,
@@ -2105,17 +2144,23 @@ void main() {
 
     test('tabVisitIndex 1 → bare routeName (no suffix on first visit)', () {
       expect(
-          make(routeName: '/home', tabVisitIndex: 1).routeDisplayName, '/home');
+        make(routeName: '/home', tabVisitIndex: 1).routeDisplayName,
+        '/home',
+      );
     });
 
     test('tabVisitIndex 2 → suffixed display name', () {
-      expect(make(routeName: '/home', tabVisitIndex: 2).routeDisplayName,
-          '/home (tab-2)');
+      expect(
+        make(routeName: '/home', tabVisitIndex: 2).routeDisplayName,
+        '/home (tab-2)',
+      );
     });
 
     test('tabVisitIndex 17 → suffixed with exact ordinal', () {
-      expect(make(routeName: '/foo', tabVisitIndex: 17).routeDisplayName,
-          '/foo (tab-17)');
+      expect(
+        make(routeName: '/foo', tabVisitIndex: 17).routeDisplayName,
+        '/foo (tab-17)',
+      );
     });
 
     test('raw routeName is NEVER overwritten — stays queryable by key', () {
@@ -2241,7 +2286,7 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      // v0.17.0 C1 upgrade-on-read: 2 → 5.
+      // v0.17.0 upgrade-on-read: 2 → 5.
       expect(snapshot.schemaVersion, 5);
       expect(snapshot.sessionSummary, isNull);
       expect(snapshot.currentIssues, hasLength(1));
@@ -2303,7 +2348,7 @@ void main() {
           'issues': [
             'rebuild_debug_SettingsPage',
             'opacity_zero',
-            'heavy_build'
+            'heavy_build',
           ],
         },
       ];
@@ -2329,7 +2374,7 @@ void main() {
       expect(json['routeSessions'], hasLength(2));
 
       final restored = SessionSnapshot.fromJson(json);
-      // v0.17.0 C1 upgrade-on-read: 4 → 5.
+      // v0.17.0 upgrade-on-read: 4 → 5.
       expect(restored.schemaVersion, 5);
       expect(restored.routeSessions, isNotNull);
       expect(restored.routeSessions, hasLength(2));

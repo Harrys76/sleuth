@@ -16,19 +16,32 @@ class IssueRankingContext {
   /// Null when no jank or when the latest frame is not janky.
   final PipelinePhase? suspectedPhase;
 
-  /// Consecutive scan-cycle count per stableId. Updated only from the scan path
-  /// to prevent VM-backed issues from inflating faster than structural ones.
+  /// Scan cycles, within the recurrence window (the last 60), in which each
+  /// stableId was present, for ids present in the latest cycle; the
+  /// controller caps it at 5. Updated only from the scan path to prevent
+  /// VM-backed issues from inflating faster than structural ones.
   final Map<String, int> recurrenceCounts;
 }
 
 /// Sorts [PerformanceIssue]s by a weighted composite score so that the most
 /// impactful issues appear first in the dashboard.
 ///
-/// Score formula: `(severity * 100) + (frameImpact * 8) + (confidence * 5) + (recurrence * 2)`
+/// Score formula: `(tier * 100) + (frameImpact * 8) + (recurrence * 2)`
 ///
-/// Severity weight 100 creates non-overlapping tiers (critical: 300-349,
-/// warning: 200-249, ok: 100-149), guaranteeing every critical outranks every
-/// warning regardless of other signals.
+/// The tier combines severity and confidence:
+///
+/// | severity | confirmed | likely | possible |
+/// |----------|-----------|--------|----------|
+/// | critical | 6         | 5      | 3        |
+/// | warning  | 4         | 2      | 1        |
+/// | ok       | 0         | 0      | 0        |
+///
+/// Resulting order: confirmed critical > likely critical > confirmed
+/// warning > possible critical > likely warning > possible warning > ok.
+/// A structural-only guess (possible) ranks below a warning that was
+/// observed at runtime (confirmed). The maximum bonus (frameImpact 24 +
+/// recurrence 10 = 34) stays below the 100-point tier gap, so bonuses
+/// order issues within a tier and never across tiers.
 class IssueRanker {
   const IssueRanker();
 
@@ -79,10 +92,12 @@ class IssueRanker {
       return a.index.compareTo(b.index);
     });
     return scored
-        .map((s) => s.issue.copyWith(
-              rankingScore: s.score,
-              rankingBreakdown: _breakdown(s.issue, context),
-            ))
+        .map(
+          (s) => s.issue.copyWith(
+            rankingScore: s.score,
+            rankingBreakdown: _breakdown(s.issue, context),
+          ),
+        )
         .toList();
   }
 
@@ -92,39 +107,52 @@ class IssueRanker {
 
   int _score(PerformanceIssue issue, IssueRankingContext context) {
     var recurrence = _recurrenceScore(
-        issue.stableId ?? issue.title, context.recurrenceCounts);
+      issue.stableId ?? issue.title,
+      context.recurrenceCounts,
+    );
     // Deprioritize transient-context issues
-    if (issue.interactionContext == InteractionContext.scrolling ||
-        issue.interactionContext == InteractionContext.appLifecycle) {
+    if (_isTransientContext(issue.interactionContext)) {
       recurrence = (recurrence * 0.7).round();
     }
-    return (_severityScore(issue.severity) * 100) +
+    return (_tier(issue.severity, issue.confidence) * 100) +
         (_frameImpactScore(issue.category, context) * 8) +
-        (_confidenceScore(issue.confidence) * 5) +
         (recurrence * 2);
   }
 
-  int _severityScore(IssueSeverity s) => switch (s) {
-        IssueSeverity.critical => 3,
-        IssueSeverity.warning => 2,
-        IssueSeverity.ok => 1,
-      };
+  /// Evidence tier from severity and confidence. See the class doc.
+  int _tier(IssueSeverity s, IssueConfidence c) => switch (s) {
+    IssueSeverity.critical => switch (c) {
+      IssueConfidence.confirmed => 6,
+      IssueConfidence.likely => 5,
+      IssueConfidence.possible => 3,
+    },
+    IssueSeverity.warning => switch (c) {
+      IssueConfidence.confirmed => 4,
+      IssueConfidence.likely => 2,
+      IssueConfidence.possible => 1,
+    },
+    IssueSeverity.ok => 0,
+  };
 
-  int _confidenceScore(IssueConfidence c) => switch (c) {
-        IssueConfidence.confirmed => 3,
-        IssueConfidence.likely => 2,
-        IssueConfidence.possible => 1,
-      };
+  /// Severity share of the tier score, reported as the `severity`
+  /// breakdown entry. The remainder is reported as `confidence`.
+  int _severityBase(IssueSeverity s) => switch (s) {
+    IssueSeverity.critical => 400,
+    IssueSeverity.warning => 200,
+    IssueSeverity.ok => 0,
+  };
 
   int _frameImpactScore(IssueCategory category, IssueRankingContext ctx) {
     if (!ctx.jankActive) return 0;
     final phase = ctx.suspectedPhase;
     if (phase == null || phase == PipelinePhase.unknown) return 1;
-    final isUiThread = phase == PipelinePhase.build ||
+    final isUiThread =
+        phase == PipelinePhase.build ||
         phase == PipelinePhase.layout ||
         phase == PipelinePhase.paint;
     final isRasterThread = phase == PipelinePhase.raster;
-    final matches = (isUiThread &&
+    final matches =
+        (isUiThread &&
             (category == IssueCategory.build ||
                 category == IssueCategory.layout ||
                 category == IssueCategory.paint)) ||
@@ -132,23 +160,34 @@ class IssueRanker {
     return matches ? 3 : 1;
   }
 
+  /// Scrolling, navigating, and app-lifecycle transitions produce
+  /// transient work; their recurrence counts for 70 %.
+  static bool _isTransientContext(InteractionContext? c) =>
+      c == InteractionContext.scrolling ||
+      c == InteractionContext.navigating ||
+      c == InteractionContext.appLifecycle;
+
   int _recurrenceScore(String id, Map<String, int> counts) {
     final count = counts[id] ?? 0;
     return count.clamp(0, 5);
   }
 
   Map<String, int> _breakdown(
-      PerformanceIssue issue, IssueRankingContext context) {
+    PerformanceIssue issue,
+    IssueRankingContext context,
+  ) {
     var recurrence = _recurrenceScore(
-        issue.stableId ?? issue.title, context.recurrenceCounts);
-    if (issue.interactionContext == InteractionContext.scrolling ||
-        issue.interactionContext == InteractionContext.appLifecycle) {
+      issue.stableId ?? issue.title,
+      context.recurrenceCounts,
+    );
+    if (_isTransientContext(issue.interactionContext)) {
       recurrence = (recurrence * 0.7).round();
     }
+    final base = _severityBase(issue.severity);
     return {
-      'severity': _severityScore(issue.severity) * 100,
+      'severity': base,
       'frameImpact': _frameImpactScore(issue.category, context) * 8,
-      'confidence': _confidenceScore(issue.confidence) * 5,
+      'confidence': _tier(issue.severity, issue.confidence) * 100 - base,
       'recurrence': recurrence * 2,
     };
   }

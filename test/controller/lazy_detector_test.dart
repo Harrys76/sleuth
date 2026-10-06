@@ -7,16 +7,13 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import '../helpers/benchmark_helpers.dart';
 
 void main() {
-  group('Detector lazy initialization (M6)', () {
+  group('Detector lazy initialization', () {
     testWidgets('only enabled detectors are constructed', (tester) async {
       await tester.pumpWidget(buildMixedTree(50));
 
       final controller = SleuthController(
         config: const SleuthConfig(
-          enabledDetectors: {
-            DetectorType.frameTiming,
-            DetectorType.rebuild,
-          },
+          enabledDetectors: {DetectorType.frameTiming, DetectorType.rebuild},
         ),
       );
       controller.initializeDetectorsForTest();
@@ -42,16 +39,15 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('enableDetector adds a non-typed detector at runtime',
-        (tester) async {
+    testWidgets('enableDetector adds a non-typed detector at runtime', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildMixedTree(50));
       final context = tester.element(find.byType(Directionality));
 
       final controller = SleuthController(
         config: const SleuthConfig(
-          enabledDetectors: {
-            DetectorType.frameTiming,
-          },
+          enabledDetectors: {DetectorType.frameTiming},
         ),
       );
       controller.initializeDetectorsForTest();
@@ -88,48 +84,51 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('typed detectors: enable/disable toggles flag without removal',
-        (tester) async {
-      await tester.pumpWidget(buildMixedTree(50));
+    testWidgets(
+      'typed detectors: enable/disable toggles flag without removal',
+      (tester) async {
+        await tester.pumpWidget(buildMixedTree(50));
 
-      final controller = SleuthController(
-        config: const SleuthConfig(
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final countBefore = controller.detectorCountForTest;
+        final controller = SleuthController(
+          config: const SleuthConfig(
+            enabledDetectors: {DetectorType.frameTiming},
+          ),
+        );
+        controller.initializeDetectorsForTest();
+        final countBefore = controller.detectorCountForTest;
 
-      // Disable frameTiming — count stays the same (still in list).
-      controller.disableDetector(DetectorType.frameTiming);
-      expect(controller.detectorCountForTest, countBefore);
+        // Disable frameTiming — count stays the same (still in list).
+        controller.disableDetector(DetectorType.frameTiming);
+        expect(controller.detectorCountForTest, countBefore);
 
-      // Re-enable.
-      controller.enableDetector(DetectorType.frameTiming);
-      expect(controller.detectorCountForTest, countBefore);
+        // Re-enable.
+        controller.enableDetector(DetectorType.frameTiming);
+        expect(controller.detectorCountForTest, countBefore);
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
     testWidgets(
-        'custom detectors always present regardless of enabledDetectors',
-        (tester) async {
-      await tester.pumpWidget(buildMixedTree(50));
+      'custom detectors always present regardless of enabledDetectors',
+      (tester) async {
+        await tester.pumpWidget(buildMixedTree(50));
 
-      final customDetector = _TestCustomDetector();
-      final controller = SleuthController(
-        config: SleuthConfig(
-          enabledDetectors: const {DetectorType.frameTiming},
-          customDetectors: [customDetector],
-        ),
-      );
-      controller.initializeDetectorsForTest();
+        final customDetector = _TestCustomDetector();
+        final controller = SleuthController(
+          config: SleuthConfig(
+            enabledDetectors: const {DetectorType.frameTiming},
+            customDetectors: [customDetector],
+          ),
+        );
+        controller.initializeDetectorsForTest();
 
-      // 6 typed + 0 factory + 1 custom = 7.
-      expect(controller.detectorCountForTest, 7);
+        // 6 typed + 0 factory + 1 custom = 7.
+        expect(controller.detectorCountForTest, 7);
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
     testWidgets('enableDetector is idempotent — no duplicates', (tester) async {
       await tester.pumpWidget(buildMixedTree(50));
@@ -152,18 +151,16 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('scan with partial detectors produces correct issues',
-        (tester) async {
+    testWidgets('scan with partial detectors produces correct issues', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildMixedTree(500));
       final context = tester.element(find.byType(Directionality));
 
       // Enable only rebuild (known to fire on buildMixedTree).
       final controller = SleuthController(
         config: const SleuthConfig(
-          enabledDetectors: {
-            DetectorType.frameTiming,
-            DetectorType.rebuild,
-          },
+          enabledDetectors: {DetectorType.frameTiming, DetectorType.rebuild},
         ),
       );
       controller.initializeDetectorsForTest();
@@ -191,12 +188,12 @@ void main() {
 
 class _TestCustomDetector extends BaseDetector {
   _TestCustomDetector()
-      : super(
-          type: DetectorType.custom,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Test Custom',
-          description: 'Test custom detector for M6',
-        );
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Test Custom',
+        description: 'Test custom detector for lazy initialization',
+      );
 
   bool _isEnabled = true;
 

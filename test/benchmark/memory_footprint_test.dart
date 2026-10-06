@@ -14,12 +14,14 @@ void main() {
 
       // Feed 200 frames — far exceeding capacity
       for (int i = 0; i < 200; i++) {
-        buffer.add(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 8),
-          rasterDuration: const Duration(milliseconds: 6),
-          timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
-        ));
+        buffer.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 8),
+            rasterDuration: const Duration(milliseconds: 6),
+            timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
+          ),
+        );
       }
 
       expect(buffer.length, 60);
@@ -31,24 +33,26 @@ void main() {
 
       // Feed 100 jank frames
       for (int i = 0; i < 100; i++) {
-        buffer.add(CaptureEntry(
-          frameStats: FrameStats(
-            frameNumber: i,
-            uiDuration: Duration(milliseconds: 20 + i),
-            rasterDuration: const Duration(milliseconds: 10),
-            timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
+        buffer.add(
+          CaptureEntry(
+            frameStats: FrameStats(
+              frameNumber: i,
+              uiDuration: Duration(milliseconds: 20 + i),
+              rasterDuration: const Duration(milliseconds: 10),
+              timestamp: DateTime(2026, 1, 1).add(Duration(seconds: i)),
+            ),
+            verdict: FrameVerdict(
+              frameNumber: i,
+              totalFrameTime: Duration(milliseconds: 30 + i),
+              uiThreadTime: Duration(milliseconds: 20 + i),
+              rasterThreadTime: const Duration(milliseconds: 10),
+              suspectedPhase: PipelinePhase.build,
+              reason: 'test',
+            ),
+            relatedIssues: const [],
+            capturedAt: DateTime(2026, 1, 1),
           ),
-          verdict: FrameVerdict(
-            frameNumber: i,
-            totalFrameTime: Duration(milliseconds: 30 + i),
-            uiThreadTime: Duration(milliseconds: 20 + i),
-            rasterThreadTime: const Duration(milliseconds: 10),
-            suspectedPhase: PipelinePhase.build,
-            reason: 'test',
-          ),
-          relatedIssues: const [],
-          capturedAt: DateTime(2026, 1, 1),
-        ));
+        );
       }
 
       expect(buffer.length, 50);
@@ -57,8 +61,9 @@ void main() {
   });
 
   group('aggregate issue bounds', () {
-    testWidgets('total issues across all detectors are bounded',
-        (tester) async {
+    testWidgets('total issues across all detectors are bounded', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildMixedTree(500));
       final context = tester.element(find.byType(Directionality));
 
@@ -85,8 +90,9 @@ void main() {
   });
 
   group('highlight bounds', () {
-    testWidgets('highlights per detector capped at maxHighlightsPerType',
-        (tester) async {
+    testWidgets('highlights per detector capped at maxHighlightsPerType', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildMixedTree(1000));
       final context = tester.element(find.byType(Directionality));
 

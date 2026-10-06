@@ -12,31 +12,42 @@ void main() {
       detector = GpuPressureDetector();
     });
 
-    testWidgets('produces highlights with GPU detectorName for expensive nodes',
-        (tester) async {
-      await tester.pumpWidget(const _OpacityDeepTree());
-      detector.scanTree(tester.element(find.byType(Directionality)));
+    testWidgets(
+      'produces highlights with GPU detectorName for expensive nodes',
+      (tester) async {
+        await tester.pumpWidget(const _OpacityDeepTree());
+        detector.scanTree(tester.element(find.byType(Directionality)));
 
-      // Opacity with >5 descendants must produce highlights
-      expect(detector.highlights, isNotEmpty,
-          reason: 'RenderOpacity with deep subtree should produce highlights');
-      for (final h in detector.highlights) {
-        expect(h.detectorName, 'GPU');
-      }
-    });
+        // Opacity with >5 descendants must produce highlights
+        expect(
+          detector.highlights,
+          isNotEmpty,
+          reason: 'RenderOpacity with deep subtree should produce highlights',
+        );
+        for (final h in detector.highlights) {
+          expect(h.detectorName, 'GPU');
+        }
+      },
+    );
 
     testWidgets('highlights cleared on each scanTree', (tester) async {
       await tester.pumpWidget(const _OpacityDeepTree());
       detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.highlights, isNotEmpty,
-          reason: 'First scan should produce highlights');
+      expect(
+        detector.highlights,
+        isNotEmpty,
+        reason: 'First scan should produce highlights',
+      );
       final firstScanCount = detector.highlights.length;
 
       // Second scan clears and repopulates
       detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.highlights, isNotEmpty,
-          reason: 'Second scan should repopulate highlights');
+      expect(
+        detector.highlights,
+        isNotEmpty,
+        reason: 'Second scan should repopulate highlights',
+      );
       // Should be same count (repopulated, not accumulated)
       expect(detector.highlights.length, firstScanCount);
     });
@@ -59,34 +70,43 @@ void main() {
       await tester.pumpWidget(const _ShaderMaskDeepTree());
       detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.highlights, isNotEmpty,
-          reason:
-              'RenderShaderMask with deep subtree should produce highlights');
       expect(
-        detector.highlights
-            .any((h) => h.detail?.contains('RenderShaderMask') ?? false),
+        detector.highlights,
+        isNotEmpty,
+        reason: 'RenderShaderMask with deep subtree should produce highlights',
+      );
+      expect(
+        detector.highlights.any(
+          (h) => h.detail?.contains('RenderShaderMask') ?? false,
+        ),
         isTrue,
         reason: 'Should mention RenderShaderMask in detail',
       );
     });
 
-    testWidgets('detects ColorFiltered with deep subtree (v11.8)',
-        (tester) async {
+    testWidgets('detects ColorFiltered with deep subtree (v11.8)', (
+      tester,
+    ) async {
       await tester.pumpWidget(const _ColorFilteredDeepTree());
       detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.highlights, isNotEmpty,
-          reason: 'ColorFiltered with deep subtree should produce highlights');
       expect(
-        detector.highlights
-            .any((h) => h.detail?.contains('RenderColorFiltered') ?? false),
+        detector.highlights,
+        isNotEmpty,
+        reason: 'ColorFiltered with deep subtree should produce highlights',
+      );
+      expect(
+        detector.highlights.any(
+          (h) => h.detail?.contains('RenderColorFiltered') ?? false,
+        ),
         isTrue,
         reason: 'Should mention RenderColorFiltered in detail',
       );
     });
 
-    testWidgets('no highlights for ColorFiltered with shallow subtree',
-        (tester) async {
+    testWidgets('no highlights for ColorFiltered with shallow subtree', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
@@ -98,12 +118,16 @@ void main() {
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.highlights, isEmpty,
-          reason: 'Shallow subtree (<6) should not produce highlights');
+      expect(
+        detector.highlights,
+        isEmpty,
+        reason: 'Shallow subtree (<6) should not produce highlights',
+      );
     });
 
-    testWidgets('no highlights for simple tree without expensive nodes',
-        (tester) async {
+    testWidgets('no highlights for simple tree without expensive nodes', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
@@ -172,8 +196,10 @@ class _ColorFilteredDeepTree extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.ltr,
       child: ColorFiltered(
-        colorFilter:
-            const ColorFilter.mode(Color(0x80000000), BlendMode.srcATop),
+        colorFilter: const ColorFilter.mode(
+          Color(0x80000000),
+          BlendMode.srcATop,
+        ),
         child: Column(
           children: List.generate(
             10,

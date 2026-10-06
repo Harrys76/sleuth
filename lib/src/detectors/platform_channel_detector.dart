@@ -5,42 +5,85 @@ import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
+/// Per-window platform channel call stats. Durations are in
+/// microseconds and cover calls that completed in the window.
+typedef PlatformChannelWindowStats = ({
+  int callCount,
+  int maxCallDurationUs,
+  int p95CallDurationUs,
+  int callsOverThreshold,
+});
+
 /// Detects excessive platform channel calls.
 ///
 /// **VM-Only Detector** — monitors platform channel timeline events for >20 calls/sec.
+/// Requires the framework's `debugProfilePlatformChannels` flag; without
+/// it the timeline carries no platform-channel events. Opt in with
+/// `SleuthConfig(profilePlatformChannels: true)`, which sets the flag
+/// once the VM connects.
+///
+/// **Retention.** Windows are 1 s long. After an emission the issue is
+/// re-added for 3 cooldown windows (same identity, so a sustained overload
+/// records one trace event), then stays in [issues] until
+/// [emissionPersistence] has passed since the emission, so a short burst
+/// remains visible long enough to read. Another overload after the
+/// cooldown emits a fresh issue with a new identity.
 class PlatformChannelDetector extends BaseDetector
     with DetectorMetadataProvider {
   PlatformChannelDetector({
     this.callsPerSecThreshold = 20,
     this.durationThresholdUs = 8000,
+    this.emissionPersistence = const Duration(seconds: 10),
     DateTime Function()? clock,
     String? Function()? sourceRouteProvider,
-  })  : _clock = clock ?? DateTime.now,
-        _sourceRouteProvider = sourceRouteProvider ?? (() => null),
-        super(
-          type: DetectorType.platformChannel,
-          lifecycle: DetectorLifecycle.vmOnly,
-          name: 'Platform Channel',
-          description: 'Detects excessive platform channel calls (>20/sec)',
-        ) {
+    InteractionContext Function()? interactionContextProvider,
+  }) : _clock = clock ?? DateTime.now,
+       _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+       _interactionContextProvider = interactionContextProvider,
+       super(
+         type: DetectorType.platformChannel,
+         lifecycle: DetectorLifecycle.vmOnly,
+         name: 'Platform Channel',
+         description:
+             'Detects excessive platform channel calls (more than '
+             '20/sec). Opt in with '
+             'SleuthConfig(profilePlatformChannels: true)',
+       ) {
     _windowStart = _clock();
   }
 
   final int callsPerSecThreshold;
 
-  /// Cumulative duration threshold per window (microseconds). Default 8ms.
+  /// Slow-call annotation threshold (microseconds). Default 8 ms. Calls
+  /// longer than this are counted in `callsOverThreshold`; it never
+  /// triggers an issue on its own.
   final int durationThresholdUs;
+
+  /// How long an emitted issue stays in [issues], measured from the
+  /// emission with the injected clock. Applies once the 3-window cooldown
+  /// has drained; it never re-emits or changes the identity.
+  final Duration emissionPersistence;
+
   final DateTime Function() _clock;
   final String? Function() _sourceRouteProvider;
+
+  /// A window with more than this many times [callsPerSecThreshold]
+  /// calls is critical.
+  static const int criticalMultiplier = 2;
+
+  /// Reads the controller's interaction state at emission so a
+  /// cooldown-retained issue keeps the context it fired in.
+  final InteractionContext Function()? _interactionContextProvider;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
 
   int _recentCallCount = 0;
-  int _cumulativeDurationUs = 0;
+  final List<int> _callDurationsUs = [];
   final Map<String, int> _methodCounts = {};
   late DateTime _windowStart;
   int _cooldownCyclesRemaining = 0;
   PerformanceIssue? _lastEmittedIssue;
+  DateTime? _lastEmittedAt;
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -62,34 +105,69 @@ class PlatformChannelDetector extends BaseDetector
     if (windowDuration.inMilliseconds >= 1000) {
       _evaluateWindow();
       _recentCallCount = 0;
-      _cumulativeDurationUs = 0;
+      _callDurationsUs.clear();
       _methodCounts.clear();
       _windowStart = now;
     }
 
     _recentCallCount += data.platformChannelEvents.length;
+    for (final call in data.platformChannelCalls) {
+      _callDurationsUs.add(call.durationUs);
+    }
 
     for (final event in data.platformChannelEvents) {
       final json = event.json;
       if (json != null) {
-        _cumulativeDurationUs += (json['dur'] as int?) ?? 0;
         final method =
             (json['args'] as Map<String, dynamic>?)?['method'] as String? ??
-                json['name'] as String? ??
-                'unknown';
+            json['name'] as String? ??
+            'unknown';
         _methodCounts[method] = (_methodCounts[method] ?? 0) + 1;
       }
     }
   }
 
-  void _evaluateWindow() {
-    final frequencyExceeded = _recentCallCount > callsPerSecThreshold;
-    final durationExceeded = _cumulativeDurationUs > durationThresholdUs;
+  /// Longest completed call in the current window (µs); 0 when none.
+  int get maxCallDurationUs => _callDurationsUs.isEmpty
+      ? 0
+      : _callDurationsUs.reduce((a, b) => a > b ? a : b);
 
-    if (frequencyExceeded || durationExceeded) {
-      final wouldBeCritical = (frequencyExceeded &&
-              _recentCallCount > callsPerSecThreshold * 2) ||
-          (durationExceeded && _cumulativeDurationUs > durationThresholdUs * 2);
+  /// Nearest-rank 95th-percentile call duration in the current window
+  /// (µs); 0 when no call completed.
+  int get p95CallDurationUs {
+    if (_callDurationsUs.isEmpty) return 0;
+    final sorted = [..._callDurationsUs]..sort();
+    final rank = (sorted.length * 95 + 99) ~/ 100;
+    return sorted[rank - 1];
+  }
+
+  /// Completed calls in the current window longer than
+  /// [durationThresholdUs].
+  int get callsOverThreshold =>
+      _callDurationsUs.where((d) => d > durationThresholdUs).length;
+
+  /// Count of call begins in the current window.
+  int get windowCallCount => _recentCallCount;
+
+  /// Stats of the most recently evaluated 1 s window; null before the
+  /// first evaluation and after [reset].
+  PlatformChannelWindowStats? get lastWindowStats => _lastWindowStats;
+  PlatformChannelWindowStats? _lastWindowStats;
+
+  static String _ms(int us) =>
+      us % 1000 == 0 ? '${us ~/ 1000}' : (us / 1000).toStringAsFixed(1);
+
+  void _evaluateWindow() {
+    _lastWindowStats = (
+      callCount: _recentCallCount,
+      maxCallDurationUs: maxCallDurationUs,
+      p95CallDurationUs: p95CallDurationUs,
+      callsOverThreshold: callsOverThreshold,
+    );
+    // Emission is count-only; call durations annotate the issue.
+    if (_recentCallCount > callsPerSecThreshold) {
+      final wouldBeCritical =
+          _recentCallCount > callsPerSecThreshold * criticalMultiplier;
       // Cooldown semantics: suppress fresh emissions during the
       // 3-cycle drain after a fire so sustained overload collapses
       // to a single trace record per cooldown window (composite-key
@@ -108,8 +186,9 @@ class PlatformChannelDetector extends BaseDetector
       // 3 cycles. Same-severity sustained overloads stay suppressed.
       if (_cooldownCyclesRemaining > 0) {
         final retainedSeverity = _lastEmittedIssue?.severity;
-        final currentSeverity =
-            wouldBeCritical ? IssueSeverity.critical : IssueSeverity.warning;
+        final currentSeverity = wouldBeCritical
+            ? IssueSeverity.critical
+            : IssueSeverity.warning;
         if (retainedSeverity == currentSeverity) {
           _cooldownCyclesRemaining--;
           _issues.clear();
@@ -120,30 +199,38 @@ class PlatformChannelDetector extends BaseDetector
         // a new identity. Cooldown is reset to 3 below.
       }
       _cooldownCyclesRemaining = 3;
-      final durationMs = _cumulativeDurationUs / 1000;
+      _lastEmittedAt = _clock();
+      final maxUs = _lastWindowStats!.maxCallDurationUs;
+      final p95Us = _lastWindowStats!.p95CallDurationUs;
+      final overCount = _lastWindowStats!.callsOverThreshold;
+      final timing = _callDurationsUs.isEmpty
+          ? 'no call durations observed'
+          : 'max call ${_ms(maxUs)} ms, p95 ${_ms(p95Us)} ms, '
+                '$overCount ${overCount == 1 ? 'call' : 'calls'} over '
+                '${_ms(durationThresholdUs)} ms';
       final topMethods = _methodCounts.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
-      final methodSummary =
-          topMethods.take(3).map((e) => '${e.key}: ${e.value}×').join(', ');
+      final methodSummary = topMethods
+          .take(3)
+          .map((e) => '${e.key}: ${e.value} ${e.value == 1 ? 'call' : 'calls'}')
+          .join(', ');
 
       final topMethod = topMethods.isNotEmpty ? topMethods.first.key : null;
-      final (hint, effort) =
-          FixHintBuilder.platformChannelTraffic(topMethod: topMethod);
+      final (hint, effort) = FixHintBuilder.platformChannelTraffic(
+        topMethod: topMethod,
+      );
       _lastEmittedIssue = PerformanceIssue(
         stableId: 'platform_channel_traffic',
-        severity:
-            wouldBeCritical ? IssueSeverity.critical : IssueSeverity.warning,
+        severity: wouldBeCritical
+            ? IssueSeverity.critical
+            : IssueSeverity.warning,
         category: IssueCategory.channel,
         confidence: IssueConfidence.confirmed,
-        title: durationExceeded && !frequencyExceeded
-            ? 'Slow Platform Channels: ${durationMs.toStringAsFixed(1)}ms total'
-            : 'High Platform Channel Traffic: $_recentCallCount calls/sec',
+        title: 'High Platform Channel Traffic: $_recentCallCount calls/sec',
         detail:
-            '$_recentCallCount calls (${durationMs.toStringAsFixed(1)}ms total) '
-            'in the last second.'
+            '$_recentCallCount calls in the last second ($timing).'
             '${methodSummary.isNotEmpty ? '\nTop methods: $methodSummary' : ''}'
-            '\nThresholds: $callsPerSecThreshold calls/sec, '
-            '${durationThresholdUs ~/ 1000}ms cumulative.',
+            '\nThreshold: $callsPerSecThreshold calls/sec.',
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
@@ -167,7 +254,9 @@ class PlatformChannelDetector extends BaseDetector
         // Stringified per Timeline arg-encoding contract.
         extraTraceArgs: {
           'observedCount': _recentCallCount.toString(),
-          'cumulativeDurationUs': _cumulativeDurationUs.toString(),
+          'maxCallDurationUs': maxUs.toString(),
+          'p95CallDurationUs': p95Us.toString(),
+          'callsOverThreshold': overCount.toString(),
         },
         confidenceReason:
             'Measured directly from VM timeline platform channel events',
@@ -176,6 +265,7 @@ class PlatformChannelDetector extends BaseDetector
         // navigated to during the 3-cycle cooldown window. See
         // [HeavyComputeDetector] persistence-contract doc.
         sourceRoute: _sourceRouteProvider(),
+        interactionContext: _interactionContextProvider?.call(),
       );
       _issues
         ..clear()
@@ -184,9 +274,18 @@ class PlatformChannelDetector extends BaseDetector
       _cooldownCyclesRemaining--;
       _issues.clear();
       if (_lastEmittedIssue != null) _issues.add(_lastEmittedIssue!);
+    } else if (_lastEmittedIssue != null &&
+        _lastEmittedAt != null &&
+        _clock().difference(_lastEmittedAt!) < emissionPersistence) {
+      // Cooldown drained but the issue is still inside its persistence
+      // window: keep showing it, unchanged.
+      _issues
+        ..clear()
+        ..add(_lastEmittedIssue!);
     } else {
       _issues.clear();
       _lastEmittedIssue = null;
+      _lastEmittedAt = null;
     }
   }
 
@@ -194,8 +293,10 @@ class PlatformChannelDetector extends BaseDetector
   void dispose() {
     _issues.clear();
     _methodCounts.clear();
+    _callDurationsUs.clear();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
+    _lastEmittedAt = null;
   }
 
   /// Clear all per-scenario state so the next scenario starts with a
@@ -214,105 +315,108 @@ class PlatformChannelDetector extends BaseDetector
   /// (under `retainTimeline: true`) cannot re-record stale issues.
   void reset() {
     _recentCallCount = 0;
-    _cumulativeDurationUs = 0;
+    _callDurationsUs.clear();
     _methodCounts.clear();
     _windowStart = _clock();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
+    _lastEmittedAt = null;
+    _lastWindowStats = null;
     _issues.clear();
   }
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.runtimeVerified,
-        rationale: 'VM-only detector. Both emission axes pinned by '
-            'hermetic reproducer feeding events through '
-            '`TimelineParser.parse()` into the detector: (a) >20/sec '
-            'frequency (strict, 2× critical at 41 calls; 40 calls held '
-            'at warning to pin critical-escalation inequality), and '
-            '(b) >8000µs cumulative per 1s window (strict, tested at '
-            '7998/8000/8001µs via sync `\'X\'` events with 3 calls — '
-            'isolates duration axis from frequency axis). Two '
-            'parser-accepted phase+name shapes covered: lowercase async '
-            '`\'b\'` with `Platform Channel send ` prefix (real '
-            '`debugProfilePlatformChannels` output via TimelineTask) and '
-            'sync `\'X\'` with `MethodChannel` name. Parser allowlist '
-            'accepts 9 shapes total (6 sync names + 3 async-prefix '
-            'casings); the 7 untested shapes (`PlatformChannel`, '
-            '`platformchannel`, `Platform_Channel`, `platform_channel`, '
-            '`methodchannel`, `Platform Channel Send ` prefix, `platform '
-            'channel send ` prefix) are implicitly uncovered at this '
-            'tier. Uppercase sync `\'B\'` '
-            'async-shaped events are silently dropped by the parser '
-            'and asserted non-emitting — the canonical format-boundary '
-            'trap for channel observers. The runtimeVerified tier is '
-            'backed by three on-device captures (iPhone 12 / iOS 17.5 '
-            '/ Flutter 3.41.x) that bracket the 20 calls/sec warning '
-            'threshold via `Sleuth.markScenarioBegin/End` + '
-            '`flushTimelineNow` driving synchronous emission inside '
-            'the scenario span. The capture screen sets '
-            '`debugProfilePlatformChannels = true` per leg (restored '
-            'in `finally`) so real `MethodChannel.invokeMethod` calls '
-            'flow through the `TimelineTask` lowercase async '
-            '`\'b\'`/`\'e\'` path the parser already accepts. '
-            'Captures recorded under v0.19.4 producer-side dedup '
-            '(stable per-window `dedupIdentityMicros` derived from '
-            '`_windowStart.microsecondsSinceEpoch`) so the strong '
-            'uniqueness invariant '
-            '(`requireUniqueDetectedAtMicros: true`) protects against '
-            'capture replay forgery. Frequency axis only; the '
-            '8 ms cumulative-duration axis remains reproducer-pinned '
-            '(no checked-in capture brackets it). The 2× critical '
-            'tier at 41 calls/sec also remains implicitly '
-            'reproducer-pinned in this metadata — '
-            '`DetectorMetadata` carries one `tier` per detector '
-            'instance, so this declaration covers '
-            '`platform_channel_traffic.warning` only; the '
-            'aboveCeilingMultiplier is set to 1.95 → above-band '
-            'ceiling 39 calls/sec, strictly under the 41-call '
-            'critical-escalation boundary so the above-leg cannot '
-            'ambiently bracket the critical tier.',
-        reproducerPath: 'test/validation/platform_channel_reproducer_test.dart',
-        profileCapturePaths: [
-          'test/validation/captures/platform_channel/'
-              'platform_channel_traffic_below.json',
-          'test/validation/captures/platform_channel/'
-              'platform_channel_traffic_at.json',
-          'test/validation/captures/platform_channel/'
-              'platform_channel_traffic_above.json',
-        ],
-        bracketThreshold: 20,
-        bracketUnit: 'events',
-        bracketStableId: 'platform_channel_traffic',
-        bracketSeverityLabel: 'warning',
-        // Default 1.1 atTolerance gives [20, 22] — too tight for
-        // iOS scheduling jitter on the platform-channel send path.
-        // Widened to 0.50 → at-band [20, 30]. Above-ceiling 1.95 →
-        // 39 calls/sec ceiling, strictly under the 41-call (>20×2)
-        // critical-escalation boundary so the above-leg cannot
-        // ambiently bracket the critical tier.
-        bracketAtTolerance: 0.50,
-        aboveCeilingMultiplier: 1.95,
-        coveredStableIds: {'platform_channel_traffic'},
-        coveredThresholds: {'platform_channel_traffic.warning'},
-        // Captures recorded under v0.19.4 producer-side dedup with
-        // stable per-window `dedupIdentityMicros`
-        // (`_windowStart.microsecondsSinceEpoch`). Opt into the
-        // strong uniqueness invariant so the audit gate rejects any
-        // future capture whose in-span trace records share a
-        // `detectedAtMicros` (forgery / replay protection).
-        bracketRequireUniqueDetectedAtMicros: true,
-        // Detector exports `_recentCallCount` into the trace event
-        // args via PerformanceIssue.extraTraceArgs. The audit gate
-        // cross-checks this against `expectedMagnitude.observed`
-        // (operator's send-side estimate) within ±25% so iOS
-        // coalescing can absorb measurement variance, but a
-        // mislabeled-leg capture (operator reports at-band rate while
-        // detector saw above-band count, or vice versa) is rejected.
-        // Backward compatible: pre-v0.19.5 captures recorded before
-        // the field was added skip the cross-check at the
-        // per-record-arg level (no arg, no check).
-        observedAxisArgKey: 'observedCount',
-        observedAxisTolerance: 0.25,
-      );
+    tier: EvidenceTier.runtimeVerified,
+    rationale:
+        'VM-only detector. The emission axis is the call count per 1s '
+        'window. A hermetic reproducer pins it by feeding events through '
+        '`TimelineParser.parse()` into the detector. It fires above 20/sec '
+        '(strict) and is critical at 2 times that, at 41 calls. 40 calls '
+        'stay at warning to pin the critical-escalation inequality. Call '
+        'duration is observational. Async `\'b\'`/`\'e\'` pairs matched by '
+        '`id` (and sync `\'X\'` events) yield per-call durations, stamped as '
+        '`maxCallDurationUs`, `p95CallDurationUs` and `callsOverThreshold` '
+        '(calls over 8 ms), but they never gate emission. The reproducer '
+        'covers two parser-accepted phase and name shapes: lowercase async '
+        '`\'b\'` with the `Platform Channel send ` prefix (real '
+        '`debugProfilePlatformChannels` output through TimelineTask) and '
+        'sync `\'X\'` with the `MethodChannel` name. The parser allowlist '
+        'accepts 9 shapes in total (6 sync names and 3 async-prefix '
+        'casings). The 7 untested shapes (`PlatformChannel`, '
+        '`platformchannel`, `Platform_Channel`, `platform_channel`, '
+        '`methodchannel`, `Platform Channel Send ` prefix, `platform '
+        'channel send ` prefix) are implicitly uncovered at this tier. The '
+        'parser silently drops uppercase sync `\'B\'` async-shaped events, '
+        'and the reproducer asserts that they do not emit. This is the '
+        'canonical format-boundary trap for channel observers. The '
+        'runtimeVerified tier rests on three on-device captures (iPhone 12, '
+        'iOS 17.5, Flutter 3.41.x) whose legs sit below, at and above the '
+        '20 calls/sec warning threshold. They use '
+        '`Sleuth.markScenarioBegin/End` and `flushTimelineNow` to drive '
+        'synchronous emission inside the scenario span. The capture screen '
+        'sets `debugProfilePlatformChannels = true` per leg (restored in '
+        '`finally`), so real `MethodChannel.invokeMethod` calls flow through '
+        'the `TimelineTask` lowercase async `\'b\'`/`\'e\'` path that the '
+        'parser already accepts. The captures were recorded under the '
+        'v0.19.4 producer-side dedup (a stable per-window '
+        '`dedupIdentityMicros` derived from '
+        '`_windowStart.microsecondsSinceEpoch`), so the strong uniqueness '
+        'invariant (`requireUniqueDetectedAtMicros: true`) protects against '
+        'capture replay forgery. The bracket is the count axis. Replaying '
+        'the captures through the parser shows nonzero per-call durations '
+        'on every leg, and the below leg stays silent. After the 3-window '
+        'cooldown the detector keeps the issue, without re-emitting, until '
+        '`emissionPersistence` (10 s) has passed since the emission, so '
+        'each leg still records exactly one trace event. The critical tier '
+        'at 2 times the threshold (41 calls/sec) also remains implicitly '
+        'reproducer-pinned in this metadata. `DetectorMetadata` carries one '
+        '`tier` per detector instance, so this declaration covers '
+        '`platform_channel_traffic.warning` only. The '
+        'aboveCeilingMultiplier is 1.95, which puts the above-band ceiling '
+        'at 39 calls/sec, under the 41-call critical-escalation boundary, '
+        'so the above leg cannot reach the critical tier by accident.',
+    reproducerPath: 'test/validation/platform_channel_reproducer_test.dart',
+    profileCapturePaths: [
+      'test/validation/captures/platform_channel/'
+          'platform_channel_traffic_below.json',
+      'test/validation/captures/platform_channel/'
+          'platform_channel_traffic_at.json',
+      'test/validation/captures/platform_channel/'
+          'platform_channel_traffic_above.json',
+    ],
+    bracketThreshold: 20,
+    bracketUnit: 'events',
+    bracketStableId: 'platform_channel_traffic',
+    bracketSeverityLabel: 'warning',
+    // Default 1.1 atTolerance gives [20, 22] — too tight for
+    // iOS scheduling jitter on the platform-channel send path.
+    // Widened to 0.50 → at-band [20, 30]. Above-ceiling 1.95 →
+    // 39 calls/sec ceiling, strictly under the 41-call (>20×2)
+    // critical-escalation boundary so the above-leg cannot
+    // ambiently bracket the critical tier.
+    bracketAtTolerance: 0.50,
+    aboveCeilingMultiplier: 1.95,
+    coveredStableIds: {'platform_channel_traffic'},
+    coveredThresholds: {'platform_channel_traffic.warning'},
+    // Captures recorded under v0.19.4 producer-side dedup with
+    // stable per-window `dedupIdentityMicros`
+    // (`_windowStart.microsecondsSinceEpoch`). Opt into the
+    // strong uniqueness invariant so the audit gate rejects any
+    // future capture whose in-span trace records share a
+    // `detectedAtMicros` (forgery / replay protection).
+    bracketRequireUniqueDetectedAtMicros: true,
+    // Detector exports `_recentCallCount` into the trace event
+    // args via PerformanceIssue.extraTraceArgs. The audit gate
+    // cross-checks this against `expectedMagnitude.observed`
+    // (operator's send-side estimate) within ±25% so iOS
+    // coalescing can absorb measurement variance, but a
+    // mislabeled-leg capture (operator reports at-band rate while
+    // detector saw above-band count, or vice versa) is rejected.
+    // Backward compatible: pre-v0.19.5 captures recorded before
+    // the field was added skip the cross-check at the
+    // per-record-arg level (no arg, no check).
+    observedAxisArgKey: 'observedCount',
+    observedAxisTolerance: 0.25,
+  );
 }

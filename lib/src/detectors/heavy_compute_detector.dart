@@ -10,7 +10,10 @@ import '../vm/timeline_parser.dart';
 
 /// Detects heavy computation blocking the UI thread.
 ///
-/// **VM-Only Detector** — monitors Dart isolate event gaps >8ms.
+/// **VM-Only Detector** — detects slow widget build passes (>8 ms warning,
+/// >16 ms critical at 60 Hz) from VM timeline BUILD-scope durations. With
+/// [autoThreshold], [updateFrameBudget] moves the warning threshold to half
+/// the resolved frame budget (critical stays 2x).
 ///
 /// ## Persistence contract
 ///
@@ -34,19 +37,50 @@ import '../vm/timeline_parser.dart';
 class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   HeavyComputeDetector({
     this.lagThresholdMs = 8,
+    this.autoThreshold = false,
     this.emissionPersistence = const Duration(seconds: 10),
     String? Function()? sourceRouteProvider,
+    InteractionContext Function()? interactionContextProvider,
     @visibleForTesting Stopwatch? testStopwatch,
-  })  : _sourceRouteProvider = sourceRouteProvider ?? (() => null),
-        _emissionStopwatch = testStopwatch ?? Stopwatch(),
-        super(
-          type: DetectorType.heavyCompute,
-          lifecycle: DetectorLifecycle.vmOnly,
-          name: 'Heavy Compute',
-          description: 'Detects UI thread blocking (>8ms gaps)',
-        );
+  }) : _lagThresholdUs = lagThresholdMs * 1000,
+       _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+       _interactionContextProvider = interactionContextProvider,
+       _emissionStopwatch = testStopwatch ?? Stopwatch(),
+       super(
+         type: DetectorType.heavyCompute,
+         lifecycle: DetectorLifecycle.vmOnly,
+         name: 'Heavy Compute',
+         description:
+             'Detects slow widget build passes (warning above 8 ms, '
+             'critical above 16 ms at 60 Hz, scaled to the measured frame '
+             'rate)',
+       );
 
+  /// Warning threshold in milliseconds (critical is 2x). Used as-is unless
+  /// [autoThreshold] is true and a frame budget has been applied.
   final int lagThresholdMs;
+
+  /// When true, [updateFrameBudget] sets the warning threshold to half the
+  /// resolved frame budget. When false, [lagThresholdMs] always applies.
+  final bool autoThreshold;
+
+  int _lagThresholdUs;
+
+  /// Warning threshold in effect, in microseconds.
+  int get effectiveLagThresholdUs => _lagThresholdUs;
+
+  /// Sets the warning threshold to half of [budgetUs] when [autoThreshold]
+  /// is true. Called by `SleuthController` when the resolved frame budget
+  /// changes.
+  void updateFrameBudget(int budgetUs) {
+    if (!autoThreshold || budgetUs <= 0) return;
+    _lagThresholdUs = budgetUs ~/ 2;
+  }
+
+  /// Restores the [lagThresholdMs] threshold.
+  void resetFrameBudget() {
+    _lagThresholdUs = lagThresholdMs * 1000;
+  }
 
   /// Wall-clock duration a previously-emitted `heavy_compute` issue
   /// persists before being cleared. Heavy compute is one-shot (a
@@ -59,6 +93,14 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   final Duration emissionPersistence;
 
   final String? Function() _sourceRouteProvider;
+
+  /// A build longer than this many times the threshold is critical.
+  static const int criticalMultiplier = 2;
+
+  /// Reads the controller's interaction state at emission so a retained
+  /// issue keeps the context it fired in (e.g. `navigating`) rather than
+  /// the context of a later aggregate.
+  final InteractionContext Function()? _interactionContextProvider;
   final Stopwatch _emissionStopwatch;
 
   final List<PerformanceIssue> _issues = [];
@@ -97,24 +139,45 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
 
+    // One issue per batch: the longest BUILD over threshold, with the
+    // count of others in the detail. Every emission shares the
+    // `heavy_compute` stable id, so one card per slow build would stack
+    // identical cards in the overlay.
     final fresh = <PerformanceIssue>[];
-    final buildPhaseEvents =
-        data.phaseEvents.where((e) => e.phase == TimelinePhase.build).toList();
+    final buildPhaseEvents = data.phaseEvents
+        .where((e) => e.phase == TimelinePhase.build)
+        .toList();
 
     if (buildPhaseEvents.isNotEmpty) {
+      PhaseEvent? worst;
+      var over = 0;
       for (final event in buildPhaseEvents) {
-        final ms = event.durationUs / 1000;
-        if (ms > lagThresholdMs) {
-          fresh.add(_createIssue(ms, event));
+        if (event.durationUs <= _lagThresholdUs) continue;
+        over++;
+        if (worst == null || event.durationUs > worst.durationUs) {
+          worst = event;
         }
+      }
+      if (worst != null) {
+        fresh.add(_createIssue(worst.durationUs, worst, batchCount: over));
       }
     } else {
       // Fallback: raw durations only (no phaseEvents available)
+      var worstUs = 0;
+      var over = 0;
       for (final durationUs in data.buildScopeDurations) {
-        final ms = durationUs / 1000;
-        if (ms > lagThresholdMs) {
-          fresh.add(_createGenericIssue(ms));
-        }
+        if (durationUs <= _lagThresholdUs) continue;
+        over++;
+        if (durationUs > worstUs) worstUs = durationUs;
+      }
+      if (over > 0) {
+        fresh.add(
+          _createGenericIssue(
+            worstUs,
+            batchCount: over,
+            batchMaxTimestampUs: data.maxTimestampUs,
+          ),
+        );
       }
     }
 
@@ -140,7 +203,12 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  PerformanceIssue _createIssue(double ms, PhaseEvent event) {
+  PerformanceIssue _createIssue(
+    int durationUs,
+    PhaseEvent event, {
+    int batchCount = 1,
+  }) {
+    final ms = durationUs / 1000;
     final dirtyWidgets = event.dirtyList;
     final enriched =
         event.hasEnrichment && dirtyWidgets != null && dirtyWidgets.isNotEmpty;
@@ -151,16 +219,16 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     );
     return PerformanceIssue(
       stableId: 'heavy_compute',
-      severity: ms > lagThresholdMs * 2
+      severity: durationUs > _lagThresholdUs * criticalMultiplier
           ? IssueSeverity.critical
           : IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.confirmed,
       title: enriched
           ? 'Heavy Build: ${ms.toStringAsFixed(1)}ms '
-              '(${_summarizeWidgets(dirtyWidgets)})'
+                '(${_summarizeWidgets(dirtyWidgets)})'
           : 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
-      detail: _buildDetail(ms, event),
+      detail: _buildDetail(ms, event) + _batchNote(batchCount),
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
@@ -185,38 +253,59 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
       sourceRoute: _sourceRouteProvider(),
+      interactionContext: _interactionContextProvider?.call(),
     );
   }
 
-  PerformanceIssue _createGenericIssue(double ms) {
+  /// Issue for a batch that carries build durations without timestamps.
+  /// The batch's newest event timestamp (when known) identifies it for
+  /// capture-mode dedup.
+  PerformanceIssue _createGenericIssue(
+    int durationUs, {
+    int batchCount = 1,
+    int batchMaxTimestampUs = -1,
+  }) {
+    final ms = durationUs / 1000;
     final (hint, effort) = FixHintBuilder.heavyCompute(durationMs: ms);
     return PerformanceIssue(
       stableId: 'heavy_compute',
-      severity: ms > lagThresholdMs * 2
+      severity: durationUs > _lagThresholdUs * criticalMultiplier
           ? IssueSeverity.critical
           : IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.confirmed,
       title: 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
-      detail: 'Long-running operation detected on UI thread '
-          '(${ms.toStringAsFixed(1)}ms). This blocks frame rendering.',
+      detail:
+          'A long-running operation ran on the UI thread '
+          '(${ms.toStringAsFixed(1)}ms). It blocks frame rendering.'
+          '${_batchNote(batchCount)}',
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
+      dedupIdentityMicros: batchMaxTimestampUs >= 0
+          ? batchMaxTimestampUs
+          : null,
       // Same observed-axis stamping as the enriched path so the audit
       // gate's cross-check applies to fallback emissions too.
       extraTraceArgs: {'observedDurationMs': ms.toString()},
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
       sourceRoute: _sourceRouteProvider(),
+      interactionContext: _interactionContextProvider?.call(),
     );
   }
 
+  /// Suffix naming the other over-threshold builds of the same batch.
+  static String _batchNote(int batchCount) => batchCount > 1
+      ? ' $batchCount builds exceeded the threshold in this batch. This '
+            'issue shows the longest.'
+      : '';
+
   String _buildDetail(double ms, PhaseEvent event) {
     final buf = StringBuffer(
-      'Long-running operation detected on UI thread '
-      '(${ms.toStringAsFixed(1)}ms). This blocks frame rendering.',
+      'A long-running operation ran on the UI thread '
+      '(${ms.toStringAsFixed(1)}ms). It blocks frame rendering.',
     );
     if (event.dirtyCount != null) {
       buf.write('\nDirty widget count: ${event.dirtyCount}.');
@@ -246,103 +335,105 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.runtimeVerified,
-        rationale: 'VM-only detector. Frame-blocking compute-gap threshold '
-            '(8 ms strict warning, 16 ms strict critical = 2×) pinned '
-            'by hermetic reproducer (`BUILD` events through '
-            '`TimelineParser.parse()` exercising all three emission '
-            'paths: enriched `_createIssue` with dirtyList, unenriched '
-            '`_createIssue` with `ts`, fallback `_createGenericIssue` '
-            'on raw `buildScopeDurations`). The runtimeVerified tier '
-            'is backed by SIX on-device captures (iPhone 12 / iOS '
-            '17.5 / Flutter 3.41.x): three bracketing the 8 ms warning '
-            'threshold (canonical bracket) and three bracketing the '
-            '16 ms critical threshold (additionalBrackets[0], v0.19.13 '
-            'tier-stack raise). All six captures use '
-            '`Sleuth.markScenarioBegin/End` + `flushTimelineNow` to '
-            'drive synchronous detector emission inside the scenario '
-            'span. Captures recorded under v0.18.2+ producer-side dedup '
-            '(stable per-BUILD `detectedAt` derived from '
-            '`event.timestampUs`) so the strong uniqueness invariant '
-            '(`requireUniqueDetectedAtMicros: true`) protects against '
-            'capture replay forgery on both brackets. Issue lifetime: '
-            'heavy_compute is one-shot per BUILD scope. Emitted issues '
-            'persist for `emissionPersistence` wall-clock duration '
-            '(default 10s, monotonic Stopwatch) so a one-shot compute '
-            'event stays observable past the tap-to-open delay on the '
-            'FloatingIssuesCard. Wall-clock semantics are independent '
-            'of VM poll cadence — iOS profile-mode batches arrive '
-            'multiple times per second. Fresh emissions reset the '
-            'persistence window and replace the stale issue '
-            'immediately. Persisted issues stamp `sourceRoute` at '
-            'emission so post-emission navigation does not reattribute '
-            'the issue via the controller aggregate stamp.',
-        reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
+    tier: EvidenceTier.runtimeVerified,
+    rationale:
+        'VM-only detector. A hermetic reproducer pins the frame-blocking '
+        'compute-gap threshold (warning above 8 ms, critical above 16 ms, '
+        'both strict, so critical is 2 times the warning). It feeds `BUILD` '
+        'events through `TimelineParser.parse()` and exercises all three '
+        'emission paths: the enriched `_createIssue` with dirtyList, the '
+        'unenriched `_createIssue` with `ts`, and the fallback '
+        '`_createGenericIssue` on raw `buildScopeDurations`. Six on-device '
+        'captures (iPhone 12, iOS 17.5, Flutter 3.41.x) support the '
+        'runtimeVerified tier. Three bracket the 8 ms warning threshold '
+        '(the canonical bracket) and three bracket the 16 ms critical '
+        'threshold (additionalBrackets[0], from the v0.19.13 tier-stack '
+        'raise). All six captures use `Sleuth.markScenarioBegin/End` and '
+        '`flushTimelineNow` to drive synchronous detector emission inside '
+        'the scenario span. They were recorded under the producer-side '
+        'dedup of v0.18.2 and later (a stable per-BUILD trace identity '
+        'taken from `event.timestampUs`), so the strong uniqueness '
+        'invariant (`requireUniqueDetectedAtMicros: true`) protects against '
+        'capture replay forgery on both brackets. The 8 ms and 16 ms '
+        'thresholds apply at the `fpsTarget` frame budget. When the '
+        'resolved budget is shorter (a faster display), the warning '
+        'threshold drops to half of it and critical stays at 2 times, '
+        'unless `heavyComputeGapMs` is set. Capture mode keeps the '
+        '`fpsTarget` budget. Each VM batch emits at most one issue, for the '
+        'longest BUILD over the threshold, and the detail gives the count '
+        'of other slow builds. Emitted issues persist for the '
+        '`emissionPersistence` wall-clock duration (default 10s, monotonic '
+        'Stopwatch), so a slow build that appears in a single batch stays '
+        'visible past the tap-to-open delay on the FloatingIssuesCard. '
+        'Wall-clock semantics do not depend on VM poll cadence. iOS '
+        'profile-mode batches arrive several times per second. A fresh '
+        'emission resets the persistence window and replaces the stale '
+        'issue at once. Persisted issues stamp `sourceRoute` at emission, '
+        'so navigation after the emission does not reattribute the issue '
+        'through the controller aggregate stamp.',
+    reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
+    profileCapturePaths: [
+      'test/validation/captures/heavy_compute/heavy_compute_below.json',
+      'test/validation/captures/heavy_compute/heavy_compute_at.json',
+      'test/validation/captures/heavy_compute/heavy_compute_above.json',
+    ],
+    bracketThreshold: 8,
+    bracketUnit: 'ms',
+    bracketStableId: 'heavy_compute',
+    bracketSeverityLabel: 'warning',
+    // Default 1.1 atTolerance gives [8, 8.8] band — too tight for
+    // iPhone CPU/thermal variance (±15-20% post-warmup). Widened
+    // to 0.50 → at-band [8, 12]. Above-ceiling 1.875 → 15 ms
+    // (clear of 16 ms critical so above-leg cannot ambiently
+    // bracket the critical tier).
+    bracketAtTolerance: 0.50,
+    aboveCeilingMultiplier: 1.875,
+    coveredStableIds: {'heavy_compute'},
+    coveredThresholds: {'heavy_compute.warning', 'heavy_compute.critical'},
+    // Captures recorded under v0.18.2+ producer-side dedup with a
+    // stable per-BUILD trace identity. Opt into the strong
+    // uniqueness invariant so the audit gate rejects any future
+    // capture whose in-span trace records share a
+    // `detectedAtMicros` (forgery / replay protection).
+    bracketRequireUniqueDetectedAtMicros: true,
+    // Detector stamps BUILD ms into `extraTraceArgs` (key
+    // `observedDurationMs`) so the audit gate cross-checks the
+    // operator-Stopwatch `expectedMagnitude.observed` against the
+    // detector-side measurement. Closes the certify-wrong-magnitude
+    // gap a magnitudeSourceEventName='' bypass would otherwise
+    // leave open. Backward-compatible: pre-arg captures lack the
+    // key and the cross-check is skipped per-record.
+    observedAxisArgKey: 'observedDurationMs',
+    // Critical-tier bracket. atTolerance 0.60 (vs warning's 0.50) is
+    // forward-compat re-record headroom, not retroactive band-fit:
+    // the committed at observation (23.703 ms) fits the 0.50 band
+    // [16, 24] too. The wider band gives the next operator a 1-2
+    // tap convergence window instead of 4-5 retries against a near-
+    // edge target. aboveCeilingMultiplier stays 1.875 → ceiling 30
+    // ms; above-band (25.7, 30] keeps positive width since at-upper
+    // 25.6 < ceiling 30.
+    additionalBrackets: [
+      BracketSpec(
+        stableId: 'heavy_compute',
+        severityLabel: 'critical',
+        threshold: 16,
+        unit: 'ms',
+        coveredThresholds: {'heavy_compute.critical'},
         profileCapturePaths: [
-          'test/validation/captures/heavy_compute/heavy_compute_below.json',
-          'test/validation/captures/heavy_compute/heavy_compute_at.json',
-          'test/validation/captures/heavy_compute/heavy_compute_above.json',
+          'test/validation/captures/heavy_compute/heavy_compute_critical_below.json',
+          'test/validation/captures/heavy_compute/heavy_compute_critical_at.json',
+          'test/validation/captures/heavy_compute/heavy_compute_critical_above.json',
         ],
-        bracketThreshold: 8,
-        bracketUnit: 'ms',
-        bracketStableId: 'heavy_compute',
-        bracketSeverityLabel: 'warning',
-        // Default 1.1 atTolerance gives [8, 8.8] band — too tight for
-        // iPhone CPU/thermal variance (±15-20% post-warmup). Widened
-        // to 0.50 → at-band [8, 12]. Above-ceiling 1.875 → 15 ms
-        // (clear of 16 ms critical so above-leg cannot ambiently
-        // bracket the critical tier).
-        bracketAtTolerance: 0.50,
+        atTolerance: 0.60,
         aboveCeilingMultiplier: 1.875,
-        coveredStableIds: {'heavy_compute'},
-        coveredThresholds: {
-          'heavy_compute.warning',
-          'heavy_compute.critical',
-        },
-        // Captures recorded under v0.18.2+ producer-side dedup with
-        // stable per-BUILD `detectedAt`. Opt into the strong
-        // uniqueness invariant so the audit gate rejects any future
-        // capture whose in-span trace records share a
-        // `detectedAtMicros` (forgery / replay protection).
-        bracketRequireUniqueDetectedAtMicros: true,
-        // Detector stamps BUILD ms into `extraTraceArgs` (key
-        // `observedDurationMs`) so the audit gate cross-checks the
-        // operator-Stopwatch `expectedMagnitude.observed` against the
-        // detector-side measurement. Closes the certify-wrong-magnitude
-        // gap a magnitudeSourceEventName='' bypass would otherwise
-        // leave open. Backward-compatible: pre-arg captures lack the
-        // key and the cross-check is skipped per-record.
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+        // Same observed-axis key as the canonical warning bracket.
+        // Cross-spec uniqueness tuple is (stableId, severityLabel,
+        // argKey) so this collides with neither: warning + critical
+        // share argKey but differ on severityLabel.
         observedAxisArgKey: 'observedDurationMs',
-        // Critical-tier bracket. atTolerance 0.60 (vs warning's 0.50) is
-        // forward-compat re-record headroom, not retroactive band-fit:
-        // the committed at observation (23.703 ms) fits the 0.50 band
-        // [16, 24] too. The wider band gives the next operator a 1-2
-        // tap convergence window instead of 4-5 retries against a near-
-        // edge target. aboveCeilingMultiplier stays 1.875 → ceiling 30
-        // ms; above-band (25.7, 30] keeps positive width since at-upper
-        // 25.6 < ceiling 30.
-        additionalBrackets: [
-          BracketSpec(
-            stableId: 'heavy_compute',
-            severityLabel: 'critical',
-            threshold: 16,
-            unit: 'ms',
-            coveredThresholds: {'heavy_compute.critical'},
-            profileCapturePaths: [
-              'test/validation/captures/heavy_compute/heavy_compute_critical_below.json',
-              'test/validation/captures/heavy_compute/heavy_compute_critical_at.json',
-              'test/validation/captures/heavy_compute/heavy_compute_critical_above.json',
-            ],
-            atTolerance: 0.60,
-            aboveCeilingMultiplier: 1.875,
-            requireUniqueDetectedAtMicros: true,
-            requireDetectorTraceRecord: true,
-            // Same observed-axis key as the canonical warning bracket.
-            // Cross-spec uniqueness tuple is (stableId, severityLabel,
-            // argKey) so this collides with neither: warning + critical
-            // share argKey but differ on severityLabel.
-            observedAxisArgKey: 'observedDurationMs',
-          ),
-        ],
-      );
+      ),
+    ],
+  );
 }

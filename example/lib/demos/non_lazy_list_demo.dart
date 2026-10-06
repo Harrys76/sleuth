@@ -4,8 +4,8 @@ import 'package:flutter/scheduler.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 2: Non-Lazy ListView
-// Triggers: ListView detector (>20 children)
+// Demo 3: Non-Lazy ListView
+// Triggers: ListView detector (more than 50 children by default)
 // ─────────────────────────────────────────
 
 /// Demonstrates the cost of building an entire list up-front versus using
@@ -47,13 +47,14 @@ class _NonLazyListDemoState extends State<NonLazyListDemo> {
     return DemoScaffold(
       title: 'Non-Lazy ListView',
       description:
-          '❌ BAD: SingleChildScrollView + Column with $_itemCount children — '
-          'every ListTile is constructed up front.\n'
-          '✅ FIX: Use ListView.builder + itemExtent so only visible items are '
-          'built, and the framework can short-circuit layout.\n\n'
-          '▶ Scroll the list and watch the "Built" counter. The bad path '
+          'Bad: A SingleChildScrollView holds a Column with $_itemCount '
+          'children, so every ListTile is built up front.\n'
+          'Fix: Use ListView.builder with itemExtent, so the list builds '
+          'only visible items and the framework can short-circuit '
+          'layout.\n\n'
+          'Scroll the list and watch the "Built" counter. The bad path '
           'builds all $_itemCount items immediately; the fixed path builds '
-          'only what fits on screen (usually ~10–15).',
+          'only what fits on screen (usually 10 to 15).',
       metricsBar: MetricsBar(
         chips: [
           ValueListenableBuilder<int>(

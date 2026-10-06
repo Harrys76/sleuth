@@ -8,12 +8,12 @@ import 'package:sleuth/src/models/widget_highlight.dart';
 /// Bare-minimum custom detector — no heuristics, just tracks enable state.
 class _KeyedDetector extends BaseDetector {
   _KeyedDetector({required super.key})
-      : super(
-          type: DetectorType.custom,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Keyed Test Detector',
-          description: 'Key gating test fixture',
-        );
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Keyed Test Detector',
+        description: 'Key gating test fixture',
+      );
 
   final List<PerformanceIssue> _issues = [];
   bool _enabled = true;
@@ -34,8 +34,9 @@ class _KeyedDetector extends BaseDetector {
   void dispose() => _issues.clear();
 }
 
-/// Builds a controller and forces detector initialization so the M6 gating
-/// logic in `_initializeDetectors` runs without requiring a live VM client.
+/// Builds a controller and forces detector initialization so the custom
+/// detector key gating in `_initializeDetectors` runs without requiring a
+/// live VM client.
 SleuthController _makeController({
   required List<BaseDetector> customDetectors,
   required Set<String> disabledCustomDetectorKeys,
@@ -52,7 +53,7 @@ SleuthController _makeController({
 }
 
 void main() {
-  group('Custom detector key gating (M6)', () {
+  group('Custom detector key gating', () {
     test('non-null key NOT in disabled set — enabled', () {
       final detector = _KeyedDetector(key: 'my_rule');
       final controller = _makeController(

@@ -70,9 +70,7 @@ void main() {
     test('adapter with null patterns returns user patterns only', () {
       final result = mergedExcludePatterns(
         userPatterns: ['my-domain.com'],
-        aiChat: AiChatAdapter(
-          sendMessage: (_) => Stream.value('token'),
-        ),
+        aiChat: AiChatAdapter(sendMessage: (_) => Stream.value('token')),
       );
       expect(result, ['my-domain.com']);
     });

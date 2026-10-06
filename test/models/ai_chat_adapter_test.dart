@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/sleuth.dart' show AiProviderException;
 import 'package:sleuth/src/models/ai_chat_adapter.dart';
 
 void main() {
@@ -13,6 +14,18 @@ void main() {
       const msg = AiChatMessage(role: AiChatRole.assistant, text: 'Hi there');
       expect(msg.role, AiChatRole.assistant);
       expect(msg.text, 'Hi there');
+    });
+
+    test('is not stopped unless marked', () {
+      const msg = AiChatMessage(role: AiChatRole.assistant, text: 'Hi');
+      expect(msg.stopped, isFalse);
+      const stopped = AiChatMessage(
+        role: AiChatRole.assistant,
+        text: 'Ha',
+        stopped: true,
+      );
+      expect(stopped.text, 'Ha');
+      expect(stopped.stopped, isTrue);
     });
   });
 
@@ -93,11 +106,76 @@ void main() {
 
     test('.google() sets networkExcludePatterns', () {
       final adapter = AiChatAdapter.google(apiKey: 'AIza-test');
-      expect(
-        adapter.networkExcludePatterns,
-        ['generativelanguage.googleapis.com'],
-      );
+      expect(adapter.networkExcludePatterns, [
+        'generativelanguage.googleapis.com',
+      ]);
       expect(adapter.sendMessage, isNotNull);
     });
+  });
+
+  group('AiChatAdapter timeouts', () {
+    Stream<String> reply(AiChatRequest request) => Stream.value('ok');
+
+    test('default to 30 s for the first text and 15 s between texts', () {
+      expect(
+        AiChatAdapter.defaultFirstTokenTimeout,
+        const Duration(seconds: 30),
+      );
+      expect(AiChatAdapter.defaultStallTimeout, const Duration(seconds: 15));
+      final adapters = [
+        AiChatAdapter(sendMessage: reply),
+        AiChatAdapter.anthropic(apiKey: 'k'),
+        AiChatAdapter.openAi(apiKey: 'k'),
+        AiChatAdapter.google(apiKey: 'k'),
+      ];
+      for (final adapter in adapters) {
+        expect(adapter.firstTokenTimeout, const Duration(seconds: 30));
+        expect(adapter.stallTimeout, const Duration(seconds: 15));
+      }
+    });
+
+    test('are set, or turned off with null, on every constructor', () {
+      const first = Duration(minutes: 2);
+      const stall = Duration(seconds: 45);
+      final adapters = [
+        AiChatAdapter(
+          sendMessage: reply,
+          firstTokenTimeout: first,
+          stallTimeout: stall,
+        ),
+        AiChatAdapter.anthropic(
+          apiKey: 'k',
+          firstTokenTimeout: first,
+          stallTimeout: stall,
+        ),
+        AiChatAdapter.openAi(
+          apiKey: 'k',
+          firstTokenTimeout: first,
+          stallTimeout: stall,
+        ),
+        AiChatAdapter.google(
+          apiKey: 'k',
+          firstTokenTimeout: first,
+          stallTimeout: stall,
+        ),
+      ];
+      for (final adapter in adapters) {
+        expect(adapter.firstTokenTimeout, first);
+        expect(adapter.stallTimeout, stall);
+      }
+      final off = AiChatAdapter.openAi(
+        apiKey: 'k',
+        firstTokenTimeout: null,
+        stallTimeout: null,
+      );
+      expect(off.firstTokenTimeout, isNull);
+      expect(off.stallTimeout, isNull);
+    });
+  });
+
+  test('AiProviderException is public for custom adapters', () {
+    const error = AiProviderException('limit', statusCode: 429);
+    expect(error.statusCode, 429);
+    expect(error.toString(), 'AiProviderException (429): limit');
   });
 }

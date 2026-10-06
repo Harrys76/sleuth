@@ -1,9 +1,487 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart'
+    show Brightness, ColorScheme, DynamicSchemeVariant, ThemeData;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
+import '../helpers/contrast_helpers.dart';
+
+const _presets = <String, SleuthThemeData>{
+  'dark': SleuthThemeData(),
+  'light': SleuthThemeData.light(),
+  'highContrastDark': SleuthThemeData.highContrastDark(),
+  'highContrastLight': SleuthThemeData.highContrastLight(),
+};
+
+const _black = Color(0xFF000000);
+const _white = Color(0xFFFFFFFF);
+
+/// Opaque surfaces the overlay draws text on. The translucent card
+/// background is taken over a black and a white host.
+Map<String, Color> _surfaces(SleuthThemeData t) => {
+  'pageBackground': t.pageBackground,
+  'sectionBackground': t.sectionBackground,
+  'cardBackground/black': composite(t.cardBackground, _black),
+  'cardBackground/white': composite(t.cardBackground, _white),
+  'cardDefault': t.cardDefault,
+  'cardHighlighted': t.cardHighlighted,
+  'cardJankFlash': t.cardJankFlash,
+  'aboutBackground': t.aboutBackground,
+  'fixHintBackground': t.fixHintBackground,
+};
+
+/// Every (foreground, background) pair the overlay draws, with its minimum
+/// ratio: 4.5:1 for text, 3:1 for icons, strips and borders.
+List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
+  final surfaces = _surfaces(t);
+  final pairs = <(String, Color, Color, double)>[];
+  void add(String name, Color fg, Color bg, [double min = 4.5]) =>
+      pairs.add((name, fg, bg, min));
+
+  final texts = {
+    'textPrimary': t.textPrimary,
+    'textSecondary': t.textSecondary,
+    'textTertiary': t.textTertiary,
+    'textQuaternary': t.textQuaternary,
+    'severityCriticalText': t.severityCriticalText,
+    'severityWarningText': t.severityWarningText,
+    'severityOkText': t.severityOkText,
+  };
+  for (final text in texts.entries) {
+    for (final s in surfaces.entries) {
+      add('${text.key} on ${s.key}', text.value, s.value);
+    }
+  }
+  // Severity badges: severity text on the severity tint.
+  for (final severity in IssueSeverity.values) {
+    final accent = t.severityColor(severity);
+    final fg = t.badgeTextOn(accent, tinted: t.severityTextColor(severity));
+    for (final s in [
+      'cardDefault',
+      'cardHighlighted',
+      'cardBackground/black',
+    ]) {
+      add(
+        '${severity.name} badge on $s',
+        fg,
+        composite(t.badgeFill(accent), surfaces[s]!),
+      );
+    }
+  }
+  // Category, confidence, source, effort and effects badges.
+  final accents = {
+    for (final c in IssueCategory.values)
+      'category.${c.name}': t.categoryColor(c),
+    for (final c in IssueConfidence.values)
+      'confidence.${c.name}': t.confidenceColor(c),
+    for (final e in FixEffort.values) 'effort.${e.name}': t.effortColor(e),
+    'effectsBadge': t.effectsBadge,
+  };
+  for (final a in accents.entries) {
+    for (final s in [
+      'cardDefault',
+      'cardHighlighted',
+      'aboutBackground',
+      'fixHintBackground',
+    ]) {
+      add(
+        '${a.key} badge on $s',
+        t.badgeTextOn(a.value),
+        composite(t.badgeFill(a.value), surfaces[s]!),
+      );
+    }
+  }
+  add('badgeVm', t.badgeVmText, t.badgeVmBg);
+  add('badgeFrame', t.badgeFrameText, t.badgeFrameBg);
+  add('badgeDbg', t.badgeDbgText, t.badgeDbgBg);
+  add('bannerDebug', t.bannerDebugText, t.bannerDebugBg);
+  add(
+    'bannerInstrumentation',
+    t.bannerInstrumentationText,
+    t.bannerInstrumentationBg,
+  );
+  add('bannerSuccess', t.bannerSuccessText, t.bannerSuccessBg);
+  add('bannerWarning', t.bannerWarningText, t.bannerWarningBg);
+  add('fixHintText', t.fixHintText, t.fixHintBackground);
+  add('disclaimerText on cardDefault', t.disclaimerText, t.cardDefault);
+  add('disclaimerText on cardHighlighted', t.disclaimerText, t.cardHighlighted);
+  add('aiChatUserBubble', t.aiChatUserBubbleText, t.aiChatUserBubbleBg);
+  add(
+    'checkboxActive text on pageBackground',
+    t.checkboxActive,
+    t.pageBackground,
+  );
+  add(
+    'checkboxActive text on cardBackground',
+    t.checkboxActive,
+    surfaces['cardBackground/black']!,
+  );
+  add('checkboxActive on cardDefault', t.checkboxActive, t.cardDefault, 3);
+  add('trigger count', t.textPrimary, t.triggerBadgeBg);
+  // The trigger's FPS number and warm-up dash on their badge-coloured pill.
+  for (final fps in [60.0, 40.0, 10.0]) {
+    add('trigger FPS $fps', t.fpsTextColor(fps), t.triggerBadgeBg);
+  }
+  add('trigger FPS warm-up dash', t.textTertiary, t.triggerBadgeBg);
+  // The Ask AI link text on the card fills an expanded card can have.
+  for (final s in ['cardDefault', 'cardHighlighted', 'cardJankFlash']) {
+    add('Ask AI link on $s', t.textSecondary, surfaces[s]!);
+  }
+  // Non-text indicators: 3:1 against what they sit on.
+  for (final source in [...ObservationSource.values, null]) {
+    for (final s in [
+      'cardDefault',
+      'cardHighlighted',
+      'cardJankFlash',
+      'cardBackground/black',
+      'cardBackground/white',
+    ]) {
+      add(
+        'source accent ${source?.name ?? 'none'} on $s',
+        t.sourceAccentColor(source),
+        surfaces[s]!,
+        3,
+      );
+    }
+  }
+  add(
+    'checkbox check on checkboxActive',
+    SleuthThemeData.onColor(t.checkboxActive),
+    t.checkboxActive,
+    3,
+  );
+  for (final s in ['cardBackground/black', 'cardBackground/white']) {
+    for (final severity in IssueSeverity.values) {
+      add(
+        'selected ${severity.name} chip border on $s',
+        t.severityTextColor(severity),
+        surfaces[s]!,
+        3,
+      );
+    }
+    add(
+      'rebuild stats paused icon on $s',
+      t.textSecondary,
+      composite(t.categoryBuild.withValues(alpha: 0.1), surfaces[s]!),
+      3,
+    );
+  }
+  add('trigger icon on critical', t.triggerIconColor, t.severityCritical, 3);
+  add(
+    'trigger icon on warning',
+    t.triggerIconOnLightFill,
+    t.severityWarning,
+    3,
+  );
+  add('trigger icon on ok', t.triggerIconOnLightFill, t.severityOk, 3);
+  return pairs;
+}
+
+/// The pairs of [t] below their minimum, with the measured ratio.
+List<String> _failures(SleuthThemeData t) => [
+  for (final (name, fg, bg, min) in _pairs(t))
+    if (wcagContrast(fg, bg) < min)
+      '$name: ${wcagContrast(fg, bg).toStringAsFixed(2)} < $min',
+];
+
+/// Seeds whose fidelity and content schemes put the seed's own mid-tone
+/// colour in `primaryContainer`.
+const _vividSeeds = [
+  Color(0xFF6750A4),
+  Color(0xFFE91E63),
+  Color(0xFF4CAF50),
+  Color(0xFFFF9800),
+  Color(0xFF2196F3),
+  Color(0xFF795548),
+  Color(0xFF9C27B0),
+  Color(0xFF009688),
+  Color(0xFFFFEB3B),
+  Color(0xFFF44336),
+];
+
 void main() {
+  group('contrast', () {
+    test('helper agrees with the theme ratio', () {
+      expect(wcagContrast(_black, _white), closeTo(21, 0.01));
+      expect(
+        SleuthThemeData.contrastRatio(
+          const Color(0xFF374151),
+          const Color(0xFFE5E7EB),
+        ),
+        closeTo(
+          wcagContrast(const Color(0xFF374151), const Color(0xFFE5E7EB)),
+          1e-9,
+        ),
+      );
+    });
+
+    for (final preset in _presets.entries) {
+      test('${preset.key}: every drawn pair meets its minimum', () {
+        expect(_failures(preset.value), isEmpty);
+      });
+    }
+
+    for (final preset in _presets.entries) {
+      test('${preset.key}: the trigger badge colour is opaque', () {
+        expect(preset.value.triggerBadgeBg.a, 1);
+      });
+    }
+
+    const seeds = [
+      Color(0xFF6750A4),
+      Color(0xFF0B57D0),
+      Color(0xFF146C2E),
+      Color(0xFFB3261E),
+      Color(0xFFFFC107),
+      Color(0xFF00838F),
+    ];
+    for (final brightness in Brightness.values) {
+      test('fromSeed (${brightness.name}) every pair meets its minimum', () {
+        for (final seed in seeds) {
+          final t = SleuthThemeData.fromSeed(seed, brightness: brightness);
+          expect(_failures(t), isEmpty, reason: 'seed $seed');
+          // Never light text on a light surface or dark on dark.
+          final surfaceDark =
+              ThemeData.estimateBrightnessForColor(t.pageBackground) ==
+              Brightness.dark;
+          final textLight =
+              ThemeData.estimateBrightnessForColor(t.textPrimary) ==
+              Brightness.light;
+          expect(textLight, surfaceDark, reason: 'seed $seed');
+          expect(
+            t.brightness,
+            surfaceDark ? Brightness.dark : Brightness.light,
+          );
+          // Sleuth's semantic colours stay.
+          expect(t.severityCritical, const SleuthThemeData().severityCritical);
+          expect(t.categoryBuild, const SleuthThemeData().categoryBuild);
+        }
+      });
+    }
+
+    test('fromSeed keeps the scheme surfaces and text when they pass', () {
+      for (final seed in seeds) {
+        final scheme = ColorScheme.fromSeed(seedColor: seed);
+        final t = SleuthThemeData.fromColorScheme(scheme);
+        expect(t.pageBackground, scheme.surface, reason: 'seed $seed');
+        expect(t.cardDefault, scheme.surfaceContainerHighest);
+        expect(t.cardHighlighted, scheme.primaryContainer);
+        expect(t.textPrimary, scheme.onSurface);
+        expect(t.checkboxActive, scheme.primary);
+      }
+    });
+
+    for (final variant in [
+      DynamicSchemeVariant.fidelity,
+      DynamicSchemeVariant.content,
+    ]) {
+      for (final brightness in Brightness.values) {
+        test('fromColorScheme (${variant.name}, ${brightness.name}) every '
+            'pair meets its minimum', () {
+          for (final seed in _vividSeeds) {
+            final scheme = ColorScheme.fromSeed(
+              seedColor: seed,
+              brightness: brightness,
+              dynamicSchemeVariant: variant,
+            );
+            expect(
+              _failures(SleuthThemeData.fromColorScheme(scheme)),
+              isEmpty,
+              reason: 'seed $seed',
+            );
+          }
+        });
+      }
+    }
+
+    test('fromColorScheme replaces only the unreadable surface', () {
+      final scheme = ColorScheme.fromSeed(
+        seedColor: const Color(0xFF6750A4),
+        dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
+      );
+      final t = SleuthThemeData.fromColorScheme(scheme);
+      // The mid-tone primary container goes back to the preset's.
+      expect(t.cardHighlighted, const SleuthThemeData.light().cardHighlighted);
+      expect(t.pageBackground, scheme.surface);
+      expect(t.cardDefault, scheme.surfaceContainerHighest);
+      expect(t.textPrimary, scheme.onSurface);
+    });
+
+    test('fromColorScheme on mid-grey surfaces with black text falls back '
+        'surfaces and text together', () {
+      const grey = Color(0xFF777777);
+      final scheme = const ColorScheme.light().copyWith(
+        surface: grey,
+        surfaceContainerLowest: grey,
+        surfaceContainerLow: grey,
+        surfaceContainer: grey,
+        surfaceContainerHigh: grey,
+        surfaceContainerHighest: grey,
+        primaryContainer: grey,
+        secondaryContainer: grey,
+        tertiaryContainer: grey,
+        errorContainer: grey,
+        onSurface: _black,
+        onSurfaceVariant: _black,
+        outline: _black,
+      );
+      final t = SleuthThemeData.fromColorScheme(scheme);
+      expect(_failures(t), isEmpty);
+      expect(t.pageBackground, isNot(grey));
+      expect(t.cardDefault, isNot(grey));
+    });
+
+    test('fromColorScheme falls back an unreadable primary', () {
+      const yellow = Color(0xFFFFEB3B);
+      final scheme = const ColorScheme.light().copyWith(
+        primary: yellow,
+        onPrimary: _white,
+      );
+      final t = SleuthThemeData.fromColorScheme(scheme);
+      expect(_failures(t), isEmpty);
+      const light = SleuthThemeData.light();
+      expect(t.checkboxActive, light.checkboxActive);
+      expect(t.aiChatUserBubbleBg, light.aiChatUserBubbleBg);
+      expect(t.aiChatUserBubbleText, light.aiChatUserBubbleText);
+      // A step circle draws black or white by contrast on any fill.
+      expect(t.guideStepAccent, yellow);
+    });
+  });
+
+  group('presets', () {
+    test('theme token map covers every field', () {
+      final src = File('lib/src/ui/sleuth_theme.dart').readAsStringSync();
+      final fields = RegExp(
+        r'^  final (?:Color|double|Brightness) (\w+);',
+        multiLine: true,
+      ).allMatches(src).map((m) => m.group(1)).toSet();
+      expect(themeTokens(const SleuthThemeData()).keys.toSet(), fields);
+    });
+
+    test('brightness matches each preset', () {
+      expect(const SleuthThemeData().brightness, Brightness.dark);
+      expect(const SleuthThemeData.light().brightness, Brightness.light);
+      expect(
+        const SleuthThemeData.highContrastDark().brightness,
+        Brightness.dark,
+      );
+      expect(
+        const SleuthThemeData.highContrastLight().brightness,
+        Brightness.light,
+      );
+    });
+
+    Set<String> diff(SleuthThemeData a, SleuthThemeData b) {
+      final ta = themeTokens(a);
+      final tb = themeTokens(b);
+      return {
+        for (final k in ta.keys)
+          if (ta[k] != tb[k]) k,
+      };
+    }
+
+    const hcTokens = {
+      'textTertiary',
+      'textQuaternary',
+      'border',
+      'badgeFillAlpha',
+      'focusRingWidth',
+      'sourceAccentWidth',
+      'sourceStructural',
+      'sourceNone',
+    };
+
+    test('highContrastDark differs from dark only on the listed tokens', () {
+      expect(
+        diff(const SleuthThemeData.highContrastDark(), const SleuthThemeData()),
+        hcTokens,
+      );
+    });
+
+    test('highContrastLight differs from light only on the listed tokens', () {
+      expect(
+        diff(
+          const SleuthThemeData.highContrastLight(),
+          const SleuthThemeData.light(),
+        ),
+        hcTokens,
+      );
+    });
+
+    test('high-contrast text collapses to secondary, fills are opaque', () {
+      for (final t in [
+        const SleuthThemeData.highContrastDark(),
+        const SleuthThemeData.highContrastLight(),
+      ]) {
+        expect(t.textTertiary, t.textSecondary);
+        expect(t.textQuaternary, t.textSecondary);
+        expect(t.badgeFillAlpha, 1);
+        expect(t.focusRingWidth, 2);
+      }
+    });
+
+    test('const presets are canonical instances', () {
+      expect(
+        identical(
+          const SleuthThemeData.highContrastDark(),
+          const SleuthThemeData.highContrastDark(),
+        ),
+        isTrue,
+      );
+      expect(
+        identical(
+          const SleuthThemeData.highContrastLight(),
+          const SleuthThemeData.highContrastLight(),
+        ),
+        isTrue,
+      );
+    });
+
+    test('copyWith round-trips every new field', () {
+      final t = const SleuthThemeData().copyWith(
+        brightness: Brightness.light,
+        severityCriticalText: const Color(0xFF010101),
+        severityWarningText: const Color(0xFF020202),
+        severityOkText: const Color(0xFF030303),
+        badgeFillAlpha: 0.5,
+        focusRingWidth: 3,
+        sourceAccentWidth: 7,
+        triggerIconOnLightFill: const Color(0xFF040404),
+      );
+      expect(t.brightness, Brightness.light);
+      expect(t.severityCriticalText, const Color(0xFF010101));
+      expect(t.severityWarningText, const Color(0xFF020202));
+      expect(t.severityOkText, const Color(0xFF030303));
+      expect(t.badgeFillAlpha, 0.5);
+      expect(t.focusRingWidth, 3);
+      expect(t.sourceAccentWidth, 7);
+      expect(t.triggerIconOnLightFill, const Color(0xFF040404));
+      // Unset fields keep their value.
+      expect(
+        themeTokens(const SleuthThemeData.light().copyWith()),
+        themeTokens(const SleuthThemeData.light()),
+      );
+    });
+
+    test('badgeTextOn picks black or white on opaque fills', () {
+      const hc = SleuthThemeData.highContrastDark();
+      expect(hc.badgeTextOn(const Color(0xFFF59E0B)), _black);
+      expect(hc.badgeTextOn(const Color(0xFF1E3A5F)), _white);
+      const base = SleuthThemeData();
+      expect(base.badgeTextOn(const Color(0xFFF59E0B)), base.textPrimary);
+      expect(
+        base.badgeTextOn(
+          const Color(0xFFF59E0B),
+          tinted: base.severityWarningText,
+        ),
+        base.severityWarningText,
+      );
+    });
+  });
+
   group('SleuthThemeData', () {
     test('dark defaults match documented hex values', () {
       const t = SleuthThemeData();
@@ -19,8 +497,8 @@ void main() {
       // Text hierarchy
       expect(t.textPrimary, const Color(0xFFFFFFFF));
       expect(t.textSecondary, const Color(0xFFD1D5DB));
-      expect(t.textTertiary, const Color(0xFF9CA3AF));
-      expect(t.textQuaternary, const Color(0xFF6B7280));
+      expect(t.textTertiary, const Color(0xFFB4BAC4));
+      expect(t.textQuaternary, const Color(0xFFA8AFBA));
       expect(t.textSubtle, const Color(0xFF4B5563));
       // Category
       expect(t.categoryBuild, const Color(0xFF3B82F6));
@@ -131,7 +609,9 @@ void main() {
 
     test('returns correct color for all 3 levels', () {
       expect(
-          t.confidenceColor(IssueConfidence.confirmed), t.confidenceConfirmed);
+        t.confidenceColor(IssueConfidence.confirmed),
+        t.confidenceConfirmed,
+      );
       expect(t.confidenceColor(IssueConfidence.likely), t.confidenceLikely);
       expect(t.confidenceColor(IssueConfidence.possible), t.confidencePossible);
     });
@@ -141,14 +621,26 @@ void main() {
     const t = SleuthThemeData();
 
     test('returns correct color for all sources and null', () {
-      expect(t.sourceAccentColor(ObservationSource.vmTimeline),
-          t.sourceVmTimeline);
-      expect(t.sourceAccentColor(ObservationSource.debugCallback),
-          t.sourceDebugCallback);
-      expect(t.sourceAccentColor(ObservationSource.debugCallbackAndStructural),
-          t.sourceDebugCallback);
-      expect(t.sourceAccentColor(ObservationSource.structural),
-          t.sourceStructural);
+      expect(
+        t.sourceAccentColor(ObservationSource.vmTimeline),
+        t.sourceVmTimeline,
+      );
+      expect(
+        t.sourceAccentColor(ObservationSource.debugCallback),
+        t.sourceDebugCallback,
+      );
+      expect(
+        t.sourceAccentColor(ObservationSource.debugCallbackAndStructural),
+        t.sourceDebugCallback,
+      );
+      expect(
+        t.sourceAccentColor(ObservationSource.structural),
+        t.sourceStructural,
+      );
+      expect(
+        t.sourceAccentColor(ObservationSource.frameTiming),
+        t.sourceVmTimeline,
+      );
       expect(t.sourceAccentColor(null), t.sourceNone);
     });
   });
@@ -209,8 +701,9 @@ void main() {
       expect(captured.textPrimary, const Color(0xFFFFFFFF));
     });
 
-    testWidgets('of() returns provided theme when ancestor exists',
-        (tester) async {
+    testWidgets('of() returns provided theme when ancestor exists', (
+      tester,
+    ) async {
       late SleuthThemeData captured;
       const light = SleuthThemeData.light();
 

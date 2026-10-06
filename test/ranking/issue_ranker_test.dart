@@ -25,64 +25,181 @@ void main() {
   }
 
   group('IssueRanker', () {
-    group('severity dominance', () {
-      test('critical outranks warning regardless of other signals', () {
-        // Worst-case critical: possible confidence, no jank, no recurrence
+    group('transient interaction context', () {
+      const context = IssueRankingContext(recurrenceCounts: {'r': 5});
+      PerformanceIssue withContext(InteractionContext? c) => makeIssue(
+        stableId: 'r',
+        category: IssueCategory.font,
+      ).copyWith(interactionContext: c);
+
+      for (final c in [
+        InteractionContext.scrolling,
+        InteractionContext.navigating,
+        InteractionContext.appLifecycle,
+      ]) {
+        test('${c.name} weights recurrence 5 as (5 * 0.7).round() = 4', () {
+          final idle = ranker.scoreOf(
+            withContext(InteractionContext.idle),
+            context,
+          );
+          final transient = ranker.scoreOf(withContext(c), context);
+          expect(idle - transient, (5 - 4) * 2);
+          final ranked = ranker.rankWithScores([withContext(c)], context);
+          expect(ranked.single.rankingBreakdown!['recurrence'], 8);
+        });
+      }
+
+      test('idle, typing, and null keep full recurrence', () {
+        for (final c in [
+          null,
+          InteractionContext.idle,
+          InteractionContext.typing,
+        ]) {
+          final ranked = ranker.rankWithScores([withContext(c)], context);
+          expect(ranked.single.rankingBreakdown!['recurrence'], 10);
+        }
+      });
+    });
+
+    group('evidence tiers', () {
+      // Lower issue gets the maximum bonus (frameImpact 3, recurrence 5);
+      // higher issue gets none. The higher issue must still win.
+      final maxBonusContext = IssueRankingContext(
+        jankActive: true,
+        suspectedPhase: PipelinePhase.build,
+        recurrenceCounts: {'low': 5},
+      );
+
+      PerformanceIssue low(IssueSeverity s, IssueConfidence c) => makeIssue(
+        severity: s,
+        confidence: c,
+        category: IssueCategory.build,
+        stableId: 'low',
+      );
+
+      PerformanceIssue high(IssueSeverity s, IssueConfidence c) => makeIssue(
+        severity: s,
+        confidence: c,
+        category: IssueCategory.font,
+        stableId: 'high',
+      );
+
+      test('confirmed warning outranks possible critical', () {
+        // A structural-only critical guess ranks below a warning observed
+        // at runtime.
         final critical = makeIssue(
           severity: IssueSeverity.critical,
           confidence: IssueConfidence.possible,
           category: IssueCategory.font,
           stableId: 'critical_1',
         );
-
-        // Best-case warning: confirmed confidence, matching jank, max recurrence
         final warning = makeIssue(
           severity: IssueSeverity.warning,
           confidence: IssueConfidence.confirmed,
           category: IssueCategory.build,
           stableId: 'warning_1',
         );
-
         final context = IssueRankingContext(
           jankActive: true,
           suspectedPhase: PipelinePhase.build,
           recurrenceCounts: {'warning_1': 5},
         );
 
-        final result = ranker.rank([warning, critical], context);
-        expect(result.first.stableId, 'critical_1');
+        final result = ranker.rank([critical, warning], context);
+        expect(result.first.stableId, 'warning_1');
 
-        // Verify scores: critical minimum > warning maximum
-        final criticalScore = ranker.scoreOf(critical, context);
-        final warningScore = ranker.scoreOf(warning, context);
-        expect(criticalScore, greaterThan(warningScore));
-        // critical: 3*100 + 1*8 + 1*5 + 0*2 = 313
-        // warning: 2*100 + 3*8 + 3*5 + 5*2 = 249
-        expect(criticalScore, 313);
-        expect(warningScore, 249);
+        // critical/possible: 3*100 + 1*8 + 0*2 = 308
+        // warning/confirmed: 4*100 + 3*8 + 5*2 = 434
+        expect(ranker.scoreOf(critical, context), 308);
+        expect(ranker.scoreOf(warning, context), 434);
+
+        // Holds without bonuses on the warning too.
+        expect(
+          ranker
+              .rank([
+                high(IssueSeverity.critical, IssueConfidence.possible),
+                low(IssueSeverity.warning, IssueConfidence.confirmed),
+              ], const IssueRankingContext())
+              .first
+              .stableId,
+          'low',
+        );
       });
 
-      test('warning outranks ok regardless of other signals', () {
-        final warning = makeIssue(
-          severity: IssueSeverity.warning,
-          confidence: IssueConfidence.possible,
-          stableId: 'w',
-        );
-        final ok = makeIssue(
-          severity: IssueSeverity.ok,
-          confidence: IssueConfidence.confirmed,
-          category: IssueCategory.build,
-          stableId: 'o',
-        );
+      test('likely critical outranks confirmed warning', () {
+        final critical = high(IssueSeverity.critical, IssueConfidence.likely);
+        final warning = low(IssueSeverity.warning, IssueConfidence.confirmed);
 
-        final context = IssueRankingContext(
-          jankActive: true,
-          suspectedPhase: PipelinePhase.build,
-          recurrenceCounts: {'o': 5},
-        );
+        final result = ranker.rank([warning, critical], maxBonusContext);
+        expect(result.first.stableId, 'high');
+        // 5*100 + 1*8 = 508 vs 4*100 + 3*8 + 5*2 = 434
+        expect(ranker.scoreOf(critical, maxBonusContext), 508);
+        expect(ranker.scoreOf(warning, maxBonusContext), 434);
+      });
 
-        final result = ranker.rank([ok, warning], context);
-        expect(result.first.stableId, 'w');
+      test('possible critical outranks likely warning', () {
+        final critical = high(IssueSeverity.critical, IssueConfidence.possible);
+        final warning = low(IssueSeverity.warning, IssueConfidence.likely);
+
+        final result = ranker.rank([warning, critical], maxBonusContext);
+        expect(result.first.stableId, 'high');
+        // 3*100 + 1*8 = 308 vs 2*100 + 3*8 + 5*2 = 234
+        expect(ranker.scoreOf(critical, maxBonusContext), 308);
+        expect(ranker.scoreOf(warning, maxBonusContext), 234);
+      });
+
+      test('confirmed ok ranks below every warning', () {
+        final ok = low(IssueSeverity.ok, IssueConfidence.confirmed);
+        // 0*100 + 3*8 + 5*2 = 34
+        expect(ranker.scoreOf(ok, maxBonusContext), 34);
+
+        for (final c in IssueConfidence.values) {
+          final warning = high(IssueSeverity.warning, c);
+          final result = ranker.rank([ok, warning], maxBonusContext);
+          expect(result.first.stableId, 'high', reason: 'warning/$c');
+        }
+      });
+
+      test('max bonuses (frameImpact 3, recurrence 5) cannot lift an issue '
+          'past the next tier', () {
+        // Tier order, highest first. ok shares tier 0 across confidences.
+        const order = [
+          (IssueSeverity.critical, IssueConfidence.confirmed),
+          (IssueSeverity.critical, IssueConfidence.likely),
+          (IssueSeverity.warning, IssueConfidence.confirmed),
+          (IssueSeverity.critical, IssueConfidence.possible),
+          (IssueSeverity.warning, IssueConfidence.likely),
+          (IssueSeverity.warning, IssueConfidence.possible),
+          (IssueSeverity.ok, IssueConfidence.confirmed),
+        ];
+        const expectedBase = [600, 500, 400, 300, 200, 100, 0];
+
+        for (var i = 0; i < order.length; i++) {
+          final (s, c) = order[i];
+          expect(
+            ranker.scoreOf(high(s, c), const IssueRankingContext()),
+            expectedBase[i],
+            reason: '$s/$c base',
+          );
+        }
+
+        for (var i = 0; i < order.length - 1; i++) {
+          final (hs, hc) = order[i];
+          final (ls, lc) = order[i + 1];
+          final upper = high(hs, hc);
+          final lower = low(ls, lc);
+          final lowerScore = ranker.scoreOf(lower, maxBonusContext);
+          expect(lowerScore, expectedBase[i + 1] + 34);
+          expect(
+            ranker.scoreOf(upper, const IssueRankingContext()),
+            greaterThan(lowerScore),
+            reason: '$hs/$hc vs boosted $ls/$lc',
+          );
+          expect(
+            ranker.rank([lower, upper], maxBonusContext).first.stableId,
+            'high',
+          );
+        }
       });
     });
 
@@ -192,8 +309,8 @@ void main() {
           stableId: 'memory',
         );
         final score = ranker.scoreOf(memoryIssue, context);
-        // 2*100 + 1*8 + 1*5 + 0*2 = 213
-        expect(score, 213);
+        // warning/possible tier 1: 1*100 + 1*8 + 0*2 = 108
+        expect(score, 108);
       });
 
       test('paint is UI-thread: boosted with build/layout/paint phase', () {
@@ -269,7 +386,7 @@ void main() {
           final issue = makeIssue(category: cat);
           final score = ranker.scoreOf(issue, context);
           // frameImpact = 1 (partial), so +8
-          expect(score, 213, reason: '$cat should get partial boost');
+          expect(score, 108, reason: '$cat should get partial boost');
         }
       });
     });
@@ -307,18 +424,20 @@ void main() {
     });
 
     group('recurrence', () {
-      test('recurring issue outranks first-time at same severity+confidence',
-          () {
-        final recurring = makeIssue(stableId: 'recurring');
-        final fresh = makeIssue(stableId: 'fresh');
+      test(
+        'recurring issue outranks first-time at same severity+confidence',
+        () {
+          final recurring = makeIssue(stableId: 'recurring');
+          final fresh = makeIssue(stableId: 'fresh');
 
-        final context = IssueRankingContext(
-          recurrenceCounts: {'recurring': 3},
-        );
+          final context = IssueRankingContext(
+            recurrenceCounts: {'recurring': 3},
+          );
 
-        final result = ranker.rank([fresh, recurring], context);
-        expect(result.first.stableId, 'recurring');
-      });
+          final result = ranker.rank([fresh, recurring], context);
+          expect(result.first.stableId, 'recurring');
+        },
+      );
 
       test('recurrence capped at 5', () {
         final issue = makeIssue(stableId: 'high_recurrence');
@@ -329,32 +448,32 @@ void main() {
 
         final score = ranker.scoreOf(issue, context);
         // recurrence = min(100, 5) = 5, so +10
-        // 2*100 + 0*8 + 1*5 + 5*2 = 215
-        expect(score, 215);
+        // 1*100 + 0*8 + 5*2 = 110
+        expect(score, 110);
       });
     });
 
     group('composite ranking', () {
       test('realistic multi-issue sort matches expected order', () {
-        // Critical + confirmed + no jank = 300 + 0 + 15 + 0 = 315
+        // Critical + confirmed + no jank = 600
         final criticalConfirmed = makeIssue(
           severity: IssueSeverity.critical,
           confidence: IssueConfidence.confirmed,
           stableId: 'A',
         );
-        // Critical + possible + no jank = 300 + 0 + 5 + 0 = 305
+        // Critical + possible + no jank = 300
         final criticalPossible = makeIssue(
           severity: IssueSeverity.critical,
           confidence: IssueConfidence.possible,
           stableId: 'B',
         );
-        // Warning + confirmed + no jank = 200 + 0 + 15 + 0 = 215
+        // Warning + confirmed + no jank = 400
         final warningConfirmed = makeIssue(
           severity: IssueSeverity.warning,
           confidence: IssueConfidence.confirmed,
           stableId: 'C',
         );
-        // Warning + possible + no jank = 200 + 0 + 5 + 0 = 205
+        // Warning + possible + no jank = 100
         final warningPossible = makeIssue(
           severity: IssueSeverity.warning,
           confidence: IssueConfidence.possible,
@@ -362,20 +481,15 @@ void main() {
         );
 
         const context = IssueRankingContext();
-        final result = ranker.rank(
-          [
-            warningPossible,
-            criticalPossible,
-            warningConfirmed,
-            criticalConfirmed
-          ],
-          context,
-        );
+        final result = ranker.rank([
+          warningPossible,
+          criticalPossible,
+          warningConfirmed,
+          criticalConfirmed,
+        ], context);
 
-        expect(
-          result.map((i) => i.stableId).toList(),
-          ['A', 'B', 'C', 'D'],
-        );
+        // Confirmed warning C ranks above possible critical B.
+        expect(result.map((i) => i.stableId).toList(), ['A', 'C', 'B', 'D']);
       });
 
       test('stable sort: equal-score issues preserve input order', () {
@@ -387,10 +501,7 @@ void main() {
         const context = IssueRankingContext();
         final result = ranker.rank([a, b, c], context);
 
-        expect(
-          result.map((i) => i.stableId).toList(),
-          ['a', 'b', 'c'],
-        );
+        expect(result.map((i) => i.stableId).toList(), ['a', 'b', 'c']);
       });
 
       test('empty list returns empty', () {
@@ -411,13 +522,11 @@ void main() {
       test('issue with null stableId uses title for recurrence lookup', () {
         final issue = makeIssue(stableId: null, title: 'My Title');
 
-        final context = IssueRankingContext(
-          recurrenceCounts: {'My Title': 3},
-        );
+        final context = IssueRankingContext(recurrenceCounts: {'My Title': 3});
 
         final score = ranker.scoreOf(issue, context);
-        // 2*100 + 0 + 1*5 + 3*2 = 211
-        expect(score, 211);
+        // 1*100 + 0 + 3*2 = 106
+        expect(score, 106);
       });
 
       test('no suspectedPhase with jankActive gives partial boost to all', () {
@@ -437,8 +546,8 @@ void main() {
 
         expect(buildScore, paintScore);
         expect(paintScore, memoryScore);
-        // 2*100 + 1*8 + 1*5 + 0 = 213
-        expect(buildScore, 213);
+        // 1*100 + 1*8 + 0 = 108
+        expect(buildScore, 108);
       });
 
       test('PipelinePhase.unknown gives partial boost', () {
@@ -449,8 +558,8 @@ void main() {
 
         final issue = makeIssue(category: IssueCategory.build);
         final score = ranker.scoreOf(issue, context);
-        // frameImpact=1 (partial), so 2*100 + 1*8 + 1*5 + 0 = 213
-        expect(score, 213);
+        // frameImpact=1 (partial), so 1*100 + 1*8 + 0 = 108
+        expect(score, 108);
       });
     });
 
@@ -535,6 +644,33 @@ void main() {
         expect(sum, score);
       });
 
+      test('breakdown splits tier into severity base and confidence', () {
+        const context = IssueRankingContext();
+        Map<String, int> breakdownOf(IssueSeverity s, IssueConfidence c) =>
+            ranker
+                .rankWithScores([
+                  makeIssue(severity: s, confidence: c),
+                ], context)
+                .first
+                .rankingBreakdown!;
+
+        final cases = {
+          (IssueSeverity.critical, IssueConfidence.confirmed): (400, 200),
+          (IssueSeverity.critical, IssueConfidence.likely): (400, 100),
+          (IssueSeverity.critical, IssueConfidence.possible): (400, -100),
+          (IssueSeverity.warning, IssueConfidence.confirmed): (200, 200),
+          (IssueSeverity.warning, IssueConfidence.likely): (200, 0),
+          (IssueSeverity.warning, IssueConfidence.possible): (200, -100),
+          (IssueSeverity.ok, IssueConfidence.confirmed): (0, 0),
+          (IssueSeverity.ok, IssueConfidence.possible): (0, 0),
+        };
+        cases.forEach((key, value) {
+          final b = breakdownOf(key.$1, key.$2);
+          expect(b['severity'], value.$1, reason: '$key severity');
+          expect(b['confidence'], value.$2, reason: '$key confidence');
+        });
+      });
+
       test('empty list returns empty', () {
         const context = IssueRankingContext();
         final result = ranker.rankWithScores([], context);
@@ -549,7 +685,9 @@ void main() {
         expect(result, hasLength(1));
         expect(result.first.rankingScore, isNotNull);
         expect(
-            result.first.rankingScore, ranker.scoreOf(issues.first, context));
+          result.first.rankingScore,
+          ranker.scoreOf(issues.first, context),
+        );
       });
     });
   });

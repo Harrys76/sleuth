@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Brightness, ColorScheme, ThemeData;
 import 'package:flutter/widgets.dart';
 
 import '../models/performance_issue.dart';
@@ -35,6 +36,8 @@ import '../models/performance_issue.dart';
 /// ## Token groups
 ///
 /// - **Severity** (3): `severityCritical`, `severityWarning`, `severityOk`
+/// - **Severity text** (3): `severityCriticalText`, `severityWarningText`,
+///   `severityOkText`, severity-hued text readable on the card surfaces
 /// - **Category badges** (8): one per [IssueCategory] — `categoryBuild`, etc.
 /// - **Confidence** (3): `confidenceConfirmed`, `confidenceLikely`, `confidencePossible`
 /// - **Source accents** (4): left border on issue cards — `sourceVmTimeline`, etc.
@@ -45,9 +48,30 @@ import '../models/performance_issue.dart';
 /// - **Banner pairs** (8): bg + text for debug/instrumentation/success/warning
 /// - **Causal graph** (1): `effectsBadge` for downstream effects count
 /// - **Spacing** (6): `spacingXxs` through `spacingXl`
-/// - **Typography** (9): `fontXxs` (8) through `fontDisplay` (24)
+/// - **Typography** (9): `fontXxs` (10) through `fontDisplay` (24); 10 px
+///   is the smallest size the overlay draws
 /// - **Border radius** (7): `radiusSm` (4) through `radiusFull` (20)
-/// - **Special** (11): fix hint text, grip dots, guide accents, etc.
+/// - **Special** (12): fix hint text, grip dots, guide accents, etc.
+/// - **Accessibility** (4): `badgeFillAlpha`, `focusRingWidth`,
+///   `sourceAccentWidth`, `triggerIconOnLightFill`
+///
+/// ## Presets
+///
+/// - [SleuthThemeData.new] / [SleuthThemeData.dark] and
+///   [SleuthThemeData.light]: the default dark and light themes.
+/// - [SleuthThemeData.highContrastDark] and
+///   [SleuthThemeData.highContrastLight]: chosen automatically when the
+///   platform reports high contrast and no theme is set.
+/// - [SleuthThemeData.fromColorScheme] and [SleuthThemeData.fromSeed]:
+///   surfaces and text from a Material [ColorScheme]; severity, category,
+///   confidence and source colours stay Sleuth's.
+///
+/// Text tokens meet WCAG AA (4.5:1) on every surface token in all four
+/// presets, and the source accents keep 3:1 against the issue cards.
+/// Badges draw [textPrimary] on a [badgeFillAlpha] tint of their
+/// accent with a 1 px accent border; severity badges use the severity text
+/// tokens. With opaque fills (`badgeFillAlpha == 1`, the high-contrast
+/// presets) badge text is black or white, whichever contrasts more.
 ///
 /// ## Badge and banner pairs
 ///
@@ -70,12 +94,17 @@ class SleuthThemeData {
   /// independently overridable via [copyWith], so changing one does not
   /// affect the others.
   const SleuthThemeData({
+    this.brightness = Brightness.dark,
+
     // ── Severity (also used for FPS) ──
     // Note: severity palette overlaps with category/effort/confidence by
     // design — red/amber/green carries the same meaning everywhere.
     this.severityCritical = const Color(0xFFEF4444),
     this.severityWarning = const Color(0xFFF59E0B),
     this.severityOk = const Color(0xFF10B981),
+    this.severityCriticalText = const Color(0xFFFCA5A5),
+    this.severityWarningText = const Color(0xFFFCD34D),
+    this.severityOkText = const Color(0xFF6EE7B7),
 
     // ── Category badges ──
     this.categoryBuild = const Color(0xFF3B82F6),
@@ -93,11 +122,11 @@ class SleuthThemeData {
     this.confidenceLikely = const Color(0xFFF59E0B),
     this.confidencePossible = const Color(0xFF6B7280),
 
-    // ── Source accents (left border on issue cards) ──
+    // ── Source accents (left border on issue cards, 3:1 on the cards) ──
     this.sourceVmTimeline = const Color(0xFF10B981),
-    this.sourceDebugCallback = const Color(0xFF8B5CF6),
-    this.sourceStructural = const Color(0xFF6B7280),
-    this.sourceNone = const Color(0xFF4B5563),
+    this.sourceDebugCallback = const Color(0xFFA78BFA),
+    this.sourceStructural = const Color(0xFF9CA3AF),
+    this.sourceNone = const Color(0xFF8B93A0),
 
     // ── Fix effort ──
     this.effortQuick = const Color(0xFF10B981),
@@ -118,8 +147,8 @@ class SleuthThemeData {
     // ── Text hierarchy ──
     this.textPrimary = const Color(0xFFFFFFFF),
     this.textSecondary = const Color(0xFFD1D5DB),
-    this.textTertiary = const Color(0xFF9CA3AF),
-    this.textQuaternary = const Color(0xFF6B7280),
+    this.textTertiary = const Color(0xFFB4BAC4),
+    this.textQuaternary = const Color(0xFFA8AFBA),
     this.textSubtle = const Color(0xFF4B5563),
 
     // ── Badge pairs ──
@@ -149,7 +178,7 @@ class SleuthThemeData {
     this.dimOverlay = const Color(0x44000000),
     this.shadow = const Color(0xCC000000),
     this.gripDots = const Color(0xFF9CA3AF),
-    this.checkboxActive = const Color(0xFF3B82F6),
+    this.checkboxActive = const Color(0xFF60A5FA),
     this.triggerBadgeBg = const Color(0xFF1F2937),
     this.guideStepAccent = const Color(0xFF3B82F6),
     this.guideTipIcon = const Color(0xFFF59E0B),
@@ -157,8 +186,14 @@ class SleuthThemeData {
     this.highlightDot = const Color(0xFFFFFFFF),
     this.triggerIconColor = const Color(0xFFFFFFFF),
 
+    // ── Accessibility ──
+    this.badgeFillAlpha = 0.15,
+    this.focusRingWidth = 0,
+    this.sourceAccentWidth = 3,
+    this.triggerIconOnLightFill = const Color(0xFF111827),
+
     // ── AI Chat ──
-    this.aiChatUserBubbleBg = const Color(0xFF3B82F6),
+    this.aiChatUserBubbleBg = const Color(0xFF2563EB),
     this.aiChatUserBubbleText = const Color(0xFFFFFFFF),
 
     // ── AI Shimmer (Ask AI link gradient) ──
@@ -175,8 +210,8 @@ class SleuthThemeData {
     this.spacingXl = 16,
 
     // ── Typography scale ──
-    this.fontXxs = 8,
-    this.fontXs = 9,
+    this.fontXxs = 10,
+    this.fontXs = 10,
     this.fontSm = 10,
     this.fontMd = 11,
     this.fontBase = 12,
@@ -204,55 +239,296 @@ class SleuthThemeData {
   /// Light theme for light-background apps.
   ///
   /// Inverts surfaces (dark → white/light gray) and text (white → near-black)
-  /// while keeping all semantic accent colors (severity, category, confidence,
-  /// source, effort) identical. Badge and banner pairs are swapped
-  /// (dark bg + light text → light bg + dark text).
+  /// while keeping the severity, category, confidence and effort accents
+  /// identical. The source accents are deeper shades of the same hues, so
+  /// the strip keeps 3:1 against the light cards. Badge and banner pairs
+  /// are swapped (dark bg + light text → light bg + dark text).
   ///
-  /// Tokens not overridden here (e.g. [guideStepAccent], [guideTipIcon])
-  /// retain their dark-theme values because they are used on colored
-  /// backgrounds where the dark value provides correct contrast.
+  /// Tokens not overridden here keep their dark-theme values. Among them
+  /// [guideStepAccent] fills the guide's step circles, whose numbers are
+  /// black or white by contrast ([onColor]), and [guideTipIcon] colours
+  /// the guide's tip icons, which sit beside the tip text and carry no
+  /// meaning of their own.
   const SleuthThemeData.light()
-      : this(
-          // Surfaces
-          cardBackground: const Color(0xF5FFFFFF),
-          pageBackground: const Color(0xFFF9FAFB),
-          sectionBackground: const Color(0xFFF3F4F6),
-          aboutBackground: const Color(0xFFE5E7EB),
-          fixHintBackground: const Color(0xFFEFF6FF),
-          border: const Color(0xFFD1D5DB),
-          cardDefault: const Color(0xFFE5E7EB),
-          cardHighlighted: const Color(0xFFDBEAFE),
-          cardJankFlash: const Color(0xFFFEE2E2),
-          // Text (dark on light)
-          textPrimary: const Color(0xFF111827),
-          textSecondary: const Color(0xFF374151),
-          textTertiary: const Color(0xFF6B7280),
-          textQuaternary: const Color(0xFF9CA3AF),
-          textSubtle: const Color(0xFFD1D5DB),
-          // Badge pairs (inverted: light bg, dark text)
-          badgeVmBg: const Color(0xFFD1FAE5),
-          badgeVmText: const Color(0xFF065F46),
-          badgeFrameBg: const Color(0xFFDBEAFE),
-          badgeFrameText: const Color(0xFF1E3A5F),
-          badgeDbgBg: const Color(0xFFEDE9FE),
-          badgeDbgText: const Color(0xFF5B21B6),
-          // Banner pairs (inverted)
-          bannerDebugBg: const Color(0xFFFEF3C7),
-          bannerDebugText: const Color(0xFF92400E),
-          bannerInstrumentationBg: const Color(0xFFEDE9FE),
-          bannerInstrumentationText: const Color(0xFF5B21B6),
-          bannerSuccessBg: const Color(0xFFD1FAE5),
-          bannerSuccessText: const Color(0xFF065F46),
-          bannerWarningBg: const Color(0xFFFEF3C7),
-          bannerWarningText: const Color(0xFF78350F),
-          // Special (contrast-appropriate for light bg)
-          fixHintText: const Color(0xFF1D4ED8),
-          disclaimerText: const Color(0xFF92400E),
-          dimOverlay: const Color(0x22000000),
-          shadow: const Color(0x33000000),
-          gripDots: const Color(0xFF6B7280),
-          triggerBadgeBg: const Color(0xFFE5E7EB),
-        );
+    : this(
+        brightness: Brightness.light,
+        // Source accents (deeper, for the light cards)
+        sourceVmTimeline: const Color(0xFF047857),
+        sourceDebugCallback: const Color(0xFF7C3AED),
+        sourceStructural: const Color(0xFF6B7280),
+        sourceNone: const Color(0xFF4B5563),
+        // Surfaces
+        cardBackground: const Color(0xF5FFFFFF),
+        pageBackground: const Color(0xFFF9FAFB),
+        sectionBackground: const Color(0xFFF3F4F6),
+        aboutBackground: const Color(0xFFE5E7EB),
+        fixHintBackground: const Color(0xFFEFF6FF),
+        border: const Color(0xFFD1D5DB),
+        cardDefault: const Color(0xFFE5E7EB),
+        cardHighlighted: const Color(0xFFDBEAFE),
+        cardJankFlash: const Color(0xFFFEE2E2),
+        // Text (dark on light)
+        textPrimary: const Color(0xFF111827),
+        textSecondary: const Color(0xFF374151),
+        textTertiary: const Color(0xFF4B5563),
+        textQuaternary: const Color(0xFF5B6270),
+        textSubtle: const Color(0xFFD1D5DB),
+        // Severity text (deep tones for light surfaces)
+        severityCriticalText: const Color(0xFF991B1B),
+        severityWarningText: const Color(0xFF92400E),
+        severityOkText: const Color(0xFF065F46),
+        // Badge pairs (inverted: light bg, dark text)
+        badgeVmBg: const Color(0xFFD1FAE5),
+        badgeVmText: const Color(0xFF065F46),
+        badgeFrameBg: const Color(0xFFDBEAFE),
+        badgeFrameText: const Color(0xFF1E3A5F),
+        badgeDbgBg: const Color(0xFFEDE9FE),
+        badgeDbgText: const Color(0xFF5B21B6),
+        // Banner pairs (inverted)
+        bannerDebugBg: const Color(0xFFFEF3C7),
+        bannerDebugText: const Color(0xFF92400E),
+        bannerInstrumentationBg: const Color(0xFFEDE9FE),
+        bannerInstrumentationText: const Color(0xFF5B21B6),
+        bannerSuccessBg: const Color(0xFFD1FAE5),
+        bannerSuccessText: const Color(0xFF065F46),
+        bannerWarningBg: const Color(0xFFFEF3C7),
+        bannerWarningText: const Color(0xFF78350F),
+        // Special (contrast-appropriate for light bg)
+        fixHintText: const Color(0xFF1D4ED8),
+        disclaimerText: const Color(0xFF92400E),
+        dimOverlay: const Color(0x22000000),
+        shadow: const Color(0x33000000),
+        gripDots: const Color(0xFF6B7280),
+        checkboxActive: const Color(0xFF2563EB),
+        triggerBadgeBg: const Color(0xFFE5E7EB),
+      );
+
+  /// High-contrast dark theme.
+  ///
+  /// The dark theme with tertiary and quaternary text raised to
+  /// [textSecondary], stronger borders, opaque badge fills, a wider and
+  /// lighter structural / no-source accent, full-opacity state icons and
+  /// [focusRingWidth] 2. Chosen automatically when the
+  /// platform reports high contrast (`MediaQuery.highContrastOf`, iOS
+  /// Increase Contrast) in dark mode and no theme is set; pass it to
+  /// `Sleuth.updateTheme` on other platforms.
+  const SleuthThemeData.highContrastDark()
+    : this(
+        textTertiary: const Color(0xFFD1D5DB),
+        textQuaternary: const Color(0xFFD1D5DB),
+        border: const Color(0xFF9CA3AF),
+        sourceStructural: const Color(0xFFD1D5DB),
+        sourceNone: const Color(0xFF9CA3AF),
+        badgeFillAlpha: 1,
+        focusRingWidth: 2,
+        sourceAccentWidth: 5,
+      );
+
+  /// High-contrast light theme. See [SleuthThemeData.highContrastDark].
+  const SleuthThemeData.highContrastLight()
+    : this(
+        brightness: Brightness.light,
+        cardBackground: const Color(0xF5FFFFFF),
+        pageBackground: const Color(0xFFF9FAFB),
+        sectionBackground: const Color(0xFFF3F4F6),
+        aboutBackground: const Color(0xFFE5E7EB),
+        fixHintBackground: const Color(0xFFEFF6FF),
+        border: const Color(0xFF6B7280),
+        cardDefault: const Color(0xFFE5E7EB),
+        cardHighlighted: const Color(0xFFDBEAFE),
+        cardJankFlash: const Color(0xFFFEE2E2),
+        textPrimary: const Color(0xFF111827),
+        textSecondary: const Color(0xFF374151),
+        textTertiary: const Color(0xFF374151),
+        textQuaternary: const Color(0xFF374151),
+        textSubtle: const Color(0xFFD1D5DB),
+        severityCriticalText: const Color(0xFF991B1B),
+        severityWarningText: const Color(0xFF92400E),
+        severityOkText: const Color(0xFF065F46),
+        badgeVmBg: const Color(0xFFD1FAE5),
+        badgeVmText: const Color(0xFF065F46),
+        badgeFrameBg: const Color(0xFFDBEAFE),
+        badgeFrameText: const Color(0xFF1E3A5F),
+        badgeDbgBg: const Color(0xFFEDE9FE),
+        badgeDbgText: const Color(0xFF5B21B6),
+        bannerDebugBg: const Color(0xFFFEF3C7),
+        bannerDebugText: const Color(0xFF92400E),
+        bannerInstrumentationBg: const Color(0xFFEDE9FE),
+        bannerInstrumentationText: const Color(0xFF5B21B6),
+        bannerSuccessBg: const Color(0xFFD1FAE5),
+        bannerSuccessText: const Color(0xFF065F46),
+        bannerWarningBg: const Color(0xFFFEF3C7),
+        bannerWarningText: const Color(0xFF78350F),
+        fixHintText: const Color(0xFF1D4ED8),
+        disclaimerText: const Color(0xFF92400E),
+        dimOverlay: const Color(0x22000000),
+        shadow: const Color(0x33000000),
+        gripDots: const Color(0xFF6B7280),
+        checkboxActive: const Color(0xFF2563EB),
+        triggerBadgeBg: const Color(0xFFE5E7EB),
+        sourceVmTimeline: const Color(0xFF047857),
+        sourceDebugCallback: const Color(0xFF7C3AED),
+        sourceStructural: const Color(0xFF374151),
+        sourceNone: const Color(0xFF6B7280),
+        badgeFillAlpha: 1,
+        focusRingWidth: 2,
+        sourceAccentWidth: 5,
+      );
+
+  /// Maps a Material [ColorScheme] onto the overlay's surfaces and text.
+  ///
+  /// `surface` → [pageBackground], `surfaceContainer` → [cardBackground]
+  /// (alpha 0xF5), `surfaceContainerHigh` → [sectionBackground],
+  /// `surfaceContainerHighest` → [cardDefault], `onSurface` →
+  /// [textPrimary], `onSurfaceVariant` → [textSecondary] and
+  /// [textTertiary], `outline` → [textQuaternary], `outlineVariant` →
+  /// [border], `primary` → [checkboxActive], [guideStepAccent] and
+  /// [aiChatUserBubbleBg], `onPrimary` → [aiChatUserBubbleText],
+  /// `primaryContainer` → [cardHighlighted], `errorContainer` →
+  /// [cardJankFlash]. Every other token, including the severity, category,
+  /// confidence and source colours, comes from [SleuthThemeData.dark] or
+  /// [SleuthThemeData.light], whichever matches the brightness of
+  /// `scheme.surface` (which also sets [brightness]).
+  ///
+  /// Every pair the overlay draws on a surface is checked: text and
+  /// severity text at 4.5:1 (the translucent [cardBackground] over a black
+  /// and a white host), badges over their tint, the source accent strip at
+  /// 3:1. The text group (primary to quaternary) is tried in order: the
+  /// scheme's, the scheme's with `onSurfaceVariant` for [textQuaternary],
+  /// then the preset's. With each, a scheme surface that fails takes the
+  /// preset's value instead, and the group is kept only when every pair
+  /// then passes, so a surface and the text drawn on it fall back
+  /// together. The preset text always passes on the preset surfaces.
+  /// [checkboxActive] falls back to the preset's, then to [textPrimary];
+  /// the chat bubble pair falls back to the preset's when `onPrimary` on
+  /// `primary` is below 4.5:1.
+  ///
+  /// Build the theme once and pass the same instance to
+  /// `SleuthConfig.theme` or `Sleuth.updateTheme`: the overlay compares
+  /// themes by identity, so a new instance on every build rebuilds every
+  /// themed widget.
+  factory SleuthThemeData.fromColorScheme(ColorScheme scheme) {
+    final brightness = ThemeData.estimateBrightnessForColor(scheme.surface);
+    final base = brightness == Brightness.dark
+        ? const SleuthThemeData()
+        : const SleuthThemeData.light();
+    final textGroups = <List<Color>>[
+      [
+        scheme.onSurface,
+        scheme.onSurfaceVariant,
+        scheme.onSurfaceVariant,
+        scheme.outline,
+      ],
+      [
+        scheme.onSurface,
+        scheme.onSurfaceVariant,
+        scheme.onSurfaceVariant,
+        scheme.onSurfaceVariant,
+      ],
+      [
+        base.textPrimary,
+        base.textSecondary,
+        base.textTertiary,
+        base.textQuaternary,
+      ],
+    ];
+    for (final text in textGroups) {
+      final surfaces = <_SchemeSurface, Color>{
+        _SchemeSurface.page: scheme.surface,
+        _SchemeSurface.card: scheme.surfaceContainer.withAlpha(0xF5),
+        _SchemeSurface.section: scheme.surfaceContainerHigh,
+        _SchemeSurface.cardDefault: scheme.surfaceContainerHighest,
+        _SchemeSurface.highlighted: scheme.primaryContainer,
+        _SchemeSurface.jankFlash: scheme.errorContainer,
+      };
+      SleuthThemeData build() => base.copyWith(
+        brightness: brightness,
+        pageBackground: surfaces[_SchemeSurface.page],
+        cardBackground: surfaces[_SchemeSurface.card],
+        sectionBackground: surfaces[_SchemeSurface.section],
+        cardDefault: surfaces[_SchemeSurface.cardDefault],
+        cardHighlighted: surfaces[_SchemeSurface.highlighted],
+        cardJankFlash: surfaces[_SchemeSurface.jankFlash],
+        border: scheme.outlineVariant,
+        textPrimary: text[0],
+        textSecondary: text[1],
+        textTertiary: text[2],
+        textQuaternary: text[3],
+        guideStepAccent: scheme.primary,
+      );
+      var theme = build();
+      var failing = theme._unreadableSurfaces();
+      // A pair on a preset surface (the about and fix-hint boxes, the
+      // trigger badge) fails: only other text can fix it.
+      if (failing.contains(null)) continue;
+      if (failing.isNotEmpty) {
+        for (final surface in failing) {
+          surfaces[surface!] = base._surface(surface);
+        }
+        theme = build();
+        failing = theme._unreadableSurfaces();
+        if (failing.isNotEmpty) continue;
+      }
+      return theme._withSchemeAccents(scheme, base);
+    }
+    // Not reached: the preset text passes on every preset surface.
+    return base.copyWith(brightness: brightness);
+  }
+
+  /// [SleuthThemeData.fromColorScheme] for `ColorScheme.fromSeed`.
+  factory SleuthThemeData.fromSeed(
+    Color seed, {
+    Brightness brightness = Brightness.light,
+  }) => SleuthThemeData.fromColorScheme(
+    ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
+  );
+
+  /// WCAG 2 contrast ratio of two opaque colours (1 to 21). Alpha is
+  /// ignored.
+  static double contrastRatio(Color a, Color b) {
+    final la = a.withAlpha(0xFF).computeLuminance();
+    final lb = b.withAlpha(0xFF).computeLuminance();
+    final hi = la > lb ? la : lb;
+    final lo = la > lb ? lb : la;
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  /// Whether this is a dark or a light theme: the presets set it to match
+  /// their surfaces and [SleuthThemeData.fromColorScheme] to the scheme's
+  /// surface. Descriptive only; the overlay reads nothing from it. The
+  /// header toggle icon follows the stored theme mode, and the
+  /// high-contrast preset is picked from that mode or the platform
+  /// brightness.
+  final Brightness brightness;
+
+  // ── Severity text ──
+
+  /// Critical-hued text on the card surfaces and on a critical tint.
+  final Color severityCriticalText;
+
+  /// Warning-hued text on the card surfaces and on a warning tint.
+  final Color severityWarningText;
+
+  /// OK-hued text on the card surfaces and on an OK tint.
+  final Color severityOkText;
+
+  // ── Accessibility ──
+
+  /// Alpha of badge fills over their accent colour: 0.15, or 1 (opaque) in
+  /// the high-contrast presets.
+  final double badgeFillAlpha;
+
+  /// Reserved for a keyboard focus indicator: 2 in the high-contrast
+  /// presets, 0 otherwise. The overlay does not read it; its controls are
+  /// touch targets without keyboard focus and draw no ring.
+  final double focusRingWidth;
+
+  /// Width of the source accent on the left edge of an issue card.
+  final double sourceAccentWidth;
+
+  /// Trigger icon colour on the warning and OK fills, where the white
+  /// [triggerIconColor] lacks contrast.
+  final Color triggerIconOnLightFill;
 
   // ── Severity ──
   final Color severityCritical;
@@ -380,39 +656,41 @@ class SleuthThemeData {
 
   /// Returns the color for a given [IssueCategory].
   Color categoryColor(IssueCategory category) => switch (category) {
-        IssueCategory.build => categoryBuild,
-        IssueCategory.layout => categoryLayout,
-        IssueCategory.paint => categoryPaint,
-        IssueCategory.raster => categoryRaster,
-        IssueCategory.memory => categoryMemory,
-        IssueCategory.channel => categoryChannel,
-        IssueCategory.font => categoryFont,
-        IssueCategory.network => categoryNetwork,
-        IssueCategory.startup => categoryStartup,
-      };
+    IssueCategory.build => categoryBuild,
+    IssueCategory.layout => categoryLayout,
+    IssueCategory.paint => categoryPaint,
+    IssueCategory.raster => categoryRaster,
+    IssueCategory.memory => categoryMemory,
+    IssueCategory.channel => categoryChannel,
+    IssueCategory.font => categoryFont,
+    IssueCategory.network => categoryNetwork,
+    IssueCategory.startup => categoryStartup,
+  };
 
   /// Returns the color for a given [IssueConfidence].
   Color confidenceColor(IssueConfidence confidence) => switch (confidence) {
-        IssueConfidence.confirmed => confidenceConfirmed,
-        IssueConfidence.likely => confidenceLikely,
-        IssueConfidence.possible => confidencePossible,
-      };
+    IssueConfidence.confirmed => confidenceConfirmed,
+    IssueConfidence.likely => confidenceLikely,
+    IssueConfidence.possible => confidencePossible,
+  };
 
   /// Returns the left-border accent color for a given [ObservationSource].
   Color sourceAccentColor(ObservationSource? source) => switch (source) {
-        ObservationSource.vmTimeline => sourceVmTimeline,
-        ObservationSource.debugCallback => sourceDebugCallback,
-        ObservationSource.debugCallbackAndStructural => sourceDebugCallback,
-        ObservationSource.structural => sourceStructural,
-        null => sourceNone,
-      };
+    ObservationSource.vmTimeline => sourceVmTimeline,
+    // Measured timing, like the VM timeline; shares its accent.
+    ObservationSource.frameTiming => sourceVmTimeline,
+    ObservationSource.debugCallback => sourceDebugCallback,
+    ObservationSource.debugCallbackAndStructural => sourceDebugCallback,
+    ObservationSource.structural => sourceStructural,
+    null => sourceNone,
+  };
 
   /// Returns the color for a given [FixEffort].
   Color effortColor(FixEffort effort) => switch (effort) {
-        FixEffort.quick => effortQuick,
-        FixEffort.medium => effortMedium,
-        FixEffort.involved => effortInvolved,
-      };
+    FixEffort.quick => effortQuick,
+    FixEffort.medium => effortMedium,
+    FixEffort.involved => effortInvolved,
+  };
 
   /// Returns green/amber/red based on [fps] relative to [target].
   Color fpsColor(double fps, {int target = 60}) {
@@ -421,15 +699,196 @@ class SleuthThemeData {
     return severityCritical;
   }
 
+  /// [fpsColor] for text on the card surfaces: the severity text tokens.
+  Color fpsTextColor(double fps, {int target = 60}) {
+    if (fps >= target * 0.83) return severityOkText;
+    if (fps >= target * 0.50) return severityWarningText;
+    return severityCriticalText;
+  }
+
+  /// Accent colour of [severity].
+  Color severityColor(IssueSeverity severity) => switch (severity) {
+    IssueSeverity.critical => severityCritical,
+    IssueSeverity.warning => severityWarning,
+    IssueSeverity.ok => severityOk,
+  };
+
+  /// Severity text token of [severity].
+  Color severityTextColor(IssueSeverity severity) => switch (severity) {
+    IssueSeverity.critical => severityCriticalText,
+    IssueSeverity.warning => severityWarningText,
+    IssueSeverity.ok => severityOkText,
+  };
+
+  /// Badge fill for [accent]: the accent at [badgeFillAlpha].
+  Color badgeFill(Color accent) => accent.withValues(alpha: badgeFillAlpha);
+
+  /// Text colour for a badge filled with [badgeFill] of [accent]: [tinted]
+  /// (default [textPrimary]) over a translucent tint; black or white,
+  /// whichever contrasts more, over an opaque fill.
+  Color badgeTextOn(Color accent, {Color? tinted}) {
+    if (badgeFillAlpha < 1) return tinted ?? textPrimary;
+    return onColor(accent);
+  }
+
+  /// Black or white, whichever contrasts more with the opaque [fill]
+  /// (at least 4.58:1 for any colour).
+  static Color onColor(Color fill) {
+    const black = Color(0xFF000000);
+    const white = Color(0xFFFFFFFF);
+    return contrastRatio(black, fill) >= contrastRatio(white, fill)
+        ? black
+        : white;
+  }
+
+  /// This theme's value for [surface].
+  Color _surface(_SchemeSurface surface) => switch (surface) {
+    _SchemeSurface.page => pageBackground,
+    _SchemeSurface.card => cardBackground,
+    _SchemeSurface.section => sectionBackground,
+    _SchemeSurface.cardDefault => cardDefault,
+    _SchemeSurface.highlighted => cardHighlighted,
+    _SchemeSurface.jankFlash => cardJankFlash,
+  };
+
+  /// Surfaces with a pair below its minimum, as checked by
+  /// [SleuthThemeData.fromColorScheme]; null stands for a pair on a
+  /// surface the scheme does not set.
+  Set<_SchemeSurface?> _unreadableSurfaces() {
+    const black = Color(0xFF000000);
+    const white = Color(0xFFFFFFFF);
+    final failing = <_SchemeSurface?>{};
+    void check(_SchemeSurface? on, Color fg, Color bg, [double min = 4.5]) {
+      if (contrastRatio(fg, bg) < min) failing.add(on);
+    }
+
+    final texts = [
+      textPrimary,
+      textSecondary,
+      textTertiary,
+      textQuaternary,
+      severityCriticalText,
+      severityWarningText,
+      severityOkText,
+    ];
+    final cardOverBlack = Color.alphaBlend(cardBackground, black);
+    final cardOverWhite = Color.alphaBlend(cardBackground, white);
+    final surfaces = <(_SchemeSurface?, Color)>[
+      (_SchemeSurface.page, pageBackground),
+      (_SchemeSurface.card, cardOverBlack),
+      (_SchemeSurface.card, cardOverWhite),
+      (_SchemeSurface.section, sectionBackground),
+      (_SchemeSurface.cardDefault, cardDefault),
+      (_SchemeSurface.highlighted, cardHighlighted),
+      (_SchemeSurface.jankFlash, cardJankFlash),
+      (null, aboutBackground),
+      (null, fixHintBackground),
+    ];
+    for (final (on, bg) in surfaces) {
+      for (final fg in texts) {
+        check(on, fg, bg);
+      }
+    }
+    // Trigger: the issue count, the FPS number and its warm-up dash.
+    for (final fg in [textPrimary, textTertiary, ...texts.skip(4)]) {
+      check(null, fg, triggerBadgeBg);
+    }
+    // Severity badges: severity text over the severity tint.
+    for (final severity in IssueSeverity.values) {
+      final accent = severityColor(severity);
+      final fg = badgeTextOn(accent, tinted: severityTextColor(severity));
+      for (final (on, bg) in [
+        (_SchemeSurface.cardDefault, cardDefault),
+        (_SchemeSurface.highlighted, cardHighlighted),
+        (_SchemeSurface.card, cardOverBlack),
+      ]) {
+        check(on, fg, Color.alphaBlend(badgeFill(accent), bg));
+      }
+    }
+    // Category, confidence, effort and effects badges.
+    final accents = [
+      for (final c in IssueCategory.values) categoryColor(c),
+      for (final c in IssueConfidence.values) confidenceColor(c),
+      for (final e in FixEffort.values) effortColor(e),
+      effectsBadge,
+    ];
+    for (final accent in accents) {
+      for (final (on, bg) in <(_SchemeSurface?, Color)>[
+        (_SchemeSurface.cardDefault, cardDefault),
+        (_SchemeSurface.highlighted, cardHighlighted),
+        (null, aboutBackground),
+        (null, fixHintBackground),
+      ]) {
+        check(on, badgeTextOn(accent), Color.alphaBlend(badgeFill(accent), bg));
+      }
+    }
+    for (final (on, bg) in [
+      (_SchemeSurface.cardDefault, cardDefault),
+      (_SchemeSurface.highlighted, cardHighlighted),
+    ]) {
+      check(on, disclaimerText, bg);
+    }
+    // Source accent strip on the card fills and next to the card.
+    for (final source in [...ObservationSource.values, null]) {
+      final accent = sourceAccentColor(source);
+      for (final (on, bg) in [
+        (_SchemeSurface.cardDefault, cardDefault),
+        (_SchemeSurface.highlighted, cardHighlighted),
+        (_SchemeSurface.jankFlash, cardJankFlash),
+        (_SchemeSurface.card, cardOverBlack),
+        (_SchemeSurface.card, cardOverWhite),
+      ]) {
+        check(on, accent, bg, 3);
+      }
+    }
+    // Rebuild-stats icons on the build-tinted banner.
+    for (final bg in [cardOverBlack, cardOverWhite]) {
+      final banner = Color.alphaBlend(categoryBuild.withValues(alpha: 0.1), bg);
+      check(_SchemeSurface.card, textSecondary, banner, 3);
+    }
+    return failing;
+  }
+
+  /// This theme with the scheme's [checkboxActive] and chat bubble pair
+  /// where they are readable on its surfaces, else [preset]'s, else
+  /// [textPrimary] for [checkboxActive].
+  SleuthThemeData _withSchemeAccents(
+    ColorScheme scheme,
+    SleuthThemeData preset,
+  ) {
+    const black = Color(0xFF000000);
+    const white = Color(0xFFFFFFFF);
+    bool readable(Color c) =>
+        contrastRatio(c, pageBackground) >= 4.5 &&
+        contrastRatio(c, Color.alphaBlend(cardBackground, black)) >= 4.5 &&
+        contrastRatio(c, Color.alphaBlend(cardBackground, white)) >= 4.5 &&
+        contrastRatio(c, cardDefault) >= 3;
+    final bubble = contrastRatio(scheme.onPrimary, scheme.primary) >= 4.5;
+    return copyWith(
+      checkboxActive: [
+        scheme.primary,
+        preset.checkboxActive,
+      ].firstWhere(readable, orElse: () => textPrimary),
+      aiChatUserBubbleBg: bubble ? scheme.primary : preset.aiChatUserBubbleBg,
+      aiChatUserBubbleText: bubble
+          ? scheme.onPrimary
+          : preset.aiChatUserBubbleText,
+    );
+  }
+
   /// Returns a copy with the specified fields overridden.
   ///
   /// Tip: when overriding badge or banner colors, always set both the `Bg`
   /// and `Text` tokens together (e.g. [badgeVmBg] + [badgeVmText]) to
   /// maintain contrast.
   SleuthThemeData copyWith({
+    Brightness? brightness,
     Color? severityCritical,
     Color? severityWarning,
     Color? severityOk,
+    Color? severityCriticalText,
+    Color? severityWarningText,
+    Color? severityOkText,
     Color? categoryBuild,
     Color? categoryLayout,
     Color? categoryPaint,
@@ -490,6 +949,10 @@ class SleuthThemeData {
     Color? highlightLabelText,
     Color? highlightDot,
     Color? triggerIconColor,
+    double? badgeFillAlpha,
+    double? focusRingWidth,
+    double? sourceAccentWidth,
+    Color? triggerIconOnLightFill,
     Color? aiChatUserBubbleBg,
     Color? aiChatUserBubbleText,
     Color? aiShimmerStart,
@@ -519,9 +982,13 @@ class SleuthThemeData {
     double? radiusFull,
   }) {
     return SleuthThemeData(
+      brightness: brightness ?? this.brightness,
       severityCritical: severityCritical ?? this.severityCritical,
       severityWarning: severityWarning ?? this.severityWarning,
       severityOk: severityOk ?? this.severityOk,
+      severityCriticalText: severityCriticalText ?? this.severityCriticalText,
+      severityWarningText: severityWarningText ?? this.severityWarningText,
+      severityOkText: severityOkText ?? this.severityOkText,
       categoryBuild: categoryBuild ?? this.categoryBuild,
       categoryLayout: categoryLayout ?? this.categoryLayout,
       categoryPaint: categoryPaint ?? this.categoryPaint,
@@ -584,6 +1051,12 @@ class SleuthThemeData {
       highlightLabelText: highlightLabelText ?? this.highlightLabelText,
       highlightDot: highlightDot ?? this.highlightDot,
       triggerIconColor: triggerIconColor ?? this.triggerIconColor,
+      badgeFillAlpha: badgeFillAlpha ?? this.badgeFillAlpha,
+      focusRingWidth: focusRingWidth ?? this.focusRingWidth,
+      sourceAccentWidth: sourceAccentWidth ?? this.sourceAccentWidth,
+      triggerIconOnLightFill:
+          triggerIconOnLightFill ?? this.triggerIconOnLightFill,
+
       aiChatUserBubbleBg: aiChatUserBubbleBg ?? this.aiChatUserBubbleBg,
       aiChatUserBubbleText: aiChatUserBubbleText ?? this.aiChatUserBubbleText,
       aiShimmerStart: aiShimmerStart ?? this.aiShimmerStart,
@@ -615,16 +1088,15 @@ class SleuthThemeData {
   }
 }
 
+/// A surface [SleuthThemeData.fromColorScheme] takes from the scheme.
+enum _SchemeSurface { page, card, section, cardDefault, highlighted, jankFlash }
+
 /// Provides [SleuthThemeData] to overlay widgets via the widget tree.
 ///
 /// Package-internal — consumers configure theming via [SleuthConfig.theme],
 /// not by placing this widget themselves.
 class SleuthTheme extends InheritedWidget {
-  const SleuthTheme({
-    super.key,
-    required this.data,
-    required super.child,
-  });
+  const SleuthTheme({super.key, required this.data, required super.child});
 
   final SleuthThemeData data;
 

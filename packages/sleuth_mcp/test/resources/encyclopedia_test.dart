@@ -34,32 +34,34 @@ void main() {
     await expectLater(res.read(), throwsA(isA<SessionChangedException>()));
   });
 
-  test('invalidate during in-flight read discards the stale post-await write',
-      () async {
-    final completer = Completer<Map<String, Object?>>();
-    final bridge = _DelayedBridge(completer);
-    final res = EncyclopediaResource(bridge: bridge);
+  test(
+    'invalidate during in-flight read discards the stale post-await write',
+    () async {
+      final completer = Completer<Map<String, Object?>>();
+      final bridge = _DelayedBridge(completer);
+      final res = EncyclopediaResource(bridge: bridge);
 
-    final readFuture = res.read();
-    await Future<void>.delayed(Duration.zero);
-    res.invalidate();
-    completer.complete({
-      'connectionMode': 'basic',
-      'sessionUuid': 'stale-uuid',
-      'data': {'count': 1, 'entries': <String, Object?>{}},
-    });
-    final result = await readFuture;
-    expect(result['sessionUuid'], 'stale-uuid');
+      final readFuture = res.read();
+      await Future<void>.delayed(Duration.zero);
+      res.invalidate();
+      completer.complete({
+        'connectionMode': 'basic',
+        'sessionUuid': 'stale-uuid',
+        'data': {'count': 1, 'entries': <String, Object?>{}},
+      });
+      final result = await readFuture;
+      expect(result['sessionUuid'], 'stale-uuid');
 
-    // Cache empty after invalidate → next read re-fetches.
-    bridge.next = {
-      'connectionMode': 'basic',
-      'sessionUuid': 'fresh-uuid',
-      'data': {'count': 2, 'entries': <String, Object?>{}},
-    };
-    final second = await res.read();
-    expect(second['sessionUuid'], 'fresh-uuid');
-  });
+      // Cache empty after invalidate → next read re-fetches.
+      bridge.next = {
+        'connectionMode': 'basic',
+        'sessionUuid': 'fresh-uuid',
+        'data': {'count': 2, 'entries': <String, Object?>{}},
+      };
+      final second = await res.read();
+      expect(second['sessionUuid'], 'fresh-uuid');
+    },
+  );
 }
 
 class _DelayedBridge implements VmBridge {

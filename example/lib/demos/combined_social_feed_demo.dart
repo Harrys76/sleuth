@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ───────────────────────────────────────────────
-// Combined Demo 1: Social Feed
+// Demo 23: Combined: Social Feed
 // ───────────────────────────────────────────────
 // Triggers: ImageMemory, LayoutBottleneck, Rebuild/SetStateScope
 // Correlation: Rule 2 (merge rebuild+setState), Rule 4 (escalate image+memory)
@@ -45,12 +45,13 @@ class _CombinedSocialFeedDemoState extends State<CombinedSocialFeedDemo> {
     return DemoScaffold(
       title: 'Social Feed (Combined)',
       description:
-          '❌ BAD: Top-level setState rebuilds all $_cardCount cards on every '
-          'like. Post images are fetched at full 800×600 resolution with '
-          'no cacheWidth, and IntrinsicHeight forces two-pass layout per row.\n'
-          '✅ FIX: Move the like counter into a ValueNotifier, add cacheWidth '
+          'Bad: A top-level setState rebuilds all $_cardCount cards on '
+          'every like. Post images decode full 2400×1600 photos for a 200 dp '
+          'card with no cacheWidth, and IntrinsicHeight forces two-pass '
+          'layout per row.\n'
+          'Fix: Move the like counter into a ValueNotifier, add cacheWidth '
           'on every network image, and drop the IntrinsicHeight.\n\n'
-          '▶ Tap the Like FAB. In the bad path every card rebuilds; in the '
+          'Tap the Like FAB. In the bad path every card rebuilds; in the '
           'fixed path only the badge updates.',
       onToggle: _handleToggle,
       floatingActionButton: FloatingActionButton.extended(
@@ -183,9 +184,9 @@ class _BadFeedCard extends StatelessWidget {
               ],
             ),
           ),
-          // ❌ Post image — no cacheWidth, full 800×600 decoded
+          // ❌ Post image — no cacheWidth, full 2400×1600 decoded
           Image.network(
-            'https://picsum.photos/seed/post$index/800/600',
+            'https://picsum.photos/seed/post$index/2400/1600',
             height: 200,
             width: double.infinity,
             fit: BoxFit.cover,
@@ -207,8 +208,8 @@ class _BadFeedCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Post #${index + 1} — a beautiful scene captured on '
-                  'a sunny afternoon. #photography #nature',
+                  'Post #${index + 1}: a scene from a sunny afternoon. '
+                  '#photography #nature',
                   style: const TextStyle(fontSize: 13),
                 ),
               ],
@@ -299,14 +300,13 @@ class _FixedFeedCard extends StatelessWidget {
               ],
             ),
           ),
-          // ✅ Post image with cacheWidth at display size.
+          // ✅ Post image decoded at about display width on a 3× phone.
           Image.network(
-            'https://picsum.photos/seed/post$index/800/600',
+            'https://picsum.photos/seed/post$index/2400/1600',
             height: 200,
             width: double.infinity,
             fit: BoxFit.cover,
-            cacheWidth: 800,
-            cacheHeight: 400,
+            cacheWidth: 1200,
             errorBuilder: (_, _, _) => Container(
               height: 200,
               color: Colors.grey.shade200,
@@ -329,8 +329,8 @@ class _FixedFeedCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Post #${index + 1} — a beautiful scene captured on '
-                  'a sunny afternoon. #photography #nature',
+                  'Post #${index + 1}: a scene from a sunny afternoon. '
+                  '#photography #nature',
                   style: const TextStyle(fontSize: 13),
                 ),
               ],

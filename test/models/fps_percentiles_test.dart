@@ -14,12 +14,14 @@ void main() {
 
     test('single frame returns zero percentiles (< 2 frames)', () {
       final buffer = FrameStatsBuffer();
-      buffer.add(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(microseconds: 8000),
-        rasterDuration: const Duration(microseconds: 4000),
-        timestamp: DateTime.now(),
-      ));
+      buffer.add(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(microseconds: 8000),
+          rasterDuration: const Duration(microseconds: 4000),
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final p = buffer.fpsPercentiles();
       expect(p.p50, 0);
@@ -31,12 +33,14 @@ void main() {
       final buffer = FrameStatsBuffer();
       // 16667us per frame = 60 FPS
       for (var i = 0; i < 20; i++) {
-        buffer.add(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(microseconds: 10000),
-          rasterDuration: const Duration(microseconds: 6667),
-          timestamp: DateTime.now(),
-        ));
+        buffer.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(microseconds: 10000),
+            rasterDuration: const Duration(microseconds: 6667),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       final p = buffer.fpsPercentiles();
@@ -51,12 +55,14 @@ void main() {
       // Sorted ascending FPS: frame99(10fps) ... frame0(100fps)
       for (var i = 0; i < 100; i++) {
         final durationUs = 10000 + i * 909; // 10000us to ~100000us
-        buffer.add(FrameStats(
-          frameNumber: i,
-          uiDuration: Duration(microseconds: durationUs),
-          rasterDuration: Duration.zero,
-          timestamp: DateTime.now(),
-        ));
+        buffer.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: Duration(microseconds: durationUs),
+            rasterDuration: Duration.zero,
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       final p = buffer.fpsPercentiles();
@@ -74,12 +80,14 @@ void main() {
       final buffer = FrameStatsBuffer();
       // Very fast frames: 1us each (would be 1_000_000 FPS unclamped)
       for (var i = 0; i < 5; i++) {
-        buffer.add(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(microseconds: 1),
-          rasterDuration: Duration.zero,
-          timestamp: DateTime.now(),
-        ));
+        buffer.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(microseconds: 1),
+            rasterDuration: Duration.zero,
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       final p = buffer.fpsPercentiles();
@@ -91,12 +99,14 @@ void main() {
     test('zero-duration frames treated as 120 FPS', () {
       final buffer = FrameStatsBuffer();
       for (var i = 0; i < 3; i++) {
-        buffer.add(FrameStats(
-          frameNumber: i,
-          uiDuration: Duration.zero,
-          rasterDuration: Duration.zero,
-          timestamp: DateTime.now(),
-        ));
+        buffer.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: Duration.zero,
+            rasterDuration: Duration.zero,
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       final p = buffer.fpsPercentiles();
@@ -106,18 +116,22 @@ void main() {
     test('two frames — minimum viable computation', () {
       final buffer = FrameStatsBuffer();
       // Frame 1: ~60fps, Frame 2: ~30fps
-      buffer.add(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(microseconds: 10000),
-        rasterDuration: const Duration(microseconds: 6667),
-        timestamp: DateTime.now(),
-      ));
-      buffer.add(FrameStats(
-        frameNumber: 2,
-        uiDuration: const Duration(microseconds: 20000),
-        rasterDuration: const Duration(microseconds: 13333),
-        timestamp: DateTime.now(),
-      ));
+      buffer.add(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(microseconds: 10000),
+          rasterDuration: const Duration(microseconds: 6667),
+          timestamp: DateTime.now(),
+        ),
+      );
+      buffer.add(
+        FrameStats(
+          frameNumber: 2,
+          uiDuration: const Duration(microseconds: 20000),
+          rasterDuration: const Duration(microseconds: 13333),
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final p = buffer.fpsPercentiles();
       // With 2 frames sorted ascending: [~30fps, ~60fps]

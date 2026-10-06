@@ -90,7 +90,7 @@ class ComponentMetadata {
   /// coverage of claims the reproducer never exercised.
   final Set<String>? coveredClaimIds;
 
-  // CLAUDE-R1-1: value semantics are required so
+  // Value semantics are required so
   // [ValidatedComponentRegistry.register] can detect whether a second
   // call for the same [componentName] carries *identical* metadata
   // (idempotent no-op) or *different* metadata (collision — throw).
@@ -117,20 +117,16 @@ class ComponentMetadata {
 
   @override
   int get hashCode => Object.hash(
-        componentName,
-        tier,
-        rationale,
-        citationUrl,
-        reproducerPath,
-        profileCapturePaths == null
-            ? null
-            : Object.hashAll(profileCapturePaths!),
-        bracketThreshold,
-        bracketUnit,
-        coveredClaimIds == null
-            ? null
-            : Object.hashAllUnordered(coveredClaimIds!),
-      );
+    componentName,
+    tier,
+    rationale,
+    citationUrl,
+    reproducerPath,
+    profileCapturePaths == null ? null : Object.hashAll(profileCapturePaths!),
+    bracketThreshold,
+    bracketUnit,
+    coveredClaimIds == null ? null : Object.hashAllUnordered(coveredClaimIds!),
+  );
 
   static bool _listEq(List<String>? a, List<String>? b) {
     if (identical(a, b)) return true;

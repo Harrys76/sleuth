@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 4: Always-Repaint CustomPainter
+// Demo 7: Always-Repaint CustomPainter
 // Triggers: CustomPainter detector
 // ─────────────────────────────────────────
 
@@ -42,15 +42,15 @@ class _CustomPainterDemoState extends State<CustomPainterDemo>
     return DemoScaffold(
       title: 'Always-Repaint Painter',
       description:
-          '❌ BAD: shouldRepaint always returns true, so Flutter cannot skip '
-          'the paint phase even when nothing actually changed.\n'
-          '✅ FIX: Compare the new painter\'s fields against the old one and '
+          'Bad: shouldRepaint always returns true, so Flutter cannot skip '
+          'the paint phase even when nothing changed.\n'
+          'Fix: Compare the new painter\'s fields against the old one and '
           'return true only when something visible changed.\n\n'
-          '▶ Flip to Fixed Pattern — the fixed painter uses `oldDelegate.progress '
-          '!= progress`, but since the animation is always progressing, both '
-          'patterns repaint continuously. The detector focuses on the *intent*: '
-          'the bad painter cannot ever skip work, whereas the fixed painter '
-          'could skip if the animation paused.',
+          'Flip to Fixed Pattern. The fixed painter uses '
+          '`oldDelegate.progress != progress`, but the animation never '
+          'stops, so both patterns repaint continuously. The detector '
+          'judges whether a painter can skip work. The bad painter never '
+          'can; the fixed painter could if the animation paused.',
       body: AnimatedBuilder(
         animation: _anim,
         builder: (_, _) => CustomPaint(

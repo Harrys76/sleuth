@@ -16,8 +16,8 @@ TimelineEvent _makeEvent({
     'cat': cat,
     'ph': ph,
     'dur': dur,
-    if (ts != null) 'ts': ts,
-    if (args != null) 'args': args,
+    'ts': ?ts,
+    'args': ?args,
     'pid': 1,
     'tid': 1,
   })!;
@@ -31,7 +31,12 @@ void main() {
         _makeEvent(name: 'LAYOUT', dur: 2000, ts: 5000),
         _makeEvent(name: 'PAINT', dur: 1000, ts: 8000),
         _makeEvent(name: 'GPURasterizer::Draw', dur: 5000, ts: 10000),
-        _makeEvent(name: 'ShaderCompilation', dur: 500, ts: 16000),
+        _makeEvent(
+          name: 'GrGLProgramBuilder::finalize',
+          dur: 500,
+          ts: 16000,
+          args: {'devtoolsTag': 'shaders'},
+        ),
       ];
 
       final data = TimelineParser.parse(events);
@@ -48,9 +53,7 @@ void main() {
     });
 
     test('extracts correct phase, timestamp, and duration', () {
-      final events = [
-        _makeEvent(name: 'BUILD', dur: 3000, ts: 1000),
-      ];
+      final events = [_makeEvent(name: 'BUILD', dur: 3000, ts: 1000)];
 
       final data = TimelineParser.parse(events);
       final pe = data.phaseEvents.single;
@@ -67,7 +70,12 @@ void main() {
         _makeEvent(name: 'Layout', dur: 200, ts: 2000),
         _makeEvent(name: 'Paint', dur: 300, ts: 3000),
         _makeEvent(name: 'Raster', dur: 400, ts: 4000),
-        _makeEvent(name: 'shader_compilation', dur: 500, ts: 5000),
+        _makeEvent(
+          name: 'GrGLProgramBuilder::finalize',
+          dur: 500,
+          ts: 5000,
+          args: {'devtoolsTag': 'shaders'},
+        ),
       ];
 
       final data = TimelineParser.parse(events);
@@ -102,7 +110,10 @@ void main() {
     test('non-pipeline events do not produce PhaseEvents', () {
       final events = [
         _makeEvent(
-            name: 'Platform Channel send test#invoke', dur: 100, ts: 1000),
+          name: 'Platform Channel send test#invoke',
+          dur: 100,
+          ts: 1000,
+        ),
         _makeEvent(name: 'GC', dur: 50, ts: 2000, cat: 'gc'),
       ];
 
@@ -113,57 +124,79 @@ void main() {
       expect(data.phaseEvents, isEmpty);
     });
 
-    test('Begin/End BUILD pairs reconstruct PhaseEvents (iOS profile mode)',
-        () {
-      // iOS profile-mode emits BUILD as B/E pairs instead of `ph: 'X'`
-      // complete events. The parser must reconstruct
-      // `dur = E.ts - B.ts` and feed buildScopes / phaseEvents so that
-      // HeavyComputeDetector + downstream consumers observe BUILDs on
-      // iOS captures the same way they observe X-form BUILDs on
-      // Android / desktop.
-      final beginEvent = TimelineEvent.parse({
-        'name': 'BUILD',
-        'cat': '',
-        'ph': 'B',
-        'ts': 1000,
-        'pid': 1,
-        'tid': 1,
-      })!;
-      final endEvent = TimelineEvent.parse({
-        'name': 'BUILD',
-        'cat': '',
-        'ph': 'E',
-        'ts': 4000,
-        'pid': 1,
-        'tid': 1,
-      })!;
+    test(
+      'Begin/End BUILD pairs reconstruct PhaseEvents (iOS profile mode)',
+      () {
+        // iOS profile-mode emits BUILD as B/E pairs instead of `ph: 'X'`
+        // complete events. The parser must reconstruct
+        // `dur = E.ts - B.ts` and feed buildScopes / phaseEvents so that
+        // HeavyComputeDetector + downstream consumers observe BUILDs on
+        // iOS captures the same way they observe X-form BUILDs on
+        // Android / desktop.
+        final beginEvent = TimelineEvent.parse({
+          'name': 'BUILD',
+          'cat': '',
+          'ph': 'B',
+          'ts': 1000,
+          'pid': 1,
+          'tid': 1,
+        })!;
+        final endEvent = TimelineEvent.parse({
+          'name': 'BUILD',
+          'cat': '',
+          'ph': 'E',
+          'ts': 4000,
+          'pid': 1,
+          'tid': 1,
+        })!;
 
-      final data = TimelineParser.parse([beginEvent, endEvent]);
+        final data = TimelineParser.parse([beginEvent, endEvent]);
 
-      // Build count incremented (B-side bumps the counter).
-      expect(data.buildEventCount, 1);
-      // Reconstructed dur = 4000 - 1000 = 3000us in both buildScopes
-      // and phaseEvents.
-      expect(data.buildScopeDurations, [3000]);
-      expect(data.phaseEvents, hasLength(1));
-      expect(data.phaseEvents.first.phase, TimelinePhase.build);
-      expect(data.phaseEvents.first.durationUs, 3000);
-      expect(data.phaseEvents.first.timestampUs, 1000);
-    });
+        // Build count incremented (B-side bumps the counter).
+        expect(data.buildEventCount, 1);
+        // Reconstructed dur = 4000 - 1000 = 3000us in both buildScopes
+        // and phaseEvents.
+        expect(data.buildScopeDurations, [3000]);
+        expect(data.phaseEvents, hasLength(1));
+        expect(data.phaseEvents.first.phase, TimelinePhase.build);
+        expect(data.phaseEvents.first.durationUs, 3000);
+        expect(data.phaseEvents.first.timestampUs, 1000);
+      },
+    );
 
     test('Begin/End BUILD pairs across threads do not cross-contaminate', () {
       // Per-tid stack: B on tid 1 must pair with E on tid 1, NOT with
       // an interleaved E on tid 2. Without per-thread tracking, two
       // concurrent BUILDs would mismatch and reconstruct wrong durs.
       final events = [
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'B', 'ts': 1500, 'tid': 2, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'E', 'ts': 2000, 'tid': 2, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'B',
+          'ts': 1000,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'B',
+          'ts': 1500,
+          'tid': 2,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'E',
+          'ts': 2000,
+          'tid': 2,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'E',
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1,
+        })!,
       ];
       final data = TimelineParser.parse(events);
       // tid 1: 5000 - 1000 = 4000us. tid 2: 2000 - 1500 = 500us.
@@ -175,50 +208,80 @@ void main() {
       expect(data.phaseEvents, isEmpty);
     });
 
-    test('Begin/End BUILD pairs reconstruct across consecutive parse() calls',
-        () {
-      // iOS profile-mode poll boundary: B in batch N, E in batch N+1.
-      // Without cross-batch state the orphan E in batch 2 cannot pair
-      // and dur info is lost forever. With shared pendingBuildBegins,
-      // batch 2's parse() consumes the carry-over B and reconstructs.
-      final pending = <int, List<Map<String, dynamic>>>{};
+    test(
+      'Begin/End BUILD pairs reconstruct across consecutive parse() calls',
+      () {
+        // iOS profile-mode poll boundary: B in batch N, E in batch N+1.
+        // Without cross-batch state the orphan E in batch 2 cannot pair
+        // and dur info is lost forever. With shared pendingBuildBegins,
+        // batch 2's parse() consumes the carry-over B and reconstructs.
+        final pending = <int, List<Map<String, dynamic>>>{};
 
-      // Batch 1: only the B event.
-      final batch1 = [
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
-      ];
-      final data1 = TimelineParser.parse(batch1, pendingBuildBegins: pending);
-      expect(data1.buildScopeDurations, isEmpty,
-          reason: 'No E yet → no reconstruction in batch 1.');
+        // Batch 1: only the B event.
+        final batch1 = [
+          TimelineEvent.parse({
+            'name': 'BUILD',
+            'ph': 'B',
+            'ts': 1000,
+            'tid': 1,
+            'pid': 1,
+          })!,
+        ];
+        final data1 = TimelineParser.parse(batch1, pendingBuildBegins: pending);
+        expect(
+          data1.buildScopeDurations,
+          isEmpty,
+          reason: 'No E yet → no reconstruction in batch 1.',
+        );
 
-      // Batch 2: only the matching E event. Should reconstruct.
-      final batch2 = [
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
-      ];
-      final data2 = TimelineParser.parse(batch2, pendingBuildBegins: pending);
-      expect(data2.buildScopeDurations, [4000],
-          reason: 'Cross-batch E pairs with batch-1 B: 5000 - 1000 = 4000.');
-    });
+        // Batch 2: only the matching E event. Should reconstruct.
+        final batch2 = [
+          TimelineEvent.parse({
+            'name': 'BUILD',
+            'ph': 'E',
+            'ts': 5000,
+            'tid': 1,
+            'pid': 1,
+          })!,
+        ];
+        final data2 = TimelineParser.parse(batch2, pendingBuildBegins: pending);
+        expect(data2.buildScopeDurations, [
+          4000,
+        ], reason: 'Cross-batch E pairs with batch-1 B: 5000 - 1000 = 4000.');
+      },
+    );
 
     test('default pendingBuildBegins is fresh per call (backward-compat)', () {
       // Direct callers (32 existing test sites) pass no
       // pendingBuildBegins. Each call must allocate fresh state so
       // batch-1 orphan B does NOT leak into batch-2's reconstruction.
       final batch1 = [
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'B',
+          'ts': 1000,
+          'tid': 1,
+          'pid': 1,
+        })!,
       ];
       TimelineParser.parse(batch1);
       final batch2 = [
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'E',
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1,
+        })!,
       ];
       final data2 = TimelineParser.parse(batch2);
-      expect(data2.buildScopeDurations, isEmpty,
-          reason: 'No shared state → orphan E from batch 2 cannot '
-              'reconstruct without batch-1 B.');
+      expect(
+        data2.buildScopeDurations,
+        isEmpty,
+        reason:
+            'No shared state → orphan E from batch 2 cannot '
+            'reconstruct without batch-1 B.',
+      );
     });
 
     test('Per-tid stack overflow drops oldest at cap=100', () {
@@ -240,8 +303,13 @@ void main() {
       TimelineParser.parse(manyBegins, pendingBuildBegins: pending);
       // Now match the LATEST B (ts=1100) → should reconstruct dur=10000-1100.
       final endLatest = [
-        TimelineEvent.parse(
-            {'name': 'BUILD', 'ph': 'E', 'ts': 10000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'E',
+          'ts': 10000,
+          'tid': 1,
+          'pid': 1,
+        })!,
       ];
       final data = TimelineParser.parse(endLatest, pendingBuildBegins: pending);
       // LIFO pop → matches ts=1100 (last B that was kept). dur = 8900.
@@ -260,10 +328,20 @@ void main() {
 
     test('LAYOUT B/E pair reconstructs single dur (iOS profile mode)', () {
       final events = [
-        TimelineEvent.parse(
-            {'name': 'LAYOUT', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'LAYOUT', 'ph': 'E', 'ts': 4000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'B',
+          'ts': 1000,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'E',
+          'ts': 4000,
+          'tid': 1,
+          'pid': 1,
+        })!,
       ];
       final data = TimelineParser.parse(events);
       expect(data.flushLayoutDurations, [3000]);
@@ -285,10 +363,20 @@ void main() {
           'tid': 1,
           'pid': 1,
         })!,
-        TimelineEvent.parse(
-            {'name': 'LAYOUT', 'ph': 'B', 'ts': 1100, 'tid': 1, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'LAYOUT', 'ph': 'E', 'ts': 1900, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'B',
+          'ts': 1100,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'E',
+          'ts': 1900,
+          'tid': 1,
+          'pid': 1,
+        })!,
         TimelineEvent.parse({
           'name': 'LAYOUT (root)',
           'ph': 'E',
@@ -307,10 +395,20 @@ void main() {
 
     test('PAINT B/E pair reconstructs single dur', () {
       final events = [
-        TimelineEvent.parse(
-            {'name': 'PAINT', 'ph': 'B', 'ts': 2000, 'tid': 1, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'PAINT', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'PAINT',
+          'ph': 'B',
+          'ts': 2000,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'PAINT',
+          'ph': 'E',
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1,
+        })!,
       ];
       final data = TimelineParser.parse(events);
       expect(data.flushPaintDurations, [3000]);
@@ -326,10 +424,20 @@ void main() {
           'tid': 1,
           'pid': 1,
         })!,
-        TimelineEvent.parse(
-            {'name': 'PAINT', 'ph': 'B', 'ts': 200, 'tid': 1, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'PAINT', 'ph': 'E', 'ts': 800, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'PAINT',
+          'ph': 'B',
+          'ts': 200,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'PAINT',
+          'ph': 'E',
+          'ts': 800,
+          'tid': 1,
+          'pid': 1,
+        })!,
         TimelineEvent.parse({
           'name': 'PAINT (root)',
           'ph': 'E',
@@ -364,8 +472,7 @@ void main() {
       expect(data.phaseEvents.first.phase, TimelinePhase.raster);
     });
 
-    test(
-        'Nested raster trio (Impeller iOS) credits only outermost '
+    test('Nested raster trio (Impeller iOS) credits only outermost '
         'scope per frame', () {
       // Real Impeller iOS sequence on the raster thread:
       //   GPURasterizer::Draw B
@@ -444,27 +551,45 @@ void main() {
       expect(data2.rasterDurations, [3000]);
     });
 
-    test(
-        'Per-tid LAYOUT / PAINT / raster stacks do not cross-contaminate '
+    test('Per-tid LAYOUT / PAINT / raster stacks do not cross-contaminate '
         'across threads', () {
       // Two LAYOUTs in flight concurrently on different threads. Each
       // E must pair with the B from its own tid.
       final events = [
-        TimelineEvent.parse(
-            {'name': 'LAYOUT', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'LAYOUT', 'ph': 'B', 'ts': 1500, 'tid': 2, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'LAYOUT', 'ph': 'E', 'ts': 2000, 'tid': 2, 'pid': 1})!,
-        TimelineEvent.parse(
-            {'name': 'LAYOUT', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'B',
+          'ts': 1000,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'B',
+          'ts': 1500,
+          'tid': 2,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'E',
+          'ts': 2000,
+          'tid': 2,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'E',
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1,
+        })!,
       ];
       final data = TimelineParser.parse(events);
       expect(data.flushLayoutDurations.toSet(), {4000, 500});
     });
 
-    test(
-        'X-form LAYOUT / PAINT / raster events still flow through '
+    test('X-form LAYOUT / PAINT / raster events still flow through '
         'unchanged (Skia / Android backward-compat)', () {
       // Skia X-form path is the historical contract for non-Impeller
       // captures and synthetic test fixtures. Reconstruction must not
@@ -501,8 +626,7 @@ void main() {
       expect(data.rasterDurations, [3500]);
     });
 
-    test(
-        'cursorsByTid watermark skips re-observed events across '
+    test('cursorsByTid watermark skips re-observed events across '
         'parse calls (capture-mode buffer re-read dedup)', () {
       final cursors = <int, TimelineCursor>{};
       final batch1 = [
@@ -512,7 +636,7 @@ void main() {
           'dur': 100,
           'ts': 1000,
           'tid': 1,
-          'pid': 1
+          'pid': 1,
         })!,
         TimelineEvent.parse({
           'name': 'BUILD',
@@ -520,7 +644,7 @@ void main() {
           'dur': 200,
           'ts': 2000,
           'tid': 1,
-          'pid': 1
+          'pid': 1,
         })!,
       ];
       final data1 = TimelineParser.parse(batch1, cursorsByTid: cursors);
@@ -531,8 +655,11 @@ void main() {
       // Re-read same buffer (capture mode poll 2): both events should
       // be skipped — same signature at ts < lastTs and at ts == lastTs.
       final data2 = TimelineParser.parse(batch1, cursorsByTid: cursors);
-      expect(data2.buildScopeDurations, isEmpty,
-          reason: 'Re-read events with same signature must be skipped.');
+      expect(
+        data2.buildScopeDurations,
+        isEmpty,
+        reason: 'Re-read events with same signature must be skipped.',
+      );
       expect(data2.buildEventCount, 0);
 
       // Add a new event past the watermark + re-read prior buffer:
@@ -545,17 +672,17 @@ void main() {
           'dur': 300,
           'ts': 3000,
           'tid': 1,
-          'pid': 1
+          'pid': 1,
         })!,
       ];
       final data3 = TimelineParser.parse(batch3, cursorsByTid: cursors);
-      expect(data3.buildScopeDurations, [300],
-          reason: 'Only the new ts=3000 event passes.');
+      expect(data3.buildScopeDurations, [
+        300,
+      ], reason: 'Only the new ts=3000 event passes.');
       expect(cursors[1]?.lastTs, 3000);
     });
 
-    test(
-        'cursor dedup covers gcEvents and platformChannelEvents '
+    test('cursor dedup covers gcEvents and platformChannelEvents '
         '(not just BUILDs)', () {
       final cursors = <int, TimelineCursor>{};
       final batch = [
@@ -583,14 +710,19 @@ void main() {
       expect(data1.platformChannelEvents, hasLength(1));
 
       final data2 = TimelineParser.parse(batch, cursorsByTid: cursors);
-      expect(data2.gcEvents, isEmpty,
-          reason: 'GC events must dedup like BUILD events.');
-      expect(data2.platformChannelEvents, isEmpty,
-          reason: 'Platform channel events must dedup like BUILD events.');
+      expect(
+        data2.gcEvents,
+        isEmpty,
+        reason: 'GC events must dedup like BUILD events.',
+      );
+      expect(
+        data2.platformChannelEvents,
+        isEmpty,
+        reason: 'Platform channel events must dedup like BUILD events.',
+      );
     });
 
-    test(
-        'cursor is per-tid (event on tid=2 not blocked by tid=1 '
+    test('cursor is per-tid (event on tid=2 not blocked by tid=1 '
         'watermark)', () {
       final cursors = <int, TimelineCursor>{};
       TimelineParser.parse([
@@ -600,7 +732,7 @@ void main() {
           'dur': 100,
           'ts': 5000,
           'tid': 1,
-          'pid': 1
+          'pid': 1,
         })!,
       ], cursorsByTid: cursors);
       expect(cursors[1]?.lastTs, 5000);
@@ -613,11 +745,12 @@ void main() {
           'dur': 50,
           'ts': 1000,
           'tid': 2,
-          'pid': 1
+          'pid': 1,
         })!,
       ], cursorsByTid: cursors);
-      expect(data.buildScopeDurations, [50],
-          reason: 'Per-tid cursor; cross-tid traffic unaffected.');
+      expect(data.buildScopeDurations, [
+        50,
+      ], reason: 'Per-tid cursor; cross-tid traffic unaffected.');
     });
 
     test('events without `ts` (M metadata events) bypass the cursor', () {
@@ -628,13 +761,16 @@ void main() {
           'ph': 'M',
           'tid': 1,
           'pid': 1,
-          'args': {'name': 'sleuth_test'}
+          'args': {'name': 'sleuth_test'},
         })!,
       ];
       final data = TimelineParser.parse(batch, cursorsByTid: cursors);
       expect(data.buildScopeDurations, isEmpty);
-      expect(cursors, isEmpty,
-          reason: 'M events without ts must not advance the cursor.');
+      expect(
+        cursors,
+        isEmpty,
+        reason: 'M events without ts must not advance the cursor.',
+      );
     });
 
     test('same-tid same-ts events with different signatures both pass', () {
@@ -648,7 +784,7 @@ void main() {
           'dur': 100,
           'ts': 5000,
           'tid': 1,
-          'pid': 1
+          'pid': 1,
         })!,
       ], cursorsByTid: cursors);
       expect(cursors[1]?.lastTs, 5000);
@@ -660,7 +796,7 @@ void main() {
           'dur': 100,
           'ts': 5000,
           'tid': 1,
-          'pid': 1
+          'pid': 1,
         })!,
         TimelineEvent.parse({
           'name': 'frame',
@@ -672,14 +808,19 @@ void main() {
           's': 'p',
         })!,
       ], cursorsByTid: cursors);
-      expect(data.buildScopeDurations, isEmpty,
-          reason: 'Re-read BUILD with same signature must be skipped.');
-      expect(cursors[1]?.seenSignatures.length, 2,
-          reason: 'Cursor must track both signatures at the same ts.');
+      expect(
+        data.buildScopeDurations,
+        isEmpty,
+        reason: 'Re-read BUILD with same signature must be skipped.',
+      );
+      expect(
+        cursors[1]?.seenSignatures.length,
+        2,
+        reason: 'Cursor must track both signatures at the same ts.',
+      );
     });
 
-    test(
-        'async events with different `id` at same (tid, ts) both pass '
+    test('async events with different `id` at same (tid, ts) both pass '
         '(id-based signature distinguishes them)', () {
       final cursors = <int, TimelineCursor>{};
       final batch = [
@@ -703,9 +844,152 @@ void main() {
         })!,
       ];
       final data = TimelineParser.parse(batch, cursorsByTid: cursors);
-      expect(data.platformChannelEvents, hasLength(2),
-          reason: 'Two async events with same name+ts but different id '
-              'must both pass; signature includes id.');
+      expect(
+        data.platformChannelEvents,
+        hasLength(2),
+        reason:
+            'Two async events with same name+ts but different id '
+            'must both pass; signature includes id.',
+      );
+    });
+  });
+
+  group('TimelineParser single pass outputs', () {
+    TimelineEvent x(int ts, {int tid = 1, String name = 'BUILD'}) =>
+        TimelineEvent.parse({
+          'name': name,
+          'ph': 'X',
+          'dur': 10,
+          'ts': ts,
+          'tid': tid,
+          'pid': 1,
+        })!;
+
+    test('maxTimestampUs is the largest accepted ts, -1 when none', () {
+      expect(TimelineParser.parse(const []).maxTimestampUs, -1);
+      final cursors = <int, TimelineCursor>{};
+      final first = TimelineParser.parse([
+        x(300),
+        x(900, tid: 2),
+        x(100),
+      ], cursorsByTid: cursors);
+      expect(first.maxTimestampUs, 900);
+
+      // Re-read: everything is a duplicate, nothing accepted.
+      final again = TimelineParser.parse([
+        x(300),
+        x(900, tid: 2),
+      ], cursorsByTid: cursors);
+      expect(again.maxTimestampUs, -1);
+      expect(again.duplicatesDropped, 2);
+
+      final metadataOnly = TimelineParser.parse([
+        TimelineEvent.parse({'name': 'thread_name', 'ph': 'M', 'tid': 1})!,
+      ]);
+      expect(metadataOnly.maxTimestampUs, -1);
+    });
+
+    test('events below minTimestampUs are dropped as duplicates', () {
+      final data = TimelineParser.parse([
+        x(100),
+        x(200, tid: 2),
+        x(500),
+      ], minTimestampUs: 300);
+      expect(data.buildScopeDurations, [10]);
+      expect(data.duplicatesDropped, 2);
+      expect(data.maxTimestampUs, 500);
+    });
+
+    test('distinct timestamps build no signatures; a re-read builds one '
+        'per thread at its lastTs', () {
+      final cursors = <int, TimelineCursor>{};
+      final events = [for (var i = 0; i < 5000; i++) x(1000 + i * 10)];
+      TimelineParser.parse(events, cursorsByTid: cursors);
+      final again = TimelineParser.parse(events, cursorsByTid: cursors);
+      expect(again.duplicatesDropped, 5000);
+      expect(again.hasData, isFalse);
+      expect(cursors[1]!.lastTs, 1000 + 4999 * 10);
+      expect(cursors[1]!.seenSignatures, {'X|BUILD|'});
+    });
+
+    test('a later ts resets the tie set', () {
+      final cursors = <int, TimelineCursor>{};
+      TimelineParser.parse([
+        x(100),
+        x(100, name: 'LAYOUT'),
+        x(100, name: 'PAINT'),
+      ], cursorsByTid: cursors);
+      expect(cursors[1]!.seenSignatures, hasLength(3));
+      TimelineParser.parse([x(200)], cursorsByTid: cursors);
+      expect(cursors[1]!.lastTs, 200);
+      expect(cursors[1]!.seenSignatures, hasLength(1));
+    });
+  });
+
+  group('TimelineParser reconstruction span cap', () {
+    TimelineEvent be(String name, String ph, int ts, {int tid = 1}) =>
+        TimelineEvent.parse({
+          'name': name,
+          'ph': ph,
+          'ts': ts,
+          'tid': tid,
+          'pid': 1,
+        })!;
+
+    test('a BUILD begin paired with an end seconds later is discarded', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      TimelineParser.parse([be('BUILD', 'B', 0)], pendingBuildBegins: pending);
+      final data = TimelineParser.parse([
+        be('BUILD', 'E', TimelineParser.maxReconstructedPhaseUs + 1),
+      ], pendingBuildBegins: pending);
+      expect(data.buildScopeDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
+    });
+
+    test('a BUILD pair at the cap is still credited', () {
+      final data = TimelineParser.parse([
+        be('BUILD', 'B', 0),
+        be('BUILD', 'E', TimelineParser.maxReconstructedPhaseUs),
+      ]);
+      expect(data.buildScopeDurations, [
+        TimelineParser.maxReconstructedPhaseUs,
+      ]);
+    });
+
+    test('a stale BUILD begin is evicted when a new begin arrives', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      // Lost end for the first begin; the next frame starts 3 s later.
+      TimelineParser.parse([be('BUILD', 'B', 0)], pendingBuildBegins: pending);
+      final data = TimelineParser.parse([
+        be('BUILD', 'B', 3000000),
+        be('BUILD', 'E', 3012000),
+      ], pendingBuildBegins: pending);
+      expect(data.buildScopeDurations, [12000]);
+      expect(pending[1], isEmpty);
+    });
+
+    test('a raster begin paired seconds later is discarded', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      TimelineParser.parse([
+        be('GPURasterizer::Draw', 'B', 0, tid: 7),
+      ], pendingRasterBegins: pending);
+      final data = TimelineParser.parse([
+        be('GPURasterizer::Draw', 'E', 5000000, tid: 7),
+      ], pendingRasterBegins: pending);
+      expect(data.rasterDurations, isEmpty);
+    });
+
+    test('a raster begin older than the cap is evicted on the next begin', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      TimelineParser.parse([
+        be('GPURasterizer::Draw', 'B', 0, tid: 7),
+      ], pendingRasterBegins: pending);
+      final data = TimelineParser.parse([
+        be('GPURasterizer::Draw', 'B', 4000000, tid: 7),
+        be('GPURasterizer::Draw', 'E', 4009000, tid: 7),
+      ], pendingRasterBegins: pending);
+      // Outermost after eviction, so the 9 ms scope is credited.
+      expect(data.rasterDurations, [9000]);
     });
   });
 
@@ -798,9 +1082,7 @@ void main() {
     });
 
     test('event without args has null enrichment', () {
-      final events = [
-        _makeEvent(name: 'BUILD', dur: 3000, ts: 1000),
-      ];
+      final events = [_makeEvent(name: 'BUILD', dur: 3000, ts: 1000)];
 
       final data = TimelineParser.parse(events);
       final pe = data.phaseEvents.single;
@@ -848,9 +1130,7 @@ void main() {
           name: 'BUILD',
           dur: 5000,
           ts: 1000,
-          args: {
-            'build scope dirty list': 'Alpha, Beta',
-          },
+          args: {'build scope dirty list': 'Alpha, Beta'},
         ),
       ];
 
@@ -864,9 +1144,7 @@ void main() {
           name: 'BUILD',
           dur: 5000,
           ts: 1000,
-          args: {
-            'build scope dirty list': '[OnlyOne]',
-          },
+          args: {'build scope dirty list': '[OnlyOne]'},
         ),
       ];
 
@@ -877,9 +1155,7 @@ void main() {
 
   group('TimelineParser (root) suffix handling', () {
     test('LAYOUT (root) classified as layout', () {
-      final events = [
-        _makeEvent(name: 'LAYOUT (root)', dur: 2000, ts: 1000),
-      ];
+      final events = [_makeEvent(name: 'LAYOUT (root)', dur: 2000, ts: 1000)];
       final data = TimelineParser.parse(events);
       expect(data.flushLayoutDurations, [2000]);
       expect(data.phaseEvents.length, 1);
@@ -887,9 +1163,7 @@ void main() {
     });
 
     test('PAINT (root) classified as paint', () {
-      final events = [
-        _makeEvent(name: 'PAINT (root)', dur: 1000, ts: 1000),
-      ];
+      final events = [_makeEvent(name: 'PAINT (root)', dur: 1000, ts: 1000)];
       final data = TimelineParser.parse(events);
       expect(data.flushPaintDurations, [1000]);
       expect(data.phaseEvents.length, 1);
@@ -914,16 +1188,166 @@ void main() {
           name: 'LAYOUT (root)',
           dur: 2000,
           ts: 5000,
-          args: {
-            'dirty count': '5',
-            'dirty list': '[RenderFlex#abc12]',
-          },
+          args: {'dirty count': '5', 'dirty list': '[RenderFlex#abc12]'},
         ),
       ];
       final data = TimelineParser.parse(events);
       final pe = data.phaseEvents.single;
       expect(pe.dirtyCount, 5);
       expect(pe.dirtyList, ['RenderFlex#abc12']);
+    });
+  });
+
+  group('TimelineParser shader events', () {
+    List<TimelineEvent> pair(
+      String name, {
+      required int ts,
+      required int dur,
+      int tid = 1,
+      Map<String, dynamic>? args,
+    }) => [
+      TimelineEvent.parse({
+        'name': name,
+        'cat': 'Embedder',
+        'ph': 'B',
+        'ts': ts,
+        'args': ?args,
+        'pid': 1,
+        'tid': tid,
+      })!,
+      TimelineEvent.parse({
+        'name': name,
+        'cat': 'Embedder',
+        'ph': 'E',
+        'ts': ts + dur,
+        'pid': 1,
+        'tid': tid,
+      })!,
+    ];
+
+    test('B/E PipelineVK::Create 120 ms yields one shader event', () {
+      final data = TimelineParser.parse(
+        pair('PipelineVK::Create', ts: 1000, dur: 120000),
+      );
+      expect(data.shaderCompileDurations, [120000]);
+      final pe = data.phaseEvents.single;
+      expect(pe.phase, TimelinePhase.shader);
+      expect(pe.timestampUs, 1000);
+      expect(pe.durationUs, 120000);
+    });
+
+    test('B/E CreateComputePipeline yields a shader event', () {
+      final data = TimelineParser.parse(
+        pair('CreateComputePipeline', ts: 1000, dur: 40000),
+      );
+      expect(data.shaderCompileDurations, [40000]);
+    });
+
+    test('B/E PipelineItem 500 ms is not a shader event', () {
+      final data = TimelineParser.parse(
+        pair('PipelineItem', ts: 1000, dur: 500000),
+      );
+      expect(data.shaderCompileDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
+    });
+
+    test('B/E PipelineProduce is not a shader event', () {
+      final data = TimelineParser.parse(
+        pair('PipelineProduce', ts: 1000, dur: 500000),
+      );
+      expect(data.shaderCompileDurations, isEmpty);
+    });
+
+    test('B/E CreateShaderLibrary is not a shader event', () {
+      final data = TimelineParser.parse(
+        pair('CreateShaderLibrary', ts: 1000, dur: 300000),
+      );
+      expect(data.shaderCompileDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
+    });
+
+    test('B/E Skia event tagged devtoolsTag: shaders is a shader event', () {
+      // Engine end events carry no args; the tagged begin is closed by
+      // the matching name on the same thread.
+      final data = TimelineParser.parse(
+        pair(
+          'GrGLProgramBuilder::finalize',
+          ts: 1000,
+          dur: 150000,
+          args: {'devtoolsTag': 'shaders'},
+        ),
+      );
+      expect(data.shaderCompileDurations, [150000]);
+      expect(data.phaseEvents.single.phase, TimelinePhase.shader);
+    });
+
+    test('untagged Skia B/E is not a shader event', () {
+      final data = TimelineParser.parse(
+        pair('GrGLProgramBuilder::finalize', ts: 1000, dur: 150000),
+      );
+      expect(data.shaderCompileDurations, isEmpty);
+    });
+
+    test('nested tagged scopes credit the outermost only', () {
+      final outer = pair(
+        'SkiaOuter',
+        ts: 1000,
+        dur: 200000,
+        args: {'devtoolsTag': 'shaders'},
+      );
+      final inner = pair(
+        'SkiaInner',
+        ts: 2000,
+        dur: 50000,
+        args: {'devtoolsTag': 'shaders'},
+      );
+      final data = TimelineParser.parse([outer.first, ...inner, outer.last]);
+      expect(data.shaderCompileDurations, [200000]);
+    });
+
+    test('concurrent pipeline builds on worker threads pair per tid', () {
+      final a = pair('PipelineVK::Create', ts: 1000, dur: 120000, tid: 5);
+      final b = pair('PipelineVK::Create', ts: 2000, dur: 30000, tid: 6);
+      final data = TimelineParser.parse([a.first, b.first, b.last, a.last]);
+      expect(data.shaderCompileDurations, [30000, 120000]);
+    });
+
+    test('cross-batch pair reconstructs through pendingShaderBegins', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      final events = pair('PipelineVK::Create', ts: 1000, dur: 130000);
+      final data1 = TimelineParser.parse([
+        events.first,
+      ], pendingShaderBegins: pending);
+      expect(data1.shaderCompileDurations, isEmpty);
+      expect(pending[1], hasLength(1));
+
+      final data2 = TimelineParser.parse([
+        events.last,
+      ], pendingShaderBegins: pending);
+      expect(data2.shaderCompileDurations, [130000]);
+      expect(data2.phaseEvents.single.timestampUs, 1000);
+      expect(pending[1], isEmpty);
+    });
+
+    test('X event tagged devtoolsTag: shaders is a shader event', () {
+      final data = TimelineParser.parse([
+        _makeEvent(
+          name: 'GrGLProgramBuilder::finalize',
+          dur: 150000,
+          ts: 1000,
+          args: {'devtoolsTag': 'shaders'},
+        ),
+      ]);
+      expect(data.shaderCompileDurations, [150000]);
+    });
+
+    test('X ShaderCompilation is not a shader event', () {
+      final data = TimelineParser.parse([
+        _makeEvent(name: 'ShaderCompilation', dur: 150000, ts: 1000),
+        _makeEvent(name: 'Pipeline::Create', dur: 150000, ts: 2000),
+      ]);
+      expect(data.shaderCompileDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
     });
   });
 
@@ -957,18 +1381,14 @@ void main() {
     });
 
     test('legacy exact name: methodchannel is classified', () {
-      final events = [
-        _makeEvent(name: 'methodchannel', dur: 200, ts: 1000),
-      ];
+      final events = [_makeEvent(name: 'methodchannel', dur: 200, ts: 1000)];
 
       final data = TimelineParser.parse(events);
       expect(data.platformChannelEvents, hasLength(1));
     });
 
     test('legacy exact name: platformchannel is classified', () {
-      final events = [
-        _makeEvent(name: 'PlatformChannel', dur: 200, ts: 1000),
-      ];
+      final events = [_makeEvent(name: 'PlatformChannel', dur: 200, ts: 1000)];
 
       final data = TimelineParser.parse(events);
       expect(data.platformChannelEvents, hasLength(1));
@@ -1034,16 +1454,15 @@ void main() {
       required String ph,
       int? ts,
       int id = 1,
-    }) =>
-        TimelineEvent.parse({
-          'name': name,
-          'cat': '',
-          'ph': ph,
-          if (ts != null) 'ts': ts,
-          'id': '$id',
-          'pid': 1,
-          'tid': 1,
-        })!;
+    }) => TimelineEvent.parse({
+      'name': name,
+      'cat': '',
+      'ph': ph,
+      'ts': ?ts,
+      'id': '$id',
+      'pid': 1,
+      'tid': 1,
+    })!;
 
     test('async begin (ph=b) platform channel event is classified', () {
       final events = [
@@ -1092,12 +1511,155 @@ void main() {
     });
 
     test('non-channel async event is NOT classified', () {
-      final events = [
-        makeAsyncEvent(name: 'SomeAsyncWork', ph: 'b', ts: 1000),
-      ];
+      final events = [makeAsyncEvent(name: 'SomeAsyncWork', ph: 'b', ts: 1000)];
 
       final data = TimelineParser.parse(events);
       expect(data.platformChannelEvents, isEmpty);
+    });
+  });
+
+  group('TimelineParser platform channel b/e pairing', () {
+    const name = 'Platform Channel send plugin/x#call';
+    TimelineEvent ev(String ph, {String? id, required int ts, int tid = 1}) =>
+        TimelineEvent.parse({
+          'name': name,
+          'cat': 'Dart',
+          'ph': ph,
+          'id': ?id,
+          'ts': ts,
+          'pid': 1,
+          'tid': tid,
+        })!;
+
+    test('same-batch pair yields one call with its duration', () {
+      final data = TimelineParser.parse([
+        ev('b', id: '2d3216ee8457db26', ts: 1000),
+        ev('e', id: '2d3216ee8457db26', ts: 4500),
+      ]);
+      expect(data.platformChannelEvents, hasLength(1));
+      final call = data.platformChannelCalls.single;
+      expect(call.name, name);
+      expect(call.beginTs, 1000);
+      expect(call.durationUs, 3500);
+      expect(call.id, '2d3216ee8457db26');
+    });
+
+    test('interleaved calls pair by id, not order', () {
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000),
+        ev('b', id: 'b', ts: 1100),
+        ev('e', id: 'b', ts: 1300),
+        ev('e', id: 'a', ts: 5000),
+      ]);
+      expect(data.platformChannelEvents, hasLength(2));
+      expect(
+        data.platformChannelCalls.map((c) => (c.id, c.durationUs)).toList(),
+        [('b', 200), ('a', 4000)],
+      );
+    });
+
+    test('cross-batch pair completes through pendingChannelBegins', () {
+      final pending = PendingChannelBegins();
+      final first = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000),
+      ], pendingChannelBegins: pending);
+      expect(first.platformChannelEvents, hasLength(1));
+      expect(first.platformChannelCalls, isEmpty);
+      expect(pending.length, 1);
+      expect(pending.containsId('a'), isTrue);
+
+      final second = TimelineParser.parse([
+        ev('e', id: 'a', ts: 7000),
+      ], pendingChannelBegins: pending);
+      expect(second.platformChannelEvents, isEmpty);
+      expect(second.platformChannelCalls.single.durationUs, 6000);
+      expect(second.hasData, isTrue);
+      expect(pending.isEmpty, isTrue);
+    });
+
+    test('a reused id pairs each end with the earliest open begin', () {
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000),
+        ev('b', id: 'a', ts: 2000),
+        ev('e', id: 'a', ts: 5000),
+        ev('e', id: 'a', ts: 9000),
+      ]);
+      expect(data.platformChannelEvents, hasLength(2));
+      expect(data.platformChannelCalls.map((c) => (c.beginTs, c.durationUs)), [
+        (1000, 4000),
+        (2000, 7000),
+      ]);
+    });
+
+    test('an end pairs with a begin of its own thread first', () {
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000, tid: 1),
+        ev('b', id: 'a', ts: 2000, tid: 2),
+        ev('e', id: 'a', ts: 2500, tid: 2),
+        ev('e', id: 'a', ts: 6000, tid: 1),
+      ]);
+      expect(data.platformChannelCalls.map((c) => (c.beginTs, c.durationUs)), [
+        (2000, 500),
+        (1000, 5000),
+      ]);
+    });
+
+    test('an end on another thread still pairs with the open begin', () {
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000, tid: 1),
+        ev('e', id: 'a', ts: 3000, tid: 7),
+      ]);
+      expect(data.platformChannelCalls.single.durationUs, 2000);
+    });
+
+    test('unpaired b counts but yields no call', () {
+      final pending = PendingChannelBegins();
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000),
+      ], pendingChannelBegins: pending);
+      expect(data.platformChannelEvents, hasLength(1));
+      expect(data.platformChannelCalls, isEmpty);
+      expect(pending.length, 1);
+    });
+
+    test('e without b is ignored', () {
+      final data = TimelineParser.parse([ev('e', id: 'a', ts: 1000)]);
+      expect(data.platformChannelEvents, isEmpty);
+      expect(data.platformChannelCalls, isEmpty);
+      expect(data.hasData, isFalse);
+    });
+
+    test('b without id counts but has no duration', () {
+      final data = TimelineParser.parse([ev('b', ts: 1000), ev('e', ts: 2000)]);
+      expect(data.platformChannelEvents, hasLength(1));
+      expect(data.platformChannelCalls, isEmpty);
+    });
+
+    test('pending begins are capped, dropping the oldest', () {
+      final pending = PendingChannelBegins();
+      const cap = TimelineParser.pendingChannelBeginsCap;
+      TimelineParser.parse([
+        for (var i = 0; i <= cap; i++) ev('b', id: 'c$i', ts: 1000 + i),
+      ], pendingChannelBegins: pending);
+      expect(pending.length, cap);
+      expect(pending.containsId('c0'), isFalse);
+      expect(pending.containsId('c$cap'), isTrue);
+
+      final data = TimelineParser.parse([
+        ev('e', id: 'c0', ts: 9000),
+        ev('e', id: 'c1', ts: 9000),
+      ], pendingChannelBegins: pending);
+      expect(data.platformChannelCalls.single.id, 'c1');
+    });
+
+    test('sync X channel event yields a call with its dur', () {
+      final data = TimelineParser.parse([
+        _makeEvent(name: 'MethodChannel', dur: 2500, ts: 1000),
+      ]);
+      expect(data.platformChannelEvents, hasLength(1));
+      final call = data.platformChannelCalls.single;
+      expect(call.durationUs, 2500);
+      expect(call.id, isNull);
     });
   });
 
@@ -1105,7 +1667,11 @@ void main() {
     test('extracts FlutterEngineMainEnter instant event', () {
       final events = [
         _makeEvent(
-            name: 'FlutterEngineMainEnter', dur: 0, ts: 22332982085, ph: 'i'),
+          name: 'FlutterEngineMainEnter',
+          dur: 0,
+          ts: 22332982085,
+          ph: 'i',
+        ),
         _makeEvent(name: 'BUILD', dur: 3000, ts: 100000),
       ];
 
@@ -1118,10 +1684,11 @@ void main() {
     test('extracts Rasterized first useful frame instant event', () {
       final events = [
         _makeEvent(
-            name: 'Rasterized first useful frame',
-            dur: 0,
-            ts: 22334541649,
-            ph: 'i'),
+          name: 'Rasterized first useful frame',
+          dur: 0,
+          ts: 22334541649,
+          ph: 'i',
+        ),
       ];
 
       final result = TimelineParser.extractStartupEvents(events);
@@ -1132,10 +1699,11 @@ void main() {
     test('extracts Framework initialization duration event', () {
       final events = [
         _makeEvent(
-            name: 'Framework initialization',
-            dur: 281595,
-            ts: 22333000000,
-            ph: 'X'),
+          name: 'Framework initialization',
+          dur: 281595,
+          ts: 22333000000,
+          ph: 'X',
+        ),
       ];
 
       final result = TimelineParser.extractStartupEvents(events);
@@ -1146,21 +1714,27 @@ void main() {
     test('extracts all startup events together', () {
       final events = [
         _makeEvent(
-            name: 'FlutterEngineMainEnter', dur: 0, ts: 22332982085, ph: 'i'),
+          name: 'FlutterEngineMainEnter',
+          dur: 0,
+          ts: 22332982085,
+          ph: 'i',
+        ),
         _makeEvent(
-            name: 'Framework initialization',
-            dur: 281595,
-            ts: 22333000000,
-            ph: 'X'),
+          name: 'Framework initialization',
+          dur: 281595,
+          ts: 22333000000,
+          ph: 'X',
+        ),
         _makeEvent(name: 'BUILD', dur: 3000, ts: 22333500000),
         _makeEvent(name: 'LAYOUT', dur: 1500, ts: 22333503000),
         _makeEvent(name: 'PAINT', dur: 800, ts: 22333504500),
         _makeEvent(name: 'GPURasterizer::Draw', dur: 5000, ts: 22333505300),
         _makeEvent(
-            name: 'Rasterized first useful frame',
-            dur: 0,
-            ts: 22334541649,
-            ph: 'i'),
+          name: 'Rasterized first useful frame',
+          dur: 0,
+          ts: 22334541649,
+          ph: 'i',
+        ),
       ];
 
       final result = TimelineParser.extractStartupEvents(events);
@@ -1219,7 +1793,11 @@ void main() {
       // FlutterEngineMainEnter as a duration event should be ignored
       final events = [
         _makeEvent(
-            name: 'FlutterEngineMainEnter', dur: 100, ts: 12345, ph: 'X'),
+          name: 'FlutterEngineMainEnter',
+          dur: 100,
+          ts: 12345,
+          ph: 'X',
+        ),
       ];
 
       final result = TimelineParser.extractStartupEvents(events);

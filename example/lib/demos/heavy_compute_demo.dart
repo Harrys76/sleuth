@@ -116,21 +116,24 @@ class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
     return DemoScaffold(
       title: 'CSV Import',
       description:
-          '❌ BAD: Parses an in-memory CSV synchronously on the main isolate '
-          'inside `build()`. The enclosing BUILD timeline event spans the '
-          'parse — HeavyComputeDetector flags `heavy_compute.warning` '
-          '(>8 ms) and `heavy_compute.critical` (>16 ms) at the larger row '
-          'counts. UI freezes for the duration of the parse.\n'
-          '✅ FIX: `Isolate.run()` offloads parsing — UI stays responsive, '
-          'detector goes silent. Note: isolate spawn overhead is ~50–150 ms, '
-          'so the isolate path is not strictly faster for tiny payloads — '
-          'it trades total time for UI responsiveness.\n\n'
-          '▶ Slide the row count, tap Pick CSV. 50K = usually silent '
-          '(depends on device speed), 200K = warning, 500K = critical. '
-          'Toggle Fixed to see the detector go silent.\n\n'
-          'No Cancel button: both paths complete in under a few hundred ms '
-          'on modern devices. Real apps with multi-second parses should '
-          'expose cancellation via raw `Isolate.spawn` + `ReceivePort`.',
+          'Bad: The screen parses an in-memory CSV synchronously on the '
+          'main isolate inside `build()`. The enclosing BUILD timeline '
+          'event spans the parse, so HeavyComputeDetector flags '
+          '`heavy_compute.warning` (over 8 ms) and `heavy_compute.critical` '
+          '(over 16 ms) at the larger row counts. The UI freezes for the '
+          'duration of the parse.\n'
+          'Fix: `Isolate.run()` moves the parse off the main isolate. The '
+          'UI stays responsive and the detector goes silent. Spawning an '
+          'isolate costs about 50 to 150 ms, so the isolate path can be '
+          'slower for tiny payloads. It trades total time for UI '
+          'responsiveness.\n\n'
+          'Slide the row count and tap Pick CSV. 50K is usually silent '
+          '(it depends on device speed), 200K gives a warning and 500K a '
+          'critical. Toggle Fixed to see the detector go silent.\n\n'
+          'There is no Cancel button, because both paths finish in under a '
+          'few hundred ms on modern devices. Real apps with multi-second '
+          'parses should offer cancellation through a raw `Isolate.spawn` '
+          'and a `ReceivePort`.',
       metricsBar: MetricsBar(
         chips: [
           MetricChip(label: 'Rows', value: '${_rowCount ~/ 1000}K'),
@@ -138,7 +141,7 @@ class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
             valueListenable: _lastMainMs,
             builder: (_, ms, _) => MetricChip(
               label: 'Main',
-              value: ms == 0 ? '—' : '$ms',
+              value: ms == 0 ? 'none' : '$ms',
               unit: ms == 0 ? '' : ' ms',
             ),
           ),
@@ -146,7 +149,7 @@ class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
             valueListenable: _lastIsolateMs,
             builder: (_, ms, _) => MetricChip(
               label: 'Isolate',
-              value: ms == 0 ? '—' : '$ms',
+              value: ms == 0 ? 'none' : '$ms',
               unit: ms == 0 ? '' : ' ms',
             ),
           ),
@@ -325,7 +328,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              busy ? 'Parsing...' : 'No contacts yet — tap Pick CSV.',
+              busy ? 'Parsing...' : 'No contacts yet. Tap Pick CSV.',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),

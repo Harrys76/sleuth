@@ -71,38 +71,72 @@ void main() {
   });
 
   group('CorrelatedFrameData', () {
-    test('coverageRatio is 0 when totalBatchEventCount is 0', () {
-      const data = CorrelatedFrameData(totalBatchEventCount: 0);
-      expect(data.coverageRatio, 0);
+    test('batchCoverageRatio is 0 when totalBatchEventCount is 0', () {
+      const data = CorrelatedFrameData(
+        batchMatchedEventCount: 0,
+        totalBatchEventCount: 0,
+      );
+      expect(data.batchCoverageRatio, 0);
     });
 
-    test('coverageRatio computes matched / total', () {
+    test('batchCoverageRatio computes matched / total', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 3,
+        batchMatchedEventCount: 3,
         totalBatchEventCount: 10,
       );
-      expect(data.coverageRatio, 0.3);
+      expect(data.batchCoverageRatio, 0.3);
     });
 
-    test('coverageRatio is 1.0 when all events matched', () {
+    test('batchCoverageRatio is 1.0 when all events matched', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 5,
+        batchMatchedEventCount: 5,
         totalBatchEventCount: 5,
       );
-      expect(data.coverageRatio, 1.0);
+      expect(data.batchCoverageRatio, 1.0);
     });
 
     test('isTrustworthy requires matchedEventCount > 0', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 0,
+        batchMatchedEventCount: 10,
         totalBatchEventCount: 10,
       );
       expect(data.isTrustworthy, isFalse);
     });
 
+    test('isTrustworthy requires two matched events at full coverage', () {
+      const one = CorrelatedFrameData(
+        matchedEventCount: 1,
+        batchMatchedEventCount: 10,
+        totalBatchEventCount: 10,
+      );
+      const two = CorrelatedFrameData(
+        matchedEventCount: 2,
+        batchMatchedEventCount: 10,
+        totalBatchEventCount: 10,
+      );
+      expect(one.batchCoverageRatio, 1.0);
+      expect(one.isTrustworthy, isFalse);
+      expect(two.isTrustworthy, isTrue);
+    });
+
+    test('isTrustworthy reads the batch coverage, not the frame share', () {
+      const data = CorrelatedFrameData(
+        matchedEventCount: 2,
+        batchMatchedEventCount: 6,
+        totalBatchEventCount: 10,
+      );
+      // This frame holds 0.2 of the batch; the batch is 0.6 matched.
+      expect(data.batchCoverageRatio, 0.6);
+      expect(data.isTrustworthy, isTrue);
+    });
+
     test('isTrustworthy requires coverage >= 0.5', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 1,
+        batchMatchedEventCount: 1,
         totalBatchEventCount: 10,
       );
       // coverage = 0.1 < 0.5
@@ -112,6 +146,7 @@ void main() {
     test('isTrustworthy is true at exactly 0.5 coverage', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 5,
+        batchMatchedEventCount: 5,
         totalBatchEventCount: 10,
       );
       expect(data.isTrustworthy, isTrue);
@@ -120,6 +155,7 @@ void main() {
     test('isTrustworthy is false between old and new threshold', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 3,
+        batchMatchedEventCount: 3,
         totalBatchEventCount: 10,
       );
       // coverage = 0.3 — was trustworthy at old 0.2 threshold, not at 0.5
@@ -129,6 +165,7 @@ void main() {
     test('isTrustworthy is true with full coverage', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 5,
+        batchMatchedEventCount: 5,
         totalBatchEventCount: 5,
       );
       expect(data.isTrustworthy, isTrue);

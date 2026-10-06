@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
-// Demo 5: Uncached Images
+// Demo 13: Uncached Images
 // Triggers: ImageMemory detector
 // ─────────────────────────────────────────
 
@@ -21,13 +21,14 @@ class UncachedImageDemo extends StatelessWidget {
     return DemoScaffold(
       title: 'Uncached Images',
       description:
-          '❌ BAD: Image.network without cacheWidth/cacheHeight. Each $_itemCount '
-          '800×800 JPEG is decoded at full resolution even though it displays at '
-          '~120×120. That wastes ~2 MB of memory per tile.\n'
-          '✅ FIX: Pass cacheWidth: 240 (or match the display size) so Flutter '
-          'downscales during decode.\n\n'
-          '▶ Flip to Fixed Pattern — the ImageMemory detector should go quiet. '
-          'Visually identical, but ~95% less memory.',
+          'Bad: Image.network has no cacheWidth or cacheHeight. Flutter '
+          'decodes each of the $_itemCount 800×800 JPEGs at full '
+          'resolution, although each displays at about 120×120. That '
+          'wastes about 2 MB of memory per tile.\n'
+          'Fix: Pass cacheWidth: 240 (or match the display size) so '
+          'Flutter downscales during decode.\n\n'
+          'Flip to Fixed Pattern, and the ImageMemory detector should go '
+          'quiet. The grid looks the same and uses about 95% less memory.',
       body: GridView.builder(
         padding: const EdgeInsets.all(8),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

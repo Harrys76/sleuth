@@ -12,17 +12,17 @@ void main() {
   group('HighlightOverlay', () {
     testWidgets('renders no CustomPaint when empty', (tester) async {
       final highlights =
-          ValueNotifier<({int generation, List<WidgetHighlight> items})>(
-        (generation: 0, items: []),
-      );
+          ValueNotifier<({int generation, List<WidgetHighlight> items})>((
+            generation: 0,
+            items: [],
+          ));
       final selected = ValueNotifier<WidgetHighlight?>(null);
 
-      await tester.pumpWidget(wrap(
-        HighlightOverlay(
-          highlights: highlights,
-          selectedHighlight: selected,
+      await tester.pumpWidget(
+        wrap(
+          HighlightOverlay(highlights: highlights, selectedHighlight: selected),
         ),
-      ));
+      );
 
       // Empty state renders SizedBox.shrink, not CustomPaint
       expect(
@@ -39,27 +39,24 @@ void main() {
 
     testWidgets('renders CustomPaint with highlights', (tester) async {
       final highlights =
-          ValueNotifier<({int generation, List<WidgetHighlight> items})>(
-        (
-          generation: 1,
-          items: [
-            const WidgetHighlight(
-              rect: Rect.fromLTWH(10, 10, 100, 50),
-              widgetName: 'MyWidget',
-              severity: IssueSeverity.warning,
-              detectorName: 'RebuildDetector',
-            ),
-          ]
-        ),
-      );
+          ValueNotifier<({int generation, List<WidgetHighlight> items})>((
+            generation: 1,
+            items: [
+              const WidgetHighlight(
+                rect: Rect.fromLTWH(10, 10, 100, 50),
+                widgetName: 'MyWidget',
+                severity: IssueSeverity.warning,
+                detectorName: 'RebuildDetector',
+              ),
+            ],
+          ));
       final selected = ValueNotifier<WidgetHighlight?>(null);
 
-      await tester.pumpWidget(wrap(
-        HighlightOverlay(
-          highlights: highlights,
-          selectedHighlight: selected,
+      await tester.pumpWidget(
+        wrap(
+          HighlightOverlay(highlights: highlights, selectedHighlight: selected),
         ),
-      ));
+      );
 
       expect(
         find.descendant(
@@ -75,9 +72,10 @@ void main() {
 
     testWidgets('renders CustomPaint with selected highlight', (tester) async {
       final highlights =
-          ValueNotifier<({int generation, List<WidgetHighlight> items})>(
-        (generation: 0, items: []),
-      );
+          ValueNotifier<({int generation, List<WidgetHighlight> items})>((
+            generation: 0,
+            items: [],
+          ));
       const highlight = WidgetHighlight(
         rect: Rect.fromLTWH(20, 20, 80, 40),
         widgetName: 'SelectedWidget',
@@ -87,12 +85,11 @@ void main() {
       );
       final selected = ValueNotifier<WidgetHighlight?>(highlight);
 
-      await tester.pumpWidget(wrap(
-        HighlightOverlay(
-          highlights: highlights,
-          selectedHighlight: selected,
+      await tester.pumpWidget(
+        wrap(
+          HighlightOverlay(highlights: highlights, selectedHighlight: selected),
         ),
-      ));
+      );
 
       expect(
         find.descendant(
@@ -108,17 +105,17 @@ void main() {
 
     testWidgets('wraps in IgnorePointer', (tester) async {
       final highlights =
-          ValueNotifier<({int generation, List<WidgetHighlight> items})>(
-        (generation: 0, items: []),
-      );
+          ValueNotifier<({int generation, List<WidgetHighlight> items})>((
+            generation: 0,
+            items: [],
+          ));
       final selected = ValueNotifier<WidgetHighlight?>(null);
 
-      await tester.pumpWidget(wrap(
-        HighlightOverlay(
-          highlights: highlights,
-          selectedHighlight: selected,
+      await tester.pumpWidget(
+        wrap(
+          HighlightOverlay(highlights: highlights, selectedHighlight: selected),
         ),
-      ));
+      );
 
       expect(
         find.descendant(

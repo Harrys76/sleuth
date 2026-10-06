@@ -12,12 +12,12 @@ import '../utils/fix_hint_builder.dart';
 /// that may not be loaded, causing invisible text or layout shifts.
 class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
   FontLoadingDetector({this.maxFamilies = 3})
-      : super(
-          type: DetectorType.fontLoading,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Font Loading',
-          description: 'Detects unloaded fonts in use',
-        );
+    : super(
+        type: DetectorType.fontLoading,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Font Loading',
+        description: 'Detects unloaded fonts in use',
+      );
 
   final int maxFamilies;
   final List<PerformanceIssue> _issues = [];
@@ -42,7 +42,33 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
     'Courier New',
     'Times',
     'Times New Roman',
+    // Platform families Material typography resolves to.
+    'CupertinoSystemText',
+    'CupertinoSystemDisplay',
+    '.AppleSystemUIFont',
+    'Segoe UI',
+    // Icon fonts bundled with the SDK / cupertino_icons.
+    'MaterialIcons',
+    'CupertinoIcons',
   };
+
+  static final _packagePrefix = RegExp(r'^packages/[^/]+/');
+  static final _variantSuffix = RegExp(r'^(.+)_[A-Za-z0-9]+$');
+
+  /// Canonical family name: strips a `packages/<pkg>/` prefix, and folds a
+  /// google_fonts-style `<Family>_<variant>` name back to `<Family>` when
+  /// the first fallback names that family.
+  static String _normalizeFamily(String family, List<String>? fallbacks) {
+    final unprefixed = family.replaceFirst(_packagePrefix, '');
+    final match = _variantSuffix.firstMatch(unprefixed);
+    if (match != null &&
+        fallbacks != null &&
+        fallbacks.isNotEmpty &&
+        fallbacks.first == match.group(1)) {
+      return match.group(1)!;
+    }
+    return unprefixed;
+  }
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -83,15 +109,17 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   void _checkStyle(TextStyle style) {
-    final family = style.fontFamily;
-    if (family == null || _systemFonts.contains(family)) return;
+    final rawFamily = style.fontFamily;
+    if (rawFamily == null) return;
+    final fallbacks = style.fontFamilyFallback;
+    final family = _normalizeFamily(rawFamily, fallbacks);
+    if (_systemFonts.contains(family)) return;
 
     _customFonts.add(family);
 
     // google_fonts (and similar runtime-loading packages) set
     // fontFamilyFallback so the engine can fall back while the font
     // downloads. Bundled fonts never need this.
-    final fallbacks = style.fontFamilyFallback;
     if (fallbacks != null && fallbacks.isNotEmpty) {
       _runtimeLoadedFamilies.add(family);
     }
@@ -111,26 +139,32 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
         families: families,
       );
 
-      _issues.add(PerformanceIssue(
-        stableId: 'runtime_font_loading',
-        severity: count > 2 ? IssueSeverity.critical : IssueSeverity.warning,
-        category: IssueCategory.font,
-        confidence: IssueConfidence.possible,
-        title: 'Runtime Font Loading: $count '
-            'famil${count == 1 ? 'y' : 'ies'}',
-        detail: '$count font famil${count == 1 ? 'y' : 'ies'} '
-            'appear${count == 1 ? 's' : ''} to be loaded at runtime '
-            '(fontFamilyFallback detected): '
-            '${families.take(5).join(", ")}.\n'
-            'Runtime-loaded fonts trigger HTTP requests during first render, '
-            'causing visible text flicker (FOUT/FOIT).',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Structural scan only — runtime font loading heuristic',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'runtime_font_loading',
+          // The fallback heuristic cannot see whether the font is already
+          // cached, so the family count never escalates past warning.
+          severity: IssueSeverity.warning,
+          category: IssueCategory.font,
+          confidence: IssueConfidence.possible,
+          title:
+              'Runtime Font Loading: $count '
+              'famil${count == 1 ? 'y' : 'ies'}',
+          detail:
+              '$count font famil${count == 1 ? 'y' : 'ies'} '
+              'appear${count == 1 ? 's' : ''} to be loaded at runtime, '
+              'because fontFamilyFallback is set: '
+              '${families.take(5).join(", ")}.\n'
+              'Fonts loaded at runtime send HTTP requests during the first '
+              'render, and the text visibly flickers (FOUT/FOIT).',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Structural scan only, using a runtime font loading heuristic',
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
 
     // Note: We can detect custom font usage but can't confirm loading
@@ -141,22 +175,26 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
         families: _customFonts.toList(),
       );
 
-      _issues.add(PerformanceIssue(
-        stableId: 'multiple_custom_fonts',
-        severity: IssueSeverity.warning,
-        category: IssueCategory.font,
-        confidence: IssueConfidence.possible,
-        title: 'Multiple Custom Fonts: ${_customFonts.length} families',
-        detail: 'Using ${_customFonts.length} custom font families: '
-            '${_customFonts.take(5).join(", ")}.\n'
-            'Each font adds to download/load time.',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Structural scan only — font families detected in widget tree',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'multiple_custom_fonts',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.font,
+          confidence: IssueConfidence.possible,
+          title: 'Multiple Custom Fonts: ${_customFonts.length} families',
+          detail:
+              'The app uses ${_customFonts.length} custom font families: '
+              '${_customFonts.take(5).join(", ")}.\n'
+              'Each font adds download and load time.',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Structural scan only. The scan found font families in the '
+              'widget tree',
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
   }
 
@@ -169,16 +207,19 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins `runtime_font_loading` '
-            '(custom `fontFamily` + non-empty `fontFamilyFallback`, '
-            'exercised on both Text and RichText paths) and '
-            '`multiple_custom_fonts` (distinct-family count > '
-            '`maxFamilies`, strict-greater). System-font suppression, '
-            'no-fallback silence, and duplicate-family dedup are '
-            'pinned as negative controls. Not yet runtime-verified '
-            'against a device-specific font-load profile.',
-        reproducerPath: 'test/validation/font_loading_reproducer_test.dart',
-        coveredStableIds: {'runtime_font_loading', 'multiple_custom_fonts'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins `runtime_font_loading` (a custom '
+        '`fontFamily` with a non-empty `fontFamilyFallback`, exercised on '
+        'both the Text and RichText paths) and `multiple_custom_fonts` '
+        '(distinct-family count above `maxFamilies`, strict-greater). '
+        'System-font suppression, silence without a fallback and '
+        'duplicate-family dedup are pinned as negative controls. The '
+        'detector normalises families (it strips the package prefix and '
+        'folds google_fonts `<Family>_<variant>` to `<Family>`) and ignores '
+        'platform system families. Runtime loading is always warning. No '
+        'device-specific font-load profile verifies it at runtime yet.',
+    reproducerPath: 'test/validation/font_loading_reproducer_test.dart',
+    coveredStableIds: {'runtime_font_loading', 'multiple_custom_fonts'},
+  );
 }

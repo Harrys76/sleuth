@@ -19,17 +19,26 @@ const String minDaemonProtocolVersion = '0.6.0';
 ///   * RPC responses share the same line shape but carry `id` + (`result`
 ///     or `error`) instead of `event` + `params`
 class DaemonParser {
-  Stream<DaemonEvent> parse(Stream<List<int>> stdout) async* {
+  /// [onOtherLine] receives each non-empty stdout line that is not a daemon
+  /// frame, such as the plain text flutter prints before it exits early.
+  Stream<DaemonEvent> parse(
+    Stream<List<int>> stdout, {
+    void Function(String line)? onOtherLine,
+  }) async* {
     final lines = stdout
         .transform(const Utf8Decoder(allowMalformed: true))
         .transform(const LineSplitter());
     await for (final line in lines) {
       final trimmed = line.trim();
-      if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) continue;
+      if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
+        if (trimmed.isNotEmpty) onOtherLine?.call(trimmed);
+        continue;
+      }
       Object? decoded;
       try {
         decoded = jsonDecode(trimmed);
       } catch (_) {
+        onOtherLine?.call(trimmed);
         continue;
       }
       if (decoded is! List) continue;
@@ -115,10 +124,7 @@ class DaemonParser {
         if (appId is! String) {
           return UnknownDaemonEvent(eventName: name, params: params);
         }
-        return AppStopEvent(
-          appId: appId,
-          error: params['error'] as String?,
-        );
+        return AppStopEvent(appId: appId, error: params['error'] as String?);
       case 'app.log':
         final appId = params['appId'];
         final log = params['log'];

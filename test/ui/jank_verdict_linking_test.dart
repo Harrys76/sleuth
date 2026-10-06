@@ -26,9 +26,7 @@ PerformanceIssue _testIssue({
   );
 }
 
-FrameVerdict _testVerdict({
-  List<PerformanceIssue> relatedIssues = const [],
-}) {
+FrameVerdict _testVerdict({List<PerformanceIssue> relatedIssues = const []}) {
   return FrameVerdict(
     frameNumber: 1,
     totalFrameTime: const Duration(milliseconds: 32),
@@ -61,16 +59,12 @@ Widget _buildCard(
 void main() {
   group('JANK badge on issue cards', () {
     testWidgets('badge shown when jankCorrelated is true', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(), jankCorrelated: true),
-      );
+      await tester.pumpWidget(_buildCard(_testIssue(), jankCorrelated: true));
       expect(find.text('JANK'), findsOneWidget);
     });
 
     testWidgets('badge absent when jankCorrelated is false', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(), jankCorrelated: false),
-      );
+      await tester.pumpWidget(_buildCard(_testIssue(), jankCorrelated: false));
       expect(find.text('JANK'), findsNothing);
     });
 
@@ -81,15 +75,18 @@ void main() {
       final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
-      controller.verdictNotifier.value =
-          _testVerdict(relatedIssues: [issue1]); // only issue1
+      controller.verdictNotifier.value = _testVerdict(
+        relatedIssues: [issue1],
+      ); // only issue1
       controller.issuesNotifier.value = [issue1, issue2]; // both
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: FloatingIssuesCard(controller: controller, onClose: () {}),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FloatingIssuesCard(controller: controller, onClose: () {}),
+          ),
         ),
-      ));
+      );
 
       // JANK badge should appear once (only on matched issue)
       expect(find.text('JANK'), findsOneWidget);
@@ -102,11 +99,7 @@ void main() {
     testWidgets('flash takes precedence over locate-highlight', (tester) async {
       // Both jankFlash and highlighted true — flash wins
       await tester.pumpWidget(
-        _buildCard(
-          _testIssue(),
-          jankFlash: true,
-          highlighted: true,
-        ),
+        _buildCard(_testIssue(), jankFlash: true, highlighted: true),
       );
 
       final cards = tester.widgetList<Card>(find.byType(Card));

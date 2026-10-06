@@ -18,33 +18,40 @@ class HighlightOverlay extends StatelessWidget {
   });
 
   final ValueNotifier<({int generation, List<WidgetHighlight> items})>
-      highlights;
+  highlights;
   final ValueNotifier<WidgetHighlight?> selectedHighlight;
 
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    return IgnorePointer(
-      child: ValueListenableBuilder<
-          ({int generation, List<WidgetHighlight> items})>(
-        valueListenable: highlights,
-        builder: (_, payload, __) => ValueListenableBuilder<WidgetHighlight?>(
-          valueListenable: selectedHighlight,
-          builder: (_, selected, __) {
-            if (payload.items.isEmpty && selected == null) {
-              return const SizedBox.shrink();
-            }
-            return CustomPaint(
-              painter: _HighlightPainter(
-                highlights: payload.items,
-                generation: payload.generation,
-                selected: selected,
-                theme: theme,
-              ),
-              size: Size.infinite,
-            );
-          },
-        ),
+    // Painted labels are a visual aid; screen readers reach the issue
+    // through its card.
+    return ExcludeSemantics(
+      child: IgnorePointer(
+        child:
+            ValueListenableBuilder<
+              ({int generation, List<WidgetHighlight> items})
+            >(
+              valueListenable: highlights,
+              builder: (_, payload, _) =>
+                  ValueListenableBuilder<WidgetHighlight?>(
+                    valueListenable: selectedHighlight,
+                    builder: (_, selected, _) {
+                      if (payload.items.isEmpty && selected == null) {
+                        return const SizedBox.shrink();
+                      }
+                      return CustomPaint(
+                        painter: _HighlightPainter(
+                          highlights: payload.items,
+                          generation: payload.generation,
+                          selected: selected,
+                          theme: theme,
+                        ),
+                        size: Size.infinite,
+                      );
+                    },
+                  ),
+            ),
       ),
     );
   }
@@ -66,10 +73,10 @@ class _HighlightPainter extends CustomPainter {
   static const _markerSize = 8.0;
 
   Color _colorFor(IssueSeverity severity) => switch (severity) {
-        IssueSeverity.critical => theme.severityCritical,
-        IssueSeverity.warning => theme.severityWarning,
-        IssueSeverity.ok => theme.severityOk,
-      };
+    IssueSeverity.critical => theme.severityCritical,
+    IssueSeverity.warning => theme.severityWarning,
+    IssueSeverity.ok => theme.severityOk,
+  };
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -118,7 +125,8 @@ class _HighlightPainter extends CustomPainter {
     final screenRect = Offset.zero & size;
     final cutout = Path()
       ..addRRect(
-          RRect.fromRectAndRadius(h.rect.inflate(2), const Radius.circular(6)));
+        RRect.fromRectAndRadius(h.rect.inflate(2), const Radius.circular(6)),
+      );
     final screen = Path()..addRect(screenRect);
     canvas.drawPath(
       Path.combine(PathOperation.difference, screen, cutout),
@@ -136,8 +144,9 @@ class _HighlightPainter extends CustomPainter {
     );
 
     // Label
-    final label = '${h.detectorName}: ${h.widgetName}'
-        '${h.detail != null ? ' — ${h.detail}' : ''}';
+    final label =
+        '${h.detectorName}: ${h.widgetName}'
+        '${h.detail != null ? ', ${h.detail}' : ''}';
     final textSpan = TextSpan(
       text: label,
       style: TextStyle(

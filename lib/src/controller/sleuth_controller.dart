@@ -1,18 +1,22 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Scaffold, TabBarView;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart' show debugProfilePlatformChannels;
 import 'package:flutter/widgets.dart';
 import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 
 import '../validation/profile_capture_schema.dart';
 import '../ui/floating_issues_card.dart';
 import '../ui/highlight_overlay.dart';
+import '../ui/overlay_ui_state.dart';
+import '../persistence/sleuth_state_store.dart';
 import '../ui/trigger_button.dart';
 import '../ui/sleuth_theme.dart';
 import '../analyzer/causal_graph.dart';
@@ -51,6 +55,8 @@ import '../models/base_detector.dart';
 import '../models/gc_event_summary.dart';
 import '../models/heap_sample.dart';
 import '../models/capture_buffer.dart';
+import '../models/cpu_attribution.dart';
+import '../models/frame_budget.dart';
 import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
 import '../models/performance_issue.dart';
@@ -65,21 +71,26 @@ import '../models/widget_highlight.dart';
 import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/cpu_sample_aggregator.dart';
+import '../vm/poll_timings.dart';
 import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
+import '../utils/widget_location.dart' show getGlobalRect;
 import '../vm/timeline_parser.dart';
 
 /// Central controller aggregating all detectors and the pipeline analyzer.
 class SleuthController {
   SleuthController({SleuthConfig? config})
-      : config = config ?? const SleuthConfig(),
-        _captureBuffer = JankCaptureBuffer(
-          capacity: (config ?? const SleuthConfig()).captureBufferCapacity,
-        ) {
+    : config = config ?? const SleuthConfig(),
+      _captureBuffer = JankCaptureBuffer(
+        capacity: (config ?? const SleuthConfig()).captureBufferCapacity,
+      ),
+      uiStateReady = ValueNotifier<bool>(
+        (config ?? const SleuthConfig()).stateStore == null,
+      ) {
     // Runtime validation for fields that cannot be asserted in a const
     // constructor because Duration operators are not const-evaluable.
     // These would otherwise silently hang the scan loop with a zero-tick
@@ -88,7 +99,8 @@ class SleuthController {
       final interval = (config ?? const SleuthConfig()).treeScanInterval;
       if (interval <= Duration.zero) {
         throw ArgumentError(
-          'SleuthConfig.treeScanInterval must be > Duration.zero, got $interval. '
+          'SleuthConfig.treeScanInterval must be greater than Duration.zero, '
+          'got $interval. '
           'Use Duration(seconds: 1) or longer for normal operation.',
         );
       }
@@ -178,13 +190,19 @@ class SleuthController {
   // HTTP override proxy (not a detector)
   SleuthHttpOverrides? _httpOverrides;
 
+  /// Whether this controller turned on `debugProfilePlatformChannels`
+  /// (see [SleuthConfig.profilePlatformChannels]), and the value to
+  /// restore on dispose.
+  bool _profileFlagSetByUs = false;
+  bool _prevProfileFlag = false;
+
   // Ranking & correlation
   final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
   final IssueRanker _ranker = const IssueRanker();
   final Map<String, RecurrenceTrend> _recurrenceTrends = {};
   int _scanCycleIndex = 0;
 
-  // Fix verification baseline (Pillar 3a)
+  // Fix verification baseline
   FixBaseline? _fixBaseline;
   int _postReassembleGraceCycles = 0;
   static const _reassembleGraceCycles = 3;
@@ -194,12 +212,25 @@ class SleuthController {
   PipelinePhase? _lastVerdictPhase;
   int? _lastVerdictFrameNumber;
 
+  /// Evidence tier of the verdict last written to [verdictNotifier]
+  /// ([_verdictTier]); 0 before the first verdict.
+  int _lastVerdictTier = 0;
+
+  /// Frame whose verdict carries CPU attribution, and that attribution.
+  /// A later verdict for the same frame reuses it instead of asking the
+  /// VM again.
+  int? _cpuEnrichedFrameNumber;
+  List<CpuAttribution>? _cpuEnrichedTopFunctions;
+
+  /// Frame with a CPU attribution request outstanding.
+  int? _cpuEnrichmentInFlightFrame;
+
   // Export enrichment buffers (rolling, fed from _onTimelineData)
   final Queue<PhaseEvent> _phaseEventBuffer = Queue();
   static const _phaseEventBufferCapacity = 100;
   final Queue<GcEventSummary> _gcEventBuffer = Queue();
   static const _gcEventBufferCapacity = 50;
-  final Queue<PlatformChannelSummary> _platformChannelBuffer = Queue();
+  final List<PlatformChannelSummary> _platformChannelBuffer = [];
   static const _platformChannelBufferCapacity = 50;
 
   // Interaction context
@@ -278,7 +309,7 @@ class SleuthController {
   bool _disposed = false;
   Timer? _treeScanTimer;
 
-  /// M5 / KDD re-entry guard. If a scan is already in progress and something
+  /// Re-entry guard. If a scan is already in progress and something
   /// (a frame callback, a notifier listener, a detector side-effect) triggers
   /// `_scanTree` again synchronously, we must not enter twice — the second
   /// call would drain `_debugCoordinator?.snapshot()` a second time, resetting
@@ -303,7 +334,39 @@ class SleuthController {
   /// Maximum back-off interval in ms regardless of [SleuthConfig.treeScanInterval].
   static const _maxBackOffMs = 2000;
 
-  // -- M5: Issue allocation reduction caches --
+  /// Per-tick cost above which the next interval stretches.
+  static const _scanCostBudgetUs = 4000;
+
+  /// Upper bound for a cost-stretched interval.
+  static const _scanIntervalCapMs = 5000;
+
+  /// Wall time of the last scan tick's structural walk plus aggregation.
+  int _lastScanDurationUs = 0;
+
+  /// Set when a tick was skipped for exceeding
+  /// [SleuthConfig.maxElementsPerScan]; the next tick always scans.
+  bool _capSkipConsumed = false;
+
+  /// Consecutive periodic ticks deferred because the user was scrolling.
+  int _scrollDeferrals = 0;
+
+  /// Most deferrals in a row before a tick scans mid-scroll.
+  static const _maxScrollDeferrals = 3;
+
+  /// Delay before a deferred tick retries.
+  static const _scrollDeferralDelayMs = 250;
+
+  /// A scrolling state with no scroll activity for this long is treated as
+  /// idle (a scroll that never delivered its end notification).
+  static const _staleScrollMs = 2000;
+
+  /// Time of the last scroll start or update notification.
+  DateTime? _lastScrollActivityAt;
+
+  /// Elements visited by the last unified structural walk.
+  int _lastScanElementCount = 0;
+
+  // -- Issue allocation reduction caches --
 
   /// Generation counter incremented when detectors produce fresh issues
   /// (after structural scans or timeline evaluateNow). Allows
@@ -313,7 +376,7 @@ class SleuthController {
   List<PerformanceIssue>? _cachedAllIssues;
 
   /// Detectors that threw during any stage of the most recent structural
-  /// scan. F3 quarantine (v0.16.0) stops later-stage callbacks for these
+  /// scan. Quarantine (v0.16.0) stops later-stage callbacks for these
   /// detectors, but the partial output they already emitted before throwing
   /// must not leak into `_getAllIssues()` / `_collectHighlights()` — a
   /// `SimpleStructuralDetector` subclass that throws mid-walk has already
@@ -323,10 +386,38 @@ class SleuthController {
   /// reflects the most recent scan's quarantine decisions.
   final Set<BaseDetector> _lastScanFailedDetectors = <BaseDetector>{};
 
-  /// Notifies listeners when issues change.
+  /// Notifies listeners when the ranked issue list changes in a way a
+  /// reader can see (ids, order, severity, confidence, text, attribution,
+  /// causal links). Ticks that reproduce the same list do not notify; read
+  /// [latestIssues] for the freshest aggregation.
   final ValueNotifier<List<PerformanceIssue>> issuesNotifier = ValueNotifier(
     [],
   );
+
+  /// Incremented once at the end of every scan tick, after recurrence and
+  /// highlights update. Live panels that re-read controller state each tick
+  /// (rebuild counts, recurrence badges) listen to this.
+  final ValueNotifier<int> scanTickNotifier = ValueNotifier<int>(0);
+
+  /// Most recent aggregation result, assigned on every aggregation whether
+  /// or not [issuesNotifier] fired.
+  List<PerformanceIssue> _latestIssues = const [];
+
+  /// Fingerprint of the list last published through [issuesNotifier].
+  String? _lastIssuesFingerprint;
+
+  /// Most recent ranked issues, refreshed on every aggregation. Export and
+  /// service-extension paths read this rather than [issuesNotifier].
+  List<PerformanceIssue> get latestIssues => _latestIssues;
+
+  /// Seeds the aggregated issue list without running detectors: sets
+  /// [latestIssues] and publishes through [issuesNotifier].
+  @visibleForTesting
+  void seedIssuesForTest(List<PerformanceIssue> issues) {
+    _latestIssues = issues;
+    _lastIssuesFingerprint = _issuesFingerprint(issues);
+    issuesNotifier.value = issues;
+  }
 
   /// Notifies listeners when frame stats update.
   final ValueNotifier<FrameStatsBuffer> frameStatsNotifier = ValueNotifier(
@@ -345,7 +436,7 @@ class SleuthController {
   /// a single int instead of relying on list identity.
   int _highlightGeneration = 0;
   final ValueNotifier<({int generation, List<WidgetHighlight> items})>
-      highlightsNotifier = ValueNotifier((generation: 0, items: []));
+  highlightsNotifier = ValueNotifier((generation: 0, items: []));
 
   /// Whether the highlight overlay is active.
   final ValueNotifier<bool> highlightEnabledNotifier = ValueNotifier(false);
@@ -355,7 +446,8 @@ class SleuthController {
       ValueNotifier(null);
 
   /// Runtime theme override. Takes precedence over [config.theme] and
-  /// auto-detection when non-null.
+  /// auto-detection when non-null; the header toggle's Light or Dark
+  /// takes precedence over it.
   final ValueNotifier<SleuthThemeData?> _themeOverride =
       ValueNotifier<SleuthThemeData?>(null);
 
@@ -363,9 +455,14 @@ class SleuthController {
   /// auto-detect.
   ValueListenable<SleuthThemeData?> get themeOverride => _themeOverride;
 
-  /// Update the overlay theme at runtime. Pass `null` to revert to
-  /// config theme or auto-detection.
+  /// Update the overlay theme at runtime. A non-null [theme] also sets the
+  /// header toggle to System so the theme shows; picking Light or Dark
+  /// in the header afterwards takes precedence until System is picked
+  /// again. An app that calls this at every startup therefore does not
+  /// keep a saved Light or Dark choice across launches. Pass `null` to
+  /// revert to the config theme or auto-detection.
   void updateTheme(SleuthThemeData? theme) {
+    if (theme != null) overlayUiState.themeMode = SleuthThemeMode.system;
     _themeOverride.value = theme;
   }
 
@@ -379,7 +476,6 @@ class SleuthController {
   RouteSession? _activeRouteSession;
 
   /// Counter for synthetic names assigned to unnamed routes.
-  // ignore: prefer_final_fields
   int _unnamedRouteCounter = 0;
 
   /// Maps a scaffold hash (null for scaffold-free) to the stable unnamed-route
@@ -390,7 +486,8 @@ class SleuthController {
   /// returning to a previously-seen tab uses its cached label.
   ///
   /// Cleared on hot reload by [_reassembleInternal] — old hashes are stale
-  /// once Elements rotate.
+  /// once Elements rotate. An entry is dropped when route-history eviction
+  /// removes the last session carrying its hash.
   final Map<int?, int> _unnamedIdByHash = <int?, int>{};
 
   /// Debug-only hot-reload generation stamped on every [RouteSession] created
@@ -399,10 +496,15 @@ class SleuthController {
   /// the first reload.
   int _hotReloadGeneration = 0;
 
+  /// The screen the rebuild and repaint evidence was last gathered on
+  /// (route name, visible scaffold hash, hot-reload generation).
+  (String?, int?, int)? _lastEvidenceKey;
+
   /// Notifies listeners when route history changes (new session created or
   /// old session evicted). Value is an unmodifiable snapshot.
-  final ValueNotifier<List<RouteSession>> routeHistoryNotifier =
-      ValueNotifier([]);
+  final ValueNotifier<List<RouteSession>> routeHistoryNotifier = ValueNotifier(
+    [],
+  );
 
   /// Number of issues hidden by the suppression list after the last aggregation.
   final ValueNotifier<int> suppressedCountNotifier = ValueNotifier(0);
@@ -410,6 +512,223 @@ class SleuthController {
   /// Issue waiting to be highlighted after the next tree scan populates
   /// the highlights list. Set by the UI when highlights aren't ready yet.
   PerformanceIssue? pendingIssueSelection;
+
+  // -- Overlay UI state --
+
+  /// Overlay UI state: dashboard open, trigger anchor, card geometry,
+  /// hidden issues and severity filter. Survives dashboard open/close and
+  /// hot reload; persisted through [SleuthConfig.stateStore] when set.
+  ///
+  /// Overlay only: [latestIssues], [suppressedCountNotifier],
+  /// `ext.sleuth.*`, route sessions and recurrence never read it.
+  final OverlayUiState overlayUiState = OverlayUiState();
+
+  /// AI chat conversations of this session, by card, owned here so that
+  /// closing the dashboard (which unmounts the card) does not lose them.
+  /// In memory only: never persisted, exported or sent anywhere but the
+  /// configured adapter. Cleared on [dispose].
+  final Map<Object, List<AiChatMessage>> aiChatHistories = {};
+
+  /// True once [overlayUiState] holds its startup value: immediately when
+  /// no store is configured, otherwise after the store's read completes,
+  /// fails, or times out (2 s). The trigger button paints only when true.
+  ///
+  /// After a read that timed out or threw, or that returned state from a
+  /// newer release, the session never writes to the store; the overlay
+  /// keeps its state in memory.
+  final ValueNotifier<bool> uiStateReady;
+
+  static const Duration _stateStoreReadTimeout = Duration(seconds: 2);
+  static const Duration _stateStoreWriteDebounce = Duration(milliseconds: 500);
+
+  /// A write still running after this is given up, so the next change
+  /// can be saved.
+  static const Duration _stateStoreWriteTimeout = Duration(seconds: 5);
+
+  bool _uiStateLoadStarted = false;
+  Timer? _uiStateLoadTimer;
+  Timer? _uiStateWriteTimer;
+  String? _lastPersistedUiState;
+  bool _stateStoreReadErrorLogged = false;
+  bool _stateStoreWriteErrorLogged = false;
+
+  /// Set when the store's read timed out, threw, or returned state from a
+  /// newer release: this session does not write, so the stored value is
+  /// left as it is. Contents no release can read (not a JSON object, no
+  /// valid `schemaVersion`) are replaced by the next change.
+  bool _stateStoreWritesDisabled = false;
+
+  /// [overlayUiState] as the store's contents alone would set it,
+  /// serialized; null when the store held nothing.
+  String? _loadedUiState;
+  bool _uiStateWriteInFlight = false;
+
+  /// A write was due while another was in flight; one more runs, with the
+  /// latest state, when it completes.
+  bool _uiStateWritePending = false;
+
+  /// Reads the configured store once and applies it to [overlayUiState],
+  /// then starts saving changes. Idempotent; never throws.
+  void _startOverlayUiStateLoad() {
+    if (_uiStateLoadStarted || _disposed) return;
+    _uiStateLoadStarted = true;
+    final store = config.stateStore;
+    if (store == null) {
+      uiStateReady.value = true;
+      return;
+    }
+    final completer = Completer<String?>();
+    _uiStateLoadTimer = Timer(_stateStoreReadTimeout, () {
+      if (!completer.isCompleted) {
+        // A store this slow may still finish a stale read later; writing
+        // to it could race that read on the next launch.
+        _stateStoreWritesDisabled = true;
+        completer.completeError(
+          TimeoutException('state store read', _stateStoreReadTimeout),
+        );
+      }
+    });
+    Future<String?>.sync(store.read).then(
+      (value) {
+        if (!completer.isCompleted) completer.complete(value);
+      },
+      onError: (Object e, StackTrace _) {
+        if (!completer.isCompleted) completer.completeError(e);
+      },
+    );
+    completer.future
+        .then<void>((raw) {
+          if (_disposed || raw == null) return;
+          final Map<String, Object?> state;
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is! Map<String, Object?>) {
+              throw const FormatException('state is not a JSON object');
+            }
+            final version = decoded['schemaVersion'];
+            if (version is int && version > OverlayUiState.schemaVersion) {
+              // A newer release's state: left alone (writes stay off).
+              throw _NewerUiStateException(version);
+            }
+            state = decoded;
+            _loadedUiState = jsonEncode(
+              OverlayUiState.fromJson(state).toJson(),
+            );
+          } on FormatException catch (e) {
+            // Truncated or foreign contents no release can read: the
+            // defaults stay and the next change replaces them.
+            debugPrint(
+              'Sleuth: overlay state not restored (${e.message}); the '
+              'next change replaces it',
+            );
+            return;
+          }
+          overlayUiState.loadJson(state);
+        })
+        .catchError((Object e) {
+          final timedOut = _stateStoreWritesDisabled;
+          // A read that threw may have hit a transient failure on a value
+          // that is still there, and a newer release's state must survive
+          // an older one: either is left alone rather than replaced with
+          // defaults.
+          _stateStoreWritesDisabled = true;
+          if (_stateStoreReadErrorLogged) return;
+          _stateStoreReadErrorLogged = true;
+          debugPrint(
+            timedOut
+                ? 'Sleuth: overlay state store read timed out; changes '
+                      'this session are not saved'
+                : 'Sleuth: overlay state not restored ($e); changes this '
+                      'session are not saved',
+          );
+        })
+        .whenComplete(() {
+          _uiStateLoadTimer?.cancel();
+          _uiStateLoadTimer = null;
+          if (_disposed) return;
+          if (!_stateStoreWritesDisabled) {
+            // The baseline is what the store holds; a change made while
+            // the read was pending differs from it and is written once.
+            _lastPersistedUiState =
+                _loadedUiState ?? jsonEncode(OverlayUiState().toJson());
+            _loadedUiState = null;
+            overlayUiState.addListener(_scheduleOverlayUiStateWrite);
+            if (jsonEncode(overlayUiState.toJson()) != _lastPersistedUiState) {
+              _scheduleOverlayUiStateWrite();
+            }
+          }
+          uiStateReady.value = true;
+        });
+  }
+
+  void _scheduleOverlayUiStateWrite() {
+    if (_disposed) return;
+    _uiStateWriteTimer?.cancel();
+    _uiStateWriteTimer = Timer(_stateStoreWriteDebounce, _writeOverlayUiState);
+  }
+
+  /// Writes the current state unless it equals the last write. At most
+  /// one write is in flight; a write due meanwhile runs after it, with the
+  /// state current at that point. [flushing] allows the one write
+  /// [dispose] starts.
+  void _writeOverlayUiState({bool flushing = false}) {
+    _uiStateWriteTimer = null;
+    final store = config.stateStore;
+    if ((_disposed && !flushing) ||
+        store == null ||
+        _stateStoreWritesDisabled) {
+      return;
+    }
+    if (_uiStateWriteInFlight) {
+      _uiStateWritePending = true;
+      return;
+    }
+    final json = jsonEncode(overlayUiState.toJson());
+    // Session-only changes (dashboard open/close) leave the JSON as is.
+    if (json == _lastPersistedUiState) return;
+    _lastPersistedUiState = json;
+    _uiStateWriteInFlight = true;
+    // A write that never completes would hold [_uiStateWriteInFlight]
+    // and block every later save.
+    Future<void>.sync(() => store.write(json))
+        .timeout(_stateStoreWriteTimeout)
+        .catchError((Object e) {
+          // Retry with the next change.
+          if (_lastPersistedUiState == json) _lastPersistedUiState = null;
+          if (_stateStoreWriteErrorLogged) return;
+          _stateStoreWriteErrorLogged = true;
+          debugPrint('Sleuth: overlay state not saved: $e');
+        })
+        .whenComplete(() {
+          _uiStateWriteInFlight = false;
+          if (!_uiStateWritePending) return;
+          _uiStateWritePending = false;
+          _writeOverlayUiState(flushing: _disposed);
+        });
+  }
+
+  /// Writes a change still waiting for its debounce at once.
+  void _flushPendingOverlayUiStateWrite() {
+    if (_uiStateWriteTimer == null) return;
+    _uiStateWriteTimer!.cancel();
+    _writeOverlayUiState();
+  }
+
+  /// On dispose: a change still waiting for its debounce gets one last
+  /// write, started now or, when a write is in flight, after it. Not
+  /// awaited; a failure is only logged.
+  void _flushOverlayUiStateOnDispose() {
+    final due = _uiStateWriteTimer != null || _uiStateWritePending;
+    _uiStateWriteTimer?.cancel();
+    _uiStateWriteTimer = null;
+    if (!due) return;
+    if (_uiStateWriteInFlight) {
+      _uiStateWritePending = true;
+      return;
+    }
+    _uiStateWritePending = false;
+    _writeOverlayUiState(flushing: true);
+  }
 
   /// Clear the selected highlight.
   void clearSelectedHighlight() {
@@ -459,11 +778,7 @@ class SleuthController {
   static List<String> detectorNamesForCategory(IssueCategory category) {
     return switch (category) {
       IssueCategory.layout => ['Layout'],
-      IssueCategory.build => [
-          'Non-lazy',
-          'setState',
-          'Rebuild',
-        ],
+      IssueCategory.build => ['Non-lazy', 'setState', 'Rebuild'],
       IssueCategory.paint => ['Painter', 'Repaint'],
       IssueCategory.raster => ['GPU'],
       IssueCategory.memory => ['Image', 'KeepAlive'],
@@ -495,7 +810,8 @@ class SleuthController {
   bool get isDeepInstrumentationActive {
     bool result = false;
     assert(() {
-      result = _prevProfileBuildsEnabled != null ||
+      result =
+          _prevProfileBuildsEnabled != null ||
           _prevProfileLayoutsEnabled != null ||
           _prevProfilePaintsEnabled != null ||
           _prevEnhanceBuildArgs != null ||
@@ -505,6 +821,33 @@ class SleuthController {
     }());
     return result;
   }
+
+  /// Timings of the VM client's most recent timeline poll; null before
+  /// the first poll or without a VM client.
+  PollTimings? get lastPollTimings => _vmClient?.lastPollTimings;
+
+  /// Largest RPC segment over the last 32 polls; null before the first.
+  int? get maxPollRpcMicros => _vmClient?.maxPollRpcMicros;
+
+  /// Largest decode segment over the last 32 polls; null before the first
+  /// and when none of them matched its raw response.
+  int? get maxPollDecodeMicros => _vmClient?.maxPollDecodeMicros;
+
+  /// Largest parse segment over the last 32 polls; null before the first.
+  int? get maxPollParseMicros => _vmClient?.maxPollParseMicros;
+
+  /// Largest dispatch segment over the last 32 polls; null before the
+  /// first.
+  int? get maxPollDispatchMicros => _vmClient?.maxPollDispatchMicros;
+
+  /// Events the poll loop skipped as already processed, summed over the
+  /// current VM session; null before the first poll.
+  int? get pollDuplicatesDropped => _vmClient?.pollDuplicatesDropped;
+
+  /// Polls in the current VM session that read the whole timeline buffer
+  /// because the timeline clock could not bound a window; null before
+  /// the first poll.
+  int? get pollWindowFallbacks => _vmClient?.pollWindowFallbacks;
 
   /// Whether VM service is connected.
   bool get isVmConnected =>
@@ -561,7 +904,9 @@ class SleuthController {
 
   /// Initialize all detectors and connect to VM service.
   Future<void> initialize() async {
-    if (_initialized || kReleaseMode) return;
+    if (kReleaseMode) return;
+    _startOverlayUiStateLoad();
+    if (_initialized) return;
 
     _initializeDetectors();
 
@@ -583,10 +928,9 @@ class SleuthController {
     // frames while the (potentially slow) VM connection is in progress.
     _frameTiming.start();
 
-    // Connect to VM service. Retain the trace buffer when capture
-    // mode is on so a later `exportCaptureJson` call can still see
-    // scenario-span events that the polling loop has already
-    // processed; production sessions clear after every poll.
+    // Connect to VM service. The poll loop never clears the VM
+    // timeline, so a later `exportCaptureJson` call still sees
+    // scenario-span events the loop has already processed.
     final client = VmServiceClient(
       onTimelineData: _onTimelineData,
       onGcEvent: _onGcEvent,
@@ -594,6 +938,7 @@ class SleuthController {
       onConnectionChanged: _onVmConnectionChanged,
       onStartupTimelineEvents: _onStartupTimelineEvents,
       retainTimeline: config.captureMode,
+      readDispatchSegments: () => _lastDispatchSegments,
     );
     _vmClient = client;
 
@@ -634,10 +979,10 @@ class SleuthController {
       return;
     }
 
-    // Cap: stop retrying after exhausting the delay ladder. On platforms
-    // where the VM web server is structurally unreachable (e.g. real iOS
-    // devices launched via IDE — the USB bridge port is host-only), there
-    // is no point retrying forever.
+    // Cap: stop retrying after exhausting the delay ladder. When the VM
+    // service stays unavailable for the session (for example, `flutter run`
+    // or `flutter attach` started DDS, which keeps the service as its only
+    // client), there is no point retrying forever.
     if (_backgroundReconnectAttempt >= _backgroundReconnectDelays.length) {
       return;
     }
@@ -743,12 +1088,15 @@ class SleuthController {
       captureMode: config.captureMode,
       startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
       onFrameStats: _onFrameStats,
+      onFrame: _onFrame,
+      sourceRouteProvider: _currentRouteName,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
     _memoryPressure = MemoryPressureDetector(
       warmupDurationMs: config.memoryWarmupDurationMs,
       growthThresholdBytesPerSec: config.thresholds.memoryGrowthBytesPerSec,
       capacityThresholdPercent: config.thresholds.memoryCapacityPercent,
+      memoryBudgetBytes: config.thresholds.memoryBudgetBytes,
       gcRateThresholdPerMin: config.gcRateThresholdPerMin,
     )..isEnabled = enabled.contains(DetectorType.memoryPressure);
 
@@ -786,37 +1134,52 @@ class SleuthController {
 
     _rebuildDetector = RebuildDetector(
       rebuildsPerSecThreshold: config.rebuildThreshold,
+      buildTimePercentThreshold: config.thresholds.buildTimePercentThreshold,
       startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
+      captureMode: config.captureMode,
     )..isEnabled = enabled.contains(DetectorType.rebuild);
 
     // Factory map for non-typed detectors. Only detectors present in
     // [enabledDetectors] are constructed — saves buffer allocations and
-    // reduces the unified walk iteration count (M6: lazy initialization).
+    // reduces the unified walk iteration count (lazy initialization).
     final factories = <DetectorType, BaseDetector Function()>{
       DetectorType.shaderJank: () => ShaderJankDetector(
-            thresholdMs: config.thresholds.shaderJankMs,
-            coldStartShaderWindowSeconds:
-                config.thresholds.coldStartShaderWindowSeconds,
-            shaderKeyframeWindowMs: config.thresholds.shaderKeyframeWindowMs,
-          ),
-      DetectorType.heavyCompute: () => HeavyComputeDetector(
-            lagThresholdMs: config.thresholds.heavyComputeGapMs,
-            sourceRouteProvider: _currentRouteName,
-          ),
+        thresholdMs: config.thresholds.shaderJankMs,
+        coldStartShaderWindowSeconds:
+            config.thresholds.coldStartShaderWindowSeconds,
+        shaderKeyframeWindowMs: config.thresholds.shaderKeyframeWindowMs,
+      ),
+      DetectorType.heavyCompute: () => _withFrameBudget(
+        HeavyComputeDetector(
+          lagThresholdMs:
+              config.thresholds.heavyComputeGapMs ??
+              DetectorThresholds.defaultHeavyComputeGapMs,
+          autoThreshold: config.thresholds.heavyComputeGapMs == null,
+          sourceRouteProvider: _currentRouteName,
+          interactionContextProvider: () => _interactionState,
+        ),
+      ),
       DetectorType.platformChannel: () => PlatformChannelDetector(
-            callsPerSecThreshold: config.platformChannelLimit,
-            durationThresholdUs:
-                config.platformChannelDurationThresholdMs * 1000,
-            sourceRouteProvider: _currentRouteName,
-          ),
-      DetectorType.repaint: RepaintDetector.new,
+        callsPerSecThreshold: config.platformChannelLimit,
+        durationThresholdUs: config.platformChannelDurationThresholdMs * 1000,
+        sourceRouteProvider: _currentRouteName,
+        interactionContextProvider: () => _interactionState,
+      ),
+      DetectorType.repaint: () => RepaintDetector(
+        paintTimePercentThreshold: config.thresholds.paintTimePercentThreshold,
+        captureMode: config.captureMode,
+      ),
       DetectorType.setStateScope: () => SetStateScopeDetector(
-            dirtyRatioThreshold:
-                config.thresholds.setStateScopeOwnershipPercent,
-          ),
-      DetectorType.gpuPressure: () => GpuPressureDetector(
-            rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
-          ),
+        dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
+      ),
+      DetectorType.gpuPressure: () => _withFrameBudget(
+        GpuPressureDetector(
+          rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
+          startupPhaseWindowSeconds:
+              config.thresholds.startupPhaseWindowSeconds,
+          sourceRouteProvider: _currentRouteName,
+        ),
+      ),
       DetectorType.layoutBottleneck: LayoutBottleneckDetector.new,
       DetectorType.listview: () =>
           ListviewDetector(childThreshold: config.maxListChildren),
@@ -825,13 +1188,13 @@ class SleuthController {
       DetectorType.keepAlive: () =>
           KeepAliveDetector(threshold: config.thresholds.keepAliveMax),
       DetectorType.fontLoading: () => FontLoadingDetector(
-            maxFamilies: config.thresholds.fontLoadingMaxFamilies,
-          ),
+        maxFamilies: config.thresholds.fontLoadingMaxFamilies,
+      ),
       DetectorType.repaintBoundary: RepaintBoundaryDetector.new,
       DetectorType.startup: () => StartupDetector(
-            ttffWarningMs: config.thresholds.startupTtffWarningMs,
-            ttffCriticalMs: config.thresholds.startupTtffCriticalMs,
-          ),
+        ttffWarningMs: config.thresholds.startupTtffWarningMs,
+        ttffCriticalMs: config.thresholds.startupTtffCriticalMs,
+      ),
     };
 
     // Persist factory map for runtime enable/disable (enableDetector).
@@ -860,10 +1223,92 @@ class SleuthController {
       // gating" signal (see [BaseDetector.key] doc).
       for (final d in config.customDetectors)
         d
-          ..isEnabled = d.key == null ||
+          ..isEnabled =
+              d.key == null ||
               !config.disabledCustomDetectorKeys.contains(d.key),
     ];
     _detectorsReady = true;
+    _reresolveFrameBudget(force: true);
+  }
+
+  // -- Frame budget --
+
+  late FrameBudget _frameBudget = resolveFrameBudget(
+    fpsTarget: config.fpsTarget,
+    displayRefreshRateHz: 0,
+    auto: _autoFrameBudget,
+  );
+  double _displayRefreshRateHz = 0;
+  double? _lastResolvedCadenceHz;
+
+  bool get _autoFrameBudget => config.autoFrameBudget && !config.captureMode;
+
+  int get _fpsTargetBudgetUs => (1e6 / config.fpsTarget).round();
+
+  /// Resolved per-frame budget in microseconds. See [resolveFrameBudget].
+  int get frameBudgetUs => _frameBudget.budgetUs;
+
+  /// Frame rate the current budget is derived from.
+  double get effectiveFrameRateHz => _frameBudget.effectiveHz;
+
+  /// Where [effectiveFrameRateHz] came from.
+  FrameRateSource get frameRateSource => _frameBudget.source;
+
+  /// Records the display's reported refresh rate (an upper bound for the
+  /// frame budget) and re-resolves the budget. Called by the overlay with
+  /// `View.of(context).display.refreshRate`.
+  void attachDisplayRefreshRate(double hz) {
+    if (kReleaseMode) return;
+    final value = hz.isFinite && hz > 0 ? hz : 0.0;
+    if (value == _displayRefreshRateHz) return;
+    _displayRefreshRateHz = value;
+    _reresolveFrameBudget();
+  }
+
+  void _reresolveFrameBudget({bool force = false}) {
+    if (!_detectorsReady) return;
+    final measured = _frameTiming.measuredCadenceHz;
+    _lastResolvedCadenceHz = measured;
+    final next = resolveFrameBudget(
+      fpsTarget: config.fpsTarget,
+      displayRefreshRateHz: _displayRefreshRateHz,
+      measuredCadenceHz: measured,
+      auto: _autoFrameBudget,
+    );
+    final changed = next.budgetUs != _frameBudget.budgetUs;
+    _frameBudget = next;
+    if (!changed && !force) return;
+    _frameTiming.updateFrameBudget(next.budgetUs);
+    for (final detector in _detectors) {
+      _withFrameBudget(detector);
+    }
+  }
+
+  /// Applies the resolved budget to budget-derived detector thresholds.
+  /// At the `fpsTarget` budget the detectors keep their own defaults
+  /// (8000 us raster floor, 8 ms heavy-compute threshold); above
+  /// `fpsTarget` they use half the resolved budget.
+  T _withFrameBudget<T extends BaseDetector>(T detector) {
+    final budgetUs = _frameBudget.budgetUs;
+    final atTarget = budgetUs == _fpsTargetBudgetUs;
+    if (detector is GpuPressureDetector) {
+      atTarget
+          ? detector.resetFrameBudget()
+          : detector.updateFrameBudget(budgetUs);
+    } else if (detector is HeavyComputeDetector) {
+      atTarget
+          ? detector.resetFrameBudget()
+          : detector.updateFrameBudget(budgetUs);
+    }
+    return detector;
+  }
+
+  void _maybeReresolveFromCadence() {
+    final measured = _frameTiming.measuredCadenceHz;
+    if (measured == null) return;
+    final last = _lastResolvedCadenceHz;
+    if (last != null && (measured - last).abs() <= last * 0.05) return;
+    _reresolveFrameBudget();
   }
 
   /// Factory map for non-typed detectors, persisted for runtime enable.
@@ -980,7 +1425,7 @@ class SleuthController {
   }
 
   /// Inject a detector into the live `_detectors` list so tests can exercise
-  /// the scan-stage failure paths (v0.16.0 F3 quarantine regression tests).
+  /// the scan-stage failure paths (v0.16.0 quarantine regression tests).
   ///
   /// Callers are expected to have called [initializeDetectorsForTest] first.
   /// Production code must never call this.
@@ -1039,6 +1484,13 @@ class SleuthController {
   // ignore: invalid_use_of_visible_for_testing_member
   void addFrameForTest(FrameStats stats) => _frameTiming.addFrameForTest(stats);
 
+  /// Feed a batch of engine [FrameTiming]s into the controller's
+  /// [FrameTimingDetector] through its real timings-callback path.
+  @visibleForTesting
+  void handleTimingsForTest(List<FrameTiming> timings) =>
+      // ignore: invalid_use_of_visible_for_testing_member
+      _frameTiming.handleTimingsForTest(timings);
+
   /// Mark the controller as initialized without running the full [initialize]
   /// path (which requires dart:developer). Needed by tests that exercise
   /// post-init code paths like the frameStatsNotifier throttle.
@@ -1050,15 +1502,15 @@ class SleuthController {
   /// matching the old `Map<String, int>` semantics.
   @visibleForTesting
   Map<String, int> get recurrenceCountsForTest => {
-        for (final e in _recurrenceTrends.entries)
-          if (e.value.entries.isNotEmpty && e.value.entries.last.present)
-            e.key: e.value.presentCount,
-      };
+    for (final e in _recurrenceTrends.entries)
+      if (e.value.entries.isNotEmpty && e.value.entries.last.present)
+        e.key: e.value.presentCount,
+  };
 
   /// Unmodifiable view of the current recurrence trend map, keyed by
   /// issue `stableId`. Intended for the floating card to render "Seen X/Y"
   /// badges. Trends update on every scan cycle; listeners should use
-  /// [issuesNotifier] as the rebuild trigger.
+  /// [scanTickNotifier] as the rebuild trigger.
   Map<String, RecurrenceTrend> get recurrenceTrends =>
       Map.unmodifiable(_recurrenceTrends);
 
@@ -1091,20 +1543,29 @@ class SleuthController {
   @visibleForTesting
   List<BaseDetector> get detectorsForAudit {
     final customs = config.customDetectors.toSet();
-    return List.unmodifiable(
-      _detectors.where((d) => !customs.contains(d)),
-    );
+    return List.unmodifiable(_detectors.where((d) => !customs.contains(d)));
   }
 
-  /// Computed scan interval: backs off when the app is healthy.
+  /// Computed scan interval. Backs off (never below the base interval)
+  /// when the app is healthy, and stretches to a multiple of the base
+  /// interval when the last tick cost more than [_scanCostBudgetUs].
   int get _currentScanIntervalMs {
     final baseMs = config.treeScanInterval.inMilliseconds;
-    if (!config.adaptiveScanEnabled ||
-        _consecutiveCleanScans < _cleanScanThreshold) {
-      return baseMs;
-    }
-    return (baseMs * 2).clamp(0, _maxBackOffMs);
+    final backoffMs =
+        config.adaptiveScanEnabled &&
+            _consecutiveCleanScans >= _cleanScanThreshold
+        ? math.max(baseMs, math.min(baseMs * 2, _maxBackOffMs))
+        : baseMs;
+    final costUs = scanDurationOverrideForTest ?? _lastScanDurationUs;
+    if (config.captureMode || costUs <= _scanCostBudgetUs) return backoffMs;
+    final multiple = (costUs + _scanCostBudgetUs - 1) ~/ _scanCostBudgetUs;
+    return math.max(backoffMs, math.min(_scanIntervalCapMs, baseMs * multiple));
   }
+
+  /// Replaces the measured scan cost in the interval computation when set
+  /// (for testing).
+  @visibleForTesting
+  int? scanDurationOverrideForTest;
 
   @visibleForTesting
   void runTreeScanForTest(BuildContext context) {
@@ -1112,12 +1573,12 @@ class SleuthController {
     _runStructuralScans(context);
     _collectHighlights();
     _aggregateIssues();
-    if (issuesNotifier.value.isEmpty) {
+    if (_latestIssues.isEmpty) {
       _consecutiveCleanScans++;
     } else {
       _consecutiveCleanScans = 0;
     }
-    _updateRecurrence(issuesNotifier.value);
+    _updateRecurrence(_latestIssues);
   }
 
   /// Feeds timeline data through the same path as production VM polling.
@@ -1182,18 +1643,18 @@ class SleuthController {
   NetworkMonitorDetector get networkMonitor => _networkMonitor;
 
   /// Public accessor for capture-mode tooling — capture screens read
-  /// [RebuildDetector.lastObservedRebuildRate] after driving a Ticker
+  /// [RebuildDetector.peakObservedBuildPercent] after driving a Ticker
   /// scenario and an `await Sleuth.flushTimelineNow()` barrier so the
-  /// exported magnitude reflects the detector-measured rebuilds-per-
-  /// second rate rather than the operator's plan.
+  /// exported magnitude reflects the detector-measured build-time share
+  /// rather than the operator's plan.
   RebuildDetector get rebuildDetector => _rebuildDetector;
 
   /// Public accessor for capture-mode tooling — capture screens read
-  /// [RepaintDetector.lastObservedPaintCount] and call
-  /// [RepaintDetector.flushPaintEvaluation] before exporting
-  /// sub-threshold legs so the wrapped magnitude reflects the
-  /// detector-measured 1s-window paint count rather than the operator's
-  /// plan. Returns null if [DetectorType.repaint] was excluded from
+  /// [RepaintDetector.peakObservedPaintPercent] (and call
+  /// [RepaintDetector.flushPaintEvaluation] before reading
+  /// [RepaintDetector.lastObservedPaintPercent]) so the exported
+  /// magnitude reflects the detector-measured paint-time share rather
+  /// than the operator's plan. Returns null if [DetectorType.repaint] was excluded from
   /// [SleuthConfig.enabledDetectors] at init time.
   RepaintDetector? get repaintDetector {
     for (final d in _detectors) {
@@ -1235,7 +1696,7 @@ class SleuthController {
   /// `markScenarioEnd`, putting them outside the scenario span and
   /// causing `exportCaptureJson` to refuse the role-vs-records gate.
   Future<StreamResourcePollResult>
-      pollStreamResourceAllocationProfileNowWithCapture() async {
+  pollStreamResourceAllocationProfileNowWithCapture() async {
     if (!_detectorsReady) {
       return const StreamResourcePollResult(
         succeeded: false,
@@ -1286,6 +1747,11 @@ class SleuthController {
   @visibleForTesting
   void feedHeapSampleForTest(HeapSample sample) => _onHeapSample(sample);
 
+  /// Feeds a GC event through the same path as the `EventStreams.kGC`
+  /// callback.
+  @visibleForTesting
+  void feedGcEventForTest(Event event) => _onGcEvent(event);
+
   /// The currently-active [RouteSession], or `null` when the current route
   /// is in [SleuthConfig.routeIgnorePatterns] / no session has been created
   /// yet. Exposed so overlay surfaces (e.g. the rebuild stats drilldown
@@ -1314,18 +1780,19 @@ class SleuthController {
     routeHistoryNotifier.value = List<RouteSession>.unmodifiable(sessions);
   }
 
-  /// Injects a (typically fake) [DebugInstrumentationCoordinator] so M12
+  /// Injects a (typically fake) [DebugInstrumentationCoordinator] so
   /// controller tests can observe `snapshot()` invocations and feed
   /// synthetic `flutterTimeline`-source [DebugSnapshot] values through the
   /// real `_scanTreeInner` drain→merge→route-switch path without needing
-  /// profile-mode compilation (see spec v15 R3).
+  /// profile-mode compilation. Widget tests run in debug mode, so they
+  /// cannot exercise the real profile-mode drain.
   ///
   /// The previous coordinator is NOT disposed — tests own the lifecycle.
   @visibleForTesting
   set debugCoordinatorForTest(DebugInstrumentationCoordinator? c) =>
       _debugCoordinator = c;
 
-  /// Exposes [_scanInProgress] for M12 re-entry regression tests. A second
+  /// Exposes [_scanInProgress] for re-entry regression tests. A second
   /// synchronous `_scanTree` call while this is `true` must be a silent
   /// no-op — the guard prevents double-draining the coordinator (which
   /// would reset `_lastSnapshotTime` and corrupt per-second rate math).
@@ -1335,20 +1802,34 @@ class SleuthController {
   @visibleForTesting
   set scanInProgressForTest(bool value) => _scanInProgress = value;
 
+  /// Diagnostics: wall time in microseconds of the last scan tick's
+  /// structural walk plus issue aggregation. Excludes the debug-snapshot
+  /// drain and the scan-root search. `0` before the first tick.
+  int get lastScanDurationUs => _lastScanDurationUs;
+
+  /// Diagnostics: number of elements visited by the last unified structural
+  /// walk. `0` before the first walk.
+  int get lastScanElementCount => _lastScanElementCount;
+
+  /// Number of cached unnamed-route ordinals (for testing).
+  @visibleForTesting
+  int get unnamedIdByHashLengthForTest => _unnamedIdByHash.length;
+
   /// Build a session snapshot for programmatic use.
   ///
   /// Includes schema version 2 fields: ranking scores on each issue,
   /// FPS percentiles, phase/GC/platform-channel event buffers, and
   /// a recent-frames time series.
   SessionSnapshot exportSnapshot() {
-    final buffer =
-        _initialized ? _frameTiming.frameBuffer : frameStatsNotifier.value;
+    final buffer = _initialized
+        ? _frameTiming.frameBuffer
+        : frameStatsNotifier.value;
     final frames = buffer.frames;
     final worstUs = frames.isEmpty
         ? 0
         : frames
-            .map((f) => f.effectiveTotalDuration.inMicroseconds)
-            .reduce((a, b) => a > b ? a : b);
+              .map((f) => f.effectiveTotalDuration.inMicroseconds)
+              .reduce((a, b) => a > b ? a : b);
 
     // Compute FPS percentiles at export time (lazy, not cached).
     // Clamp to fpsTarget so ProMotion 120Hz idle screens report ≤ target.
@@ -1364,10 +1845,11 @@ class SleuthController {
 
     // Attach ranking scores to issues (export-only, not on the hot path).
     // Before init, _frameTiming is not available — use default context.
-    final rankingContext =
-        _initialized ? _buildRankingContext() : const IssueRankingContext();
+    final rankingContext = _initialized
+        ? _buildRankingContext()
+        : const IssueRankingContext();
     final rankedWithScores = _ranker.rankWithScores(
-      issuesNotifier.value,
+      _latestIssues,
       rankingContext,
     );
 
@@ -1375,11 +1857,7 @@ class SleuthController {
     final heapSamples = _initialized && _memoryPressure.heapSamples.isNotEmpty
         ? _memoryPressure.heapSamples
         : null;
-    final summary = _buildSessionSummary(
-      rankedWithScores,
-      frames,
-      heapSamples,
-    );
+    final summary = _buildSessionSummary(rankedWithScores, frames, heapSamples);
 
     // Serialize route history (v4).
     final routeSessions = _routeHistory.isNotEmpty
@@ -1408,7 +1886,8 @@ class SleuthController {
       packageVersion: kSleuthPackageVersion,
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
-      recentRequests: _initialized &&
+      recentRequests:
+          _initialized &&
               _networkMonitor.isEnabled &&
               _networkMonitor.records.isNotEmpty
           ? _networkMonitor.records
@@ -1418,17 +1897,15 @@ class SleuthController {
       phaseEvents: _phaseEventBuffer.isNotEmpty
           ? List.unmodifiable(_phaseEventBuffer)
           : null,
-      gcEvents:
-          _gcEventBuffer.isNotEmpty ? List.unmodifiable(_gcEventBuffer) : null,
+      gcEvents: _gcEventBuffer.isNotEmpty
+          ? List.unmodifiable(_gcEventBuffer)
+          : null,
       platformChannelEvents: _platformChannelBuffer.isNotEmpty
           ? List.unmodifiable(_platformChannelBuffer)
           : null,
       recentFrames: frames.isNotEmpty ? List.unmodifiable(frames) : null,
       recurrenceTrends: _recurrenceTrends.isNotEmpty
-          ? {
-              for (final e in _recurrenceTrends.entries)
-                e.key: e.value.toJson(),
-            }
+          ? {for (final e in _recurrenceTrends.entries) e.key: e.value.toJson()}
           : null,
       widgetHeatMap: rankedWithScores.isNotEmpty
           ? buildWidgetHeatMap(rankedWithScores)
@@ -1569,8 +2046,8 @@ class SleuthController {
       } else if (detector is RepaintDetector) {
         // Clear paint accumulator + last/peak observables + pending
         // debug snapshot so a back-to-back leg cannot inherit the prior
-        // leg's `peakObservedPaintCount` via the `_paintEventCount >
-        // _peakObservedPaintCount` window-close comparison.
+        // leg's `peakObservedPaintPercent` via the window-close peak
+        // comparison.
         detector.resetCaptureState();
       }
     }
@@ -1582,9 +2059,9 @@ class SleuthController {
     // `_emissionSeq` is preserved by design (see FrameTimingDetector.reset
     // doc) so multi-leg flows cannot collide `dedupIdentityMicros`.
     _frameTiming.reset();
-    // Clear RebuildDetector's per-session counters + last-observed peak
-    // so the next scenario reads detector-measured rate from leg-N's
-    // workload only.
+    // Clear RebuildDetector's window accumulators + last/peak observables
+    // so the next scenario reads the detector-measured build-time share
+    // from leg-N's workload only.
     _rebuildDetector.resetCaptureState();
     // Clear StreamResourceDetector's per-class window + warmup so a
     // back-to-back leg's gating starts fresh on scenario allocation
@@ -1613,29 +2090,31 @@ class SleuthController {
   }) async {
     if (!ProfileCaptureSchema.allowedRoles.contains(role)) {
       throw ArgumentError.value(
-          role,
-          'role',
-          'Must be exactly one of '
-              '${ProfileCaptureSchema.allowedRoles.toList()..sort()}');
+        role,
+        'role',
+        'Must be exactly one of '
+            '${ProfileCaptureSchema.allowedRoles.toList()..sort()}',
+      );
     }
     _lastCaptureExportFailure = null;
     final client = _vmClient;
     if (client == null || !client.isConnected) {
       final reason =
           'VM service client ${client == null ? "not initialised" : "disconnected"}. '
-          'Capture mode requires wireless debug or simulator (VM+). '
-          'USB-tethered FRAME mode will not work.';
+          'Capture mode needs a VM service connection (VM+). Launch with '
+          '`flutter run --profile --no-dds`, or start the installed app '
+          'from the home screen, so DDS does not take the VM service.';
       _lastCaptureExportFailure = reason;
-      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
+      debugPrint('Sleuth.exportCaptureJson($scenario) returned null. $reason');
       return null;
     }
     final events = await client.fetchRawTimelineEventsJson();
     if (events.isEmpty) {
-      const reason = 'VM service returned 0 timeline events. Either the '
-          'buffer was just cleared or the VM service handshake is '
-          'incomplete.';
+      const reason =
+          'The VM service returned 0 timeline events. The buffer was '
+          'just cleared, or the VM service handshake is not complete.';
       _lastCaptureExportFailure = reason;
-      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
+      debugPrint('Sleuth.exportCaptureJson($scenario) returned null. $reason');
       return null;
     }
     // Locate scenario.begin / scenario.end pair MATCHING the requested
@@ -1690,20 +2169,23 @@ class SleuthController {
     }
     if (beginTs == null || endTs == null) {
       final scenarioMarkersInBuffer = events
-          .where((e) =>
-              e['name'] == 'sleuth.scenario.begin' ||
-              e['name'] == 'sleuth.scenario.end')
+          .where(
+            (e) =>
+                e['name'] == 'sleuth.scenario.begin' ||
+                e['name'] == 'sleuth.scenario.end',
+          )
           .length;
-      final reason = 'Scenario markers not found (begin=$beginTs, end=$endTs). '
-          '$scenarioMarkersInBuffer scenario markers exist in buffer but '
-          'none match scenario name "$scenario". Causes: (1) captureMode '
-          'is OFF — verify SleuthConfig(captureMode: true) AND '
-          '`--dart-define=SLEUTH_CAPTURE_MODE=true` was passed at launch. '
-          '(2) Scenario name mismatch between markScenarioBegin/End and '
-          'exportCaptureJson arguments. (3) VM trace ring buffer '
-          'overflowed and rolled the markers off.';
+      final reason =
+          'Scenario markers not found (begin=$beginTs, end=$endTs). '
+          '$scenarioMarkersInBuffer scenario markers exist in the buffer, '
+          'but none match scenario name "$scenario". Causes: (1) '
+          'captureMode is off. Check that SleuthConfig(captureMode: true) '
+          'is set and that `--dart-define=SLEUTH_CAPTURE_MODE=true` was '
+          'passed at launch. (2) The scenario name differs between the '
+          'markScenarioBegin/End and exportCaptureJson arguments. (3) The '
+          'VM trace ring buffer overflowed and rolled the markers off.';
       _lastCaptureExportFailure = reason;
-      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
+      debugPrint('Sleuth.exportCaptureJson($scenario) returned null. $reason');
       return null;
     }
     final spanLo = beginTs;
@@ -1741,30 +2223,33 @@ class SleuthController {
       if (role == 'below') {
         if (inSpanIssueCount > 0) {
           final reason =
-              'role="below" must contain ZERO "$expectedName" events '
-              'in scenario span [$spanLo, $spanHi]; found '
-              '$inSpanIssueCount. Re-record below the threshold or '
-              'pick a smaller magnitude. The detector should not '
-              'fire at sub-threshold input.';
+              'role="below" must contain no "$expectedName" events in '
+              'scenario span [$spanLo, $spanHi], but it has '
+              '$inSpanIssueCount. Re-record below the threshold or pick a '
+              'smaller magnitude. The detector should not fire at '
+              'sub-threshold input.';
           _lastCaptureExportFailure = reason;
           debugPrint(
-              'Sleuth.exportCaptureJson($scenario): null return — $reason');
+            'Sleuth.exportCaptureJson($scenario) returned null. $reason',
+          );
           return null;
         }
       } else {
         if (inSpanIssueCount == 0) {
           final reason =
               'role="$role" must contain at least one "$expectedName" '
-              'event in scenario span [$spanLo, $spanHi]; found 0. '
-              'Causes: (1) detector did not fire (workload below '
-              'threshold despite operator intent); (2) emission fell '
-              'outside the scenario span (timer phase issue — extend '
-              'span or call detector\'s flushXxx hook before '
-              'markScenarioEnd); (3) capture-mode dedup recorded the '
-              'event but timeline buffer rolled it off (overflow).';
+              'event in scenario span [$spanLo, $spanHi], but it has 0. '
+              'Causes: (1) The detector did not fire because the workload '
+              'stayed below the threshold, despite the operator\'s intent. '
+              '(2) The emission fell outside the scenario span because of '
+              'timer phase. Extend the span, or call the detector\'s '
+              'flushXxx hook before markScenarioEnd. (3) Capture-mode dedup '
+              'recorded the event, but the timeline buffer overflowed and '
+              'rolled it off.';
           _lastCaptureExportFailure = reason;
           debugPrint(
-              'Sleuth.exportCaptureJson($scenario): null return — $reason');
+            'Sleuth.exportCaptureJson($scenario) returned null. $reason',
+          );
           return null;
         }
       }
@@ -1784,7 +2269,8 @@ class SleuthController {
       final tsInt = ts.toInt();
       final durRaw = e['dur'];
       final tsEnd = (durRaw is num) ? tsInt + durRaw.toInt() : tsInt;
-      final inSpan = (tsInt >= spanLo && tsInt <= spanHi) ||
+      final inSpan =
+          (tsInt >= spanLo && tsInt <= spanHi) ||
           (tsEnd >= spanLo && tsEnd <= spanHi) ||
           (tsInt <= spanLo && tsEnd >= spanHi);
       if (inSpan) filtered.add(e);
@@ -1864,7 +2350,7 @@ class SleuthController {
         },
         'captureDate': DateTime.now().toUtc().toIso8601String(),
         'role': role,
-        if (captureNotes != null) 'captureNotes': captureNotes,
+        'captureNotes': ?captureNotes,
       },
     };
     return const JsonEncoder.withIndent('  ').convert(wrapped);
@@ -1887,16 +2373,20 @@ class SleuthController {
 
     // Top 5 issues by ranking score
     if (ranked.isNotEmpty) {
-      final top = ranked.take(5).map((i) => {
-            'stableId': i.stableId,
-            'title': i.title,
-            'severity': i.severity.name,
-            'confidence': i.confidence.name,
-            if (i.confidenceReason != null)
-              'confidenceReason': i.confidenceReason,
-            if (i.rankingScore != null) 'rankingScore': i.rankingScore,
-            if (i.widgetName != null) 'widgetName': i.widgetName,
-          });
+      final top = ranked
+          .take(5)
+          .map(
+            (i) => {
+              'stableId': i.stableId,
+              'title': i.title,
+              'severity': i.severity.name,
+              'confidence': i.confidence.name,
+              if (i.confidenceReason != null)
+                'confidenceReason': i.confidenceReason,
+              if (i.rankingScore != null) 'rankingScore': i.rankingScore,
+              if (i.widgetName != null) 'widgetName': i.widgetName,
+            },
+          );
       summary['topIssues'] = top.toList();
     }
 
@@ -1949,8 +2439,9 @@ class SleuthController {
     if (heapSamples != null && heapSamples.length >= 2) {
       final first = heapSamples.first;
       final last = heapSamples.last;
-      final peak =
-          heapSamples.map((s) => s.heapUsage).reduce((a, b) => a > b ? a : b);
+      final peak = heapSamples
+          .map((s) => s.heapUsage)
+          .reduce((a, b) => a > b ? a : b);
       final elapsedSecs = last.timestamp.difference(first.timestamp).inSeconds;
       final growthRate = elapsedSecs > 0
           ? (last.heapUsage - first.heapUsage) / elapsedSecs
@@ -1974,7 +2465,6 @@ class SleuthController {
       'sustained_jank': 'frameTiming',
       'jank_detected': 'frameTiming',
       'raster_cache': 'frameTiming',
-      'shader_jank': 'shaderJank',
       'shader_compilation': 'shaderJank',
       'heavy_compute': 'heavyCompute',
       'platform_channel': 'platformChannel',
@@ -1992,9 +2482,7 @@ class SleuthController {
       'expensive_gpu': 'gpuPressure',
       'layout_bottleneck': 'layoutBottleneck',
       'wrap_layout': 'layoutBottleneck',
-      'non_lazy_list': 'listview',
-      'non_lazy_gridview': 'listview',
-      'non_lazy_listview': 'listview',
+      'non_lazy_': 'listview',
       'sliver_': 'listview',
       'uncached_images': 'imageMemory',
       'always_repaint_painter': 'customPainter',
@@ -2010,7 +2498,8 @@ class SleuthController {
       'missing_repaint_boundary': 'repaintBoundary',
       'excessive_repaint_boundary': 'repaintBoundary',
       'slow_startup': 'startup',
-      'startup_phase': 'startup',
+      'stream_resource_growth': 'streamResource',
+      'tracked_resource_': 'trackedResource',
     };
 
     for (final entry in prefixMap.entries) {
@@ -2024,7 +2513,7 @@ class SleuthController {
   /// After making a code change and hot-reloading, call [compareToBaseline]
   /// to see which issues were resolved, improved, or worsened.
   void captureBaseline() {
-    _fixBaseline = captureFixBaseline(issuesNotifier.value);
+    _fixBaseline = captureFixBaseline(_latestIssues);
   }
 
   /// Compare current issues against the captured baseline.
@@ -2035,10 +2524,7 @@ class SleuthController {
   FixVerificationResult? compareToBaseline() {
     final baseline = _fixBaseline;
     if (baseline == null) return null;
-    return baseline.compare(
-      issuesNotifier.value,
-      cooldownCycles: _fixCooldownCycles,
-    );
+    return baseline.compare(_latestIssues, cooldownCycles: _fixCooldownCycles);
   }
 
   /// Whether a fix baseline has been captured.
@@ -2078,7 +2564,8 @@ class SleuthController {
 
   /// Route name resolved from scaffold-free path via _ModalScopeStatus.
   /// Used by [_currentRouteName] when [_lastScanContext] is an overlay entry
-  /// (where ModalRoute.of returns null since context is above the route).
+  /// (where ModalRoute.settingsOf returns null since context is above the
+  /// route).
   String? _scaffoldFreeRouteName;
 
   /// Identity hash of the topmost route-owned overlay entry from this scan.
@@ -2142,42 +2629,75 @@ class SleuthController {
   ///    (widget remount / hot reload), the old post-frame callback could still
   ///    fire after a new chain starts. [_scanTimerGeneration] ensures only the
   ///    latest chain reschedules.
-  void _scheduleNextScan() {
+  void _scheduleNextScan({int? delayMs}) {
     if (_disposed) return;
     final generation = _scanTimerGeneration;
-    _treeScanTimer = Timer(
-      Duration(milliseconds: _currentScanIntervalMs),
-      () {
-        if (_disposed || generation != _scanTimerGeneration) return;
-        final ctx = _overlayContext;
-        if (ctx != null) {
-          final element = ctx as Element;
-          if (element.mounted) {
-            SchedulerBinding.instance.addPostFrameCallback((_) {
-              if (_disposed || generation != _scanTimerGeneration) return;
-              try {
-                if (element.mounted) _scanTree(ctx);
-              } catch (e, st) {
-                assert(() {
-                  debugPrint('Sleuth: scan error: $e\n$st');
-                  return true;
-                }());
+    final delay = delayMs ?? _currentScanIntervalMs;
+    _treeScanTimer = Timer(Duration(milliseconds: delay), () {
+      if (_disposed || generation != _scanTimerGeneration) return;
+      final ctx = _overlayContext;
+      if (ctx != null) {
+        final element = ctx as Element;
+        if (element.mounted) {
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            if (_disposed || generation != _scanTimerGeneration) return;
+            // Scroll defer: retry shortly instead of walking mid-scroll, at
+            // most three times in a row. A scroll with no activity for 2 s
+            // is stale; return to idle and scan.
+            if (_interactionState == InteractionContext.scrolling) {
+              final last = _lastScrollActivityAt;
+              final now = clockOverrideForTest?.call() ?? DateTime.now();
+              if (last != null &&
+                  now.difference(last).inMilliseconds > _staleScrollMs) {
+                _scrollIdleTimer?.cancel();
+                _interactionState = InteractionContext.idle;
+              } else if (_scrollDeferrals < _maxScrollDeferrals) {
+                _scrollDeferrals++;
+                _scheduleNextScan(delayMs: _scrollDeferralDelayMs);
+                return;
               }
-              _scheduleNextScan();
-            });
-          } else {
+            }
+            _scrollDeferrals = 0;
+            // Element cap: skip one tick after an oversized walk. The walk
+            // itself is never cut short; the last scan's issues remain.
+            final cap = config.maxElementsPerScan;
+            if (cap > 0 && _lastScanElementCount > cap && !_capSkipConsumed) {
+              _capSkipConsumed = true;
+              _scheduleNextScan(delayMs: _currentScanIntervalMs * 2);
+              return;
+            }
+            _capSkipConsumed = false;
+            try {
+              if (element.mounted) _scanTree(ctx);
+            } catch (e, st) {
+              assert(() {
+                debugPrint('Sleuth: scan error: $e\n$st');
+                return true;
+              }());
+            }
             _scheduleNextScan();
+          });
+          // A static screen produces no frames, and a post-frame callback
+          // only runs after one. Schedule a frame when none is pending so
+          // the tick fires on cadence instead of at the next incidental
+          // repaint, which on a quiet screen can be many seconds away.
+          final binding = SchedulerBinding.instance;
+          if (binding.schedulerPhase == SchedulerPhase.idle &&
+              !binding.hasScheduledFrame) {
+            binding.scheduleFrame();
           }
         } else {
           _scheduleNextScan();
         }
-      },
-    );
+      } else {
+        _scheduleNextScan();
+      }
+    });
   }
 
   void _scanTree(BuildContext context) {
     if (!_initialized || kReleaseMode) return;
-    // M5 re-entry guard (KDD spec v15). A second synchronous `_scanTree` call
+    // Re-entry guard. A second synchronous `_scanTree` call
     // would drain `_debugCoordinator?.snapshot()` twice and corrupt the
     // `_lastSnapshotTime` window used for per-second rate math. Try/finally
     // ensures the flag is released even if the inner body throws.
@@ -2185,6 +2705,7 @@ class SleuthController {
     _scanInProgress = true;
     try {
       _scanTreeInner(context);
+      scanTickNotifier.value++;
     } finally {
       _scanInProgress = false;
     }
@@ -2196,10 +2717,10 @@ class SleuthController {
     _scaffoldFreeRouteName = null;
 
     // Always drain debug counts so they don't carry over across page
-    // transitions. KDD-2 / M3: the historical assert wrapper is stripped in
-    // profile, so profile-mode drains never happened. Top-level mode split
-    // preserves debug path bit-for-bit and lets M4's `installProfileMode()`
-    // feed a snapshot into the same `debugSnapshot` variable in profile.
+    // transitions. An `assert` wrapper is stripped in profile, so the drain
+    // cannot live only inside one. The top-level mode split keeps the debug
+    // path unchanged and lets the coordinator's `installProfileMode()` feed
+    // a snapshot into the same `debugSnapshot` variable in profile.
     DebugSnapshot? debugSnapshot;
     if (kDebugMode) {
       assert(() {
@@ -2207,7 +2728,7 @@ class SleuthController {
         return true;
       }());
     } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
-      // PROFILE BRANCH — M4/M5. In profile mode the coordinator is wired
+      // PROFILE BRANCH. In profile mode the coordinator is wired
       // via `installProfileMode()`, so `snapshot()` internally dispatches
       // to `_drainProfileBuffer()` which drains
       // `FlutterTimeline.debugCollect()` and returns a snapshot tagged
@@ -2215,7 +2736,7 @@ class SleuthController {
       debugSnapshot = _debugCoordinator?.snapshot();
     }
 
-    // M7 / KDD-4: additively merge profile-mode rebuild counts into the
+    // Additively merge profile-mode rebuild counts into the
     // currently-active route session BEFORE the route-change block below
     // replaces `_activeRouteSession`. Any counts drained while the session
     // was active stay attributed to it; sessions born from the subsequent
@@ -2230,7 +2751,7 @@ class SleuthController {
     // Debug-mode snapshots (source == debugCallback) are NOT merged here
     // — existing detectors already consume them via
     // `updateDebugSnapshot()`, and mixing the two sources on the same map
-    // would violate KDD-1 mutual exclusivity.
+    // would break the rule that debug and profile counts never mix.
     if (debugSnapshot != null &&
         debugSnapshot!.source == RebuildCountSource.flutterTimeline) {
       final session = _activeRouteSession;
@@ -2251,7 +2772,7 @@ class SleuthController {
       // and set interaction state to navigating.
       //
       // Note: profile-mode rebuild counts for this scan have ALREADY
-      // been merged into `_activeRouteSession` by the M7 merge block
+      // been merged into `_activeRouteSession` by the merge block
       // above, which runs before this transition check. The counts
       // therefore land on the pre-transition session (still the active
       // one at drain time) and are not lost — `debugSnapshot` itself
@@ -2261,12 +2782,19 @@ class SleuthController {
       _interactionState = InteractionContext.navigating;
       if (highlightsNotifier.value.items.isNotEmpty) {
         _highlightGeneration++;
-        highlightsNotifier.value =
-            (generation: _highlightGeneration, items: []);
+        highlightsNotifier.value = (
+          generation: _highlightGeneration,
+          items: [],
+        );
       }
       selectedHighlightNotifier.value = null;
       for (final d in _detectors) {
         if (d is SetStateScopeDetector) d.clearSnapshots();
+        // The drained counts are dropped with this scan; the per-widget
+        // cards held from earlier scans belong to a page that may no
+        // longer be shown.
+        if (d is RebuildDetector) d.discardDebugEvidence();
+        if (d is RepaintDetector) d.discardDebugEvidence();
       }
       _networkMonitor.clearRecords();
       // Real route transition just fired clearRecords; reset the tab-switch
@@ -2287,7 +2815,7 @@ class SleuthController {
     // IndexedStack (and StatefulShellRoute.indexedStack) swaps children via
     // its `index` property — no route push, no Navigator notification. Below,
     // the route-change block compares [_currentRouteName()], which reads
-    // [ModalRoute.of] on the scan context: all tabs share one Navigator
+    // [ModalRoute.settingsOf] on the scan context: all tabs share one Navigator
     // route, so that comparison cannot detect the swap. The network-monitor
     // buffer would therefore persist across tab switches and any cumulative
     // traffic from the previous tab counts toward the new tab's 30-req/5s
@@ -2324,15 +2852,42 @@ class SleuthController {
     final currentHashKey = _currentVisibleScaffoldHash;
     final active = _activeRouteSession;
 
-    final bool nameChanged = active == null ||
+    final bool nameChanged =
+        active == null ||
         (currentName != null && active.routeName != currentName) ||
         (currentName == null && !active.routeName.startsWith('<unnamed-'));
     final bool hashChanged =
         active != null && active.scaffoldHashKey != currentHashKey;
     final routeChanged = nameChanged || hashChanged;
 
+    // Rebuild and repaint evidence is per screen: a new route, tab or hot
+    // reload drops what the two detectors hold and restarts their VM
+    // window, and this scan's debug counts, which span the change (and a
+    // reload's rebuild of every element), are not used. Keyed on the
+    // screen rather than [routeChanged], which stays true on every scan
+    // of an ignored route.
+    final evidenceKey = (currentName, currentHashKey, _hotReloadGeneration);
+    final evidenceChanged = evidenceKey != _lastEvidenceKey;
+    _lastEvidenceKey = evidenceKey;
+    if (evidenceChanged) {
+      for (final d in _detectors) {
+        if (d is RebuildDetector) d.markRouteEpoch();
+        if (d is RepaintDetector) d.markRouteEpoch();
+      }
+    }
+
     if (routeChanged) {
       active?.endedAt = DateTime.now();
+      // Jank is judged per route: start a new frame window and drop the
+      // previous route's jank issues before this tick aggregates, so they
+      // never reach the new session. Raster-dominant frames from a
+      // previous route likewise stop counting.
+      _frameTiming.markRouteEpoch();
+      if (active != null) {
+        for (final d in _detectors) {
+          if (d is GpuPressureDetector) d.markRouteEpoch();
+        }
+      }
       final newRoute =
           currentName ?? '<unnamed-${_nextUnnamedId(currentHashKey)}>';
       // Skip session creation for ignored routes, but still reset back-off.
@@ -2347,11 +2902,12 @@ class SleuthController {
           fpsTarget: config.fpsTarget,
         );
         if (_routeHistory.length >= config.routeHistoryCapacity) {
-          _routeHistory.removeFirst();
+          _forgetUnnamedIdIfOrphaned(_routeHistory.removeFirst());
         }
         _routeHistory.add(_activeRouteSession!);
-        routeHistoryNotifier.value =
-            List<RouteSession>.unmodifiable(_routeHistory.toList());
+        routeHistoryNotifier.value = List<RouteSession>.unmodifiable(
+          _routeHistory.toList(),
+        );
       } else {
         _activeRouteSession = null;
       }
@@ -2364,24 +2920,27 @@ class SleuthController {
     _isIteratingDetectors = true;
     try {
       // Pass debug snapshot to detectors
-      if (debugSnapshot != null) {
+      if (debugSnapshot != null && !evidenceChanged) {
         for (final d in _detectors) {
           if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
         }
       }
 
+      final scanWatch = Stopwatch()..start();
+
       // Run all tree-scanning detectors
       _runStructuralScans(scanContext);
 
-      // Aggregate and rank all issues (fires issuesNotifier listeners).
+      // Aggregate and rank all issues (notifies issuesNotifier on change).
       _aggregateIssues();
+      _lastScanDurationUs = scanWatch.elapsedMicroseconds;
     } finally {
       _isIteratingDetectors = false;
       _drainPendingDetectorMutations();
     }
 
     // Track consecutive clean scans for adaptive interval back-off.
-    if (issuesNotifier.value.isEmpty) {
+    if (_latestIssues.isEmpty) {
       _consecutiveCleanScans++;
     } else {
       _consecutiveCleanScans = 0;
@@ -2389,7 +2948,7 @@ class SleuthController {
 
     // Update recurrence from scan path only (not timeline path) so all
     // detectors increment at the same rate regardless of lifecycle.
-    _updateRecurrence(issuesNotifier.value);
+    _updateRecurrence(_latestIssues);
 
     // Collect widget highlights if overlay is active
     if (highlightEnabledNotifier.value) {
@@ -2422,13 +2981,15 @@ class SleuthController {
       // Skip ticker-disabled subtrees — background Navigator routes
       if (widget is TickerMode && !widget.enabled) return;
 
-      // Skip invisible Visibility subtrees — inactive IndexedStack children.
-      // IndexedStack wraps every child in Visibility(maintainSize: true, ...)
-      // which uses a _Visibility render proxy (NOT Offstage/TickerMode), so
+      // Skip invisible Visibility subtrees. Through Flutter 3.44,
+      // IndexedStack wraps every child in Visibility(maintainSize: true, ...),
+      // which uses a _Visibility render proxy (not Offstage/TickerMode), so
       // the Offstage/TickerMode guards above do not filter inactive tabs.
-      // Without this skip, a bottom-nav app using IndexedStack for state
-      // preservation exposes every tab's Scaffold as a sibling, tripping
-      // the multi-scaffold guard below and aborting every scan.
+      // From Flutter 3.47 IndexedStack no longer uses Visibility; the
+      // RenderIndexedStack branch below covers that shape. Without either
+      // filter, a bottom-nav app using IndexedStack for state preservation
+      // exposes every tab's Scaffold as a sibling, tripping the
+      // multi-scaffold guard below and aborting every scan.
       if (widget is Visibility && !widget.visible) return;
 
       // Skip our own overlay widgets (v9.9: zero-allocation is checks)
@@ -2453,10 +3014,11 @@ class SleuthController {
       // churn) and the scan root — still anchored above the outer Scaffold —
       // walks into the active sub-page as usual, so detectors run normally.
       //
-      // Bottom-nav shells (IndexedStack / StatefulShellRoute.indexedStack
-      // Visibility gate, CupertinoTabScaffold Offstage gate) are unaffected:
-      // they mark inactive tabs explicitly and the earlier filters skip them
-      // before collection ever reaches this point.
+      // Bottom-nav shells are unaffected: inactive IndexedStack children are
+      // skipped by the Visibility guard (Flutter 3.44 and earlier) or the
+      // RenderIndexedStack branch below (Flutter 3.47+), and
+      // StatefulShellRoute.indexedStack / CupertinoTabScaffold gate inactive
+      // tabs with Offstage + TickerMode, which the earlier guards skip.
       if (widget is TabBarView || widget is PageView) {
         return;
       }
@@ -2464,6 +3026,20 @@ class SleuthController {
       // Collect all visible Scaffolds (Material + Cupertino)
       if (widget is Scaffold || widget is CupertinoPageScaffold) {
         scaffolds.add(element);
+      }
+
+      // IndexedStack: descend only into the selected child. The framework's
+      // _IndexedStackElement overrides debugVisitOnstageChildren for exactly
+      // this (not assert-gated; runs in profile). Flutter 3.47 stopped
+      // wrapping inactive children in Visibility, so the Visibility guard
+      // above no longer filters them. Target the public RenderIndexedStack
+      // rather than the IndexedStack widget: IndexedStack is a
+      // StatelessWidget whose element has no override; the override lives on
+      // its private child.
+      if (element is RenderObjectElement &&
+          element.renderObject is RenderIndexedStack) {
+        element.debugVisitOnstageChildren(visitor);
+        return;
       }
 
       element.visitChildren(visitor);
@@ -2510,8 +3086,9 @@ class SleuthController {
         ancestorSet.add(a);
         return true;
       });
-      final allNested =
-          scaffolds.take(scaffolds.length - 1).every(ancestorSet.contains);
+      final allNested = scaffolds
+          .take(scaffolds.length - 1)
+          .every(ancestorSet.contains);
       if (!allNested) return null; // Real transition / sibling scaffolds.
       // Nested — treat the innermost Scaffold as the visible page.
       scaffolds
@@ -2653,7 +3230,7 @@ class SleuthController {
   }
 
   /// Resolve route name for scaffold-free scans. Walks from the overlay
-  /// entry to find _ModalScopeStatus, then calls ModalRoute.of on its
+  /// entry to find _ModalScopeStatus, then calls ModalRoute.settingsOf on its
   /// first child to get the route name. Stores only the String name.
   void _captureRouteName(Element entry) {
     _scaffoldFreeRouteName = null;
@@ -2671,7 +3248,7 @@ class SleuthController {
 
     entry.visitChildElements((child) => findScopeStatus(child, 0));
     if (scopeStatusChild != null) {
-      _scaffoldFreeRouteName = ModalRoute.of(scopeStatusChild!)?.settings.name;
+      _scaffoldFreeRouteName = ModalRoute.settingsOf(scopeStatusChild!)?.name;
     }
   }
 
@@ -2712,19 +3289,115 @@ class SleuthController {
     return result;
   }
 
-  /// Re-collect highlights using fresh screen rects (e.g. after scroll).
-  ///
-  /// Re-runs structural detector scans to get fresh rects, then
-  /// aggregates highlights from all detectors.
+  /// Requests fresh highlights soon: restarts the 300 ms scroll-idle timer,
+  /// whose callback runs an early scan tick. Never walks the tree itself.
+  /// No-op until [startTreeScanning] has provided a scan root.
   void refreshHighlights() {
     if (!highlightEnabledNotifier.value) return;
     if (_interactionState == InteractionContext.navigating) return;
-    final scanContext = _lastScanContext;
-    if (scanContext == null) return;
-    final element = scanContext as Element;
-    if (!element.mounted) return;
-    _runStructuralScans(scanContext);
-    _collectHighlights();
+    if (_overlayContext == null) return;
+    _scheduleScrollIdle();
+  }
+
+  /// Set while a rect-only highlight refresh waits for its post-frame
+  /// callback, so a burst of scroll notifications costs one refresh.
+  bool _highlightRectRefreshScheduled = false;
+
+  /// Re-measures the current highlights' rects from their render objects
+  /// after the next frame (scroll moved them). Highlights whose render
+  /// object is gone, detached or unsized are dropped. Detector state is
+  /// untouched; the next scan tick rebuilds the list from scratch.
+  void refreshHighlightRects() {
+    if (_disposed || _highlightRectRefreshScheduled) return;
+    if (!highlightEnabledNotifier.value) return;
+    if (highlightsNotifier.value.items.isEmpty) return;
+    _highlightRectRefreshScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _highlightRectRefreshScheduled = false;
+      if (_disposed || !highlightEnabledNotifier.value) return;
+      final current = highlightsNotifier.value.items;
+      if (current.isEmpty) return;
+      final items = <WidgetHighlight>[];
+      for (final h in current) {
+        final ro = h.renderObject;
+        if (ro == null || !ro.attached) continue;
+        if (ro is! RenderBox || !ro.hasSize) continue;
+        final rect = getGlobalRect(ro);
+        if (rect == null) continue;
+        items.add(
+          WidgetHighlight(
+            rect: rect,
+            widgetName: h.widgetName,
+            severity: h.severity,
+            detectorName: h.detectorName,
+            detail: h.detail,
+            renderObject: ro,
+          ),
+        );
+      }
+      _publishHighlights(items);
+    });
+    // Scrolling already has a frame pending; this only matters when the
+    // request arrives between frames.
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Publishes [items] under a new generation and rebinds the selected
+  /// highlight by detectorName + widgetName (first match wins; cleared when
+  /// the widget is gone).
+  void _publishHighlights(List<WidgetHighlight> items) {
+    _highlightGeneration++;
+    highlightsNotifier.value = (generation: _highlightGeneration, items: items);
+    final selected = selectedHighlightNotifier.value;
+    if (selected != null) {
+      WidgetHighlight? refreshed;
+      for (final h in items) {
+        if (h.detectorName == selected.detectorName &&
+            h.widgetName == selected.widgetName) {
+          refreshed = h;
+          break;
+        }
+      }
+      selectedHighlightNotifier.value = refreshed;
+    }
+  }
+
+  /// (Re)starts the 300 ms scroll-idle timer. When it fires, a scrolling
+  /// state returns to idle and an early scan tick is requested.
+  void _scheduleScrollIdle() {
+    _scrollIdleTimer?.cancel();
+    _scrollIdleTimer = Timer(const Duration(milliseconds: 300), () {
+      if (_disposed) return;
+      if (_interactionState == InteractionContext.scrolling) {
+        _interactionState = InteractionContext.idle;
+        _aggregateIssues();
+      }
+      _requestEarlyScanTick();
+    });
+  }
+
+  /// Runs one scan tick after the next frame, outside the periodic chain.
+  /// Skipped when a scan is already running, the overlay is unmounted, or a
+  /// newer [startTreeScanning] chain replaced the one that asked.
+  void _requestEarlyScanTick() {
+    final ctx = _overlayContext;
+    if (_disposed || ctx == null) return;
+    final generation = _scanTimerGeneration;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || generation != _scanTimerGeneration) return;
+      if (_scanInProgress) return;
+      final element = ctx as Element;
+      if (!element.mounted) return;
+      try {
+        _scanTree(ctx);
+      } catch (e, st) {
+        assert(() {
+          debugPrint('Sleuth: scan error: $e\n$st');
+          return true;
+        }());
+      }
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
   /// Update interaction state from app scroll notifications.
@@ -2736,19 +3409,39 @@ class SleuthController {
     if (_interactionState == InteractionContext.navigating) return;
     // Typing has priority over scrolling — don't downgrade
     if (_interactionState == InteractionContext.typing) return;
+    if (notification is ScrollStartNotification ||
+        notification is ScrollUpdateNotification) {
+      _lastScrollActivityAt = clockOverrideForTest?.call() ?? DateTime.now();
+    }
     if (notification is ScrollStartNotification) {
       _scrollIdleTimer?.cancel();
       if (_interactionState != InteractionContext.scrolling) {
         _interactionState = InteractionContext.scrolling;
-        _aggregateIssues();
+        _aggregateIssuesOutsideFrame();
       }
     } else if (notification is ScrollEndNotification) {
-      _scrollIdleTimer?.cancel();
-      _scrollIdleTimer = Timer(const Duration(milliseconds: 300), () {
-        _interactionState = InteractionContext.idle;
-        _aggregateIssues();
-      });
+      _scheduleScrollIdle();
     }
+  }
+
+  bool _aggregateAfterFrameScheduled = false;
+
+  /// Runs [_aggregateIssues] now, or after the current frame when called
+  /// while it builds, lays out or paints. A page view that re-fits its
+  /// pages after a resize or rotation starts a scroll inside layout;
+  /// publishing issues then would rebuild their listeners mid-frame.
+  void _aggregateIssuesOutsideFrame() {
+    final scheduler = SchedulerBinding.instance;
+    if (scheduler.schedulerPhase != SchedulerPhase.persistentCallbacks) {
+      _aggregateIssues();
+      return;
+    }
+    if (_aggregateAfterFrameScheduled) return;
+    _aggregateAfterFrameScheduled = true;
+    scheduler.addPostFrameCallback((_) {
+      _aggregateAfterFrameScheduled = false;
+      if (!_disposed) _aggregateIssues();
+    });
   }
 
   /// Update interaction state when keyboard visibility changes.
@@ -2779,6 +3472,12 @@ class SleuthController {
   ///
   /// Called by the overlay's [WidgetsBindingObserver.didChangeAppLifecycleState].
   void onAppLifecycleChanged(AppLifecycleState state) {
+    // The OS may end a backgrounded app without another callback: a
+    // change still waiting for its debounce is written now.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _flushPendingOverlayUiStateWrite();
+    }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _interactionState = InteractionContext.appLifecycle;
@@ -2802,13 +3501,15 @@ class SleuthController {
     Object e,
     StackTrace s,
   ) {
-    FlutterError.reportError(FlutterErrorDetails(
-      exception: e,
-      stack: s,
-      library: 'sleuth',
-      context: ErrorDescription('while running ${d.name}.$stage'),
-      silent: false,
-    ));
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: e,
+        stack: s,
+        library: 'sleuth',
+        context: ErrorDescription('while running ${d.name}.$stage'),
+        silent: false,
+      ),
+    );
   }
 
   /// Run all tree-scanning detectors (hybrid + structural) in a single
@@ -2827,7 +3528,7 @@ class SleuthController {
     }
 
     // Detectors that throw during any stage of this scan are added here and
-    // skipped in every subsequent per-detector stage (v0.16.0 F3 quarantine).
+    // skipped in every subsequent per-detector stage (v0.16.0 quarantine).
     // A detector with half-initialised state in `prepareScan` would otherwise
     // keep being called on every element and every later stage, potentially
     // throwing `LateInitializationError` on uninitialised fields or amplifying
@@ -2836,17 +3537,19 @@ class SleuthController {
     // Also consulted post-scan by `_getAllIssues()` and `_collectHighlights()`
     // so partial output a detector already committed (via `report(...)`
     // during earlier walk callbacks) does not leak into aggregation — the
-    // F3 quarantine is only sound if tainted output is suppressed too.
+    // Quarantine is only sound if tainted output is suppressed too.
     final failedDetectors = _lastScanFailedDetectors;
     failedDetectors.clear();
+    // A detector quarantined from the per-frame hook gets another chance
+    // each scan window (see [_onFrame]).
+    _frameHookFailed.clear();
 
     // Phase 1: Preparation. Per-detector try/catch isolates a misbehaving
-    // detector from the rest of the scan (v0.16.0 C2 fix — previously
-    // only checkElement/afterElement were guarded, so an exception in
+    // detector from the rest of the scan (since v0.16.0; before that only
+    // checkElement/afterElement were guarded, so an exception in
     // prepareScan would crash the entire scan cycle). Failures are routed
     // through `FlutterError.reportError` so they surface in profile mode
-    // (v0.16.0 F3 — assert() is stripped outside debug).
-    typeNameCache.clear();
+    // (assert() is stripped outside debug).
     for (final d in unified) {
       try {
         d.prepareScan(scanContext);
@@ -2862,14 +3565,21 @@ class SleuthController {
     // (one-shot metrics come from FrameTiming, not the widget tree).
     final walkDetectors = _isScaffoldFreeScan
         ? unified
-            .where((d) =>
-                d.type != DetectorType.startup && d is! SetStateScopeDetector)
-            .toList()
+              .where(
+                (d) =>
+                    d.type != DetectorType.startup &&
+                    d is! SetStateScopeDetector,
+              )
+              .toList()
         : unified.where((d) => d.type != DetectorType.startup).toList();
 
+    var elementCount = 0;
     void visitor(Element element) {
+      elementCount++;
       for (final d in walkDetectors) {
-        if (failedDetectors.contains(d)) continue;
+        if (failedDetectors.isNotEmpty && failedDetectors.contains(d)) {
+          continue;
+        }
         try {
           d.checkElement(element);
         } catch (e, s) {
@@ -2879,7 +3589,9 @@ class SleuthController {
       }
       element.visitChildren(visitor);
       for (final d in walkDetectors) {
-        if (failedDetectors.contains(d)) continue;
+        if (failedDetectors.isNotEmpty && failedDetectors.contains(d)) {
+          continue;
+        }
         try {
           d.afterElement(element);
         } catch (e, s) {
@@ -2894,21 +3606,24 @@ class SleuthController {
       scanContext.visitChildElements(visitor);
       walkCompleted = true;
     } catch (e, s) {
-      FlutterError.reportError(FlutterErrorDetails(
-        exception: e,
-        stack: s,
-        library: 'sleuth',
-        context: ErrorDescription('while walking the element tree'),
-      ));
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: e,
+          stack: s,
+          library: 'sleuth',
+          context: ErrorDescription('while walking the element tree'),
+        ),
+      );
     }
+    _lastScanElementCount = elementCount;
 
     // Phase 3: Finalization
     // notifyWalkCompleted only for detectors that participated in the walk.
     // finalizeScan for ALL unified detectors — exempted detectors need it
     // to clear stale state (e.g. swap empty _childSnapshots, clear _usages).
-    // Per-detector try/catch (v0.16.0 C2 fix). Quarantined detectors are
+    // Per-detector try/catch (v0.16.0). Quarantined detectors are
     // skipped so a `prepareScan` failure doesn't leak garbage issues from
-    // partially-initialised state (v0.16.0 F3).
+    // partially-initialised state.
     if (walkCompleted) {
       for (final d in walkDetectors) {
         if (failedDetectors.contains(d)) continue;
@@ -2931,7 +3646,7 @@ class SleuthController {
     }
 
     // Phase 4: Legacy custom detectors (separate walks).
-    // Per-detector try/catch (v0.16.0 C2 fix) so a buggy custom detector
+    // Per-detector try/catch (v0.16.0) so a buggy custom detector
     // can't crash the rest of the scan cycle. Custom detectors that throw
     // during scanTree() are added to failedDetectors so any partial output
     // they committed before the throw is suppressed at aggregation time.
@@ -2955,7 +3670,7 @@ class SleuthController {
   /// Detectors collect highlights during their scanTree() calls.
   /// This method just gathers them — no tree walking or re-detection.
   void _collectHighlights() {
-    // F3 aggregation filter (v0.16.0): skip detectors that threw during the
+    // Aggregation filter (v0.16.0): skip detectors that threw during the
     // most recent structural scan. See `_getAllIssues` for the full
     // rationale — highlights are subject to the same half-scan leakage risk
     // as issues because detectors append to `_highlights` inside
@@ -2964,7 +3679,7 @@ class SleuthController {
 
     // Fast path: if no highlights existed last scan and no detector produced
     // any this scan, skip the list spread, generation increment, and notifier
-    // update to avoid unnecessary overlay repaints (Pillar 2a M2).
+    // update to avoid unnecessary overlay repaints.
     if (highlightsNotifier.value.items.isEmpty) {
       bool anyHighlights = false;
       for (final d in _detectors) {
@@ -2985,31 +3700,12 @@ class SleuthController {
       }
     }
 
-    _highlightGeneration++;
-    final items = [
+    // Publishing rebinds the selected highlight to the fresh object with
+    // its updated rect (v9.14), matched by detectorName + widgetName.
+    _publishHighlights([
       for (final d in _detectors)
         if (!failed.contains(d)) ...d.highlights,
-    ];
-    highlightsNotifier.value = (generation: _highlightGeneration, items: items);
-
-    // Rebind selected highlight to fresh object with updated rect (v9.14).
-    // After scroll/rescan, detectors produce new WidgetHighlight objects with
-    // fresh rects. Match by detectorName + widgetName to track the widget's
-    // current position. Clears selection if the widget is gone.
-    // Note: if two highlights share the same detectorName + widgetName, the
-    // first match wins — rare edge case with minimal visual impact.
-    final selected = selectedHighlightNotifier.value;
-    if (selected != null) {
-      WidgetHighlight? refreshed;
-      for (final h in items) {
-        if (h.detectorName == selected.detectorName &&
-            h.widgetName == selected.widgetName) {
-          refreshed = h;
-          break;
-        }
-      }
-      selectedHighlightNotifier.value = refreshed;
-    }
+    ]);
   }
 
   void _onStartupTimelineEvents(StartupTimelineEvents events) {
@@ -3031,7 +3727,25 @@ class SleuthController {
     );
   }
 
+  /// Split of the most recent [_onTimelineData] call, read by the VM
+  /// client for [PollTimings].
+  DispatchSegments _lastDispatchSegments = (
+    detectors: 0,
+    correlate: 0,
+    aggregate: 0,
+  );
+
+  /// Split of the most recent timeline dispatch.
+  @visibleForTesting
+  DispatchSegments get lastDispatchSegmentsForTest => _lastDispatchSegments;
+
   void _onTimelineData(ParsedTimelineData data) {
+    _lastDispatchSegments = (detectors: 0, correlate: 0, aggregate: 0);
+    final segmentWatch = Stopwatch()..start();
+    var detectorsUs = 0;
+    var correlateUs = 0;
+    var aggregateUs = 0;
+
     // FrameTimingDetector uses custom method (not processTimelineData)
     _frameTiming.updateTimelineData(data);
 
@@ -3079,11 +3793,15 @@ class SleuthController {
         }
       }
 
+      detectorsUs = segmentWatch.elapsedMicroseconds;
       _recordIssuesForCapture(const <BaseDetector>{});
 
       // Invalidate _getAllIssues cache — detectors have fresh issues.
       _issueGeneration++;
 
+      segmentWatch
+        ..reset()
+        ..start();
       // Try correlated mode first: match events to specific frames by
       // timestamp. Falls back to legacy full mode if correlation fails.
       if (data.phaseEvents.isNotEmpty) {
@@ -3132,40 +3850,59 @@ class SleuthController {
               correlation: worstCorrelation,
               relatedIssues: allIssues,
             );
-            verdict = _enrichVerdictWithNetworkContext(verdict);
-            verdictNotifier.value = verdict;
-            _lastVerdictPhase = verdict.suspectedPhase;
-            _lastVerdictFrameNumber = verdict.frameNumber;
+            verdict = _publishVerdict(
+              _enrichVerdictWithNetworkContext(verdict),
+            );
             captureFrame = worstFrame;
             captureVerdict = verdict;
           }
         }
       }
 
-      // Fallback: legacy full mode (batch-attributed)
-      if (captureVerdict == null) {
+      // Fallback: legacy full mode (batch-attributed). A batch without
+      // phase data (the idle heartbeat, a GC-only poll) carries no
+      // evidence about any frame, and a frame that already holds a full
+      // or correlated verdict keeps it.
+      final hasPhaseData =
+          data.phaseEvents.isNotEmpty ||
+          data.buildScopeDurations.isNotEmpty ||
+          data.flushLayoutDurations.isNotEmpty ||
+          data.flushPaintDurations.isNotEmpty ||
+          data.rasterDurations.isNotEmpty;
+      if (captureVerdict == null && hasPhaseData) {
         final latest = _frameTiming.frameBuffer.latest;
-        if (latest != null && latest.isJank) {
+        if (latest != null &&
+            latest.isJank &&
+            !(latest.frameNumber == _lastVerdictFrameNumber &&
+                _lastVerdictTier >= _fullVerdictTier)) {
           final allIssues = _getAllIssues();
           var verdict = _analyzer.analyzeFullMode(
             frameStats: latest,
             timelineData: data,
             relatedIssues: allIssues,
           );
-          verdict = _enrichVerdictWithNetworkContext(verdict);
-          verdictNotifier.value = verdict;
-          _lastVerdictPhase = verdict.suspectedPhase;
-          _lastVerdictFrameNumber = verdict.frameNumber;
+          verdict = _publishVerdict(_enrichVerdictWithNetworkContext(verdict));
           captureFrame = latest;
           captureVerdict = verdict;
         }
       }
 
+      correlateUs = segmentWatch.elapsedMicroseconds;
+
       // frameStatsNotifier is already updated by _onFrameStats callback
+      segmentWatch
+        ..reset()
+        ..start();
       _aggregateIssues();
+      aggregateUs = segmentWatch.elapsedMicroseconds;
     } finally {
       _isIteratingDetectors = false;
       _drainPendingDetectorMutations();
+      _lastDispatchSegments = (
+        detectors: detectorsUs,
+        correlate: correlateUs,
+        aggregate: aggregateUs,
+      );
     }
 
     // Capture AFTER aggregation so relatedIssues carry route/context tags.
@@ -3173,12 +3910,14 @@ class SleuthController {
         captureVerdict != null &&
         captureFrame.frameNumber != _lastCapturedFrameNumber) {
       _lastCapturedFrameNumber = captureFrame.frameNumber;
-      _captureBuffer.add(CaptureEntry(
-        frameStats: captureFrame,
-        verdict: captureVerdict,
-        relatedIssues: List.of(issuesNotifier.value),
-        capturedAt: DateTime.now(),
-      ));
+      _captureBuffer.add(
+        CaptureEntry(
+          frameStats: captureFrame,
+          verdict: captureVerdict,
+          relatedIssues: List.of(_latestIssues),
+          capturedAt: DateTime.now(),
+        ),
+      );
     }
 
     // Two-phase verdict: enrich with CPU attribution asynchronously.
@@ -3200,27 +3939,86 @@ class SleuthController {
         _gcEventBuffer.removeFirst();
       }
       final json = event.json!;
-      _gcEventBuffer.add(GcEventSummary(
-        timestampUs: json['ts'] as int? ?? 0,
-        durationUs: json['dur'] as int? ?? 0,
-        category: (json['cat'] as String?) ?? 'gc',
-        name: (json['name'] as String?) ?? 'GC',
-      ));
+      _gcEventBuffer.add(
+        GcEventSummary(
+          timestampUs: json['ts'] as int? ?? 0,
+          durationUs: json['dur'] as int? ?? 0,
+          category: (json['cat'] as String?) ?? 'gc',
+          name: (json['name'] as String?) ?? 'GC',
+        ),
+      );
     }
     for (final event in data.platformChannelEvents) {
       if (_platformChannelBuffer.length >= _platformChannelBufferCapacity) {
-        _platformChannelBuffer.removeFirst();
+        _platformChannelBuffer.removeAt(0);
       }
       final json = event.json!;
-      _platformChannelBuffer.add(PlatformChannelSummary(
-        timestampUs: json['ts'] as int? ?? 0,
-        durationUs: json['dur'] as int? ?? 0,
-        name: (json['name'] as String?) ?? 'channel',
-      ));
+      _platformChannelBuffer.add(
+        PlatformChannelSummary(
+          timestampUs: json['ts'] as int? ?? 0,
+          durationUs: json['dur'] as int? ?? 0,
+          name: (json['name'] as String?) ?? 'channel',
+        ),
+      );
+    }
+    // Async calls are summarized at their `b` event with no duration;
+    // fill it in when the matching `e` completes the call (same or later
+    // batch). Sync `X` events already carry `dur`.
+    for (final call in data.platformChannelCalls) {
+      if (call.id == null) continue;
+      for (var i = _platformChannelBuffer.length - 1; i >= 0; i--) {
+        final summary = _platformChannelBuffer[i];
+        if (summary.durationUs == 0 &&
+            summary.timestampUs == call.beginTs &&
+            summary.name == call.name) {
+          _platformChannelBuffer[i] = PlatformChannelSummary(
+            timestampUs: summary.timestampUs,
+            durationUs: call.durationUs,
+            name: summary.name,
+          );
+          break;
+        }
+      }
+    }
+  }
+
+  /// Detectors whose [BaseDetector.processFrame] threw since the last
+  /// structural scan. Skipped by [_onFrame] until `_runStructuralScans`
+  /// clears the set, so a throwing detector is reported once per scan
+  /// window instead of once per frame.
+  final Set<BaseDetector> _frameHookFailed = <BaseDetector>{};
+
+  /// Fans one presented frame out to every enabled detector except the
+  /// frame-timing producer. Runs at display rate on every tier, so the loop
+  /// is index-based and allocation-free. Detector list mutations requested
+  /// from inside a hook are deferred like during a scan.
+  void _onFrame(FrameStats frame) {
+    if (!_detectorsReady) return;
+    final wasIterating = _isIteratingDetectors;
+    _isIteratingDetectors = true;
+    try {
+      final detectors = _detectors;
+      for (var i = 0; i < detectors.length; i++) {
+        final d = detectors[i];
+        if (d is FrameTimingDetector || !d.isEnabled) continue;
+        if (_frameHookFailed.isNotEmpty && _frameHookFailed.contains(d)) {
+          continue;
+        }
+        try {
+          d.processFrame(frame);
+        } catch (e, s) {
+          _frameHookFailed.add(d);
+          _reportDetectorFailure(d, 'processFrame', e, s);
+        }
+      }
+    } finally {
+      _isIteratingDetectors = wasIterating;
+      if (!wasIterating) _drainPendingDetectorMutations();
     }
   }
 
   void _onFrameStats(FrameStatsBuffer buffer) {
+    _maybeReresolveFromCadence();
     // Only copy buffer for the notifier when UI is actively listening (v9.10).
     // When !_initialized, exportSnapshot() reads from the notifier (fallback),
     // so the copy is required regardless of listener state.
@@ -3277,38 +4075,41 @@ class SleuthController {
           relatedIssues: _getAllIssues(),
         ),
       );
-      verdictNotifier.value = basicVerdict;
-      _lastVerdictPhase = basicVerdict.suspectedPhase;
-      _lastVerdictFrameNumber = basicVerdict.frameNumber;
+      _publishVerdict(basicVerdict);
 
       // Capture inside the jank guard with most-recently-stamped issues.
       if (latest.frameNumber != _lastCapturedFrameNumber) {
         _lastCapturedFrameNumber = latest.frameNumber;
-        _captureBuffer.add(CaptureEntry(
-          frameStats: latest,
-          verdict: verdictNotifier.value!,
-          relatedIssues: List.of(issuesNotifier.value),
-          capturedAt: DateTime.now(),
-        ));
+        _captureBuffer.add(
+          CaptureEntry(
+            frameStats: latest,
+            verdict: verdictNotifier.value!,
+            relatedIssues: List.of(_latestIssues),
+            capturedAt: DateTime.now(),
+          ),
+        );
       }
     }
   }
 
   void _onHeapSample(HeapSample sample) {
     if (_disposed) return;
-    final hadHeapGrowing =
-        _memoryPressure.issues.any((i) => i.stableId == 'heap_growing');
+    final hadHeapGrowing = _memoryPressure.issues.any(
+      (i) => i.stableId == 'heap_growing',
+    );
 
     _memoryPressure.processHeapSample(sample);
 
-    final hasHeapGrowing =
-        _memoryPressure.issues.any((i) => i.stableId == 'heap_growing');
+    final hasHeapGrowing = _memoryPressure.issues.any(
+      (i) => i.stableId == 'heap_growing',
+    );
 
     // Trigger allocation profiling when heap growth is first detected.
     // Cooldown prevents repeated queries if slope oscillates near threshold.
     if (!hadHeapGrowing && hasHeapGrowing) {
       final now = DateTime.now();
-      final cooldownExpired = _lastAllocationEnrichmentTime == null ||
+      final cooldownExpired =
+          _lastAllocationEnrichmentTime == null ||
           now.difference(_lastAllocationEnrichmentTime!).inSeconds >= 10;
       if (cooldownExpired) {
         _lastAllocationEnrichmentTime = now;
@@ -3331,8 +4132,12 @@ class SleuthController {
     // Note: [data.gcEvents] is still consumed by [_gcEventBuffer] for the
     // export-enrichment path (captured sub-phase spans), which is a
     // legitimate use of the over-counted list and intentionally unchanged.
+    //
+    // `gcType` is read from the raw event map: the typed `Event.gcType`
+    // accessor is not available on every supported `vm_service` major.
     if (_disposed) return;
-    _memoryPressure.recordGcCycle();
+    final gcType = event.json?['gcType'];
+    _memoryPressure.recordGcCycle(gcType: gcType is String ? gcType : null);
   }
 
   /// Attach pending-request context to a verdict if requests are in-flight.
@@ -3346,39 +4151,93 @@ class SleuthController {
     );
   }
 
+  static const _basicVerdictTier = 1;
+  static const _fullVerdictTier = 2;
+  static const _correlatedVerdictTier = 3;
+
+  /// Evidence tier of [verdict]: correlated > full > basic.
+  static int _verdictTier(FrameVerdict verdict) => verdict.isCorrelated
+      ? _correlatedVerdictTier
+      : (verdict.isFullMode ? _fullVerdictTier : _basicVerdictTier);
+
+  /// Writes [verdict] to [verdictNotifier] and records its frame, phase
+  /// and tier. A verdict for a frame that already received CPU
+  /// attribution keeps that attribution. Returns the verdict written.
+  FrameVerdict _publishVerdict(FrameVerdict verdict) {
+    var published = verdict;
+    final enrichedTop = _cpuEnrichedTopFunctions;
+    if (published.topFunctions == null &&
+        enrichedTop != null &&
+        published.frameNumber == _cpuEnrichedFrameNumber) {
+      published = published.withTopFunctions(enrichedTop);
+    }
+    verdictNotifier.value = published;
+    _lastVerdictPhase = published.suspectedPhase;
+    _lastVerdictFrameNumber = published.frameNumber;
+    _lastVerdictTier = _verdictTier(published);
+    return published;
+  }
+
   /// Non-blocking — the verdict is already emitted without attribution (phase 1).
   /// When CPU samples arrive, the verdict is re-emitted with [topFunctions]
   /// (phase 2). If the query fails or times out, the original verdict stands.
+  ///
+  /// A frame is attributed once: no request is made while one for the
+  /// same frame is outstanding or after its verdict was enriched. The
+  /// answer is applied only while the notifier still holds a verdict for
+  /// that frame.
   void _enrichVerdictWithCpuAttribution(
     FrameStats frame,
     FrameVerdict verdict,
   ) {
     final client = _vmClient;
     if (client == null || !frame.hasPhaseTimestamps) return;
+    final frameNumber = frame.frameNumber;
+    if (frameNumber == _cpuEnrichedFrameNumber ||
+        frameNumber == _cpuEnrichmentInFlightFrame) {
+      return;
+    }
 
     final timeOriginUs = frame.vsyncStartUs!;
     final timeExtentUs = frame.rasterFinishUs! - frame.vsyncStartUs!;
     if (timeExtentUs <= 0) return;
 
+    _cpuEnrichmentInFlightFrame = frameNumber;
     client
         .getCpuSamples(timeOriginUs: timeOriginUs, timeExtentUs: timeExtentUs)
         .then((cpuSamples) {
-      if (_disposed || cpuSamples == null) return;
-      final topFunctions = _cpuAggregator.aggregate(cpuSamples);
-      if (topFunctions.isEmpty) return;
+          if (_disposed || cpuSamples == null) return;
+          final topFunctions = _cpuAggregator.aggregate(cpuSamples);
+          if (topFunctions.isEmpty) return;
+          _cpuEnrichedFrameNumber = frameNumber;
+          _cpuEnrichedTopFunctions = topFunctions;
 
-      // Re-emit verdict with CPU attribution (phase 2)
-      final enriched = verdict.withTopFunctions(topFunctions);
-      verdictNotifier.value = enriched;
+          // Re-emit verdict with CPU attribution (phase 2), onto whatever
+          // verdict the frame holds now (a later batch may have raised it).
+          final current = verdictNotifier.value;
+          final enriched =
+              (current != null && current.frameNumber == frameNumber
+                      ? current
+                      : verdict)
+                  .withTopFunctions(topFunctions);
+          if (current != null && current.frameNumber == frameNumber) {
+            verdictNotifier.value = enriched;
+          }
 
-      // Update capture buffer entry if it was captured
-      _captureBuffer.updateVerdict(frame.frameNumber, enriched);
-    }).catchError((Object e) {
-      assert(() {
-        debugPrint('Sleuth: CPU attribution failed: $e');
-        return true;
-      }());
-    });
+          // Update capture buffer entry if it was captured
+          _captureBuffer.updateVerdict(frameNumber, enriched);
+        })
+        .catchError((Object e) {
+          assert(() {
+            debugPrint('Sleuth: CPU attribution failed: $e');
+            return true;
+          }());
+        })
+        .whenComplete(() {
+          if (_cpuEnrichmentInFlightFrame == frameNumber) {
+            _cpuEnrichmentInFlightFrame = null;
+          }
+        });
   }
 
   /// Query allocation profile when heap growth is detected and re-emit
@@ -3469,13 +4328,15 @@ class SleuthController {
     final result = <AllocationEntry>[];
 
     for (final s in userClasses.take(5)) {
-      result.add(AllocationEntry(
-        className: s.name,
-        libraryUri: s.lib,
-        instancesDelta: s.instances,
-        bytesDelta: s.bytes,
-        percentage: (s.bytes / totalBytes * 100),
-      ));
+      result.add(
+        AllocationEntry(
+          className: s.name,
+          libraryUri: s.lib,
+          instancesDelta: s.instances,
+          bytesDelta: s.bytes,
+          percentage: (s.bytes / totalBytes * 100),
+        ),
+      );
     }
 
     // If fewer than 5 user classes, fill with framework classes
@@ -3485,13 +4346,15 @@ class SleuthController {
         if (result.length >= 5) break;
         final pct = s.bytes / totalBytes * 100;
         if (pct > 50) {
-          result.add(AllocationEntry(
-            className: s.name,
-            libraryUri: s.lib,
-            instancesDelta: s.instances,
-            bytesDelta: s.bytes,
-            percentage: pct,
-          ));
+          result.add(
+            AllocationEntry(
+              className: s.name,
+              libraryUri: s.lib,
+              instancesDelta: s.instances,
+              bytesDelta: s.bytes,
+              percentage: pct,
+            ),
+          );
         }
       }
     }
@@ -3506,6 +4369,7 @@ class SleuthController {
   void _onVmConnectionChanged(bool connected) {
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
+    if (connected) _enablePlatformChannelProfiling();
     // Mid-session VM death: VmServiceClient._pollTimeline's catch path runs
     // its own 3-attempt reconnect loop. If that internal loop exhausts, we
     // previously had no recovery — the controller sat in BASIC until the
@@ -3515,6 +4379,34 @@ class SleuthController {
     // reconnect attempt is harmless — _connectInFlight coalesces them.
     if (!connected && _initialized && !_disposed) {
       _scheduleBackgroundReconnect();
+    }
+  }
+
+  /// Turn on `debugProfilePlatformChannels` once the VM is connected, when
+  /// [SleuthConfig.profilePlatformChannels] opts in. Called only from the
+  /// VM connection callback, never from [initialize] or detector setup:
+  /// the framework flag starts a 1 s stats timer on every profiled send,
+  /// which a test binding reports as pending. A flag already set
+  /// elsewhere (DevTools) is left untouched and not restored on dispose.
+  void _enablePlatformChannelProfiling() {
+    if (kReleaseMode || _disposed) return;
+    if (!config.profilePlatformChannels) return;
+    if (!config.enabledDetectors.contains(DetectorType.platformChannel)) {
+      return;
+    }
+    if (debugProfilePlatformChannels) return;
+    _prevProfileFlag = false;
+    debugProfilePlatformChannels = true;
+    _profileFlagSetByUs = true;
+  }
+
+  /// Restore `debugProfilePlatformChannels` if this controller set it and
+  /// nothing else has cleared it since.
+  void _restorePlatformChannelProfiling() {
+    if (!_profileFlagSetByUs) return;
+    _profileFlagSetByUs = false;
+    if (debugProfilePlatformChannels) {
+      debugProfilePlatformChannels = _prevProfileFlag;
     }
   }
 
@@ -3530,7 +4422,9 @@ class SleuthController {
     if (_scaffoldFreeRouteName != null) return _scaffoldFreeRouteName;
     final ctx = _lastScanContext;
     if (ctx == null || !(ctx as Element).mounted) return null;
-    return ModalRoute.of(ctx)?.settings.name;
+    // settingsOf registers on the settings aspect only, so the scan root does
+    // not rebuild on every route animation or offstage change.
+    return ModalRoute.settingsOf(ctx)?.name;
   }
 
   /// Returns a stable synthetic ordinal for an unnamed route under the given
@@ -3540,6 +4434,19 @@ class SleuthController {
   /// previously-seen unnamed tab.
   int _nextUnnamedId(int? hash) =>
       _unnamedIdByHash.putIfAbsent(hash, () => ++_unnamedRouteCounter);
+
+  /// Drops the cached unnamed ordinal for [evicted]'s scaffold hash once no
+  /// remaining session (history or active) carries that hash, so the map
+  /// stays bounded by the route history in long sessions.
+  void _forgetUnnamedIdIfOrphaned(RouteSession evicted) {
+    final hash = evicted.scaffoldHashKey;
+    if (!_unnamedIdByHash.containsKey(hash)) return;
+    if (_activeRouteSession?.scaffoldHashKey == hash) return;
+    for (final s in _routeHistory) {
+      if (s.scaffoldHashKey == hash) return;
+    }
+    _unnamedIdByHash.remove(hash);
+  }
 
   /// Returns `max(tabVisitIndex) + 1` across sessions in [_routeHistory] that
   /// match the given `(routeName, scaffoldHashKey)` pair — i.e. the next
@@ -3594,12 +4501,21 @@ class SleuthController {
     if (active != null && active.endedAt == null) {
       active.endedAt = DateTime.now();
       // Republish history so listeners see the newly-closed session.
-      routeHistoryNotifier.value =
-          List<RouteSession>.unmodifiable(_routeHistory.toList());
+      routeHistoryNotifier.value = List<RouteSession>.unmodifiable(
+        _routeHistory.toList(),
+      );
     }
     _activeRouteSession = null;
     _hotReloadGeneration++;
     _unnamedIdByHash.clear();
+    // Hot reload can redefine widget types; drop cached names.
+    typeNameCache.clear();
+    _debugCoordinator?.invalidatePaintAttribution();
+    // The reload frame rebuilds every element and repaints every render
+    // object once; that burst is not the app's activity.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed) _debugCoordinator?.discardWindow();
+    });
     _lastVisibleScaffoldHash = null;
     _currentVisibleScaffoldHash = null;
   }
@@ -3657,7 +4573,9 @@ class SleuthController {
       final stamped = issue.copyWith(
         debugModeDisclaimer: kDebugMode ? true : null,
         routeName: effectiveRoute,
-        interactionContext: _interactionState,
+        // Emission-time context wins: retained timeline-path issues keep
+        // the context they fired in.
+        interactionContext: issue.interactionContext ?? _interactionState,
         scaffoldHashKey: hashKey,
         tabVisitIndex: tabIdx,
       );
@@ -3671,7 +4589,7 @@ class SleuthController {
     suppressedCountNotifier.value = suppressedCount;
 
     // Upsert visible issues into the active route session so each route
-    // accumulates its own issue snapshot history (M3: route-scoped aggregation).
+    // accumulates its own issue snapshot history (route-scoped aggregation).
     if (_activeRouteSession != null) {
       for (final issue in visible) {
         final id = issue.stableId ?? issue.title;
@@ -3679,81 +4597,94 @@ class SleuthController {
       }
     }
 
-    // Duration-based severity escalation: warning → critical after 30+ cycles.
-    // Uses cumulative presentCount (not consecutive) to avoid oscillation.
-    _applyDurationEscalation(visible);
-
-    // Re-sort each downstream's `rootCauseIds` by post-escalation severity
-    // so [PerformanceIssue.toJson] derives its singular emission from the
-    // currently-highest-severity reaching root, not the
-    // annotation-time-sorted first element. Without this, a tied warning
-    // pair gets alphabetical order at correlation, and a later
-    // duration-escalation of the lexically-later parent silently leaves
-    // the lexically-earlier parent at index 0 — exporting a stale legacy
-    // root.
+    // Re-sort each downstream's `rootCauseIds` against the visible set so
+    // a parent hidden by user suppression does not stay at index 0 ahead
+    // of a present parent.
     _resortRootCauseIdsByCurrentSeverity(visible);
 
-    // Rank by impact: severity dominates, then frame impact, confidence,
-    // recurrence. See IssueRanker for score formula and tier guarantees.
+    // Rank by impact: evidence tier (severity + confidence) dominates, then
+    // frame impact and recurrence. See IssueRanker for the tier table.
     final ranked = _ranker.rank(visible, _buildRankingContext());
 
-    // IssueCard is a StatefulWidget with ValueKey(stableId), so expansion
-    // state survives list rebuilds. Safe to always update the notifier —
-    // titles with live counters (e.g. "45 GC/min") will reflect fresh data.
-    issuesNotifier.value = ranked;
+    // Export and service-extension readers always see the freshest list.
+    // The notifier fires only when something a reader can see changed —
+    // live counters in titles/details (e.g. "45 GC/min") change the
+    // fingerprint. Per-tick panels listen to [scanTickNotifier] instead.
+    _latestIssues = ranked;
+    final fingerprint = _issuesFingerprint(ranked);
+    if (fingerprint != _lastIssuesFingerprint) {
+      _lastIssuesFingerprint = fingerprint;
+      issuesNotifier.value = ranked;
+    }
   }
 
-  /// Threshold for duration-based severity escalation (scan cycles).
-  static const _escalationThreshold = 30;
-
-  /// Promotes warning-severity issues to critical when they have persisted
-  /// for [_escalationThreshold]+ cumulative scan cycles.
-  ///
-  /// Mutates [issues] in place (replaces elements via index) to avoid an
-  /// extra list allocation. Only escalates warnings — ok and critical are
-  /// left untouched.
-  void _applyDurationEscalation(List<PerformanceIssue> issues) {
-    for (var i = 0; i < issues.length; i++) {
-      final issue = issues[i];
-      if (issue.severity != IssueSeverity.warning) continue;
-
-      final id = issue.stableId ?? issue.title;
-      final trend = _recurrenceTrends[id];
-      if (trend == null || trend.presentCount < _escalationThreshold) continue;
-
-      final reason = issue.confidenceReason != null
-          ? '${issue.confidenceReason} '
-              '[Auto-escalated: persisted for ${trend.presentCount} scan cycles]'
-          : 'Auto-escalated: persisted for ${trend.presentCount} scan cycles';
-
-      issues[i] = issue.copyWith(
-        severity: IssueSeverity.critical,
-        confidenceReason: reason,
-      );
+  /// Joins every field the overlay renders, in rank order. Excludes
+  /// timestamps, ranking scores and trace arguments, which change every tick
+  /// without changing what a reader sees.
+  static String _issuesFingerprint(List<PerformanceIssue> issues) {
+    final b = StringBuffer();
+    for (final i in issues) {
+      b
+        ..write(i.stableId)
+        ..write('|')
+        ..write(i.severity.name)
+        ..write('|')
+        ..write(i.confidence.name)
+        ..write('|')
+        ..write(i.category.name)
+        ..write('|')
+        ..write(i.title)
+        ..write('|')
+        ..write(i.detail)
+        ..write('|')
+        ..write(i.fixHint)
+        ..write('|')
+        ..write(i.widgetName)
+        ..write('|')
+        ..write(i.ancestorChain)
+        ..write('|')
+        ..write(i.routeName)
+        ..write('|')
+        ..write(i.tabVisitIndex)
+        ..write('|')
+        ..write(i.observationSource?.name)
+        ..write('|')
+        ..write(i.interactionContext?.name)
+        ..write('|')
+        ..write(i.debugModeDisclaimer)
+        ..write('|')
+        ..write(i.fixEffort?.name)
+        ..write('|')
+        ..write(i.confidenceReason)
+        ..write('|')
+        ..write(i.rootCauseIds?.join(','))
+        ..write('|')
+        ..write(i.downstreamIds?.join(','))
+        ..write('\n');
     }
+    return b.toString();
   }
 
   @visibleForTesting
   void resortRootCauseIdsByCurrentSeverityForTest(
-          List<PerformanceIssue> issues) =>
-      _resortRootCauseIdsByCurrentSeverity(issues);
+    List<PerformanceIssue> issues,
+  ) => _resortRootCauseIdsByCurrentSeverity(issues);
 
-  /// Re-sorts `rootCauseIds` on every issue using current (post-escalation)
-  /// severity ranks.
+  /// Re-sorts `rootCauseIds` on every issue against the issues that are
+  /// still visible.
   ///
-  /// `CausalGraphRule.apply` sorts the multi-parent root list by
-  /// severity-at-correlation-time. `_applyDurationEscalation` can later
-  /// promote a tied warning-parent to critical without re-sorting. This
-  /// pass restores the invariant `rootCauseIds[0]` is the
-  /// highest-severity reaching root by current severity, which the
+  /// `CausalGraphRule.apply` sorts the multi-parent root list by severity
+  /// over the full correlated set. User suppression runs afterwards and
+  /// can hide the parent at index 0. This pass keeps `rootCauseIds[0]`
+  /// the highest-severity reaching root that is still present, which the
   /// "Caused by" UI section relies on to render the strongest cause first
   /// and the AI-context prompt's cap-at-5 truncation relies on to keep
   /// the most relevant causes when the full list overflows.
   ///
   /// Sort key matches [CausalGraphRule.apply]: severity descending, then
-  /// stableId ascending. Parents missing from [issues] (suppressed by the
-  /// ranker upstream) sort last with severity rank 0. Mutates [issues]
-  /// in place; only allocates a copyWith when the order actually changed.
+  /// stableId ascending. Parents missing from [issues] sort last. Mutates
+  /// [issues] in place; only allocates a copyWith when the order actually
+  /// changed.
   void _resortRootCauseIdsByCurrentSeverity(List<PerformanceIssue> issues) {
     final severityById = <String, IssueSeverity>{
       for (final i in issues)
@@ -3761,17 +4692,18 @@ class SleuthController {
     };
 
     int rank(IssueSeverity s) => switch (s) {
-          IssueSeverity.critical => 2,
-          IssueSeverity.warning => 1,
-          IssueSeverity.ok => 0,
-        };
+      IssueSeverity.critical => 2,
+      IssueSeverity.warning => 1,
+      IssueSeverity.ok => 0,
+    };
 
     for (var i = 0; i < issues.length; i++) {
       final issue = issues[i];
       final rootIds = issue.rootCauseIds;
       if (rootIds == null || rootIds.length < 2) continue;
 
-      final sorted = [...rootIds]..sort((a, b) {
+      final sorted = [...rootIds]
+        ..sort((a, b) {
           final sa = severityById[a];
           final sb = severityById[b];
           // Missing parents sort last (rank 0) so present parents lead.
@@ -3901,17 +4833,17 @@ class SleuthController {
   }
 
   static int _severityToIndex(IssueSeverity s) => switch (s) {
-        IssueSeverity.critical => 3,
-        IssueSeverity.warning => 2,
-        IssueSeverity.ok => 1,
-      };
+    IssueSeverity.critical => 3,
+    IssueSeverity.warning => 2,
+    IssueSeverity.ok => 1,
+  };
 
   List<PerformanceIssue> _getAllIssues() {
     if (_cachedIssueGeneration == _issueGeneration &&
         _cachedAllIssues != null) {
       return _cachedAllIssues!;
     }
-    // F3 aggregation filter (v0.16.0): skip detectors that threw during the
+    // Aggregation filter (v0.16.0): skip detectors that threw during the
     // most recent structural scan. Their `.issues` list may hold partial
     // findings committed via `report(...)` before the throw, and publishing
     // that half-scan output would defeat the quarantine set up in
@@ -3968,10 +4900,12 @@ class SleuthController {
         // Falls back to detectedAt for runtime-lifecycle detectors
         // (e.g. NetworkMonitor) whose detectedAt IS the per-occurrence
         // identifier (request completion timestamp).
-        final micros = issue.dedupIdentityMicros ??
+        final micros =
+            issue.dedupIdentityMicros ??
             issue.detectedAt?.microsecondsSinceEpoch ??
             0;
-        final key = '${d.runtimeType}|$stableId'
+        final key =
+            '${d.runtimeType}|$stableId'
             '|${issue.severity.name}|$micros';
         if (!_captureEmittedKeys.add(key)) continue;
         CaptureHelper.recordIssue(issue, captureMode: config.captureMode);
@@ -3981,20 +4915,20 @@ class SleuthController {
 
   /// Producer-side dedup set for the capture-mode emission path. Each
   /// entry is `'<detectorRuntimeType>|<stableId>|<severity>|<micros>'`.
-  /// Cleared by [resetCaptureState] (called explicitly by capture
-  /// screens between legs) and by the scenario-begin observer.
+  /// Never cleared, not even by [resetCaptureState]: events from an earlier
+  /// scenario can still sit in the retained VM timeline buffer, and they
+  /// must not emit again during the next scenario's polls or flush.
   final Set<String> _captureEmittedKeys = <String>{};
 
   // -- Debug instrumentation helpers --
 
   void _installDebugInstrumentation() {
-    // KDD-2 (spec v15): the original `assert(() { ... return true; }())`
-    // wrapper is stripped by the compiler in profile mode. Profile-relevant
-    // code (heavy-flag install, coordinator install) MUST live outside the
-    // assert — otherwise it silently becomes a no-op in profile and the
-    // rebuild-stats feature never emits data. The top-level `if (kDebugMode)`
-    // split below preserves debug behavior bit-for-bit while letting M5 wire
-    // a sibling profile branch.
+    // The `assert(() { ... return true; }())` wrapper is stripped by the
+    // compiler in profile mode. Profile-relevant code (heavy-flag install,
+    // coordinator install) MUST live outside the assert, otherwise it
+    // silently becomes a no-op in profile and the rebuild-stats feature
+    // never emits data. The top-level `if (kDebugMode)` split below keeps
+    // debug behavior unchanged and adds a sibling profile branch.
     if (kDebugMode) {
       assert(() {
         if (config.enableDebugCallbacks) {
@@ -4003,6 +4937,7 @@ class SleuthController {
             maxTrackedTypes: config.maxTrackedTypes,
             installRebuild: adv.rebuildAttribution,
             installPaint: adv.paintAttribution,
+            userWidgetsOnly: adv.userWidgetsOnly,
           );
           _debugCoordinator!.install();
         }
@@ -4013,7 +4948,7 @@ class SleuthController {
         return true;
       }());
     } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
-      // PROFILE BRANCH — M5 (spec v15, KDD-8 widened gate).
+      // PROFILE BRANCH, gated on `enableDeepDebugInstrumentation` alone.
       //
       // 1. Construct the coordinator even when `enableDebugCallbacks == false`.
       //    The debug-callback slots (`debugOnRebuildDirtyWidget`,
@@ -4029,14 +4964,14 @@ class SleuthController {
       //    the profile-mode drain would return zero user-widget events.
       // 3. `installProfileMode()` saves `FlutterTimeline.debugCollectionEnabled`
       //    and flips it to `true`; refuses if another consumer (DevTools or
-      //    another Sleuth instance) already owns the buffer — see R20/B1 in
-      //    the spec.
+      //    another Sleuth instance) already owns the buffer, so neither
+      //    consumer stomps the other's save and restore.
       _debugCoordinator = DebugInstrumentationCoordinator(
         maxTrackedTypes: config.maxTrackedTypes,
         installRebuild: false,
         installPaint: false,
       );
-      // KDD-9 (spec v15): defer the FlutterTimeline flag flip so it lands
+      // Defer the FlutterTimeline flag flip so it lands
       // at scheduler-idle, outside ANY active FlutterTimeline start/finish
       // pair. Direct call and `addPostFrameCallback` both crash — see below.
       //
@@ -4086,14 +5021,14 @@ class SleuthController {
       // heavy-flag install + collection install remain a single atomic unit.
       //
       // Cost: the very first few frames after Sleuth mount have no profile-
-      // mode rebuild data. Acceptable — the KDD-5 disclaimer already warns
-      // that route-entry counts are transient, and no real use case
+      // mode rebuild data. Acceptable: the inflation disclaimer already
+      // warns that route-entry counts are transient, and no real use case
       // inspects rebuild hotspots from the mount frame.
       Timer.run(_deferredInstallProfileMode);
     }
   }
 
-  /// KDD-9 (spec v15): install the profile-mode `FlutterTimeline` drain once
+  /// Installs the profile-mode `FlutterTimeline` drain once
   /// the scheduler is back at [SchedulerPhase.idle] — i.e. when NO frame is
   /// in progress and therefore no `FlutterTimeline` start/finish pair is
   /// open. See the long comment in [_installDebugInstrumentation] for the
@@ -4116,7 +5051,7 @@ class SleuthController {
     } on StateError catch (e) {
       // Another consumer owns the buffer. Abandon the coordinator so the
       // scan loop's `_debugCoordinator?.snapshot()` short-circuits and we
-      // stay in KDD-1 `RebuildCountSource.none` mode — no stomping.
+      // stay in `RebuildCountSource.none` mode — no stomping.
       debugPrint('Sleuth: $e');
       _debugCoordinator = null;
       _restoreHeavyFlags();
@@ -4195,17 +5130,22 @@ class SleuthController {
     _gcEventBuffer.clear();
     _platformChannelBuffer.clear();
     _themeOverride.dispose();
+    _uiStateLoadTimer?.cancel();
+    _uiStateLoadTimer = null;
+    _flushOverlayUiStateOnDispose();
+    overlayUiState.removeListener(_scheduleOverlayUiStateWrite);
 
     // Restore HttpOverrides before disposing detector
     if (_httpOverrides != null) {
       SleuthHttpOverrides.uninstall(_httpOverrides!);
       _httpOverrides = null;
     }
+    _restorePlatformChannelProfiling();
 
-    // KDD-2 / M3: mirror the install-side restructure. The historical
-    // assert wrapper stripped coordinator disposal AND heavy-flag restore
-    // in profile, leaking `debugProfileBuildsEnabledUserWidgets = true`
-    // across hot-restart. The top-level mode split fixes both halves.
+    // Mirrors the install-side mode split. An assert wrapper alone would
+    // strip coordinator disposal AND heavy-flag restore in profile, leaking
+    // `debugProfileBuildsEnabledUserWidgets = true` across hot-restart. The
+    // top-level mode split covers both halves.
     if (kDebugMode) {
       assert(() {
         _debugCoordinator?.dispose();
@@ -4214,7 +5154,7 @@ class SleuthController {
         return true;
       }());
     } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
-      // PROFILE BRANCH — M5 (spec v15).
+      // PROFILE BRANCH.
       //
       // Dispose order matters: `uninstallProfileMode()` restores
       // `FlutterTimeline.debugCollectionEnabled` BEFORE `_restoreHeavyFlags()`
@@ -4237,6 +5177,7 @@ class SleuthController {
       }
     }
     issuesNotifier.dispose();
+    scanTickNotifier.dispose();
     frameStatsNotifier.dispose();
     verdictNotifier.dispose();
     vmConnectedNotifier.dispose();
@@ -4245,6 +5186,9 @@ class SleuthController {
     selectedHighlightNotifier.dispose();
     suppressedCountNotifier.dispose();
     routeHistoryNotifier.dispose();
+    overlayUiState.dispose();
+    aiChatHistories.clear();
+    uiStateReady.dispose();
   }
 }
 
@@ -4271,7 +5215,7 @@ class SleuthConfig {
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
     this.memoryWarmupDurationMs = 3000,
-    this.gcRateThresholdPerMin = 60,
+    this.gcRateThresholdPerMin = 180,
     this.frameTimingWarmupFrameCount = 0,
     this.frameTimingWarmupDuration = const Duration(seconds: 3),
     this.platformChannelDurationThresholdMs = 8,
@@ -4287,81 +5231,84 @@ class SleuthConfig {
     this.routeIgnorePatterns = const {},
     this.routeHistoryCapacity = 50,
     this.captureMode = false,
-  })  : assert(
-          fpsTarget >= 1 && fpsTarget <= 120,
-          'fpsTarget must be between 1 and 120. '
-          'Common values: 60, 90, 120.',
-        ),
-        assert(
-          rebuildThreshold >= 1,
-          'rebuildThreshold must be at least 1. To disable rebuild '
-          'detection entirely, exclude DetectorType.rebuild from '
-          'enabledDetectors instead.',
-        ),
-        assert(
-          maxListChildren >= 1,
-          'maxListChildren must be at least 1.',
-        ),
-        assert(
-          platformChannelLimit >= 1,
-          'platformChannelLimit must be at least 1.',
-        ),
-        // Note: `treeScanInterval > Duration.zero` cannot be asserted in a
-        // const constructor (Duration operators are not const-evaluable).
-        // Runtime validation lives in the [SleuthController] constructor
-        // body and fires with the same intent.
-        assert(
-          captureBufferCapacity >= 0,
-          'captureBufferCapacity must be >= 0. Use 0 to disable the buffer.',
-        ),
-        assert(
-          maxTrackedTypes >= 1,
-          'maxTrackedTypes must be at least 1.',
-        ),
-        assert(
-          slowRequestThresholdMs >= 0,
-          'slowRequestThresholdMs must be >= 0.',
-        ),
-        assert(
-          criticalSlowRequestThresholdMs > slowRequestThresholdMs,
-          'criticalSlowRequestThresholdMs must be strictly greater than '
-          'slowRequestThresholdMs so the critical tier is reachable.',
-        ),
-        assert(
-          requestFrequencyLimit >= 1,
-          'requestFrequencyLimit must be at least 1.',
-        ),
-        assert(
-          largeResponseThresholdBytes >= 0,
-          'largeResponseThresholdBytes must be >= 0.',
-        ),
-        assert(
-          memoryWarmupDurationMs >= 0,
-          'memoryWarmupDurationMs must be >= 0.',
-        ),
-        assert(
-          gcRateThresholdPerMin >= 1,
-          'gcRateThresholdPerMin must be at least 1. To disable '
-          'gc_pressure detection entirely, exclude '
-          'DetectorType.memoryPressure from enabledDetectors instead.',
-        ),
-        assert(
-          frameTimingWarmupFrameCount >= 0,
-          'frameTimingWarmupFrameCount must be >= 0. '
-          'Set to 0 in tests to disable warmup suppression.',
-        ),
-        // Duration operators are not const-evaluable. Runtime validation
-        // for `frameTimingWarmupDuration >= Duration.zero` lives in the
-        // [SleuthController] constructor body alongside the companion
-        // `treeScanInterval > Duration.zero` check.
-        assert(
-          platformChannelDurationThresholdMs >= 0,
-          'platformChannelDurationThresholdMs must be >= 0.',
-        ),
-        assert(
-          routeHistoryCapacity >= 1,
-          'routeHistoryCapacity must be at least 1.',
-        );
+    this.autoFrameBudget = true,
+    this.profilePlatformChannels = false,
+    this.maxElementsPerScan = 0,
+    this.stateStore,
+  }) : assert(
+         fpsTarget >= 1 && fpsTarget <= 120,
+         'fpsTarget must be between 1 and 120. '
+         'Common values: 60, 90, 120.',
+       ),
+       assert(
+         rebuildThreshold >= 1,
+         'rebuildThreshold must be at least 1. To turn off rebuild '
+         'detection, remove DetectorType.rebuild from enabledDetectors '
+         'instead.',
+       ),
+       assert(maxListChildren >= 1, 'maxListChildren must be at least 1.'),
+       assert(
+         platformChannelLimit >= 1,
+         'platformChannelLimit must be at least 1.',
+       ),
+       // Note: `treeScanInterval > Duration.zero` cannot be asserted in a
+       // const constructor (Duration operators are not const-evaluable).
+       // Runtime validation lives in the [SleuthController] constructor
+       // body and fires with the same intent.
+       assert(
+         captureBufferCapacity >= 0,
+         'captureBufferCapacity must be at least 0. Use 0 to turn off the '
+         'buffer.',
+       ),
+       assert(maxTrackedTypes >= 1, 'maxTrackedTypes must be at least 1.'),
+       assert(
+         slowRequestThresholdMs >= 0,
+         'slowRequestThresholdMs must be at least 0.',
+       ),
+       assert(
+         criticalSlowRequestThresholdMs > slowRequestThresholdMs,
+         'criticalSlowRequestThresholdMs must be strictly greater than '
+         'slowRequestThresholdMs so the critical tier is reachable.',
+       ),
+       assert(
+         requestFrequencyLimit >= 1,
+         'requestFrequencyLimit must be at least 1.',
+       ),
+       assert(
+         largeResponseThresholdBytes >= 0,
+         'largeResponseThresholdBytes must be at least 0.',
+       ),
+       assert(
+         memoryWarmupDurationMs >= 0,
+         'memoryWarmupDurationMs must be at least 0.',
+       ),
+       assert(
+         gcRateThresholdPerMin >= 1,
+         'gcRateThresholdPerMin must be at least 1. To turn off '
+         'gc_pressure detection, remove DetectorType.memoryPressure from '
+         'enabledDetectors instead.',
+       ),
+       assert(
+         frameTimingWarmupFrameCount >= 0,
+         'frameTimingWarmupFrameCount must be at least 0. '
+         'Set it to 0 in tests to turn off warmup suppression.',
+       ),
+       // Duration operators are not const-evaluable. Runtime validation
+       // for `frameTimingWarmupDuration >= Duration.zero` lives in the
+       // [SleuthController] constructor body alongside the companion
+       // `treeScanInterval > Duration.zero` check.
+       assert(
+         platformChannelDurationThresholdMs >= 0,
+         'platformChannelDurationThresholdMs must be at least 0.',
+       ),
+       assert(
+         routeHistoryCapacity >= 1,
+         'routeHistoryCapacity must be at least 1.',
+       ),
+       assert(
+         maxElementsPerScan >= 0,
+         'maxElementsPerScan must be at least 0 (0 means unlimited).',
+       );
 
   /// Minimal configuration for first-time integration.
   ///
@@ -4375,23 +5322,23 @@ class SleuthConfig {
   /// want to read 25 parameter docs.
   ///
   factory SleuthConfig.minimal({SleuthThemeData? theme}) => SleuthConfig(
-        theme: theme,
-        enableNetworkMonitoring: false,
-        enableDebugCallbacks: false,
-        enableDeepDebugInstrumentation: false,
-        enabledDetectors: const {
-          DetectorType.frameTiming,
-          DetectorType.rebuild,
-          DetectorType.repaint,
-          DetectorType.listview,
-          DetectorType.imageMemory,
-          DetectorType.layoutBottleneck,
-          DetectorType.customPainter,
-          DetectorType.fontLoading,
-          DetectorType.repaintBoundary,
-          DetectorType.startup,
-        },
-      );
+    theme: theme,
+    enableNetworkMonitoring: false,
+    enableDebugCallbacks: false,
+    enableDeepDebugInstrumentation: false,
+    enabledDetectors: const {
+      DetectorType.frameTiming,
+      DetectorType.rebuild,
+      DetectorType.repaint,
+      DetectorType.listview,
+      DetectorType.imageMemory,
+      DetectorType.layoutBottleneck,
+      DetectorType.customPainter,
+      DetectorType.fontLoading,
+      DetectorType.repaintBoundary,
+      DetectorType.startup,
+    },
+  );
 
   /// Configuration optimized for low-overhead profiling runs.
   ///
@@ -4405,33 +5352,39 @@ class SleuthConfig {
   /// - [DetectorType.frameTiming] — runtime lifecycle.
   ///
   factory SleuthConfig.performance({SleuthThemeData? theme}) => SleuthConfig(
-        theme: theme,
-        treeScanInterval: const Duration(seconds: 2),
-        adaptiveScanEnabled: true,
-        captureBufferCapacity: 10,
-        enableNetworkMonitoring: false,
-        enableDebugCallbacks: false,
-        enableDeepDebugInstrumentation: false,
-        enabledDetectors: const {
-          // Every structural-lifecycle detector. Verified against the
-          // lifecycle fields of each detector file.
-          DetectorType.listview,
-          DetectorType.imageMemory,
-          DetectorType.customPainter,
-          DetectorType.layoutBottleneck,
-          DetectorType.fontLoading,
-          DetectorType.repaintBoundary,
-          DetectorType.setStateScope,
-          DetectorType.keepAlive,
-          DetectorType.startup,
-        },
-      );
+    theme: theme,
+    treeScanInterval: const Duration(seconds: 2),
+    adaptiveScanEnabled: true,
+    captureBufferCapacity: 10,
+    enableNetworkMonitoring: false,
+    enableDebugCallbacks: false,
+    enableDeepDebugInstrumentation: false,
+    enabledDetectors: const {
+      // Every structural-lifecycle detector. Verified against the
+      // lifecycle fields of each detector file.
+      DetectorType.listview,
+      DetectorType.imageMemory,
+      DetectorType.customPainter,
+      DetectorType.layoutBottleneck,
+      DetectorType.fontLoading,
+      DetectorType.repaintBoundary,
+      DetectorType.setStateScope,
+      DetectorType.keepAlive,
+      DetectorType.startup,
+    },
+  );
 
   /// Custom theme for the overlay UI.
   ///
   /// When null (default), the overlay auto-selects dark or light based on
-  /// `MediaQuery.platformBrightness`. If no [MediaQuery] is available
-  /// (rare), defaults to dark.
+  /// `MediaQuery.platformBrightness`, and the high-contrast preset of that
+  /// brightness when `MediaQuery.highContrastOf` is true. If no
+  /// [MediaQuery] is available (rare), defaults to dark.
+  ///
+  /// Precedence: the header toggle's Light or Dark mode
+  /// (`OverlayUiState.themeMode`) > `Sleuth.updateTheme` > this theme >
+  /// auto-selection. Choosing Light or Dark in the header replaces this
+  /// theme with the Sleuth preset; choosing System restores it.
   ///
   /// ```dart
   /// // Force light theme
@@ -4443,19 +5396,22 @@ class SleuthConfig {
   ///     severityCritical: Color(0xFFDC2626),
   ///   ),
   /// )
+  ///
+  /// // Surfaces and text from the app's colour scheme
+  /// SleuthConfig(theme: SleuthThemeData.fromSeed(Colors.teal))
   /// ```
   final SleuthThemeData? theme;
 
-  /// Target frames per second. Drives the frame-budget math that every
-  /// jank detector uses.
+  /// Target frames per second: the loosest frame budget Sleuth will judge
+  /// against, and the cap for the overlay FPS numeral and its colours.
   ///
-  /// **Default:** 60. Most Android and iOS devices run at 60 Hz by default;
-  /// 60 FPS maps to a 16.67 ms budget per frame, which is what the
-  /// [FrameTimingDetector] compares against.
+  /// **Default:** 60 (a 16.67 ms budget). With [autoFrameBudget] on, the
+  /// budget tightens automatically when the app measurably renders faster
+  /// (8.33 ms on a 120 Hz device rendering at 120), never looser than this
+  /// target.
   ///
-  /// **Raise this** to 90 or 120 on high-refresh displays (most flagship
-  /// phones from 2020+). That tightens the frame budget to 11.1 ms (90 Hz)
-  /// or 8.33 ms (120 Hz) and will surface jank that was invisible at 60.
+  /// **Raise this** to 90 or 120 to hold a high-refresh device to that
+  /// budget even when it renders slower, or when [autoFrameBudget] is off.
   ///
   /// **Lower this** (e.g. 30) for splash screens or idle modes where 30 FPS
   /// is an explicit product decision — otherwise the detector will pad
@@ -4464,7 +5420,10 @@ class SleuthConfig {
   /// Valid range: 1–120 (enforced via debug-mode assert).
   final int fpsTarget;
 
-  /// Widget rebuilds per second above which [RebuildDetector] fires.
+  /// Per-widget rebuilds per second, observed by debug instrumentation,
+  /// above which [RebuildDetector] raises `rebuild_debug_<type>`. The VM
+  /// time-share axis (`rebuild_activity`) uses
+  /// [DetectorThresholds.buildTimePercentThreshold] instead.
   ///
   /// **Default:** 10 rebuilds/sec. A healthy reactive UI on a 60 FPS app
   /// does not rebuild a given widget more than once every ~6 frames —
@@ -4509,8 +5468,8 @@ class SleuthConfig {
   ///
   /// **Lower this** (e.g. 10) to catch misuse earlier during development.
   ///
-  /// The cumulative-duration gate ([platformChannelDurationThresholdMs])
-  /// fires independently of the per-second count.
+  /// This count is the only trigger; per-call durations
+  /// ([platformChannelDurationThresholdMs]) annotate the issue.
   final int platformChannelLimit;
 
   /// Interval between widget tree scans.
@@ -4541,7 +5500,26 @@ class SleuthConfig {
   ///
   /// **Disable** only when you're measuring detector overhead itself and
   /// need a constant scan cadence.
+  ///
+  /// Independently of this flag, a scan tick whose walk plus aggregation
+  /// took longer than 4 ms stretches the next interval to
+  /// `treeScanInterval × ceil(cost / 4 ms)`, capped at 5 s (never below
+  /// the back-off interval). [captureMode] disables the stretch.
   final bool adaptiveScanEnabled;
+
+  /// Element count above which the next periodic scan tick is skipped.
+  ///
+  /// **Default:** 0 (unlimited). When the last walk visited more than this
+  /// many elements, the following tick is skipped once and the one after
+  /// it is scheduled at twice the current interval; the tick after the
+  /// skip always runs. A walk is never cut short and issues from the last
+  /// scan stay visible while a tick is skipped.
+  ///
+  /// **Set this** (e.g. `5000`) on very large trees where even a stretched
+  /// cadence costs too much frame time.
+  ///
+  /// Valid range: >= 0 (enforced via debug-mode assert).
+  final int maxElementsPerScan;
 
   /// Which detectors are active. Defaults to all [DetectorType] values.
   ///
@@ -4576,7 +5554,7 @@ class SleuthConfig {
   /// `debugProfileBuildsEnabled` and related flags. Measurable overhead
   /// (~5–10% extra frame time on heavy scenes) — use sparingly.
   ///
-  /// **Profile-mode behavior (spec v15):** when true in a profile build,
+  /// **Profile-mode behavior (since v0.15.0):** when true in a profile build,
   /// Sleuth installs a `FlutterTimeline.debugCollect()` drain that records
   /// per-widget rebuild counts and attributes them to the active
   /// `RouteSession`'s `rebuildCountsByType` map. These counts power the
@@ -4691,15 +5669,18 @@ class SleuthConfig {
   /// GC events per minute (extrapolated from a 10s sliding window) above
   /// which `gc_pressure` fires.
   ///
-  /// **Default:** 60. Dart's `EventStreams.kGC` emits one event per
-  /// every GC cycle, including high-frequency new-space scavenges. A
-  /// moderately allocating UI produces ≈30/min at steady state without
-  /// any real pressure, so the previous default of 30 fired on routine
-  /// animation rebuilds and incremental scrolling. 60/min clears the
-  /// young-gen scavenge baseline.
+  /// **Default:** 180 (3 per second sustained over the 10 s window).
+  /// Dart's `EventStreams.kGC` emits one event per GC cycle, new-space
+  /// scavenges included. An idle app with Sleuth attached produces 1 to
+  /// 2 scavenges per second from the VM-service poll traffic alone
+  /// (66 to 138 per minute measured on an iPhone 12); allocation churn
+  /// runs at thousands per minute. Each `gc_pressure` emission stamps
+  /// the scavenge / old-generation split of its window
+  /// (`scavengeCount`, `oldGenCount`).
   ///
-  /// **Set to 30** to opt back into the pre-v0.26.0 sensitivity if your
-  /// app relies on the older threshold for regression alerting.
+  /// **Lower this** (e.g. 60) for a stricter allocation audit on an app
+  /// whose idle GC rate you have measured. **Raise this** if idle
+  /// screens on your slowest device still cross the default.
   final int gcRateThresholdPerMin;
 
   /// Legacy frame-count gate for jank-evaluation warmup suppression.
@@ -4725,15 +5706,13 @@ class SleuthConfig {
   /// entirely (pair with [frameTimingWarmupFrameCount] = 0).
   final Duration frameTimingWarmupDuration;
 
-  /// Cumulative platform channel duration threshold in milliseconds per
-  /// window.
+  /// Slow-call annotation threshold for platform channel calls, in
+  /// milliseconds.
   ///
-  /// **Default:** 8 ms (half a 16 ms frame budget). Fires even when the
-  /// per-second call count ([platformChannelLimit]) is low, because a
-  /// handful of slow channel calls can still blow a frame.
-  ///
-  /// **Raise this** (e.g. 16) for apps with a single legitimate
-  /// synchronous channel call per frame.
+  /// **Default:** 8 ms (half a 16 ms frame budget). Calls slower than
+  /// this are counted as `callsOverThreshold` on a platform-channel
+  /// issue. No longer a trigger: emission depends on the per-second call
+  /// count ([platformChannelLimit]) only.
   final int platformChannelDurationThresholdMs;
 
   /// StableId patterns to suppress from the issue list.
@@ -4752,7 +5731,9 @@ class SleuthConfig {
   /// Each detector extends [BaseDetector] and declares its [DetectorLifecycle].
   /// The controller routes data to custom detectors based on their lifecycle
   /// exactly like built-in detectors: structural → `scanTree`,
-  /// vmOnly → `processTimelineData`, hybrid → both.
+  /// vmOnly → `processTimelineData`, hybrid → both. Every enabled
+  /// detector also receives each presented frame through
+  /// [BaseDetector.processFrame], with or without a VM connection.
   ///
   /// Custom detectors whose [BaseDetector.key] is in
   /// [disabledCustomDetectorKeys] are constructed but start with
@@ -4785,6 +5766,16 @@ class SleuthConfig {
 
   /// Detector-specific thresholds for fine-tuning performance detection.
   /// See [DetectorThresholds] for available parameters and defaults.
+  ///
+  /// `heap_near_capacity` is off until you set
+  /// [DetectorThresholds.memoryBudgetBytes] to the process memory limit
+  /// of your target device:
+  ///
+  /// ```dart
+  /// SleuthConfig(
+  ///   thresholds: DetectorThresholds(memoryBudgetBytes: 1500 * 1024 * 1024),
+  /// )
+  /// ```
   final DetectorThresholds thresholds;
 
   /// Optional AI chat adapter. When provided, an "Ask AI" button appears on
@@ -4812,12 +5803,14 @@ class SleuthConfig {
   /// Lowering it (false): suppresses the banner entirely.
   final bool showDebugModeBanner;
 
-  /// Initial screen corner for the trigger button. Default [Alignment.topRight]
-  /// matches the pre-Part-2 behaviour. Any standard alignment is accepted;
-  /// non-corner alignments snap to the nearest edge.
+  /// Where the trigger button first appears, inside the view padding.
+  /// Any standard alignment is accepted: a corner places the button in
+  /// that corner, and a non-corner alignment centres it on that edge
+  /// ([Alignment.centerRight] sits midway down the right edge).
   ///
-  /// Users can still drag the button anywhere — this controls only where it
-  /// first appears before the user has dragged it.
+  /// Only the placement before the first drag. A drag snaps the button to
+  /// the nearest side (left or right) and that position is kept from then
+  /// on.
   ///
   /// Default: `Alignment.topRight`.
   final Alignment triggerButtonAlignment;
@@ -4876,13 +5869,44 @@ class SleuthConfig {
   /// internal capture-helper hook are no-ops.
   final bool captureMode;
 
+  /// When true (default), the frame budget follows the measured vsync
+  /// cadence, bounded below by [fpsTarget] and above by the display's
+  /// reported refresh rate. A 120 Hz device rendering at 120 gets an
+  /// 8.33 ms budget; a ProMotion device rendering at 60 keeps 16.67 ms.
+  ///
+  /// When false, the budget is always `1000 / fpsTarget` ms. Capture mode
+  /// ([captureMode]) always uses the fixed budget.
+  final bool autoFrameBudget;
+
+  /// When true, sets the framework's `debugProfilePlatformChannels` while
+  /// the VM service is connected, so platform-channel sends appear on the
+  /// timeline for [PlatformChannelDetector]. Off by default.
+  ///
+  /// Side effects while on: the framework prints a "Platform Channel
+  /// Stats" table to the console every second while channels are active,
+  /// and also profiles framework channels (TextInput, SystemChrome,
+  /// clipboard). The flag is set only after the VM connects and restored
+  /// on dispose; a value set elsewhere (e.g. DevTools) is left alone.
+  /// Has no effect in release mode or when
+  /// [DetectorType.platformChannel] is not enabled.
+  final bool profilePlatformChannels;
+
+  /// Where the overlay keeps its UI state (trigger position, card
+  /// geometry, hidden issues, severity filter) across app restarts.
+  ///
+  /// Default `null`: the state lasts for the session (it survives opening
+  /// and closing the dashboard and hot reload). See [SleuthStateStore]
+  /// for the contract and an example; [InMemorySleuthStateStore] suits
+  /// tests.
+  final SleuthStateStore? stateStore;
+
   /// Sentinel used by [copyWith] to distinguish "not passed" from "set to null".
   static const Object _sentinel = Object();
 
   /// Returns a copy of this config with the given fields replaced.
   ///
   /// For nullable fields ([theme], [advanced], [networkExcludePatterns],
-  /// [aiChat]), pass the explicit value to override — including `null` to
+  /// [aiChat], [stateStore]), pass the explicit value to override — including `null` to
   /// clear. Fields not passed retain their current value.
   ///
   /// ```dart
@@ -4928,10 +5952,15 @@ class SleuthConfig {
     Set<String>? routeIgnorePatterns,
     int? routeHistoryCapacity,
     bool? captureMode,
+    bool? autoFrameBudget,
+    bool? profilePlatformChannels,
+    int? maxElementsPerScan,
+    Object? stateStore = _sentinel,
   }) {
     return SleuthConfig(
-      theme:
-          identical(theme, _sentinel) ? this.theme : theme as SleuthThemeData?,
+      theme: identical(theme, _sentinel)
+          ? this.theme
+          : theme as SleuthThemeData?,
       fpsTarget: fpsTarget ?? this.fpsTarget,
       rebuildThreshold: rebuildThreshold ?? this.rebuildThreshold,
       maxListChildren: maxListChildren ?? this.maxListChildren,
@@ -4969,15 +5998,17 @@ class SleuthConfig {
           frameTimingWarmupFrameCount ?? this.frameTimingWarmupFrameCount,
       frameTimingWarmupDuration:
           frameTimingWarmupDuration ?? this.frameTimingWarmupDuration,
-      platformChannelDurationThresholdMs: platformChannelDurationThresholdMs ??
+      platformChannelDurationThresholdMs:
+          platformChannelDurationThresholdMs ??
           this.platformChannelDurationThresholdMs,
       suppressedIssues: suppressedIssues ?? this.suppressedIssues,
       customDetectors: customDetectors ?? this.customDetectors,
       disabledCustomDetectorKeys:
           disabledCustomDetectorKeys ?? this.disabledCustomDetectorKeys,
       thresholds: thresholds ?? this.thresholds,
-      aiChat:
-          identical(aiChat, _sentinel) ? this.aiChat : aiChat as AiChatAdapter?,
+      aiChat: identical(aiChat, _sentinel)
+          ? this.aiChat
+          : aiChat as AiChatAdapter?,
       showDebugModeBanner: showDebugModeBanner ?? this.showDebugModeBanner,
       triggerButtonAlignment:
           triggerButtonAlignment ?? this.triggerButtonAlignment,
@@ -4986,6 +6017,13 @@ class SleuthConfig {
       routeIgnorePatterns: routeIgnorePatterns ?? this.routeIgnorePatterns,
       routeHistoryCapacity: routeHistoryCapacity ?? this.routeHistoryCapacity,
       captureMode: captureMode ?? this.captureMode,
+      autoFrameBudget: autoFrameBudget ?? this.autoFrameBudget,
+      profilePlatformChannels:
+          profilePlatformChannels ?? this.profilePlatformChannels,
+      maxElementsPerScan: maxElementsPerScan ?? this.maxElementsPerScan,
+      stateStore: identical(stateStore, _sentinel)
+          ? this.stateStore
+          : stateStore as SleuthStateStore?,
     );
   }
 }
@@ -4997,4 +6035,14 @@ class _AllocStat {
   final String lib;
   final int instances;
   final int bytes;
+}
+
+/// The stored overlay state was written by a newer release.
+class _NewerUiStateException implements Exception {
+  const _NewerUiStateException(this.version);
+
+  final int version;
+
+  @override
+  String toString() => 'state from a newer release (schemaVersion $version)';
 }

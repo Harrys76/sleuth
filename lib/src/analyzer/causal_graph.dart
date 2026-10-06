@@ -38,21 +38,28 @@ class CausalRule {
 /// from every root's [PerformanceIssue.downstreamIds] (they still receive
 /// `rootCauseIds` so the UI hides them from the main list, but they
 /// don't appear as sub-items under the root).
+///
+/// **Possible-root guard:** an edge whose cause is `possible` and whose
+/// effect is `likely` or `confirmed` is dropped before roots are found. A
+/// structural-only guess does not claim an observed runtime effect; it can
+/// still claim other `possible` effects. Roots, BFS, suppression and
+/// [activeEdges] all operate on the filtered edge set, so every node
+/// reachable from a `possible` root is itself `possible`.
 class CausalGraphRule extends CorrelationRule {
   const CausalGraphRule();
 
   @override
   String get name => 'CausalGraph';
 
-  // 48 causal rules. Order doesn't matter — all are evaluated, and the
+  // 41 causal rules. Order doesn't matter — all are evaluated, and the
   // graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
     CausalRule('setstate_scope', 'heavy_compute'),
 
-    // Image → memory chains
-    CausalRule('uncached_images', 'heap_growing'),
-    CausalRule('uncached_images', 'heap_near_capacity'),
+    // Image → memory chain. Decoded bitmaps live in native memory, not
+    // the Dart heap.
+    CausalRule('uncached_images', 'native_memory_growing'),
 
     // CustomPainter → paint/raster chains
     CausalRule('always_repaint_painter', 'raster_dominance'),
@@ -62,13 +69,15 @@ class CausalGraphRule extends CorrelationRule {
     // Missing RepaintBoundary → paint/raster chains
     CausalRule('missing_repaint_boundary', 'excessive_repaint'),
     CausalRule('missing_repaint_boundary', 'excessive_repaint_debug'),
-    CausalRule('missing_repaint_boundary', 'raster_dominance'),
+
+    // Excessive repaint → raster cost
+    CausalRule('excessive_repaint', 'raster_dominance'),
 
     // Rules below cover stableIds whose source detectors were removed in
     // v0.20.0 (animated_builder, opacity, shallow_rebuild_risk,
-    // nested_scroll, global_key). They remain so causal correlation
-    // applied to v0.19 saved snapshots still produces full chains. Do
-    // not delete without bumping snapshot schemaVersion.
+    // nested_scroll, global_key). Imported snapshots are not
+    // re-correlated; these edges stay so the labelled legacy encyclopedia
+    // entries and old snapshots remain self-consistent.
 
     // AnimatedBuilder → rebuild chains (only fires if not suppressed)
     CausalRule('animated_builder_no_child', 'rebuild_activity'),
@@ -87,6 +96,9 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('non_lazy_gridview', 'rebuild_debug_*'),
     CausalRule('non_lazy_gridview', 'heavy_compute'),
 
+    // shrinkWrap list in a Column/Row builds every child on layout
+    CausalRule('non_lazy_shrinkwrap', 'jank_detected'),
+
     // Rebuild cascade chains (fire when rebuild NOT merged into setstate_scope)
     CausalRule('rebuild_activity', 'heavy_compute'),
     CausalRule('rebuild_debug_*', 'heavy_compute'),
@@ -99,25 +111,18 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('nested_scroll', 'rebuild_activity'),
     CausalRule('nested_scroll_same_axis', 'rebuild_activity'),
 
-    // Network → downstream chains
-    CausalRule('slow_request', 'heavy_compute'),
-    CausalRule('request_frequency', 'rebuild_activity'),
+    // Network → downstream chains. A large body costs main-isolate time
+    // in JSON decode.
+    CausalRule('large_response', 'heavy_compute'),
     CausalRule('http_error_spike', 'request_frequency'),
 
-    // --- Pillar 3a: 8 new causal patterns (v0.10.7) ---
+    // --- Additional causal patterns (v0.10.7) ---
 
     // setState scope → excessive rebuilds (complements merge rule —
     // catches rebuild_debug_* variants NOT consumed by MergeRebuildSetStateRule)
     CausalRule('setstate_scope', 'rebuild_debug_*'),
 
-    // Uncached images → GC pressure (complements existing → heap_growing/heap_near_capacity)
-    CausalRule('uncached_images', 'gc_pressure'),
-
-    // Keep-alive → GC pressure (complements existing → heap_growing/heap_near_capacity)
-    CausalRule('excessive_keep_alive:*', 'gc_pressure'),
-
-    // Stream resource leaks → memory-pressure family. Same shape as the
-    // uncached_images / excessive_keep_alive rules above: a retention
+    // Stream resource leaks → memory-pressure family: a retention
     // anti-pattern propagates to all three memory effects. Emission is
     // already gated on co-firing `heap_growing`, so the heap_growing
     // edge surfaces immediately; the other two surface when the
@@ -147,15 +152,9 @@ class CausalGraphRule extends CorrelationRule {
     // Font loading → frame jank
     CausalRule('runtime_font_loading', 'sustained_jank'),
     CausalRule('runtime_font_loading', 'jank_detected'),
-    CausalRule('multiple_custom_fonts', 'sustained_jank'),
-    CausalRule('multiple_custom_fonts', 'jank_detected'),
 
     // Platform channel traffic → compute pressure
     CausalRule('platform_channel_traffic', 'heavy_compute'),
-
-    // High-frequency same-path traffic → rebuilds
-    CausalRule('high_frequency_same_path:*', 'rebuild_activity'),
-    CausalRule('high_frequency_same_path:*', 'rebuild_debug_*'),
   ];
 
   @override
@@ -183,6 +182,7 @@ class CausalGraphRule extends CorrelationRule {
       for (final ci in causeIndices) {
         for (final ei in effectIndices) {
           if (ci == ei) continue; // self-loop guard
+          if (!_edgeAllowed(issues[ci], issues[ei])) continue;
           (outgoing[ci] ??= {}).add(ei);
           (incoming[ei] ??= {}).add(ci);
         }
@@ -248,10 +248,10 @@ class CausalGraphRule extends CorrelationRule {
     // downstream from a root's downstreamIds list when ANY reaching
     // root for that downstream is `confirmed` or `likely`. The check
     // operates on the union of REACHING ROOTS (the BFS sources), not
-    // the immediate graph-parents of the downstream — but the
-    // user-visible effect is the same because pre-existing causal
-    // chains are short (≤ 2 hops in current rules). The downstream
-    // still carries rootCauseIds for UI annotation; the suppression
+    // the immediate graph-parents of the downstream. Chains may be
+    // longer than two hops; the check still keys off the reaching roots,
+    // so an intermediate node's confidence does not affect it. The
+    // downstream still carries rootCauseIds for UI annotation; the suppression
     // only prevents the root from listing it as a sub-item in the
     // main list rendering.
     final rootDownstream =
@@ -268,7 +268,7 @@ class CausalGraphRule extends CorrelationRule {
       );
       final shouldSuppress =
           downstream.confidence == IssueConfidence.possible &&
-              anyStrongerParent;
+          anyStrongerParent;
 
       for (final rootIdx in ownerIndices) {
         if (shouldSuppress) continue;
@@ -307,10 +307,12 @@ class CausalGraphRule extends CorrelationRule {
         // some other downstream (a node can be both downstream and root in
         // a chain like A→B→C).
         if (downstream != null && downstream.isNotEmpty) {
-          result.add(issues[i].copyWith(
-            rootCauseIds: rootIds,
-            downstreamIds: downstream,
-          ));
+          result.add(
+            issues[i].copyWith(
+              rootCauseIds: rootIds,
+              downstreamIds: downstream,
+            ),
+          );
         } else {
           result.add(issues[i].copyWith(rootCauseIds: rootIds));
         }
@@ -330,17 +332,20 @@ class CausalGraphRule extends CorrelationRule {
   /// one place so consumers don't need to mirror `CausalRule`'s field
   /// layout.
   static List<Map<String, Object?>> get rulesJson => _causalRules
-      .map((r) => <String, Object?>{
-            'trigger': r.causePattern,
-            'effect': r.effectPattern,
-          })
+      .map(
+        (r) => <String, Object?>{
+          'trigger': r.causePattern,
+          'effect': r.effectPattern,
+        },
+      )
       .toList(growable: false);
 
   /// Returns the list of active causal edges for the given issues.
   ///
   /// Each edge is a `{cause, effect}` map representing a directed
   /// relationship between two stableIds. Only edges where both cause
-  /// and effect are present in [issues] are returned.
+  /// and effect are present in [issues] and that pass the possible-root
+  /// guard are returned.
   static List<Map<String, String>> activeEdges(List<PerformanceIssue> issues) {
     if (issues.length < 2) return const [];
 
@@ -363,6 +368,7 @@ class CausalGraphRule extends CorrelationRule {
       for (final ci in causeIndices) {
         for (final ei in effectIndices) {
           if (ci == ei) continue;
+          if (!_edgeAllowed(issues[ci], issues[ei])) continue;
           final causeId = issues[ci].stableId!;
           final effectId = issues[ei].stableId!;
           final key = '$causeId→$effectId';
@@ -374,6 +380,12 @@ class CausalGraphRule extends CorrelationRule {
     }
     return edges;
   }
+
+  /// Possible-root guard: a `possible` cause may only claim a `possible`
+  /// effect.
+  static bool _edgeAllowed(PerformanceIssue cause, PerformanceIssue effect) =>
+      !(cause.confidence == IssueConfidence.possible &&
+          effect.confidence != IssueConfidence.possible);
 
   /// Find all issue indices matching a stableId [pattern].
   /// Supports exact match and trailing `*` prefix match.
@@ -395,8 +407,8 @@ class CausalGraphRule extends CorrelationRule {
   }
 
   static int _severityRank(IssueSeverity s) => switch (s) {
-        IssueSeverity.critical => 3,
-        IssueSeverity.warning => 2,
-        IssueSeverity.ok => 1,
-      };
+    IssueSeverity.critical => 3,
+    IssueSeverity.warning => 2,
+    IssueSeverity.ok => 1,
+  };
 }

@@ -3,17 +3,22 @@
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
 
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 import '../utils/animation_owner_names.dart';
+import '../utils/framework_painters.dart';
+import '../utils/overlay_ownership.dart';
 import '../utils/widget_location.dart';
 import 'debug_snapshot.dart';
 
 /// Which installation path a coordinator is currently on.
 ///
-/// Debug and profile are mutually exclusive (KDD-1): exactly one source
+/// Debug and profile are mutually exclusive: exactly one source
 /// populates [DebugSnapshot.rebuildCounts] per coordinator lifetime.
 enum _InstalledMode { none, debug, profile }
 
@@ -22,12 +27,14 @@ enum _InstalledMode { none, debug, profile }
 ///
 /// - **Debug mode** uses `debugOnRebuildDirtyWidget` + `debugOnProfilePaint`
 ///   global callbacks. Counts actual rebuilds only (initial builds are
-///   excluded via the `builtOnce` flag).
+///   excluded via the `builtOnce` flag). Paints feed two records: every
+///   widget that takes part in a repaint (`paintCounts`) and, per frame,
+///   the likely origin of each layer's repaint (`paintOrigins`).
 /// - **Profile mode** uses `FlutterTimeline.debugCollect()` drained on every
 ///   scan. Counts include initial widget inflations as well as rebuilds
 ///   because the framework emits the same `FlutterTimeline.startSync` from
-///   `_tryRebuild`, `updateChild`, AND `inflateWidget` (KDD-5). The rollup
-///   issue copy, config doc, and CHANGELOG all disclose this divergence.
+///   `_tryRebuild`, `updateChild`, AND `inflateWidget`. The rebuild stats
+///   panel, its drilldown page and the config doc disclose this divergence.
 ///
 /// Install policy (debug path): only installs when the global callback slot
 /// is `null`. If DevTools (WidgetInspectorService) already occupies a slot,
@@ -44,10 +51,14 @@ class DebugInstrumentationCoordinator {
     DateTime Function()? clock,
     bool installRebuild = true,
     bool installPaint = true,
-  })  : _maxTrackedTypes = maxTrackedTypes,
-        _clock = clock ?? DateTime.now,
-        _installRebuild = installRebuild,
-        _installPaint = installPaint {
+    bool userWidgetsOnly = true,
+  }) : _maxTrackedTypes = maxTrackedTypes,
+       _clock = clock ?? DateTime.now,
+       _installRebuild = installRebuild,
+       _installPaint = installPaint,
+       _userWidgetsOnly =
+           userWidgetsOnly &&
+           WidgetInspectorService.instance.isWidgetCreationTracked() {
     // Create bound method references once so == checks work on uninstall.
     _onRebuildDirtyWidget = _handleRebuildDirtyWidget;
     _onProfilePaint = _handleProfilePaint;
@@ -58,13 +69,43 @@ class DebugInstrumentationCoordinator {
   final bool _installRebuild;
   final bool _installPaint;
 
+  /// Whether per-widget counts keep only user widgets: widgets created
+  /// outside the Flutter SDK, as the framework's own
+  /// `debugIsWidgetLocalCreation` decides (only the project's files once
+  /// DevTools has set its root directories). Framework widgets built
+  /// inside them (`RichText` under `Text`, `_InkFeatures` under
+  /// `InkWell`, a scaffold's layout) rebuild and repaint with the widget
+  /// that builds them and would each report on their own. Needs creation
+  /// tracking, which debug builds have; without it every widget counts.
+  final bool _userWidgetsOnly;
+
+  bool _isUserWidget(Widget widget) =>
+      !_userWidgetsOnly || debugIsWidgetLocalCreation(widget);
+
   late final void Function(Element, bool) _onRebuildDirtyWidget;
   late final void Function(RenderObject) _onProfilePaint;
 
   final Map<String, int> _rebuildCounts = {};
   final Map<String, int> _paintCounts = {};
   final Map<String, String> _ancestorChains = {};
+  final Map<String, int> _forcedRebuildsByRoot = {};
+  bool _rebuildTypesCapped = false;
+  bool _paintTypesCapped = false;
   int _paintCount = 0;
+
+  /// The self-dirtied elements whose builds are running, outermost first,
+  /// as (user type or null, depth). Callbacks arrive in tree pre-order
+  /// inside a build, so an entry at or below a callback's depth is not its
+  /// ancestor and is dropped. A forced rebuild is credited to the
+  /// innermost entry; a framework widget's entry (null type) credits
+  /// nothing. Cleared when a new frame starts.
+  final List<({String? type, int depth})> _buildRoots = [];
+  int? _buildRootsFrame;
+
+  /// Frame (system time stamp in microseconds) in which each
+  /// rebuild-driven animation owner last rebuilt itself. See
+  /// [rebuildDrivenOwnerNames].
+  final Expando<int> _ownerRebuildFrame = Expando<int>('SleuthOwnerRebuild');
 
   /// Per-widget-type **animation-owned** paint counts. A subset of
   /// [_paintCounts]: every increment here was also counted there.
@@ -95,8 +136,8 @@ class DebugInstrumentationCoordinator {
   /// — the default in widget tests and in production — that field stays
   /// `false` for the entire element lifetime, so every call to the
   /// callback passes `builtOnce: false` and the detector would never count
-  /// anything. That is exactly the bug the M11 anti-tautology test catches,
-  /// and the reason we cannot trust that parameter.
+  /// anything. That is exactly the bug the real-widget-tree rebuild test
+  /// catches, and the reason we cannot trust that parameter.
   ///
   /// [Expando] key-weakly references the element, so entries are collected
   /// when the element is reclaimed. No manual cleanup required.
@@ -109,6 +150,72 @@ class DebugInstrumentationCoordinator {
   final Map<Type, String> _typeNames = {};
 
   String _typeName(Type type) => _typeNames[type] ??= type.toString();
+
+  /// Ancestor-derived paint attribution per painting [Element]: the
+  /// ancestor chain and whether an animation owner sits above the
+  /// element. A repainting widget paints every frame from the same
+  /// element; rebuilding the chain (string joins, source-location
+  /// lookups) and walking 16 ancestors each time was the dominant
+  /// debug-mode paint cost. Entries are stamped with every ancestor the
+  /// chain and the ownership walk read, the element's depth, and
+  /// [_paintAttributionEpoch]; a different or unmounted ancestor at any
+  /// stamped position, any other change, or an unmounted element
+  /// recomputes. Weakly keyed, so entries die with their elements.
+  final Expando<_PaintAttribution> _paintAttribution =
+      Expando<_PaintAttribution>('SleuthPaintAttribution');
+
+  /// Bumped by [invalidatePaintAttribution]; stale stamps recompute.
+  int _paintAttributionEpoch = 0;
+
+  int _paintAttributionComputes = 0;
+
+  /// Number of paint attributions computed rather than served from the
+  /// per-element cache.
+  @visibleForTesting
+  int get paintAttributionComputeCount => _paintAttributionComputes;
+
+  /// Drops every cached paint attribution (hot reload can move widgets
+  /// without replacing their elements' parents).
+  void invalidatePaintAttribution() => _paintAttributionEpoch++;
+
+  /// Most instances of one widget type counted as likely repaint origins
+  /// in a window; further instances of the type are not counted.
+  @visibleForTesting
+  static const int maxOriginInstancesPerType = 128;
+
+  /// Likely repaint origins credited this window, per user widget type:
+  /// for each instance (the credited element), the frames in which it was
+  /// an origin that no animation owner drove.
+  final Map<String, Map<Element, int>> _originCounts = {};
+
+  /// Frames per user widget type in which an instance was a likely origin
+  /// driven by an animation owner.
+  final Map<String, int> _ownedOriginCounts = {};
+  bool _originTypesCapped = false;
+
+  // The frame whose paints the origin pass is recording. A frame closes
+  // after its paint phase (a post-frame callback), when the frame stamp
+  // changes, or at a snapshot, whichever comes first.
+  bool _originFrameOpen = false;
+  int? _originFrameStamp;
+  bool _originFrameEndScheduled = false;
+  late final FrameCallback _onOriginFrameEnd = _handleOriginFrameEnd;
+
+  /// Render objects painted this frame while marked as needing paint,
+  /// with whether an animation owner drove the paint (null when the hook
+  /// did not judge it).
+  final Map<RenderObject, bool?> _frameDirty = {};
+
+  /// Render objects with a child painted this frame while marked as
+  /// needing paint: not the deepest marked node of their layer.
+  final Set<RenderObject> _frameReached = {};
+
+  /// Repaint boundaries that painted their children this frame without a
+  /// hook call of their own: layer roots that `flushPaint` repainted.
+  final Set<RenderObject> _frameRoots = {};
+
+  /// Elements credited this frame, so an instance counts once per frame.
+  final Set<Element> _frameCredited = {};
 
   bool _rebuildInstalled = false;
   bool _paintInstalled = false;
@@ -138,8 +245,10 @@ class DebugInstrumentationCoordinator {
     assert(() {
       if (_installRebuild && !_rebuildInstalled) {
         if (debugOnRebuildDirtyWidget != null) {
-          debugPrint('Sleuth: debugOnRebuildDirtyWidget already set '
-              '(likely DevTools). Skipping rebuild callback.');
+          debugPrint(
+            'Sleuth: debugOnRebuildDirtyWidget already set '
+            '(likely DevTools). Skipping rebuild callback.',
+          );
         } else {
           debugOnRebuildDirtyWidget = _onRebuildDirtyWidget;
           _rebuildInstalled = true;
@@ -147,8 +256,10 @@ class DebugInstrumentationCoordinator {
       }
       if (_installPaint && !_paintInstalled) {
         if (debugOnProfilePaint != null) {
-          debugPrint('Sleuth: debugOnProfilePaint already set. '
-              'Skipping paint callback.');
+          debugPrint(
+            'Sleuth: debugOnProfilePaint already set. '
+            'Skipping paint callback.',
+          );
         } else {
           debugOnProfilePaint = _onProfilePaint;
           _paintInstalled = true;
@@ -220,13 +331,13 @@ class DebugInstrumentationCoordinator {
   /// Mutually exclusive with [install]: calling both is a programming error
   /// and the existing [_installedMode] guard throws.
   ///
-  /// Policy (KDD-1, M4 per spec v15):
+  /// Policy:
   /// 1. Assert `!kReleaseMode`.
   /// 2. Refuse if already installed on either path.
   /// 3. **Refuse if `FlutterTimeline.debugCollectionEnabled` is already
   ///    `true`** — DevTools or another Sleuth instance owns the buffer. We
-  ///    must not stomp their save/restore. This resolves R20 (DevTools
-  ///    conflict) and B1 (two Sleuth instances stomping the buffer).
+  ///    must not stomp their save/restore, whether the other owner is
+  ///    DevTools or a second Sleuth instance.
   /// 4. Save the prior value, flip to `true`, mark `_installedMode.profile`.
   ///
   /// Setting `debugCollectionEnabled = true` when it was previously `false`
@@ -238,8 +349,8 @@ class DebugInstrumentationCoordinator {
       'installProfileMode is not supported in release mode',
     );
     if (_installedMode != _InstalledMode.none) {
-      // Double-install no-op (idempotent). The spec tolerates this in M12
-      // because controller wiring may call install twice across hot-restart.
+      // Double-install no-op (idempotent), because controller wiring may
+      // call install twice across hot-restart.
       return;
     }
     if (FlutterTimeline.debugCollectionEnabled) {
@@ -286,7 +397,7 @@ class DebugInstrumentationCoordinator {
   /// - [_InstalledMode.debug]: drains the debug-callback maps populated by
   ///   `_handleRebuildDirtyWidget` / `_handleProfilePaint`.
   /// - [_InstalledMode.profile]: drains `FlutterTimeline.debugCollect()`
-  ///   through the KDD-3 three-layer filter ([canonicalizeTypeName]) and
+  ///   through the type-name filter ([canonicalizeTypeName]) and
   ///   aggregates by canonical type name.
   /// - [_InstalledMode.none]: returns an empty snapshot with
   ///   `source: RebuildCountSource.none` (test and no-op cases).
@@ -298,6 +409,9 @@ class DebugInstrumentationCoordinator {
     if (_installedMode == _InstalledMode.profile) {
       return _drainProfileBuffer();
     }
+    // Scans run after a frame's paint phase, so the open frame is
+    // complete.
+    _closeOriginFrame();
     final now = _clock();
     final elapsed = now.difference(_lastSnapshotTime);
     _lastSnapshotTime = now;
@@ -308,25 +422,98 @@ class DebugInstrumentationCoordinator {
       totalPaintCount: _paintCount,
       elapsed: elapsed,
       ancestorChains: Map<String, String>.of(_ancestorChains),
-      animationOwnedPaintCounts:
-          Map<String, int>.of(_animationOwnedPaintCounts),
+      animationOwnedPaintCounts: Map<String, int>.of(
+        _animationOwnedPaintCounts,
+      ),
       totalAnimationOwnedPaintCount: _totalAnimationOwnedPaintCount,
       source: _installedMode == _InstalledMode.debug
           ? RebuildCountSource.debugCallback
           : RebuildCountSource.none,
+      forcedRebuildsByRoot: Map<String, int>.of(_forcedRebuildsByRoot),
+      rebuildTypesCapped: _rebuildTypesCapped,
+      paintTypesCapped: _paintTypesCapped,
+      paintOrigins: _originStats(),
+      paintOriginTypesCapped: _originTypesCapped,
     );
+    _clearWindow();
+    return result;
+  }
+
+  /// Drops the counts gathered since the last [snapshot] and starts a new
+  /// window now. A hot reload rebuilds every element and repaints every
+  /// render object once; that burst is not app activity.
+  void discardWindow() {
+    if (_installedMode == _InstalledMode.profile) return;
+    _lastSnapshotTime = _clock();
+    _dropOriginFrame();
+    _clearWindow();
+  }
+
+  void _clearWindow() {
     _rebuildCounts.clear();
     _paintCounts.clear();
     _ancestorChains.clear();
     _animationOwnedPaintCounts.clear();
+    _forcedRebuildsByRoot.clear();
+    _originCounts.clear();
+    _ownedOriginCounts.clear();
+    _rebuildTypesCapped = false;
+    _paintTypesCapped = false;
+    _originTypesCapped = false;
     _paintCount = 0;
     _totalAnimationOwnedPaintCount = 0;
+  }
+
+  /// Per-type origin statistics for the window, busiest instances first.
+  Map<String, PaintOriginStats> _originStats() {
+    if (_originCounts.isEmpty) return const {};
+    final result = <String, PaintOriginStats>{};
+    _originCounts.forEach((typeName, instances) {
+      // The few busiest instances, without sorting every instance.
+      final busiest = <MapEntry<Element, int>>[];
+      for (final entry in instances.entries) {
+        if (busiest.length == PaintOriginStats.maxBusiest &&
+            entry.value <= busiest.last.value) {
+          continue;
+        }
+        var at = busiest.length;
+        while (at > 0 && busiest[at - 1].value < entry.value) {
+          at--;
+        }
+        busiest.insert(at, entry);
+        if (busiest.length > PaintOriginStats.maxBusiest) {
+          busiest.removeLast();
+        }
+      }
+      final top = busiest.first.key;
+      String? chain;
+      if (top.mounted) {
+        try {
+          chain = buildAncestorChain(top);
+        } catch (e, s) {
+          assert(() {
+            debugPrint('Sleuth: paint origin chain failed: $e\n$s');
+            return true;
+          }());
+        }
+      }
+      result[typeName] = PaintOriginStats(
+        maxCount: busiest.first.value,
+        instanceCount: instances.length,
+        animationOwnedCount: _ownedOriginCounts[typeName] ?? 0,
+        ancestorChain: chain,
+        busiest: [
+          for (final entry in busiest)
+            PaintOriginInstance(element: entry.key, count: entry.value),
+        ],
+      );
+    });
     return result;
   }
 
-  /// Drains `FlutterTimeline.debugCollect()`, applies the three-layer filter
-  /// (KDD-3, M8), aggregates by canonical type name, and produces a snapshot
-  /// tagged with `RebuildCountSource.flutterTimeline`.
+  /// Drains `FlutterTimeline.debugCollect()`, applies the type-name filter
+  /// ([canonicalizeTypeName]), aggregates by canonical type name, and
+  /// produces a snapshot tagged with `RebuildCountSource.flutterTimeline`.
   ///
   /// Destructive: each call empties the framework buffer.
   DebugSnapshot _drainProfileBuffer() {
@@ -342,7 +529,7 @@ class DebugInstrumentationCoordinator {
         if (canonical == null) continue;
         if (counts.length >= _maxTrackedTypes &&
             !counts.containsKey(canonical)) {
-          continue; // 200-type cap (KDD-3 layer 4 — unbounded keys).
+          continue; // Type cap (default 200) keeps the key set bounded.
         }
         counts[canonical] = (counts[canonical] ?? 0) + 1;
       }
@@ -372,12 +559,16 @@ class DebugInstrumentationCoordinator {
     _paintCounts.clear();
     _ancestorChains.clear();
     _animationOwnedPaintCounts.clear();
+    _originCounts.clear();
+    _ownedOriginCounts.clear();
+    _dropOriginFrame();
     _typeNames.clear();
+    _paintAttributionEpoch++;
     _paintCount = 0;
     _totalAnimationOwnedPaintCount = 0;
   }
 
-  /// KDD-3 / KDD-10 / M8: five-layer filter applied to raw `TimedBlock.name`
+  /// Five-layer filter applied to raw `TimedBlock.name`
   /// strings.
   ///
   /// 1. **Deny-list** of known frame-level scopes that the framework emits
@@ -405,7 +596,7 @@ class DebugInstrumentationCoordinator {
   /// 4. **Generic canonicalization**: `Provider<Foo>` → `Provider`, so
   ///    parameterized generics don't explode the 200-type cap and inflate
   ///    the "unique hotspot widgets" count with spurious duplicates.
-  /// 5. **Framework + Sleuth overlay deny-list** (KDD-10 / v0.15.1 hotfix):
+  /// 5. **Framework + Sleuth overlay deny-list** (v0.15.1 hotfix):
   ///    drops core Flutter framework widgets (`Container`, `Padding`,
   ///    `ValueListenableBuilder`, `FadeTransition`, …) and Sleuth's own
   ///    overlay widgets (`FloatingIssuesCard`, `TriggerButton`,
@@ -424,13 +615,14 @@ class DebugInstrumentationCoordinator {
   ///    before the set lookup.
   ///
   /// Returns `null` when the name should be dropped; otherwise the
-  /// canonical form to use as an aggregation key. Pure; unit-tested by M12.
+  /// canonical form to use as an aggregation key. Pure; unit-tested.
   static String? canonicalizeTypeName(String raw) {
     if (_denyList.contains(raw)) return null;
     if (_isRenderObjectName(raw)) return null;
     if (!_identifierRegex.hasMatch(raw)) return null;
-    final canonical =
-        raw.contains('<') ? raw.replaceAll(_genericRegex, '') : raw;
+    final canonical = raw.contains('<')
+        ? raw.replaceAll(_genericRegex, '')
+        : raw;
     if (_frameworkWidgetDenyList.contains(canonical)) return null;
     return canonical;
   }
@@ -442,14 +634,15 @@ class DebugInstrumentationCoordinator {
   static bool _isRenderObjectName(String raw) {
     if (raw.isEmpty) return false;
     var i = 0;
-    if (raw.codeUnitAt(0) == 0x5F /* '_' */) i = 1;
+    if (raw.codeUnitAt(0) == 0x5F /* '_' */ ) i = 1;
     // Need at least 'Render' (6 chars) after the optional underscore.
     if (raw.length - i < 6) return false;
     return raw.startsWith('Render', i);
   }
 
-  static final RegExp _identifierRegex =
-      RegExp(r'^_?[A-Z][A-Za-z0-9_]*(<.*>)?$');
+  static final RegExp _identifierRegex = RegExp(
+    r'^_?[A-Z][A-Za-z0-9_]*(<.*>)?$',
+  );
   static final RegExp _genericRegex = RegExp(r'<.*>');
   // Framework frame-phase scopes emitted by `FlutterTimeline.startSync(...)`
   // from inside the Flutter SDK. These are NOT widget rebuilds — they fire
@@ -497,7 +690,7 @@ class DebugInstrumentationCoordinator {
   static Set<String> get debugFrameworkWidgetDenyList =>
       _frameworkWidgetDenyList;
 
-  /// KDD-10 (v0.15.1 hotfix): Flutter framework widgets used inside Sleuth's
+  /// Since the v0.15.1 hotfix: Flutter framework widgets used inside Sleuth's
   /// own overlay AND Sleuth's own overlay widget classes. Any widget in this
   /// set is dropped from profile-mode `FlutterTimeline.debugCollect()` drains
   /// so Sleuth never self-measures its own UI.
@@ -512,8 +705,13 @@ class DebugInstrumentationCoordinator {
   /// Framework entries are matched AFTER generic stripping in
   /// [canonicalizeTypeName], so `ValueListenableBuilder<T>` reduces to
   /// `ValueListenableBuilder` before the lookup.
+  ///
+  /// The overlay does not use `ListenableBuilder`, `AnimatedContainer`,
+  /// `AnimatedSwitcher`, `MergeSemantics` or `CustomSingleChildLayout`; it
+  /// uses Sleuth-named equivalents listed below, so app-owned rebuilds of
+  /// those widgets are counted.
   static const Set<String> _frameworkWidgetDenyList = {
-    // --- Flutter framework widgets used in lib/src/ui/ (49) ---
+    // --- Flutter framework widgets used in lib/src/ui/ (53) ---
     'Align',
     'AnimatedBuilder',
     'AnimatedRotation',
@@ -530,9 +728,12 @@ class DebugInstrumentationCoordinator {
     'DefaultTextEditingShortcuts',
     'Directionality',
     'Divider',
+    'ExcludeSemantics',
+    'ExcludeFocus',
     'Expanded',
     'FadeTransition',
     'Flexible',
+    'FocusScope',
     'GestureDetector',
     'Icon',
     'IgnorePointer',
@@ -540,13 +741,14 @@ class DebugInstrumentationCoordinator {
     'LayoutBuilder',
     'LinearProgressIndicator',
     'ListView',
+    'Listener',
     'Localizations',
     'Material',
+    'MediaQuery',
     'MouseRegion',
     'NotificationListener',
     'Overlay',
     'Padding',
-    'PopScope',
     'Positioned',
     'RepaintBoundary',
     'Row',
@@ -556,7 +758,6 @@ class DebugInstrumentationCoordinator {
     'SingleChildScrollView',
     'SizedBox',
     'SlideTransition',
-    'SnackBar',
     'Spacer',
     'Stack',
     'Text',
@@ -564,7 +765,7 @@ class DebugInstrumentationCoordinator {
     'TweenAnimationBuilder',
     'ValueListenableBuilder',
     'Wrap',
-    // --- Sleuth overlay widget classes (26) ---
+    // --- Sleuth overlay widget classes (43) ---
     'FloatingIssuesCard',
     '_StatusRow',
     '_ThroughputDetailRow',
@@ -589,25 +790,81 @@ class DebugInstrumentationCoordinator {
     'StartupMetricsPage',
     'AiChatPage',
     '_StarterChip',
+    '_ChatTextAction',
     'GuidePage',
     '_GuideStep',
     '_LegendRow',
     'SleuthTheme',
+    'SleuthTextScaleClamp',
+    'OverlayToast',
+    '_ToastBody',
+    'HiddenIssuesPage',
+    '_HiddenRow',
+    '_TextAction',
+    '_SeverityChip',
+    '_SeverityChipPill',
+    '_EmptyListMessage',
+    '_ToastFade',
+    '_TriggerLayout',
+    'SleuthListenableBuilder',
+    '_AppSemanticsBlocker',
+    '_LeadTrailLine',
   };
 
   void _handleRebuildDirtyWidget(Element element, bool builtOnce) {
+    // Sleuth's own overlay widgets, and the widget Sleuth wraps around
+    // the app, are not the app's rebuilds.
+    if (OverlayOwnership.isOverlayOwned(element) ||
+        OverlayOwnership.isAppBoundary(element)) {
+      return;
+    }
+    final frame = _frameStamp();
+    if (frame != _buildRootsFrame) {
+      _buildRoots.clear();
+      _buildRootsFrame = frame;
+    }
+    final depth = element.depth;
+    while (_buildRoots.isNotEmpty && _buildRoots.last.depth >= depth) {
+      _buildRoots.removeLast();
+    }
+    // The hook runs before the framework clears the flag: true for an
+    // element that marked itself dirty, false for one its parent's build
+    // updated (StatelessElement, StatefulElement and ProxyElement.update
+    // rebuild with `force: true`).
+    final dirty = element.dirty;
+    final widget = element.widget;
+    if (dirty && frame != null && isRebuildDrivenOwnerElement(element)) {
+      _ownerRebuildFrame[element] = frame;
+    }
+    if (!_isUserWidget(widget)) {
+      if (dirty) _buildRoots.add((type: null, depth: depth));
+      return;
+    }
     // First observation of this element = initial build (don't count).
     // Every subsequent observation = real rebuild. The framework's
     // `builtOnce` parameter is unreliable (see `_elementSeen` docs), so we
     // track first-observation ourselves via an Expando whose weak keying
-    // lets dead elements get collected automatically.
+    // lets dead elements get collected automatically. Marked before the
+    // dirty split, so an element first seen through a forced update
+    // counts its first own rebuild.
     if (_elementSeen[element] == null) {
       _elementSeen[element] = true;
       return;
     }
-    final typeName = _typeName(element.widget.runtimeType);
+    if (!dirty) {
+      // Rebuilt because its parent's build passed it a new widget: part
+      // of that parent's cost, not a rebuild of its own.
+      final root = _buildRoots.isEmpty ? null : _buildRoots.last.type;
+      if (root != null) {
+        _forcedRebuildsByRoot[root] = (_forcedRebuildsByRoot[root] ?? 0) + 1;
+      }
+      return;
+    }
+    final typeName = _typeName(widget.runtimeType);
+    _buildRoots.add((type: typeName, depth: depth));
     if (_rebuildCounts.length >= _maxTrackedTypes &&
         !_rebuildCounts.containsKey(typeName)) {
+      _rebuildTypesCapped = true;
       return; // Cap reached, ignore new types
     }
     _rebuildCounts[typeName] = (_rebuildCounts[typeName] ?? 0) + 1;
@@ -624,65 +881,482 @@ class DebugInstrumentationCoordinator {
     }
   }
 
-  void _handleProfilePaint(RenderObject renderObject) {
-    _paintCount++;
-    final creator = renderObject.debugCreator;
-    if (creator is! DebugCreator) return;
+  /// The current frame's system time stamp in microseconds, or null
+  /// outside a frame.
+  static int? _frameStamp() {
+    final binding = SchedulerBinding.instance;
+    if (binding.schedulerPhase == SchedulerPhase.idle) return null;
+    return binding.currentSystemFrameTimeStamp.inMicroseconds;
+  }
 
-    final element = creator.element;
-    final typeName = _typeName(element.widget.runtimeType);
-    if (_paintCounts.length >= _maxTrackedTypes &&
-        !_paintCounts.containsKey(typeName)) {
-      return; // Cap reached, ignore new types
+  /// Whether [owner] drove a paint in [frame] (the current frame when
+  /// null): a rebuild-driven owner only in a frame where it rebuilt
+  /// itself, any other owner by being there. Without the rebuild callback
+  /// there are no rebuild stamps, so presence decides.
+  bool _ownerActive(Element owner, {int? frame}) {
+    if (!_rebuildInstalled || !isRebuildDrivenOwnerElement(owner)) {
+      return true;
     }
-    _paintCounts[typeName] = (_paintCounts[typeName] ?? 0) + 1;
+    final stamp = frame ?? _frameStamp();
+    return stamp != null && _ownerRebuildFrame[owner] == stamp;
+  }
 
-    // Build a fresh chain for THIS paint event. We must not reuse a
-    // chain cached by typeName for the ownership decision: two distinct
-    // widgets sharing the same `runtimeType.toString()` — e.g.
-    // CircularProgressIndicator's internal `CustomPaint` and a chart's
-    // bare `CustomPaint` — can have totally different owners. Per-paint
-    // attribution is the only correct path.
+  /// Framework widgets that only annotate the semantics tree. Their
+  /// render objects paint as pass-throughs whenever a descendant repaints,
+  /// and a screen reader keeps more of them in the tree, so while
+  /// semantics are on their paints are left out of every debug paint
+  /// count (per widget and aggregate). With semantics off they count
+  /// like any widget, so a repainting `Semantics` the app wraps itself
+  /// still reports.
+  @visibleForTesting
+  static const Set<String> semanticsOnlyWidgets = {
+    'Semantics',
+    'MergeSemantics',
+    'ExcludeSemantics',
+    'BlockSemantics',
+    'IndexedSemantics',
+    '_GestureSemantics',
+  };
+
+  void _handleProfilePaint(RenderObject renderObject) {
+    final creator = renderObject.debugCreator;
+    final element = creator is DebugCreator ? creator.element : null;
+    // Every paint takes part in the origin pass, filtered or not, so the
+    // marked chains it reads have no gaps. The overlay's are never
+    // credited.
+    final dirty = _notePaintForOrigins(renderObject);
+    // Sleuth's own overlay paints count nowhere, not even in the total.
+    if (element != null && OverlayOwnership.isOverlayOwned(element)) return;
+    if (element == null) {
+      _paintCount++;
+      return;
+    }
+
+    final typeName = _typeName(element.widget.runtimeType);
+    if (semanticsOnlyWidgets.contains(typeName) &&
+        SemanticsBinding.instance.semanticsEnabled) {
+      return;
+    }
+    _paintCount++;
+    // A framework widget's paint still counts in the totals (and its
+    // animation ownership below), so the aggregate gates see every paint;
+    // only the per-widget maps leave it out.
+    var perWidget = _isUserWidget(element.widget);
+    if (perWidget &&
+        _paintCounts.length >= _maxTrackedTypes &&
+        !_paintCounts.containsKey(typeName)) {
+      // Cap reached: the type gets no entry, but its ownership still
+      // counts toward the aggregate.
+      _paintTypesCapped = true;
+      perWidget = false;
+    }
+    if (perWidget) {
+      _paintCounts[typeName] = (_paintCounts[typeName] ?? 0) + 1;
+    }
+
+    // The chain and the ancestor legs of the ownership check are judged
+    // per element, never per typeName: two distinct widgets sharing the
+    // same `runtimeType.toString()` — e.g. CircularProgressIndicator's
+    // internal `CustomPaint` and a chart's bare `CustomPaint` — can have
+    // totally different owners. The per-element cache keeps that
+    // property; it only skips recomputing for an element whose
+    // ancestors and depth are unchanged since its last paint.
     //
     // The chain cache (`_ancestorChains`) is still populated on first
     // occurrence per typeName for the source-location enrichment use
     // case, where the polymorphic collision is already accepted.
-    String? freshChain;
-    try {
-      freshChain = buildAncestorChain(element);
-    } catch (e, s) {
-      // Element may be deactivated mid-paint (rare but observed in
-      // teardown races). Continue with `freshChain == null`; the
-      // ownership check still has the descendant walk to fall back on.
-      assert(() {
-        debugPrint('Sleuth: paint ancestor chain failed: $e\n$s');
-        return true;
-      }());
+    final attribution = _attributionFor(element);
+    final chain = attribution.chain;
+    if (perWidget && chain != null && !_ancestorChains.containsKey(typeName)) {
+      _ancestorChains[typeName] = chain;
     }
 
-    if (freshChain != null && !_ancestorChains.containsKey(typeName)) {
-      _ancestorChains[typeName] = freshChain;
-    }
+    // Per-paint animation-owned attribution. The descendant leg runs on
+    // every paint (a child can change without the element moving). An
+    // owner only counts when it drove this frame ([_ownerActive]), so an
+    // idle `AnimatedContainer` next to a repainting widget does not hide
+    // it.
+    final owned = _isOwnedPaint(element, attribution);
+    if (dirty) _frameDirty[renderObject] = owned;
 
-    // Per-paint animation-owned attribution. Wrapped because the
-    // descendant walk inside `isAnimationOwnedPaint` calls
-    // `Element.visitChildren` which can throw on deactivated elements
-    // during teardown — we never want a paint-callback exception to
+    if (owned) {
+      if (perWidget) {
+        _animationOwnedPaintCounts[typeName] =
+            (_animationOwnedPaintCounts[typeName] ?? 0) + 1;
+      }
+      _totalAnimationOwnedPaintCount++;
+    }
+  }
+
+  /// Whether an animation owner drove a paint of [element] in [frame]
+  /// (the current frame when null): an active owner among the ancestors
+  /// in [attribution], or one the bounded descendant walk reaches.
+  bool _isOwnedPaint(
+    Element element,
+    _PaintAttribution attribution, {
+    int? frame,
+  }) {
+    final ancestorOwner = attribution.owner?.target;
+    if (ancestorOwner != null &&
+        ancestorOwner.mounted &&
+        _ownerActive(ancestorOwner, frame: frame)) {
+      return true;
+    }
+    // Wrapped because `Element.visitChildren` can throw on deactivated
+    // elements during teardown; a paint-callback exception must never
     // crash the host app.
-    var owned = false;
     try {
-      owned = isAnimationOwnedPaint(element, freshChain);
+      final descendantOwner = findAnimationOwnerDescendant(element);
+      return descendantOwner != null &&
+          _ownerActive(descendantOwner, frame: frame);
     } catch (e, s) {
       assert(() {
         debugPrint('Sleuth: animation-owned check failed: $e\n$s');
         return true;
       }());
-    }
-
-    if (owned) {
-      _animationOwnedPaintCounts[typeName] =
-          (_animationOwnedPaintCounts[typeName] ?? 0) + 1;
-      _totalAnimationOwnedPaintCount++;
+      return false;
     }
   }
+
+  /// Records [renderObject]'s paint for the per-frame origin pass and
+  /// returns whether it was marked as needing paint.
+  ///
+  /// The framework calls the hook before it paints the child, and only
+  /// that paint clears the flag, so the flag read here is the child's own.
+  /// Marking a render object also marks its ancestors up to the nearest
+  /// repaint boundary, so the marked nodes of a layer form chains from
+  /// where each mark started up to the layer's root, and a marked node
+  /// with a marked child is not where a chain started. Clean paints (the
+  /// widgets that repaint only because they share the layer, and reused
+  /// boundary layers) cost one flag read and a parent check.
+  bool _notePaintForOrigins(RenderObject renderObject) {
+    final dirty = renderObject.debugNeedsPaint;
+    final parent = renderObject.parent;
+    final parentIsBoundary = parent != null && parent.isRepaintBoundary;
+    if (!dirty) {
+      // `flushPaint` repaints the deepest dirty boundaries first, so a
+      // boundary already repainted this frame reads clean when its parent
+      // paints it. A change inside it that resized it also marked the
+      // ancestors it relaid out, so it counts as a marked child here and
+      // its parent is not where the parent layer's chain started.
+      if (parent != null &&
+          _originFrameOpen &&
+          renderObject.isRepaintBoundary &&
+          _frameRoots.contains(renderObject)) {
+        _frameReached.add(parent);
+      }
+      if (!parentIsBoundary) return false;
+    }
+    _openOriginFrame();
+    // A boundary painting its children with no hook call of its own this
+    // frame is a layer root that `flushPaint` repainted. A clean boundary
+    // painted by its parent reuses its layer and paints no children.
+    if (parentIsBoundary && !_frameDirty.containsKey(parent)) {
+      _frameRoots.add(parent);
+    }
+    if (dirty) {
+      _frameDirty[renderObject] = null;
+      if (parent != null) _frameReached.add(parent);
+    }
+    return dirty;
+  }
+
+  /// Opens a frame for the origin pass, closing the open one first when
+  /// the frame stamp has moved on.
+  void _openOriginFrame() {
+    final stamp = _frameStamp();
+    if (_originFrameOpen) {
+      if (stamp == _originFrameStamp) return;
+      _closeOriginFrame();
+    }
+    _originFrameOpen = true;
+    _originFrameStamp = stamp;
+    if (!_originFrameEndScheduled) {
+      _originFrameEndScheduled = true;
+      SchedulerBinding.instance.addPostFrameCallback(
+        _onOriginFrameEnd,
+        debugLabel: 'Sleuth.paintOrigins',
+      );
+    }
+  }
+
+  void _handleOriginFrameEnd(Duration _) {
+    _originFrameEndScheduled = false;
+    _closeOriginFrame();
+  }
+
+  /// Credits the open frame's likely origins: every marked node none of
+  /// whose painted children was marked, and every layer root none of
+  /// whose children was marked (a boundary that marked itself).
+  void _closeOriginFrame() {
+    if (!_originFrameOpen) return;
+    final frame = _originFrameStamp;
+    try {
+      _frameDirty.forEach((renderObject, owned) {
+        if (!_frameReached.contains(renderObject)) {
+          _creditOrigin(renderObject, owned, frame);
+        }
+      });
+      for (final root in _frameRoots) {
+        if (!_frameReached.contains(root)) _creditOrigin(root, null, frame);
+      }
+    } finally {
+      _dropOriginFrame();
+    }
+  }
+
+  void _dropOriginFrame() {
+    _originFrameOpen = false;
+    _frameDirty.clear();
+    _frameReached.clear();
+    _frameRoots.clear();
+    _frameCredited.clear();
+  }
+
+  /// Counts one frame for the widget instance credited with
+  /// [renderObject]'s repaint: the nearest widget the app created at or
+  /// above the render object's creator. [owned] is the hook's animation
+  /// ownership verdict, judged here for [frame] when the hook made none.
+  void _creditOrigin(RenderObject renderObject, bool? owned, int? frame) {
+    try {
+      // A render object that another render object made directly has no
+      // creator; it is credited through the nearest one that has.
+      Element? element;
+      for (
+        RenderObject? node = renderObject;
+        node != null;
+        node = node.parent
+      ) {
+        final creator = node.debugCreator;
+        if (creator is DebugCreator) {
+          element = creator.element;
+          break;
+        }
+      }
+      if (element == null || !element.mounted) return;
+      if (OverlayOwnership.isOverlayOwned(element)) return;
+      // A scroll view repaints its viewport and slivers whenever its offset
+      // moves, and the framework's own painters animate its controls (a
+      // scrollbar thumb, a toggle, a tab indicator). Neither is a change
+      // the app made, and both would otherwise be credited to the app
+      // widget around them.
+      // Material's ink layer repaints on every tick of a tap's splash or
+      // highlight, which is the framework answering a touch.
+      if (renderObject is RenderSliver ||
+          renderObject is RenderAbstractViewport ||
+          renderObject.runtimeType.toString() == '_RenderInkFeatures' ||
+          isFrameworkPainterPaint(element)) {
+        return;
+      }
+      if (semanticsOnlyWidgets.contains(
+            _typeName(element.widget.runtimeType),
+          ) &&
+          SemanticsBinding.instance.semanticsEnabled) {
+        return;
+      }
+      final credited = _nearestUserElement(element);
+      if (credited == null || !_frameCredited.add(credited)) return;
+      final typeName = _typeName(credited.widget.runtimeType);
+      final isOwned =
+          owned ??
+          _isOwnedPaint(element, _attributionFor(element), frame: frame);
+      if (isOwned) {
+        if (_ownedOriginCounts.length < _maxTrackedTypes ||
+            _ownedOriginCounts.containsKey(typeName)) {
+          _ownedOriginCounts[typeName] =
+              (_ownedOriginCounts[typeName] ?? 0) + 1;
+        }
+        return;
+      }
+      // Content that follows the scroll offset while the user scrolls (a
+      // collapsing app bar, a header fading out) repaints because of the
+      // scroll, not because of a change the app made to it.
+      if (_inActiveScroll(element)) return;
+      var instances = _originCounts[typeName];
+      if (instances == null) {
+        if (_originCounts.length >= _maxTrackedTypes) {
+          _originTypesCapped = true;
+          return;
+        }
+        _originCounts[typeName] = instances = <Element, int>{};
+      }
+      final count = instances[credited];
+      if (count == null && instances.length >= maxOriginInstancesPerType) {
+        return;
+      }
+      instances[credited] = (count ?? 0) + 1;
+    } catch (e, s) {
+      // An element torn down since its paint cannot be walked.
+      assert(() {
+        debugPrint('Sleuth: paint origin attribution failed: $e\n$s');
+        return true;
+      }());
+    }
+  }
+
+  /// [element] when the app created its widget, else the nearest ancestor
+  /// whose widget the app created, not looking past the widget Sleuth
+  /// wraps around the app. Null when there is none.
+  Element? _nearestUserElement(Element element) {
+    if (_isUserWidget(element.widget)) return element;
+    Element? found;
+    element.visitAncestorElements((ancestor) {
+      if (OverlayOwnership.isAppBoundary(ancestor)) return false;
+      if (_isUserWidget(ancestor.widget)) {
+        found = ancestor;
+        return false;
+      }
+      return true;
+    });
+    return found;
+  }
+
+  /// Whether a scroll view above [element], below the widget Sleuth wraps
+  /// around the app, is being scrolled (a drag, a fling or an animated
+  /// scroll).
+  static bool _inActiveScroll(Element element) {
+    var scrolling = false;
+    element.visitAncestorElements((ancestor) {
+      if (OverlayOwnership.isAppBoundary(ancestor)) return false;
+      if (ancestor is StatefulElement) {
+        final state = ancestor.state;
+        if (state is ScrollableState &&
+            state.position.isScrollingNotifier.value) {
+          scrolling = true;
+          return false;
+        }
+      }
+      return true;
+    });
+    return scrolling;
+  }
+
+  /// Ancestors read by the ownership walk ([hasAnimationOwnerAncestor]).
+  static const int _ownerAncestorDepth = 16;
+
+  /// Cached or freshly computed ancestor attribution for [element].
+  _PaintAttribution _attributionFor(Element element) {
+    var cacheable = element.mounted;
+    if (cacheable) {
+      final cached = _paintAttribution[element];
+      if (cached != null &&
+          cached.epoch == _paintAttributionEpoch &&
+          cached.depth == element.depth &&
+          _ancestorsUnchanged(element, cached.ancestors)) {
+        return cached;
+      }
+    }
+
+    _paintAttributionComputes++;
+    String? chain;
+    final chainAncestors = <Element>[];
+    try {
+      chain = buildAncestorChain(element, visitedAncestors: chainAncestors);
+    } catch (e, s) {
+      // Element may be deactivated mid-paint (rare but observed in
+      // teardown races). Continue with `chain == null`; the ownership
+      // check still has the descendant walk to fall back on.
+      cacheable = false;
+      assert(() {
+        debugPrint('Sleuth: paint ancestor chain failed: $e\n$s');
+        return true;
+      }());
+    }
+    Element? owner;
+    try {
+      // The chain walk can read further than the owner walk; search as far
+      // as either went.
+      owner = findAnimationOwnerAncestor(
+        element,
+        maxDepth: math.max(_ownerAncestorDepth, chainAncestors.length),
+      );
+    } catch (e, s) {
+      cacheable = false;
+      assert(() {
+        debugPrint('Sleuth: animation-owned check failed: $e\n$s');
+        return true;
+      }());
+    }
+    var ancestors = const <WeakReference<Element>>[];
+    if (cacheable) {
+      try {
+        ancestors = _stampAncestors(element, chainAncestors.length);
+      } catch (_) {
+        cacheable = false;
+      }
+    }
+    final attribution = _PaintAttribution(
+      ancestors: ancestors,
+      depth: cacheable ? element.depth : -1,
+      epoch: _paintAttributionEpoch,
+      chain: chain,
+      owner: owner == null ? null : WeakReference(owner),
+    );
+    if (cacheable) _paintAttribution[element] = attribution;
+    return attribution;
+  }
+
+  /// Weak references to the nearest ancestors of [element], as many as
+  /// the chain walk ([chainRead]) or the ownership walk read, whichever
+  /// is more. Each element has one parent, so the same objects at every
+  /// position mean the same ancestry up to the last one read.
+  static List<WeakReference<Element>> _stampAncestors(
+    Element element,
+    int chainRead,
+  ) {
+    final limit = math.max(chainRead, _ownerAncestorDepth);
+    final refs = <WeakReference<Element>>[];
+    element.visitAncestorElements((ancestor) {
+      refs.add(WeakReference(ancestor));
+      return refs.length < limit;
+    });
+    return refs;
+  }
+
+  /// Whether [element]'s nearest ancestors are still the mounted objects
+  /// in [stamp], position by position, and the walk ends where it ended.
+  static bool _ancestorsUnchanged(
+    Element element,
+    List<WeakReference<Element>> stamp,
+  ) {
+    var index = 0;
+    var same = true;
+    try {
+      element.visitAncestorElements((ancestor) {
+        if (index >= stamp.length) return false;
+        if (!identical(stamp[index].target, ancestor) || !ancestor.mounted) {
+          same = false;
+          return false;
+        }
+        index++;
+        return index < stamp.length;
+      });
+    } catch (_) {
+      return false;
+    }
+    return same && index == stamp.length;
+  }
+}
+
+/// Ancestor-derived attribution of one painting element, stamped with the
+/// position it was computed at.
+class _PaintAttribution {
+  const _PaintAttribution({
+    required this.ancestors,
+    required this.depth,
+    required this.epoch,
+    required this.chain,
+    required this.owner,
+  });
+
+  /// Nearest ancestors at computation time, nearest first; weak so a
+  /// moved element's cache entry does not keep its old ancestors alive.
+  final List<WeakReference<Element>> ancestors;
+  final int depth;
+  final int epoch;
+  final String? chain;
+
+  /// The nearest animation owner among the ancestors the chain or the
+  /// bounded ownership walk read; weak, like [ancestors].
+  final WeakReference<Element>? owner;
 }

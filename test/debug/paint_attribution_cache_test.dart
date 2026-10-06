@@ -1,0 +1,393 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
+import 'package:sleuth/src/debug/debug_snapshot.dart';
+
+void main() {
+  setUp(() {
+    debugOnProfilePaint = null;
+    debugOnRebuildDirtyWidget = null;
+  });
+
+  group('per-element paint attribution cache', () {
+    testWidgets('a second paint of the same element reuses the attribution', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(child: _Painted(key: ValueKey('p'))),
+        ),
+      );
+      final coord = DebugInstrumentationCoordinator(installRebuild: false);
+      coord.install();
+      final ro = tester.renderObject(find.byType(CustomPaint));
+      final onPaint = debugOnProfilePaint!;
+
+      onPaint(ro);
+      final computes = coord.paintAttributionComputeCount;
+      expect(computes, greaterThan(0));
+      onPaint(ro);
+      onPaint(ro);
+      expect(coord.paintAttributionComputeCount, computes);
+
+      coord.invalidatePaintAttribution();
+      onPaint(ro);
+      expect(coord.paintAttributionComputeCount, computes + 1);
+
+      final snap = coord.snapshot();
+      coord.dispose();
+      expect(snap.paintCounts.values.fold<int>(0, (a, b) => a + b), 4);
+      // The object painted before these hand calls, so it is no longer
+      // marked as needing paint: it took part, but started nothing.
+      expect(snap.paintOrigins, isEmpty);
+    });
+
+    testWidgets('a hand-called paint of an object marked as needing paint '
+        'is an origin, once per frame', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(child: _Painted(key: ValueKey('p'))),
+        ),
+      );
+      final coord = DebugInstrumentationCoordinator(installRebuild: false);
+      coord.install();
+      final ro = tester.renderObject(find.byType(CustomPaint));
+      final onPaint = debugOnProfilePaint!;
+
+      ro.markNeedsPaint();
+      onPaint(ro);
+      onPaint(ro);
+      final snap = coord.snapshot();
+      coord.dispose();
+      await tester.pump();
+
+      expect(snap.paintCounts['CustomPaint'], 2);
+      final origins = snap.paintOrigins['CustomPaint']!;
+      expect(origins.maxCount, 1);
+      expect(origins.instanceCount, 1);
+      expect(
+        origins.busiest.single.element,
+        same(tester.element(find.byType(CustomPaint))),
+      );
+    });
+
+    testWidgets('reparenting the element recomputes its chain', (tester) async {
+      // The key sits on the painting widget itself and both holders nest
+      // it at the same depth, so only the parent identity changes.
+      final key = GlobalKey();
+      final painted = CustomPaint(
+        key: key,
+        size: const Size(10, 10),
+        painter: _NoopPainter(),
+      );
+      Widget tree({required bool underA}) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: [
+            HolderA(child: underA ? painted : null),
+            HolderB(child: underA ? null : painted),
+          ],
+        ),
+      );
+      await tester.pumpWidget(tree(underA: true));
+      final coord = DebugInstrumentationCoordinator(installRebuild: false);
+      coord.install();
+      final onPaint = debugOnProfilePaint!;
+
+      final element = tester.element(find.byType(CustomPaint));
+      final ro = tester.renderObject(find.byType(CustomPaint));
+      onPaint(ro);
+      final before = coord.snapshot().ancestorChains['CustomPaint'];
+      final depth = element.depth;
+      final computes = coord.paintAttributionComputeCount;
+      onPaint(ro);
+      final hitsOnly = coord.paintAttributionComputeCount == computes;
+
+      // Move the same CustomPaint element under HolderB without a frame,
+      // then paint it by hand: the stale entry must not be served.
+      final holderB = tester.element(find.byType(HolderB));
+      await tester.pumpWidget(tree(underA: false), phase: EnginePhase.build);
+      expect(tester.element(find.byType(CustomPaint)), same(element));
+      expect(element.depth, depth);
+      expect(holderB.mounted, isTrue);
+      final beforeReparentPaint = coord.paintAttributionComputeCount;
+      onPaint(ro);
+      final recomputed =
+          coord.paintAttributionComputeCount - beforeReparentPaint;
+      coord.snapshot();
+      onPaint(ro);
+      final after = coord.snapshot().ancestorChains['CustomPaint'];
+      coord.dispose();
+      await tester.pump();
+
+      expect(hitsOnly, isTrue);
+      expect(before, contains('HolderA'));
+      expect(recomputed, 1);
+      expect(after, contains('HolderB'));
+      expect(after, isNot(contains('HolderA')));
+    });
+
+    testWidgets('moving a keyed wrapper above the painter recomputes and '
+        'the ownership verdict follows the new location', (tester) async {
+      // The key sits on a wrapper above the painting widget, so the
+      // painter's direct parent stays the same object and its depth is
+      // unchanged; only an ancestor further up differs.
+      final key = GlobalKey();
+      final animation = ValueNotifier<int>(0);
+      addTearDown(animation.dispose);
+      final wrapper = _Wrapper(
+        key: key,
+        child: CustomPaint(size: const Size(10, 10), painter: _NoopPainter()),
+      );
+      Widget tree({required bool underA}) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: [
+            HolderA(child: underA ? wrapper : null),
+            AnimatedBuilder(
+              animation: animation,
+              builder: (_, child) =>
+                  SizedBox(height: 20, child: child ?? const SizedBox()),
+              child: underA ? null : wrapper,
+            ),
+          ],
+        ),
+      );
+      Element parentOf(Element element) {
+        late Element parent;
+        element.visitAncestorElements((a) {
+          parent = a;
+          return false;
+        });
+        return parent;
+      }
+
+      await tester.pumpWidget(tree(underA: true));
+      final coord = DebugInstrumentationCoordinator(installRebuild: false);
+      coord.install();
+      final onPaint = debugOnProfilePaint!;
+
+      final element = tester.element(find.byType(CustomPaint));
+      final parent = parentOf(element);
+      final depth = element.depth;
+      final ro = tester.renderObject(find.byType(CustomPaint));
+      onPaint(ro);
+      final computes = coord.paintAttributionComputeCount;
+      onPaint(ro);
+      final hitsOnly = coord.paintAttributionComputeCount == computes;
+      final before = coord.snapshot();
+
+      await tester.pumpWidget(tree(underA: false), phase: EnginePhase.build);
+      final movedElement = tester.element(find.byType(CustomPaint));
+      final movedParent = parentOf(movedElement);
+      final movedDepth = movedElement.depth;
+      final beforeMovePaint = coord.paintAttributionComputeCount;
+      onPaint(ro);
+      final recomputed = coord.paintAttributionComputeCount - beforeMovePaint;
+      final after = coord.snapshot();
+      coord.dispose();
+      await tester.pump();
+
+      expect(movedElement, same(element));
+      expect(movedParent, same(parent));
+      expect(movedDepth, depth);
+      expect(hitsOnly, isTrue);
+      expect(before.animationOwnedPaintCounts['CustomPaint'], isNull);
+      expect(recomputed, 1);
+      expect(after.animationOwnedPaintCounts['CustomPaint'], 1);
+    });
+
+    test('unmounted elements are never cached', () {
+      final coord = DebugInstrumentationCoordinator(installRebuild: false);
+      coord.install();
+      addTearDown(coord.dispose);
+      final element = StatelessElement(const HolderA());
+      final ro = RenderConstrainedBox(
+        additionalConstraints: const BoxConstraints(),
+      )..debugCreator = DebugCreator(element);
+      debugOnProfilePaint!(ro);
+      debugOnProfilePaint!(ro);
+      expect(coord.paintAttributionComputeCount, 2);
+    });
+  });
+
+  group('cached and uncached attribution agree on real animation owners', () {
+    final fixtures = <String, Widget>{
+      'CircularProgressIndicator without RepaintBoundary': const Center(
+        child: CircularProgressIndicator(),
+      ),
+      'RefreshProgressIndicator': const Center(
+        child: RepaintBoundary(child: RefreshProgressIndicator()),
+      ),
+      'AnimatedBuilder painter beside a static painter': const _MixedPainters(),
+      'LinearProgressIndicator': const Center(
+        child: SizedBox(
+          width: 200,
+          child: RepaintBoundary(child: LinearProgressIndicator()),
+        ),
+      ),
+    };
+
+    for (final entry in fixtures.entries) {
+      testWidgets(entry.key, (tester) async {
+        final cached = await _capture(tester, entry.value, uncached: false);
+        final uncached = await _capture(tester, entry.value, uncached: true);
+        expect(cached.paintCounts, isNotEmpty);
+        expect(cached.paintCounts, uncached.paintCounts);
+        expect(
+          cached.animationOwnedPaintCounts,
+          uncached.animationOwnedPaintCounts,
+        );
+        expect(
+          cached.totalAnimationOwnedPaintCount,
+          uncached.totalAnimationOwnedPaintCount,
+        );
+        expect(cached.ancestorChains, uncached.ancestorChains);
+      });
+    }
+  });
+}
+
+Future<DebugSnapshot> _capture(
+  WidgetTester tester,
+  Widget root, {
+  required bool uncached,
+}) async {
+  await tester.pumpWidget(const SizedBox());
+  await tester.pumpWidget(
+    Directionality(
+      textDirection: TextDirection.ltr,
+      child: Theme(data: ThemeData.light(), child: root),
+    ),
+  );
+  // The owners' painters are framework widgets; count them per widget.
+  final coord = DebugInstrumentationCoordinator(
+    installRebuild: false,
+    userWidgetsOnly: false,
+  );
+  coord.install();
+  final installed = debugOnProfilePaint!;
+  if (uncached) {
+    debugOnProfilePaint = (ro) {
+      coord.invalidatePaintAttribution();
+      installed(ro);
+    };
+  }
+  try {
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    return coord.snapshot();
+  } finally {
+    debugOnProfilePaint = installed;
+    coord.dispose();
+  }
+}
+
+class _Painted extends StatelessWidget {
+  const _Painted({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      CustomPaint(size: const Size(10, 10), painter: _NoopPainter());
+}
+
+class _Wrapper extends StatelessWidget {
+  const _Wrapper({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
+class HolderA extends StatelessWidget {
+  const HolderA({super.key, this.child});
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(height: 20, child: child ?? const SizedBox());
+}
+
+class HolderB extends StatelessWidget {
+  const HolderB({super.key, this.child});
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(height: 20, child: child ?? const SizedBox());
+}
+
+class _MixedPainters extends StatefulWidget {
+  const _MixedPainters();
+
+  @override
+  State<_MixedPainters> createState() => _MixedPaintersState();
+}
+
+class _MixedPaintersState extends State<_MixedPainters>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 1),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (_, _) => CustomPaint(
+            size: const Size(10, 10),
+            painter: _ValuePainter(_controller.value),
+          ),
+        ),
+      ),
+      RepaintBoundary(
+        child: CustomPaint(
+          size: const Size(10, 10),
+          painter: _RepaintingPainter(_controller),
+        ),
+      ),
+    ],
+  );
+}
+
+class _NoopPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(_NoopPainter oldDelegate) => false;
+}
+
+class _ValuePainter extends CustomPainter {
+  _ValuePainter(this.value);
+  final double value;
+
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(_ValuePainter oldDelegate) => oldDelegate.value != value;
+}
+
+class _RepaintingPainter extends CustomPainter {
+  _RepaintingPainter(Listenable repaint) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(_RepaintingPainter oldDelegate) => false;
+}

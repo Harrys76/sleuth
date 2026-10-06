@@ -1,172 +1,230 @@
-# MCP Tool Schema — sleuth_mcp wire contract
+# MCP tool schema for sleuth_mcp
 
-Locked tool-call return shapes for the 13 MCP tools exposed by `sleuth_mcp`. Consumers (AI clients, CI scripts via `sleuth_check`) can rely on these shapes within `schemaVersion: 2`.
+This file describes the return shapes of the 14 MCP tools that `sleuth_mcp` exposes. AI clients, and CI scripts that use `sleuth_check`, can rely on these shapes within `schemaVersion: 2`.
 
-**`schemaVersion: 2` — compact-issue projection.** `get_issues` and `get_snapshot` now trim each issue to an actionable subset by default (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds` — only present keys copied). Pass `verbose: true` for the full ~22-field shape. Compaction is field-only and keeps `stableId` + `severity`, so `compare_snapshots` and `check_budgets` still operate on compact snapshots.
+**Compact issues (`schemaVersion: 2`).** By default `get_issues` and `get_snapshot` trim each issue to `severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason` and `rootCauseIds`, copying only the keys that are present. Pass `verbose: true` for the full issue, which has up to 26 keys. Compaction removes fields only and keeps `stableId` and `severity`, so `compare_snapshots` and `check_budgets` work on compact snapshots.
 
-Structured source-of-truth: [`mcp_tool_schema.json`](mcp_tool_schema.json) — that file is what the audit test parses. This markdown is human-readable rendering only.
+[`mcp_tool_schema.json`](mcp_tool_schema.json) is the source of truth, and the audit test parses it. This markdown is a readable copy.
 
-**Sidecar-only.** This file does not ship in the root sleuth pub archive. The root `mcp_schema.{json,md}` documents the `ext.sleuth.*` wire envelopes; tool-layer wrapping lives here.
+**Sidecar only.** The root sleuth package does not ship this file. The root `mcp_schema.{json,md}` documents the `ext.sleuth.*` envelopes; this file documents how the tools wrap them.
 
-**Error envelopes.** Each handler returns `ToolCallResult.text(<message>, isError: true)` on the documented error codes. The `code` listed in each `errors[]` entry appears verbatim as the prefix of the text content. A centralized typed error class is acknowledged debt — message-prefix matching is the current contract.
+**Error envelopes.** A handler reports an error as `ToolCallResult.text(<message>, isError: true)`. The `code` of each entry in `errors[]` is the literal prefix of that text. There is no typed error class, so clients match on the prefix. Argument validation and dispatch errors apply to every tool and are listed once under [Server-level errors](#server-level-errors).
 
-**Tool categories.**
+**Tool kinds.**
 
-- `direct` — handler builds the data map directly.
-- `client_side` — pure compute, no `ext.sleuth.*` call.
-- `wraps` — calls one `ext.sleuth.*` extension and reshapes the data.
-- `passthrough` — returns the `ext.sleuth.*` envelope unmodified (or with a documented shim).
+- `direct`: the handler builds the data map itself.
+- `client_side`: the handler computes the result and makes no `ext.sleuth.*` call.
+- `wraps`: the handler calls one `ext.sleuth.*` extension and reshapes its data.
+- `passthrough`: the handler returns the `ext.sleuth.*` envelope unchanged, apart from the shims listed for the tool.
 
-**Read-only annotations.** Every descriptor carries `annotations.readOnlyHint` — `true` for read-only tools, `false` for `connect`/`attach_app`/`detach_app`/`hot_reload`. Annotation-aware clients can auto-approve the read-only set. Locked in `mcp_tool_schema.json` (`readOnlyTools`) and enforced by the audit.
+**Read-only hint.** Every descriptor sets `annotations.readOnlyHint`. It is `false` for `connect`, `attach_app`, `detach_app` and `hot_reload`, and `true` for the rest, so a client that honors the hint can approve the read-only tools without asking each time. `readOnlyTools` in `mcp_tool_schema.json` lists them, and the audit checks the descriptors against that list.
 
-**Behavior annotations.** Descriptors also carry the other MCP hints — `destructiveHint`, `idempotentHint`, `openWorldHint` — locked per tool in `mcp_tool_schema.json` (`toolAnnotations`) and enforced by the audit. `openWorldHint:true` for tools whose output reflects external/runtime state (the live-app readers `get_snapshot`/`get_issues`/`get_route_health`/`diagnose`/`check_budgets`, plus `list_devices`); `false` for self-contained tools (`explain_issue` static content, `compare_snapshots` local diff, `app_status` server-internal status). `detach_app` is `destructiveHint:true` (it terminates the session and deletes disk-handoff files); read-only tools omit `destructive`/`idempotent` (the spec ignores those unless `readOnlyHint` is false). The audit enforces descriptor↔doc consistency, not value-vs-behavior correctness — hint values are a spec/behavior judgment. Advisory metadata, so `schemaVersion` stays `2`.
+**Behavior hints.** Descriptors also set `destructiveHint`, `idempotentHint` and `openWorldHint`. `toolAnnotations` in `mcp_tool_schema.json` lists the values per tool, and the audit checks the descriptors against it. Among the read-only tools, `openWorldHint` is true for the ones that read the live app or host (`get_snapshot`, `get_issues`, `get_route_health`, `explain_issue`, `diagnose`, `check_budgets`, `list_devices`). It is false for `compare_snapshots`, which diffs its own input, for `app_status`, which reports server state, and for `get_logs`, which reads the sidecar's own log buffer. `detach_app` sets `destructiveHint: true` because it ends the session and deletes disk-handoff files. Read-only tools omit `destructiveHint` and `idempotentHint`, which the MCP spec ignores unless `readOnlyHint` is false. The audit checks that the descriptors and this doc agree. It does not check that a hint matches what the handler does; that is a judgment against the MCP spec. The hints are advisory metadata, so `schemaVersion` stays `2`.
 
-**Structured content (transport, cross-cutting).** For clients that negotiate MCP protocol `2025-06-18` or later, every **success** `tools/call` result also carries a top-level `structuredContent` field — the same JSON the text content block carries, as an object — so clients consume it without re-parsing the text. Clients on older protocol versions (`2024-11-05`, `2025-03-26`) receive the text content only. `structuredContent` is never set on error results. This is additive and doesn't alter any per-tool `data`/`args`/`errors` shape, so `schemaVersion` stays `2`.
+**Structured content.** A client that negotiates MCP protocol `2025-06-18` or later also gets a top-level `structuredContent` object on every successful `tools/call` result. It holds the same JSON as the text block, so the client does not need to parse the text. Clients on `2024-11-05` or `2025-03-26` get the text block only. Error results never carry `structuredContent`. No per-tool `data`, `args` or `errors` shape changes, so `schemaVersion` stays `2`.
+
+**Initialize.** The server speaks `2024-11-05`, `2025-03-26` and `2025-06-18`. It echoes a supported client version and answers any other version with the latest one, `2025-06-18`, as the MCP spec recommends. The `initialize` result carries `instructions`, a short description of the workflow: launch with `flutter run --profile --no-dds`, attach with `attach_app` or `connect`, then `get_issues`, `explain_issue`, `get_snapshot` and `check_budgets`. `resources/templates/list` returns an empty `resourceTemplates` list.
+
+**Batches.** Only protocol `2025-03-26` has JSON-RPC batches: it requires servers to accept them, `2024-11-05` does not define them, and `2025-06-18` removed them. A session that negotiated `2025-03-26` can send a JSON array of requests and notifications on one line. The requests run concurrently, and the server writes one array on one line with a response for each request and none for notifications; a batch of notifications gets no response. An element that is not a valid request gets its own error with `id: null` when its id cannot be read, a client response inside the array is dropped, and an `initialize` inside the array is refused with Invalid Request (`-32600`), as the `2025-03-26` lifecycle requires. An empty array gets one Invalid Request error. On any other version, or before `initialize`, a batch gets one Invalid Request error with `id: null` that says to send each request on its own line.
+
+**Shutdown.** The server shuts down when the client closes stdin, on SIGINT or SIGTERM, or when a write to stdout fails. It starts detaching the session at once (at most 10 seconds) and waits, alongside the detach, at most 10 seconds for the requests still running and for their responses to be written; a request that runs longer gets no response. A request still held behind a `hot_reload` (see its section) does not run: it gets a JSON-RPC Internal error (`-32603`) whose message starts `The server is shutting down`. With the 2 seconds the bridge disconnect may take, the exit ends within about 12 seconds.
+
+**Progress and cancellation.** When a `tools/call` request carries `params._meta.progressToken`, a tool that reports progress sends `notifications/progress` frames `{progressToken, progress, message}` before its response. Today only `attach_app` does; its stages are listed in its section. `progress` starts at 1 and goes up by one per stage, there is no `total`, and `message` is sent only to clients on protocol `2025-03-26` or later. A `notifications/cancelled` whose `requestId` names an in-flight `tools/call` cancels it, and the server sends no response for that request. `attach_app` stops and releases what it started; other tools finish and their response is dropped. A cancel for a request still held behind a `hot_reload` drops it before it runs. An unknown or finished `requestId` is ignored.
 
 ## connect
 
-Direct. Args: `uri` (String, required).
+Kind `direct`. Args: `uri` (String, required). It takes the http URI that `flutter run` and `flutter attach` print, such as `http://127.0.0.1:50000/AbCd=/`, or the WebSocket form. The sidecar converts `http` to `ws` and `https` to `wss`, and adds the `/ws` path when it is missing, so `ws://127.0.0.1:50000/AbCd=/` also works. `attach_app(debugUrl: …)` accepts the same forms.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
-| `connected` | bool | yes | always `true` on success path |
-| `vmServiceUri` | String | yes | echoes the arg |
+| `connected` | bool | yes | always `true` on success |
+| `vmServiceUri` | String | yes | the WebSocket URI the sidecar connected to, after the conversion above |
 | `sessionUuid` | String | yes | from `ext.sleuth.diagnose` |
 | `connectionMode` | String | yes | one of `disconnected` / `warmup` / `basic` / `full` / `correlated` |
-| `sidecarVersion` | String | yes | sidecar pin |
-| `appPackageVersion` | String | yes (nullable) | app's reported `kSleuthPackageVersion` |
-| `warning` | String | no | `version_skew_minor` (same lineage, different patch) or `version_skew_prior_lineage` (accepted prior lineage) |
-| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` / `disconnected`, or `basic` without a live VM self-connect (VM-only detectors degraded); nudges a `flutter run --profile --no-dds` relaunch |
+| `vmConnected` | bool | yes (nullable) | the app's own VM link, from `ext.sleuth.diagnose` `data.vmConnected`; null when that envelope has no boolean flag. `basic` with `vmConnected: true` is a healthy session that has had no VM-tier frame verdict yet. |
+| `sidecarVersion` | String | yes | the sidecar's own version (`sleuthMcpVersion`) |
+| `appPackageVersion` | String | yes (nullable) | the app's reported `kSleuthPackageVersion` |
+| `warning` | String | no | `version_skew_minor` (a different version in the pinned lineage) or `version_skew_prior_lineage` (the accepted prior lineage, 0.36) |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` with `vmConnected: false`, which means the VM-only detectors are off. The `basic` text suggests reopening the app and names DDS as one possible cause. A `basic` session with `vmConnected: true` gets none. |
 
 **Errors:**
 
 - `missing_required_arg: uri`
-- `invalid_uri: <FormatException message>`
-- `version_skew_major: app=<v> sidecar-pin=<v> — refusing to serve; align sleuth dep with sidecar version. Bridge disconnected.`
-- `version_skew_unknown: diagnose envelope missing packageVersion stamp — cannot verify wire contract. Bridge disconnected.`
+- `invalid_uri: <reason>. Pass the VM service URI that flutter run prints, …`: the URI does not parse, its scheme is not `http`, `https`, `ws` or `wss`, or it has no host.
+- `version_skew_major: app=<v> sidecar-pin=<v>. The app's sleuth version is outside the lineages this sidecar accepts, so the sidecar refuses to serve it and disconnected the bridge. Align the app's sleuth dependency with the sidecar version.`: the app's lineage is neither the pin's nor the accepted prior lineage.
+- `version_skew_unknown: the diagnose envelope has a missing or malformed packageVersion (got "<v>"), so the sidecar cannot verify the wire contract. The sidecar disconnected the bridge.`: `packageVersion` is absent, not a String, or not a semver `major.minor.patch`. An optional `-prerelease` or `+build` suffix keeps the version's lineage, so `0.37.0-dev.1` is in the 0.37 lineage. `(got "<v>")` appears only when the value is a String.
+- `attached_session: an attach_app session owns the connection (state=<state>, connectedVia=<route>). …`: an `attach_app` session is attaching, `ready`, reloading or detaching, or it ended in `error` but still holds its flutter child, daemon channel or iOS tunnel. `connect` would point the bridge at another app while `hot_reload` still reloads the attached one, so it refuses and leaves the session as it was. A typed envelope like the `attach_app` iOS errors; the JSON block is `{error, message, remedy, status}`, where `status` is the `AppStatusPayload`. Call `detach_app`, then `connect`. A session opened with `connect` does not own the connection, so `connect` to another URI replaces it.
 
 ## attach_app
 
-Direct. Three routing modes:
+Kind `direct`. Three routing modes:
 
-- **`udid`** — iOS UDID; drives the iOS attach pipeline (devicectl
-  launch → Bonjour resolve → iproxy tunnel on USB / direct `.local`
-  host on wireless → bridge connect). Requires `bundle`.
-- **`debugUrl`** — direct WebSocket URI; bypasses both the flutter
-  daemon and the iOS pipeline.
-- **`device`** — device id or name; routes via `flutter attach
-  --machine`.
+- `udid`: an iOS UDID. Runs the iOS attach pipeline and requires `bundle`. The pipeline looks for a VM service the app already announces over Bonjour, launches the app with `xcrun devicectl` when none is announced, opens an `iproxy` tunnel on USB or uses the `.local` host on wireless, and connects the bridge.
+- `debugUrl`: a WebSocket URI. Connects directly, skipping both the flutter daemon and the iOS pipeline.
+- `device`: a device id or name. Attaches through `flutter attach --machine`.
+
+When both `device` and `debugUrl` are set, `debugUrl` wins.
 
 Args:
 
 | arg | type | purpose |
 |---|---|---|
-| `device` | String, optional | flutter daemon route. Mutually exclusive with `udid`. |
-| `debugUrl` | String, optional | direct WebSocket route. Mutually exclusive with `udid`. |
-| `udid` | String, optional | iOS device UDID. Triggers the iOS-direct path. |
+| `device` | String, optional | flutter daemon route. Cannot be combined with `udid`. |
+| `debugUrl` | String, optional | direct WebSocket route. Cannot be combined with `udid`. |
+| `udid` | String, optional | iOS device UDID. Selects the iOS-direct path. |
 | `bundle` | String, optional (required with `udid`) | iOS bundle identifier |
 | `transport` | String, optional | `auto` (default) / `usb` / `wireless` |
-| `authOverride` | String, optional | iOS-only; pins the Bonjour authCode when more than one pairing is announced |
-| `forceRelaunch` | bool, optional (default `false`) | iOS-only; skip the Bonjour probe and go straight to `xcrun devicectl process launch`. Recovers from a stale mDNS cache without sidecar restart. |
+| `authOverride` | String, optional | iOS only. Pins the Bonjour authCode when more than one pairing is announced. |
+| `forceRelaunch` | bool, optional (default `false`) | iOS only. Skips the Bonjour check and runs `xcrun devicectl process launch`. Recovers from a stale mDNS cache without restarting the sidecar. |
 
-Data shape: `AppStatusPayload.toJson()` — see source at `packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart`.
+Data shape: `AppStatusPayload.toJson()`, defined in `packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart`.
 
 | `data` key | Type | Required | Presence |
 |---|---|---|---|
-| `attached` | bool | yes | always |
+| `attached` | bool | yes | always. True only when an `attach_app` session is `ready` and the bridge is still connected; false for a connection opened with `connect` |
 | `state` | String | yes | one of `idle` / `attaching` / `ready` / `restarting` / `detaching` / `error` |
-| `device` | String | no | non-idle states |
-| `appId` | String | no | non-idle states |
+| `connected` | bool | yes | always. True when the bridge holds a VM service connection, whichever tool opened it |
+| `connectedVia` | String | no | when `connected` is true: `attach_device` (`attach_app(device:)`), `attach_debug_url` (`attach_app(debugUrl:)`), `attach_ios` (`attach_app(udid:)`), or `connect` (the `connect` tool, or `--uri` at startup) |
+| `device` | String | no | states other than `idle` |
+| `appId` | String | no | states other than `idle` |
 | `sessionUuid` | String | no | after `ext.sleuth.diagnose` succeeds |
-| `launchMode` | String | no | `attach` / `run` / `ios-direct` |
-| `mode` | String | no | `debug` / `profile` / `release` |
+| `launchMode` | String | no | `attach` / `run` from the daemon (`attach` on a `debugUrl` session), or `ios-direct` |
+| `mode` | String | no | `debug` / `profile` / `release` from the daemon; `unknown` on a `debugUrl` session; `profile` on an iOS-direct session |
 | `lastError` | String | no | when `state == 'error'` |
-| `transportMode` | String | no | `wired` / `wireless` / `unknown`; conditional: present iff `launchMode == 'ios-direct'` |
+| `transportMode` | String | no | `wired` / `wireless` / `unknown`; present only when `launchMode == 'ios-direct'` |
 | `wsUri` | String | no | iOS-direct sessions only |
-| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` / `disconnected`, or `basic` without a live VM self-connect (VM-only detectors degraded); nudges a `flutter run --profile --no-dds` relaunch |
+| `warning` | String | no | same values as `connect.warning`: `version_skew_minor` (a different version in the pinned lineage) or `version_skew_prior_lineage` (the accepted prior lineage); attached sessions only |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` with `vmConnected: false`, which means the VM-only detectors are off. The `basic` text suggests reopening the app and names DDS as one possible cause. A `basic` session with `vmConnected: true` gets none. |
+
+The success result is this payload. An attach that ends without a session returns the typed `attach_failed` error below.
+
+**Progress.** When the request carries `params._meta.progressToken`, `attach_app` sends a `notifications/progress` frame at each stage, before its response. `progress` starts at 1 and goes up by one per stage, there is no `total`, and `message` is sent to clients on protocol `2025-03-26` or later. Stages that do not apply are skipped, and an iOS retry repeats its stages:
+
+- `device`: `Checking that <device> is an Android or iOS device` (only when `device` is set), `Starting flutter attach`, `Waiting for the flutter daemon to start`, `Flutter daemon connected; waiting for the app to report its VM service`, `Connecting to the app VM service`.
+- `debugUrl`: `Connecting to the VM service at debugUrl`.
+- `udid`: `Detecting whether the device is on USB or wireless`, `Looking for the app VM service over Bonjour`, `Launching the app with xcrun devicectl`, `Found <n> VM service announcement(s)`, `Selecting the VM service to connect to`, `Checking for a leftover iproxy tunnel`, `Starting the iproxy USB tunnel`, `The iproxy tunnel is up`, `Connecting to the app VM service`.
+
+**Cancellation.** A `notifications/cancelled` whose `requestId` names an in-flight `attach_app` stops the attach: the sidecar detaches, which stops the `flutter attach` child or the `iproxy` tunnel and disconnects the bridge, and it sends no response for that request. A cancel that arrives after the attach connected, while the version check runs, detaches the new session too. An unknown or finished `requestId` is ignored. A `detach_app`, and the detach the sidecar runs when it shuts down, stop an attach in flight the same way. Every external command of the attach is owned by the sidecar: the `flutter devices` check, and on the iOS path `xcrun devicectl`, `dns-sd`, `which`, `kill` and `ps`. A cancel, a detach or a step timeout ends the command at once with `SIGTERM`, then `SIGKILL` after 1 second, instead of leaving it running. The one wait a cancel does not cut short is the pidfile lock that another process holds, at most 10 seconds.
 
 **Errors:**
 
-- `internal: daemon session not initialized` (server misconfiguration)
-- `version_skew_major: …` / `version_skew_unknown: …` — attach reached `ready` but bridge-layer skew validator refused; auto-detach fires before the error returns
-- `<DaemonSessionException.message>` — daemon RPC failure
+- `internal: daemon session not initialized`: the server is misconfigured.
+- `version_skew_major: …` / `version_skew_unknown: …`: the attach reached `ready`, then the bridge's version check refused the app. The sidecar detaches before it returns the error.
+- `already attached or attaching (state=<state>). Call detach_app first.`: a session is already attached or attaching.
+- `<DaemonSessionException.message>`: a daemon RPC failed.
+- `attach_failed`: the attach ended without a session. Typed envelope like the iOS errors below; its JSON block is `{error, message, status}`, where `status` is the `AppStatusPayload` (usually `state: error` with the same `lastError`). Causes include: flutter could not start; flutter exited before the app reported its VM service (the message quotes the last lines flutter printed, for example the device list when more than one device is connected and `device` is not set); no `daemon.connected` or `app.debugPort` within 30 seconds; `app.stop` during the attach; a daemon protocol older than `0.6.0`; a non-mobile `device`; a refused `debugUrl`; a bridge connect failure, including errors other than `VmBridgeException`; an iOS bridge failure that is neither busy nor unreachable; or a `detach_app` or client cancel that stopped the attach (`state: idle`).
 
-**iOS-typed errors** (returned as `isError: true` with structured JSON in second `text` content block carrying `{error, message, ...data}`):
+**iOS errors.** These set `isError: true` and carry two text blocks: `<code>: <message>`, then a JSON object `{error, message, ...data}`. Before it returns `ios_vmservice_busy` or `ios_vmservice_unreachable`, the sidecar retries once when the first connection was reset or refused, excluding that port from the Bonjour selection.
 
-- `ios_missing_bundle` — `udid` provided without `bundle`
-- `ios_ambiguous_args` — `udid` combined with `device` or `debugUrl`
-- `ios_invalid_transport` — `transport` not in `{auto, usb, wireless}`. Carries `data.allowed`.
-- `ios_missing_tool` — `xcrun` / `dns-sd` / `iproxy` not on PATH. Carries `data.tool` + `data.remedy`.
-- `ios_launch_failed` — `xcrun devicectl process launch` returned non-zero. Carries `data.exitCode` + `data.stderr`.
-- `ios_bonjour_timeout` — VM service not announced within the collect budget
-- `ios_ambiguous_pairings` — more than one distinct authCode announced. Carries `data.distinctAuthCodes`; remedy: pass `authOverride`.
-- `ios_no_matching_auth` — `authOverride` provided but no announcement matched. Carries `data.authCodes`.
-- `ios_iproxy_failed` — `iproxy` either failed to spawn or exited inside the readiness window. Carries `data.stderr` when available.
-- `ios_cancelled` — caller-injected cancellation fired mid-pipeline
-- `ios_vmservice_busy` — bridge `connect` returned a post-handshake reset; the device-side VM service is holding a prior session. Carries `data.remedy` (swipe-kill the app on device or rebuild the profile binary).
-- `ios_vmservice_unreachable` — bridge `connect` returned Connection-refused; the iproxy tunnel is open but nothing is listening on the device side (typically a stale Bonjour cache pinned a port that the new service has not yet bound). Carries `data.remedy` (wait ~30s for mDNS to clear, or swipe-kill + retry).
-- `attach_in_progress` — another iOS attach is already running on this `DaemonSession`; the concurrency mutex rejected the second concurrent call.
+- `ios_missing_bundle`: `udid` was given without `bundle`.
+- `ios_ambiguous_args`: `udid` was combined with `device` or `debugUrl`.
+- `ios_invalid_transport`: `transport` is not `auto`, `usb` or `wireless`. Carries `data.allowed`. Through `tools/call` the server's enum check rejects such a value first with `arg_enum_violation`.
+- `ios_missing_tool`: `xcrun` or `dns-sd` is not on PATH, `iproxy` is missing on a USB attach, or the sidecar runs on a host other than macOS (the iOS-direct path needs the Xcode command line tools). Carries `data.tool` and `data.remedy`.
+- `ios_launch_failed`: `xcrun devicectl process launch` exited non-zero. Carries `data.exitCode` and `data.stderr`.
+- `ios_bonjour_timeout`: no VM service announcement arrived within the collect budget.
+- `ios_ambiguous_pairings`: more than one distinct authCode was announced. Carries `data.distinctAuthCodes`; pass one of them as `authOverride`. Without `authOverride` the sidecar first tries each announced code and keeps the one whose VM service connects, so this error reaches the client only when the 90-second attach budget ran out before it could try them.
+- `ios_no_matching_auth`: `authOverride` matched no announcement. Carries `data.authCodes`.
+- `ios_iproxy_failed`: `iproxy` failed to start or exited inside the readiness window, another process held the pidfile lock for 10 seconds, or the setup under the lock stalled for 15 seconds. Carries `data.stderr` when `iproxy` printed anything.
+- `ios_cancelled`: the client cancelled `attach_app` during the pipeline. The server sends no response for a cancelled request, so only direct callers of the handler see this code.
+- `ios_vmservice_busy`: the bridge connection was reset after the handshake because the VM service on the device still holds a prior session. Carries `data.remedy`: swipe the app off the device, or rebuild the profile binary.
+- `ios_vmservice_unreachable`: the bridge connection was refused, or the handshake timed out after 10 seconds. The `iproxy` tunnel is open but nothing answers on the device side, usually because a stale Bonjour cache pinned a port the new service has not bound. Carries `data.remedy`: wait about 30 seconds for the mDNS cache to clear, or swipe the app off the device and retry.
+- `attach_in_progress`: another iOS attach is already running on this `DaemonSession`, so the second call is rejected. An iOS attach that a `detach_app` stopped is only ending, so a new `attach_app(udid:)` waits up to 2 seconds for it instead.
 
 ## detach_app
 
-Direct. No args. Same `AppStatusPayload.toJson()` shape as `attach_app`.
+Kind `direct`. No args. Returns the same `AppStatusPayload.toJson()` shape as `attach_app`, which after a detach is `{attached: false, state: idle, connected: false}`, and deletes the files that `get_snapshot` wrote for `diskHandoff`.
+
+It works in every state. It asks flutter to detach, stops the `flutter attach --machine` child or the `iproxy` tunnel, and disconnects the bridge, including a bridge that the `connect` tool (or `--uri` at startup) opened while nothing was attached. A detach during an attach stops that attach and kills the external commands it runs (see Cancellation under `attach_app`). Every step is bounded: 2 seconds for the daemon's `app.detach`, 2 seconds for the child to exit after `SIGTERM` and 1 more after `SIGKILL`, 2 seconds for the bridge disconnect, 3 seconds for the iOS tunnel and 2 seconds for an attach in flight to end its commands, so a detach ends within about 7 seconds. On Windows flutter runs under `cmd.exe`, so the sidecar ends the whole process tree with `taskkill /PID <pid> /T /F` inside the same 2 seconds instead of sending `SIGTERM`. A second `detach_app` while one runs waits for it. It also clears the `get_logs` buffer.
 
 **Errors:** `internal: daemon session not initialized`.
 
 ## app_status
 
-Direct. No args. Same `AppStatusPayload.toJson()` shape as `attach_app`.
+Kind `direct`. No args. Returns the same `AppStatusPayload.toJson()` shape as `attach_app`. `connected` and `connectedVia` report the bridge whichever tool opened it, so a session opened with `connect` shows `attached: false, state: idle, connected: true, connectedVia: connect`. `attached` is true only for an `attach_app` session in state `ready` whose bridge is still connected.
 
 **Errors:** `internal: daemon session not initialized`.
 
 ## hot_reload
 
-Direct. No args. Same `AppStatusPayload.toJson()` shape as `attach_app`.
+Kind `direct`. No args. Returns the same `AppStatusPayload.toJson()` shape as `attach_app`.
+
+Only a session attached with `attach_app(device:)` has the flutter daemon that hot reload needs. On a `debugUrl`, iOS-direct or `connect` session the tool returns `hot_reload_unsupported` and leaves the session and its connection as they were.
+
+While the reload runs, the server waits for the other requests in flight, never for the `hot_reload` call itself, and holds new `tools/call`, `resources/read`, `prompts/get` and `initialize` requests until the reload ends; they then run in the order they arrived. `ping`, `notifications/cancelled` and the list methods are answered at once.
 
 **Errors:**
 
 - `internal: daemon session not initialized`
-- `<StateError.message>` — not attached, or session was created from `debugUrl` (no daemon to send `r` to)
-- `hot_reload_unsupported` — typed envelope returned when `launchMode == 'ios-direct'`; the iOS-direct path attaches via VM service without a flutter daemon, so hot-reload is not wired
+- `<StateError.message>`: the session is not attached (`state` is not `ready`).
+- `hot_reload_unsupported`: a typed envelope, shaped like the iOS errors. The session has no flutter daemon: it was attached with `udid` or `debugUrl`, or opened with `connect`. Carries `data.remedy`: `detach_app`, then `attach_app(device:)`.
+- `hot_reload_failed`: a typed envelope whose JSON block is `{error, message, status}`. Either flutter rejected the reload with a non-zero `app.restart` code, for example on a compile error, and the session stays `ready`; or the reload RPC timed out or failed, or the bridge refresh after it failed, and `status.state` is `error` with the cause in `lastError`.
 
 ## list_devices
 
-Direct. Args: `mobileOnly` (bool, optional, default `true`).
+Kind `direct`. Args: `mobileOnly` (bool, optional, default `true`). The sidecar caches the `flutter devices --machine` output for 3 seconds.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
-| `devices` | List\<Map\> | yes | raw daemon entries, optionally filtered |
+| `devices` | List\<Map\> | yes | the raw daemon entries, filtered when `mobileOnly` is true |
 | `count` | int | yes | `devices.length` |
 | `filteredBy` | String | yes | `mobile` (default) or `none` |
 
 **Errors:**
 
 - `flutter not on PATH or failed to run: <ProcessException.message>`
-- `<DaemonSessionException.message>`
+- `<DaemonSessionException.message>`: `flutter devices --machine` exited non-zero (`flutter devices --machine exited <code>`), printed something other than a JSON array, or did not finish within 15 seconds (`flutter devices --machine did not finish within 15s`). On a timeout the sidecar kills it, the whole process tree on Windows, and waits at most 2 more seconds for its output.
 
-## compare_snapshots
+## get_logs
 
-Pure client-side. Args: `before` (Map, required, snapshot `data` block), `after` (Map, required).
+Kind `direct`. Args: `maxLines` (int, optional, default `100`, at least `1`; a value above the 500-line buffer returns the whole buffer) and `filter` (String, optional; keeps lines whose text contains it, ignoring case).
+
+The sidecar keeps the app's recent output in a ring buffer of 500 lines, each cut to 2000 characters. The bridge reads the VM service `Stdout`, `Stderr` and `Logging` streams on every connection, whichever tool opened it, so `print`, stderr writes and `dart:developer` `log` records arrive in every attach mode. While those streams are not active, for example before the bridge connects during `attach_app(device:)`, the flutter daemon's `app.log` lines fill in. Output printed before the bridge connected is not captured. A new `attach_app` and every `detach_app` clear the buffer, and so does a `connect` to a different VM service URI: the buffer drops the previous app's lines, including lines the sidecar was still reading when the connection changed, so it never mixes two apps' output. A `connect` to the same URI keeps the buffer, and so does a hot restart while the VM service URI stays the same, so output from before and after the restart stays in one list. The VM service shortens a `dart:developer` message to 128 characters; the sidecar then reads the whole message, at most 4 at a time and for up to 2 s each.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
-| `added` | List\<String\> | yes | stableIds present in `after` but not `before` |
-| `removed` | List\<String\> | yes | stableIds present in `before` but not `after` |
-| `elevatedSeverity` | List\<Map\> | yes | item shape `{stableId, before, after}` |
-| `fpsDelta` | double | yes (nullable) | `afterFps - beforeFps`; null when either side lacks `frameStatsSummary.averageFps` / `actualFps` |
+| `lines` | List\<Map\> | yes | the newest matching lines, oldest first. Item shape `{time, source, text, level?, logger?, truncated?}`: `time` is ISO-8601 UTC; `source` is `stdout`, `stderr`, `logging` or `daemon`; `level` (the `dart:developer` level, 0 to 2000) and `logger` appear on `logging` lines; `truncated: true` marks text that is not the whole line or message: the 2000-character cap cut it (a `dart:developer` message longer than 2000 characters included), or the VM service shortened a `dart:developer` message to 128 characters and the sidecar could not read the rest, because the read failed, took longer than 2 s, or 4 other reads were still waiting for the app |
+| `count` | int | yes | `lines.length` |
+| `matchedCount` | int | yes | buffered lines that match `filter`; more than `count` when `maxLines` cut the list |
+| `bufferedCount` | int | yes | lines in the buffer, at most 500 |
+| `droppedCount` | int | yes | older lines evicted from the full buffer since it was last cleared. Output before them is gone |
+| `capturing` | String | yes | where new lines come from now: `vm_service`, `daemon` (flutter daemon `app.log` while the VM service streams are not active) or `none` |
+
+**Errors:**
+
+- `internal: daemon session not initialized`
+- `arg_invalid_int: maxLines must be a positive integer`: `maxLines` is below 1.
+
+## compare_snapshots
+
+Kind `client_side`. Args: `before` (Map, required, the snapshot's `data` block) and `after` (Map, required).
+
+Issues aggregate per stableId into the highest severity across its occurrences and the occurrence count. A new critical occurrence beside an existing warning with the same stableId shows in `elevatedSeverity`, and a second occurrence shows in `countChanged`.
+
+| `data` key | Type | Required | Notes |
+|---|---|---|---|
+| `added` | List\<String\> | yes | stableIds present in `after` but not in `before` |
+| `removed` | List\<String\> | yes | stableIds present in `before` but not in `after` |
+| `elevatedSeverity` | List\<Map\> | yes | item shape `{stableId, before, after}` with severity strings; stableIds in both whose highest severity rose |
+| `countChanged` | List\<Map\> | yes | item shape `{stableId, before, after}` with occurrence counts; stableIds in both whose count changed |
+| `fpsDelta` | double | yes (nullable) | `afterFps - beforeFps`. Declared nullable, but the current code returns a `snapshot …` error instead of null when a side has neither `frameStatsSummary.averageFps` nor `actualFps`. |
 | `beforeFps` | double | yes (nullable) | |
 | `afterFps` | double | yes (nullable) | |
+| `coverageWarning` | String | no | present when neither snapshot had a VM service link (both report `isVmConnected: false`). It starts with `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover. |
 
 **Errors:**
 
 - `arg "before" must be object (SessionSnapshot data)`
 - `arg "after" must be object (SessionSnapshot data)`
-- `arg_capped_issues_uncomparable` — one/both inputs projected with `maxIssueCount`; a truncated top-N window can't be diffed (an issue leaving the window is indistinguishable from one resolved)
-- `arg_section_mismatch` — inputs projected to different sections or different pagination limits
+- `arg_capped_issues_uncomparable`: one or both inputs were projected with `maxIssueCount`. A truncated top-N window cannot be diffed, because an issue that left the window looks the same as one that was resolved.
+- `arg_section_mismatch`: the inputs were projected to different sections or with different pagination limits.
+- `arg_lineage_mismatch`: the two `packageVersion` values fall in different sleuth `major.minor` lineages, or either is missing or not semver. Detector ids and defaults change between lineages, so the diff would report instrumentation changes as app changes.
+- `arg_snapshot_in_warmup`: one or both snapshots were taken while Sleuth was still warming up, so their issue lists may be incomplete. A snapshot counts as a warmup snapshot when it carries `connectionMode: warmup` or the warmup `launchModeAdvisory` that `get_snapshot` adds. Wait a few seconds and take that snapshot again.
+- `arg_coverage_mismatch`: only one snapshot had a VM service link, or either lacks a boolean `isVmConnected`. Coverage reads `isVmConnected` only, so a `basic` session with a VM link counts as covered. VM-only detectors report nothing without a link, so their issues would read as resolved or new.
+- `snapshot …`: a snapshot lacks or mistypes `currentIssues`, `currentIssues[].stableId` or `severity`, or the `frameStatsSummary` fps (schema drift).
 
 ## check_budgets
 
-Wraps `ext.sleuth.snapshot`. Args: `minFps` (num, required), `maxIssues` (int, required), `maxCriticalIssues` (int, required).
+Kind `wraps` (`ext.sleuth.snapshot`). Args, all optional with the same defaults as `sleuth_check`: `minFps` (num, default `55`), `maxIssues` (int, default `999999`, which sets no practical limit) and `maxCriticalIssues` (int, default `0`). A call with no arguments checks for at least 55 FPS and no critical issue. The tool asks `ext.sleuth.snapshot` for the `currentIssues` and `frameStatsSummary` sections only, which come with the metadata keys, and sets no `maxIssueCount`, so a long session does not ship its per-frame and raw sample data. An app older than sleuth 0.35 ignores the projection and returns the full snapshot, which is evaluated the same way. It refuses with `coverage_degraded` when the snapshot's `isVmConnected` is false or not a bool. A `basic` session with `isVmConnected: true` is evaluated normally. `sleuth_check` uses the same evaluator and exits `2` on any of the errors below.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
@@ -179,75 +237,120 @@ Wraps `ext.sleuth.snapshot`. Args: `minFps` (num, required), `maxIssues` (int, r
 - `minFps must be number`
 - `maxIssues must be integer`
 - `maxCriticalIssues must be integer`
-- `snapshot envelope had no data field` — bridge returned a malformed envelope
-- `arg_capped_issues_unbudgetable` — snapshot projected with `maxIssueCount`; truncated issue list would make budget counts wrong
-- `arg_missing_required_section` — snapshot projected without a section budgets need (`currentIssues` / `frameStatsSummary`)
+- `snapshot envelope had no data field`: the bridge returned a malformed envelope.
+- `arg_capped_issues_unbudgetable`: the snapshot was projected with `maxIssueCount`, so its issue list is truncated and the budget counts would be wrong.
+- `arg_missing_required_section`: the snapshot was projected without a section the budgets need (`currentIssues` or `frameStatsSummary`).
+- `coverage_degraded`: the snapshot reports `isVmConnected: false`, or no boolean, so the VM-only detectors never ran and a pass would not cover memory, CPU or repaint issues.
+- `snapshot …`: the snapshot lacks or mistypes `currentIssues`, `currentIssues[].severity`, or the `frameStatsSummary` fps (schema drift).
+
+Through `tools/call`, the server's type check rejects a wrongly typed argument first with `arg_type_mismatch`. The tool and `sleuth_check` request both sections the budgets read and no issue cap, so `arg_capped_issues_unbudgetable` fires only when other code passes a capped snapshot to `evaluateBudgets`, and `arg_missing_required_section` only when the app leaves out a section it was asked for.
 
 ## diagnose
 
-Wraps `ext.sleuth.diagnose`. No args.
+Kind `wraps` (`ext.sleuth.diagnose`). No args.
 
-Augments the extension's `data` block with two sidecar-stamped keys:
+The tool returns the extension's `data` block with two keys the sidecar adds, plus `launchModeAdvisory` on a degraded session:
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
-| (all keys from `ext.sleuth.diagnose.data`) | | | passthrough — see `mcp_schema.md` |
+| (all keys from `ext.sleuth.diagnose.data`) | | | passed through; see `mcp_schema.md` |
 | `sidecarVersion` | String | yes | `sleuthMcpVersion` |
 | `sidecarBuiltAgainstSleuth` | String | yes | `sleuthPackageVersionPin` |
-| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` / `disconnected`, or `basic` without a live VM self-connect (VM-only detectors degraded); nudges a `flutter run --profile --no-dds` relaunch |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` with `vmConnected: false`, which means the VM-only detectors are off. The `basic` text suggests reopening the app and names DDS as one possible cause. A `basic` session with `vmConnected: true` gets none. |
+
+Apps on sleuth 0.36 do not report the keys added in sleuth 0.37.0: `effectiveFrameRateHz`, `frameBudgetUs`, `frameRateSource`, and the `lastPoll*`, `maxPoll*`, `pollDuplicatesDropped` and `pollWindowFallbacks` timings.
 
 ## get_snapshot
 
-Passthrough for `ext.sleuth.snapshot`. Args: `sections` (List\<String\>, optional — forwarded comma-joined; empty list or absent = full payload, not metadata-only), `maxIssueCount` (int, optional), `maxRouteCount` (int, optional), `diskHandoff` (bool, optional), `verbose` (bool, optional, default false).
+Kind `passthrough` (`ext.sleuth.snapshot`). Args: `sections` (List\<String\>, optional; each item one of the 14 `SnapshotSection` keys, which the input schema lists as an item `enum`; forwarded as a comma-joined string; an empty list counts as absent), `full` (bool, optional, default `false`), `maxIssueCount` (int, optional), `maxRouteCount` (int, optional), `diskHandoff` (bool, optional) and `verbose` (bool, optional, default `false`).
 
-**Shim — `compact_issues`.** Unless `verbose: true`, the sidecar trims every `data.currentIssues` entry to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`), copying only keys that are present. Runs on both the inline-return and disk-handoff paths from a fresh map (the bridge envelope is never mutated). No-op when `currentIssues` was projected out via `sections` or is absent / non-list. Field shape only — independent of `maxIssueCount`, which caps `currentIssues` lib-side regardless of `verbose`.
+An app error envelope (one with a top-level `error`) comes back inline and is never written to disk.
 
-**Shim — `disk_handoff`.** When `diskHandoff` is true the sidecar serializes the envelope to a per-process `Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json` file and returns `{path, sizeBytes, sha256}` plus any projection metadata instead of the inline `data` block — use for large snapshots that exceed the response token cap. The filename is 128-bit `Random.secure()`. The per-pid dir is created `0700` and the file `0600`, both verified via `FileStat`; if owner-only perms can't be set + verified on POSIX, the file is deleted and `disk_handoff_failed` is returned (fail-closed). Windows has no POSIX mode — that verification is skipped. The payload MAY contain mildly-sensitive data (e.g. `recentRequests[].url` carrying query tokens), which is why perms are fail-closed rather than best-effort. Files are deleted on `detach_app`, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write — the per-pid dir keeps concurrent sidecar instances from sweeping each other's in-flight handoffs. When `diskHandoff` is false/absent the envelope passes through unmodified.
+**Shim `default_projection`.** An inline call that names no `sections` and does not pass `full: true` asks the app for the default set: `frameStatsSummary`, `currentIssues`, `widgetHeatMap`, `recurrenceTrends`, `sessionSummary`, `startupMetrics` and `routeSessions`. It leaves out the per-frame and raw sample sections: `capturedFrames`, `recentFrames`, `recentRequests`, `heapSamples`, `phaseEvents`, `gcEvents` and `platformChannelEvents`. Measured on an iPhone 12 against the example app, the full response was 87 KB right after launch and 528 KB after a few minutes on an animated screen, about 90 % of it `capturedFrames` and `recentFrames`, and a `2025-06-18` client receives the JSON twice (text and `structuredContent`). The default set is about 3 to 15 KB on the captured sessions.
 
-**Lineage fallback (app predates projection, sleuth < 0.35):** the app ignores projection args and returns the full payload. On the **disk-handoff** path the sidecar writes it and stamps `_projectionApplied: by_sidecar_fallback`. On the **inline** path it returns `projection_unsupported_by_app` instead — the full inline payload would overflow the response cap that projection exists to avoid.
+- The app stamps its usual projection metadata, `_projectedSections` (the default set, sorted) and `_projectionApplied: by_app`. The sidecar adds `data._omittedSections` (the seven sections above, whether or not the app had data for them) and `data._omittedSectionsHint`, which says how to get them.
+- Pass `full: true` for every section, or list exactly the sections you need in `sections`, for example `sections: ["recentFrames"]`. `full: true` together with `sections` returns `arg_conflict`. A `full` response can exceed a client's response budget on a long session; prefer `sections`, or `diskHandoff`.
+- `maxIssueCount` and `maxRouteCount` apply to the default set as well.
+- A `diskHandoff: true` call without `sections` writes every section, because a file has no response budget.
+- Two default snapshots carry the same `_projectedSections`, so `compare_snapshots` accepts them (`arg_section_mismatch` only fires when the two section sets or limits differ). The default set holds every section that `compare_snapshots` and `check_budgets` read: `currentIssues`, `frameStatsSummary` and the metadata keys.
+- An app that ignores the projection args (older than sleuth 0.35) gets the same cut applied by the sidecar, stamped `_projectionApplied: by_sidecar_fallback`.
 
-**Shim — `launch_mode_advisory`.** When the session is degraded (`connectionMode` `warmup` / `disconnected`, or `basic` without a live VM self-connect), the sidecar adds `data.launchModeAdvisory` (alongside the other `data` additions) so a client reading data here — not just via `connect` / `diagnose` — is told VM-only detectors are suppressed. On the disk-handoff path it rides in the written file's `data`.
+**Shim `compact_issues`.** Unless `verbose: true`, the sidecar trims every `data.currentIssues` entry to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`), copying only the keys that are present. It runs on both the inline and the disk-handoff path and builds a new map, so the bridge envelope is never changed. It does nothing when `sections` left out `currentIssues`, or when `currentIssues` is missing or not a list. It changes field shape only. `maxIssueCount` caps `currentIssues` in the app whether or not `verbose` is set.
 
-**Errors:** `arg_invalid_section`, `arg_invalid_int`, `arg_pagination_unused` (forwarded from `ext.sleuth.snapshot`); `projection_unsupported_by_app` (inline projection vs a pre-0.35 app); `disk_handoff_failed` (temp file couldn't be locked to owner-only perms).
+**Shim `disk_handoff`.** When `diskHandoff` is true, the sidecar writes the envelope to `Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json` and returns `{path, sizeBytes, sha256}`, plus any projection metadata, instead of the inline `data` block. Use it for snapshots larger than the client's response token cap. The file name is 128 random bits from `Random.secure()`. The sidecar creates the per-process directory with mode `0700` and the file with mode `0600`, and checks both with `FileStat`. On POSIX, if it cannot set and confirm owner-only permissions, it deletes the file and returns `disk_handoff_failed`. Windows has no POSIX modes, so the check is skipped there. The payload can hold sensitive data, such as query tokens in `recentRequests[].url`, which is why a permission failure stops the handoff. The sidecar deletes the files on `detach_app` and at shutdown, then removes its process directory once it is empty, and each new write removes files older than 30 minutes from its own process directory. Each process has its own directory, so one sidecar never removes another's in-flight file. After its shutdown cleanup the sidecar writes no new file, so a `get_snapshot` still running at exit returns `disk_handoff_failed` instead of leaving a file behind, and a call the client cancelled before the write writes nothing. At startup the sidecar removes the empty `sleuth_snapshot_<pid>` directories that earlier processes left behind, only when they are older than 30 minutes. In a non-empty one whose process is gone, which happens when a sidecar crashed or was killed, it deletes the `.json` files older than 30 minutes and then the directory once it is empty. It checks the process through `/proc` on Linux and `ps -p` on other POSIX hosts; on Windows it does not check, so those files stay. Without `diskHandoff` the envelope comes back inline.
 
-Underlying shape: see `mcp_schema.md` § `ext.sleuth.snapshot`.
+**Lineage fallback (an app older than sleuth 0.35).** Such an app ignores the projection args and returns the full payload. When the caller asked for a projection (`sections`, `maxIssueCount` or `maxRouteCount`), the disk-handoff path writes the payload and stamps `_projectionApplied: by_sidecar_fallback`, and the inline path returns `projection_unsupported_by_app` instead, because the full inline payload would overflow the response cap that projection exists to avoid. The default projection is applied by the sidecar instead (see above). Sidecar 0.8.0 refuses apps older than the 0.36 lineage when it connects, so a connected app does not reach this path.
+
+**Shim `launch_mode_advisory`.** On a degraded session (`connectionMode` `warmup` or `disconnected`, or `basic` with `isVmConnected: false`), the sidecar adds `data.launchModeAdvisory`. A client that reads data here, not only through `connect` or `diagnose`, learns that the VM-only detectors are off. On the disk-handoff path the advisory is in the written file's `data`.
+
+| `data` key | Type | Required | Notes |
+|---|---|---|---|
+| (all keys from `ext.sleuth.snapshot.data`) | | | passed through; see `mcp_schema.md` |
+| `launchModeAdvisory` | String | no | on a degraded session; see the shim above |
+| `_omittedSections` | List\<String\> | no | on a default call; the seven per-frame and raw sample sections left out |
+| `_omittedSectionsHint` | String | no | with `_omittedSections`; says to pass `full: true` or name the sections |
+
+**Errors:** `arg_conflict` means `full: true` was combined with `sections`. `arg_invalid_section`, `arg_invalid_int` and `arg_pagination_unused` come back as the app's `ext.sleuth.snapshot` error envelope; through `tools/call` the server's item enum check rejects an unknown section first with `arg_enum_violation: sections[<i>]=<value> is not one of [...].`. `projection_unsupported_by_app` is an inline projection request (`sections` or a cap) to an app older than sleuth 0.35. `disk_handoff_failed` means the sidecar could not lock the temp directory or file to owner-only permissions, could not pick an unused file name, could not write the file, or is shutting down and already deleted its handoff files, and wrote nothing. `cancelled` means the client cancelled a `diskHandoff` call before the snapshot was written, so nothing was written; the server sends no response for a cancelled request, so only direct callers of the handler see it.
+
+The underlying shape is in the `ext.sleuth.snapshot` section of `mcp_schema.md`.
 
 ## get_issues
 
-Passthrough for `ext.sleuth.issues`. Args: `route` (String, optional), `severityAtLeast` (String, optional, one of `ok` / `warning` / `critical`), `maxIssueCount` (int, optional, default 50; 0 = unbounded), `verbose` (bool, optional, default false).
+Kind `passthrough` (`ext.sleuth.issues`). Args: `route` (String, optional; an empty string counts as absent; the app keeps issues whose `routeName` or `sourceRoute` equals it), `severityAtLeast` (String, optional, one of `ok` / `warning` / `critical`; the server rejects any other value, including upper case, with `arg_enum_violation`), `maxIssueCount` (int, optional, default 50; `0` means no cap) and `verbose` (bool, optional, default `false`).
 
-**Shim — `severity_filter`.** When `severityAtLeast` is `warning` or `critical`, the sidecar filters `data.issues` to entries whose severity meets the threshold AND adds a `data.severityAtLeast` key echoing the requested level. When `severityAtLeast` is `ok` or absent, no filter + no echo.
+**Shim `severity_filter`.** When `severityAtLeast` is `warning` or `critical`, the sidecar keeps only the entries in `data.issues` at or above that severity. Whenever `severityAtLeast` is set, including `ok`, the sidecar adds `data.severityAtLeast` with the requested level; `ok` applies no filter. When it is absent there is no filter and no echo.
 
-**Shim — `compact_projection`.** After the optional severity filter, `data.issues` is capped to the front `maxIssueCount` entries (default 50; `0` = unbounded; negative is rejected with `arg_invalid_int`, for parity with get_snapshot) of the app's already-ranked order, then — unless `verbose: true` — each kept entry is trimmed to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`). The cap and the field-trim are orthogonal: `verbose` controls field shape only and never disables the cap. Compaction drops fields, not field contents — it is not a hard byte bound; use `maxIssueCount` + `diskHandoff` for size management. When the cap dropped at least one issue, `data` gains `_truncated: true` and `_totalCount` (post-filter, pre-cap count). Error envelopes (no `data` map / no `issues` list) pass through unmodified.
+**Shim `compact_projection`.** After the severity filter, the sidecar keeps the first `maxIssueCount` entries of `data.issues` in the app's ranked order. The default is 50, `0` removes the cap, and a negative value returns `arg_invalid_int`, as in `get_snapshot`. Unless `verbose: true`, it then trims each kept entry to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`). The cap and the trim are independent: `verbose` changes field shape only and never disables the cap. Compaction drops fields but never shortens a value, so it does not bound the response size; use `maxIssueCount` here, or `get_snapshot` with `diskHandoff`. When the cap drops at least one issue, `data` gains `_truncated: true` and `_totalCount`, the count after the filter and before the cap. An envelope without a `data` map or an `issues` list, such as an error envelope, comes back unchanged.
 
-**Shim — `launch_mode_advisory`.** On a degraded session (`connectionMode` `warmup` / `disconnected`, or `basic` without a live VM self-connect) the sidecar adds `data.launchModeAdvisory`, warning that VM-only detectors are suppressed so the returned issue list is incomplete.
+**Shim `launch_mode_advisory`.** On a degraded session (`connectionMode` `warmup` or `disconnected`, or `basic` with `vmConnected: false`) the sidecar adds `data.launchModeAdvisory`, warning that the issue list is incomplete because the VM-only detectors are off. Apps on sleuth 0.37 and later send `data.vmConnected` in the `ext.sleuth.issues` payload, and the tool passes it through. For an app on 0.36 the sidecar first reads `ext.sleuth.diagnose` on the same session and uses its `data.vmConnected`. The issues call runs second and its errors are never swallowed, so a session change between the two calls fails the tool call instead of pairing two sessions. A `session_changed` or `version_skew_*` error from the diagnose read also propagates. A diagnose read that fails or takes longer than 2 seconds drops the advisory, and `basic` with no readable flag gets none.
 
-Underlying shape: see `mcp_schema.md` § `ext.sleuth.issues` (compact entries are a key-subset of that shape).
+**Errors:** `arg_invalid_int` for a negative `maxIssueCount`. An `ext.sleuth.issues` error envelope comes back unchanged.
+
+The underlying shape is in the `ext.sleuth.issues` section of `mcp_schema.md`. Compact entries hold a subset of its keys.
 
 ## get_route_health
 
-Passthrough for `ext.sleuth.routeHealth`. Args: `route` (String, optional).
+Kind `passthrough` (`ext.sleuth.routeHealth`). Args: `route` (String, optional; an empty string counts as absent). The envelope comes back unchanged. Every accepted lineage wraps a single-route match as `{route: <session>}`.
 
-**Shim — `lineage_route_wrapper`.** When the `route` arg is provided and the bridge is connected to an `acceptedPriorLineages` app emitting the v0.32 inline `RouteSession` shape (data carries `routeName` but no `route` key), the shim wraps data into `{route: <inline-session>}` so downstream consumers always see the canonical v0.33 envelope. v0.33+ apps already emit the wrapper and pass through untouched. Error envelopes and absent-route shapes are never wrapped.
+**Errors:** `unknown_route`, the app's error envelope, passed through unchanged.
 
-**Invariant — shim must be idempotent on the canonical shape.** Running the shim against an already-wrapped `{route: <session>}` payload MUST yield the same payload (no double-wrap, no key drop). The shim's gating predicate is `data.containsKey('routeName')` — a payload that already lacks the inline key is left untouched. Idempotency is regression-guarded by `test/schema/mcp_tool_schema_audit_test.dart` (the canonical-wrapper / inline-wrapped / absent-route triad of tests in the `lineage_route_wrapper` group).
-
-Underlying shape: see `mcp_schema.md` § `ext.sleuth.routeHealth`.
+The underlying shape is in the `ext.sleuth.routeHealth` section of `mcp_schema.md`.
 
 ## explain_issue
 
-Passthrough for `ext.sleuth.explain`. Args: `stableId` (String, **required**, `minLength: 1`).
+Kind `passthrough` (`ext.sleuth.explain`). Args: `stableId` (String, required, `minLength: 1`).
+
+The text depends on live app state. Sleuth 0.37 and later fill the route, widget and count text from the live issue with that exact stableId. A canonical (bare) id with no exact match uses the first live issue of its family. Any other id with no exact match, such as an occurrence id, gets neutral wording, as does a canonical id with no live issue in its family. Sleuth 0.36 apps return the raw placeholders (`{widgetName}`, `{routeName}`, `{count}`).
 
 **Errors:**
 
-- `missing_required_arg: stableId` — validated at the tool layer before delegating
-- `unknown_stable_id` — `ext.sleuth.explain` returned an error envelope; passed through unmodified
+- `missing_required_arg: stableId`: no `stableId` was given. An empty string fails the server's `minLength` check with `arg_min_length_violation` instead.
+- `unknown_stable_id`: `ext.sleuth.explain` returned this error envelope, which comes back unchanged.
 
-Underlying shape: see `mcp_schema.md` § `ext.sleuth.explain`.
+The underlying shape is in the `ext.sleuth.explain` section of `mcp_schema.md`.
+
+## Server-level errors
+
+`McpServer` checks every `tools/call` against the tool's `inputSchema` before the handler runs, and it wraps dispatch failures. These errors use the same envelope as the per-tool errors (`isError: true`, with the code as the message prefix). `serverErrors` in `mcp_tool_schema.json` lists them.
+
+- `missing_required_arg: <name>`: an arg in `inputSchema.required` is absent, or null (the message then ends in `is null`).
+- `arg_unknown: <name> is not an argument of this tool. Allowed: …`: an arg that `inputSchema.properties` does not declare.
+- `arg_type_mismatch: <name> must have JSON type <type>, not <type>.`: the JSON type differs from the declared type. An integer satisfies `number`. For an array item the name is `<name>[<index>]`.
+- `arg_enum_violation: <name>=<value> is not one of [...].`: a value outside the declared `enum`, or an array item outside the declared `items.enum` (named `<name>[<index>]`).
+- `arg_min_length_violation: <name> must be at least <n> characters long.`: a string shorter than `minLength`.
+- `unknown_tool: <name>`: no tool is registered under that name.
+- `missing "name" arg` / `arguments must be a JSON object`: the `tools/call` params are malformed.
+- `timeout_after_<ms>ms: …`: a call took too long. Either one app call exceeded the bridge's per-call timeout, and the message names the extension, or a tool without its own deadlines exceeded the generic tool timeout (10 seconds by default, set with `--tool-timeout`). The bridge's per-call timeout is shorter than the tool timeout (8 seconds for the default), so it usually fires first. The connection to the app is kept, so the next call works once the app answers: retry, or call `diagnose` to check the session.
+- `not_connected: …`: no app is connected, or a connect is still running or was refused. The message says to call `attach_app` (with `device`, `debugUrl`, or `udid` and `bundle`) or `connect`.
+- `app_busy: …`: earlier calls timed out and the app has still not answered them. vm_service keeps each such request until the app answers or the connection closes, so at 8 unanswered calls the bridge sends no more and the connection is kept. Retry in a few seconds; if the app stays busy, call `attach_app` or `connect` to open a new connection, which drops the pending requests.
+- `session_changed baseline=<uuid> current=<uuid>: …`: the app's session changed. Either the app answered from a different `sessionUuid` than the one the bridge follows, after a hot restart or because another app answers at the URI, or a hot restart replaced the isolate the bridge calls, as pressing `R` in `flutter run` does. Results from before this call came from the old session. The change is reported once: the bridge re-reads `ext.sleuth.diagnose`, runs the version check on it and follows the new session, so the message says to call the tool again, and the next call works. After a hot restart that replaced the isolate, the bridge first picks the app's new main isolate and waits for it to register `ext.sleuth.diagnose`, for up to the per-call timeout (8 seconds for the default). When no new isolate registers it in that time, the call returns `error: …` saying that no new isolate registered `ext.sleuth.diagnose`; call the tool again while the app is still restarting, or `connect` or `attach_app` when it exited. When the bridge could not read the new session, because its diagnose call failed, timed out or returned a malformed envelope, it keeps the old baseline and the message says it does not follow the new session yet; the next call reports the change again and tries once more. When the change came with a closed connection (a reconnect found a new session), the bridge disconnects and the message says to call `attach_app` or `connect`. When the new session runs a sleuth version the sidecar refuses, the call returns that `version_skew_*` error instead and the bridge disconnects.
+- `error: <exception>`: the handler threw. The stack trace goes to the log only.
+
+The bridge never disconnects on a timeout, so a slow call on a janky app does not end a session that `attach_app` set up.
 
 ## Recovery from a refused connection
 
 When `connect` or `attach_app` returns a `version_skew_*` error, the bridge is already disconnected. To recover:
 
-1. Align the app's `sleuth` dependency lineage with `sidecarBuiltAgainstSleuth` (see the `diagnose` tool output before the disconnect, or `pubspec.yaml` of the sidecar).
-2. Hot-restart the app (`R`) so the new `kSleuthPackageVersion` is in effect, then re-run `connect` / `attach_app`.
+1. Move the app's `sleuth` dependency to the lineage in `sidecarBuiltAgainstSleuth`. An earlier `diagnose` call reports it, and `sleuth_mcp --version` prints it.
+2. Hot-restart the app (`R`) so the new `kSleuthPackageVersion` takes effect, then run `connect` or `attach_app` again.

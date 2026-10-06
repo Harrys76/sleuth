@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
+
+import 'capture_driver.dart';
 
 /// Capture helper for `tracked_resource_concurrent.warning` (bracket
 /// threshold 6; live count > default `maxConcurrent` 5). The detector
@@ -14,12 +17,14 @@ import 'package:sleuth/sleuth.dart';
 ///
 /// **Procedure (USB iPhone, in-app export):**
 ///
-///  1. `cd example && fvm flutter run --profile -d "iPhone 12" \
-///        --dart-define=SLEUTH_CAPTURE_MODE=true`. First build attaches
-///     DevTools (FRAME mode).
-///  2. Quit `flutter run` (`q`). DevTools detaches.
-///  3. Re-open the app from the home screen so VM+ mode activates.
-///  4. Navigate to "Tracked resource capture helper" → tap a leg →
+///  1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+///        --dart-define=SLEUTH_CAPTURE_MODE=true \
+///        --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
+///  2. Sleuth connects to the app's own VM service (VM+ mode). Without
+///     `--no-dds`, `flutter run` starts DDS, which keeps the VM service
+///     as its only client and leaves Sleuth in FRAME mode. In that case
+///     quit `flutter run` (`q`) and re-open the app from the home screen.
+///  3. Navigate to "Tracked resource capture helper" → tap a leg →
 ///     wait for "tap Export now" → tap **Export last leg** → paste
 ///     from clipboard.
 ///
@@ -106,6 +111,9 @@ class _TrackedResourceCaptureScreenState
   bool _busy = false;
   String? _lastCompletedLeg;
   _LegFamily? _lastCompletedLegFamily;
+  // Bracket the last completed leg was judged against; the export
+  // checks its records against the same one.
+  CaptureBracket? _lastCompletedBracket;
   int? _legObservedPeak;
   String? _inFlightScenarioName;
   // Strong-ref list so GC cannot reclaim the workload mid-scenario.
@@ -149,20 +157,29 @@ class _TrackedResourceCaptureScreenState
 
   Future<void> _runLeg(_Leg leg) async {
     if (_busy) return;
+    // Provenance is a property of the build, so a leg that could never
+    // be exported is refused before its wait of up to 600 s.
+    final refusal = provenanceRefusal(leg.label);
+    if (refusal != null) {
+      setState(() => _log.add(refusal));
+      return;
+    }
     setState(() {
       _busy = true;
       _lastCompletedLeg = null;
+      _lastCompletedBracket = null;
       _legObservedPeak = null;
       _log.add(
-        '[${leg.label}] pre-leg → untrackAll($_kResourceName), '
+        '[${leg.label}] pre-leg: untrackAll($_kResourceName), '
         'clear heldRefs (${_heldRefs.length})',
       );
       if (leg.family == _LegFamily.longLived) {
         _log.add(
-          '[${leg.label}] long-lived leg: register ref → wait '
-          '${leg.ageSeconds - 10} s pre-span → markScenarioBegin → wait '
-          '10 s inside span → flush. Span ~10 s keeps schema inverse-'
-          'ratio under 100× while ring buffer cannot roll markers off.',
+          '[${leg.label}] long-lived leg: register the ref, wait '
+          '${leg.ageSeconds - 10} s before the span, call '
+          'markScenarioBegin, wait 10 s inside the span, then flush. A '
+          'span of about 10 s keeps the schema inverse ratio under 100× '
+          'and is too short for the ring buffer to roll the markers off.',
         );
       }
     });
@@ -175,6 +192,21 @@ class _TrackedResourceCaptureScreenState
           '[${leg.label}] FAILED: Sleuth.trackedResourceDetector is null. '
           'Verify Sleuth.init() ran with captureMode=true and '
           '--dart-define=SLEUTH_CAPTURE_MODE=true.',
+        );
+      });
+      return;
+    }
+    final bracket = CaptureBracket.fromMetadata(
+      detector.validationMetadata,
+      stableId: leg.scenarioFamily,
+      severityLabel: 'warning',
+    );
+    if (bracket == null) {
+      setState(() {
+        _busy = false;
+        _log.add(
+          '[${leg.label}] FAILED: the detector declares no '
+          '${leg.scenarioFamily}.warning bracket.',
         );
       });
       return;
@@ -200,8 +232,9 @@ class _TrackedResourceCaptureScreenState
       _streamsSuspended = true;
 
       // Long-lived legs: scenario span opens 10 s BEFORE flush so the
-      // span width is large enough to satisfy schema AB-1 inverse-ratio
-      // (`expectedMagnitude.observed × unit_micros / span_micros < 100×`).
+      // span width is large enough to satisfy the schema's inverse-ratio
+      // check (`expectedMagnitude.observed × unit_micros / span_micros <
+      // 100×`).
       // For 600 s observed, span ≥ 6 s; we pick 10 s for headroom and
       // to keep span < 600 s so a long real-time wait does not fill the
       // VM ring buffer before markers are emitted. The ref is
@@ -262,14 +295,46 @@ class _TrackedResourceCaptureScreenState
       await Future<void>.delayed(const Duration(milliseconds: 600));
 
       if (!mounted) return;
+      // The peak is the leg's observed magnitude. An unmeasured peak or
+      // one outside the leg's band would export a capture the schema or
+      // the audit rejects, so the leg offers no export.
+      final legRefusal = measurementRefusal(
+        observed,
+        role: leg.label,
+        bracket: bracket,
+        what: leg.family == _LegFamily.concurrent
+            ? 'peak live count'
+            : 'peak age',
+        unit: unitLabel,
+      );
+      if (legRefusal != null) {
+        setState(() {
+          _busy = false;
+          _log.add(
+            '[${leg.scenarioFamily}/${leg.label}] ${legRefusal.verdict}: '
+            '${legRefusal.reason}. Nothing to export; re-run the leg.',
+          );
+        });
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              '${leg.scenarioFamily}/${leg.label} ${legRefusal.verdict} '
+              '(see log)',
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
       setState(() {
         _busy = false;
         _lastCompletedLeg = leg.label;
         _lastCompletedLegFamily = leg.family;
+        _lastCompletedBracket = bracket;
         _legObservedPeak = observed;
         _log.add(
           '[${leg.scenarioFamily}/${leg.label}] scenario.end '
-          '(peak: $observed $unitLabel) — tap "Export last leg".',
+          '(peak: $observed $unitLabel). Tap "Export last leg".',
         );
       });
       messenger.showSnackBar(
@@ -308,9 +373,10 @@ class _TrackedResourceCaptureScreenState
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
     final family = _lastCompletedLegFamily;
+    final bracket = _lastCompletedBracket;
     final observed = _legObservedPeak;
     final messenger = ScaffoldMessenger.of(context);
-    if (leg == null || family == null || observed == null) {
+    if (leg == null || family == null || bracket == null || observed == null) {
       setState(() {
         _log.add(
           'Export: no completed leg yet. Tap a leg button and wait '
@@ -332,12 +398,17 @@ class _TrackedResourceCaptureScreenState
     final unitLabel = family == _LegFamily.concurrent ? 'instances' : 'seconds';
     // ±1 unit absorbs single-step jitter between detector measurement
     // and exportCaptureJson read; observed is load-bearing — bracket
-    // gate cross-checks via the family's observedAxisArgKey.
-    final magnitudeMin = (observed - 1).clamp(0, 1 << 30);
+    // gate cross-checks via the family's observedAxisArgKey. The leg
+    // only completes with a positive peak, and the schema needs a
+    // positive min no larger than observed.
+    final magnitudeMin = math.max(1, observed - 1);
     final magnitudeMax = observed + 1;
 
     String? json;
+    String? localFailure;
     try {
+      // Checked when the leg started; this is a safety net.
+      final provenance = requireCaptureProvenance();
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg,
@@ -345,12 +416,10 @@ class _TrackedResourceCaptureScreenState
         magnitudeObserved: observed,
         magnitudeMax: magnitudeMax,
         unit: unitLabel,
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterVersion: '3.41.4',
-        captureCommand:
-            'fvm flutter run --profile -d "iPhone 12" '
-            '--dart-define=SLEUTH_CAPTURE_MODE=true',
+        device: provenance.device,
+        deviceOsVersion: provenance.deviceOsVersion,
+        flutterVersion: provenance.flutterVersion,
+        captureCommand: provenance.captureCommand,
         // Magnitude is the detector's per-name peak getter value — no
         // matching named timeline event the schema can derive from.
         // Empty string skips event-derivation.
@@ -359,12 +428,20 @@ class _TrackedResourceCaptureScreenState
         bracketSeverityLabel: 'warning',
       );
     } catch (e) {
+      // A failure before or inside the export call; its own text says
+      // why, and `lastCaptureExportFailure` does not describe it.
       json = null;
-      if (mounted) {
-        setState(() => _log.add('[$leg] Export FAILED: $e'));
-      }
+      localFailure = '$e';
     }
     if (!mounted) return;
+    if (localFailure != null) {
+      final failure = localFailure;
+      setState(() {
+        _busy = false;
+        _log.add('[$leg] Export FAILED: $failure');
+      });
+      return;
+    }
     if (json == null) {
       final state = Sleuth.diagnoseCaptureState();
       final reason = Sleuth.lastCaptureExportFailure ?? '(no reason captured)';
@@ -380,6 +457,30 @@ class _TrackedResourceCaptureScreenState
       });
       return;
     }
+    // The composed capture must pass what the audit checks: no in-span
+    // record for below; for at and above, stamped records whose largest
+    // value lies in the role band and near the exported peak.
+    final recordsRefusal = recordRefusal(
+      checkCaptureJson(
+        json,
+        bracket: bracket,
+        role: leg,
+        observed: observed,
+        unit: unitLabel,
+      ),
+      role: leg,
+      bracket: bracket,
+    );
+    if (recordsRefusal != null) {
+      setState(() {
+        _busy = false;
+        _log.add(
+          '[$leg] ${recordsRefusal.verdict}: ${recordsRefusal.reason}. '
+          'Nothing copied; re-run the leg.',
+        );
+      });
+      return;
+    }
     final jsonText = json;
     try {
       await Clipboard.setData(ClipboardData(text: jsonText));
@@ -387,11 +488,11 @@ class _TrackedResourceCaptureScreenState
       setState(() {
         _busy = false;
         _log.add(
-          '[$leg] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[$leg] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[$leg] Paste into Notes / Mail / AirDrop → send to Mac. '
+          '[$leg] Paste it into Notes, Mail or AirDrop and send it to the Mac. '
           'Save as $leg.json under '
           'test/validation/captures/$scenarioFamily/.',
         );
@@ -440,21 +541,21 @@ class _TrackedResourceCaptureScreenState
                       ),
                       const SizedBox(height: 6),
                       _LegButton(
-                        label: 'Below (5 instances) — passes',
+                        label: 'Below (5 instances), passes',
                         subtitle: 'Sub-threshold; peakObservedLiveCount = 5',
                         enabled: !_busy,
                         onTap: () => _runLeg(_Leg.concurrentBelow),
                       ),
                       const SizedBox(height: 8),
                       _LegButton(
-                        label: 'At (8 instances) — warning',
+                        label: 'At (8 instances), warning',
                         subtitle: 'In at-band [6, 9] (atTolerance 0.5)',
                         enabled: !_busy,
                         onTap: () => _runLeg(_Leg.concurrentAt),
                       ),
                       const SizedBox(height: 8),
                       _LegButton(
-                        label: 'Above (16 instances) — warning',
+                        label: 'Above (16 instances), warning',
                         subtitle:
                             'In above-band (9, 18] '
                             '(aboveCeilingMultiplier 3.0)',
@@ -472,21 +573,21 @@ class _TrackedResourceCaptureScreenState
                       ),
                       const SizedBox(height: 6),
                       _LegButton(
-                        label: 'Below (wait 250 s ≈ 4 min) — passes',
+                        label: 'Below (wait 250 s ≈ 4 min), passes',
                         subtitle: 'Sub-threshold; no emission',
                         enabled: !_busy,
                         onTap: () => _runLeg(_Leg.longLivedBelow),
                       ),
                       const SizedBox(height: 8),
                       _LegButton(
-                        label: 'At (wait 380 s ≈ 6 min) — warning',
+                        label: 'At (wait 380 s ≈ 6 min), warning',
                         subtitle: 'In at-band [300, 450] (atTolerance 0.5)',
                         enabled: !_busy,
                         onTap: () => _runLeg(_Leg.longLivedAt),
                       ),
                       const SizedBox(height: 8),
                       _LegButton(
-                        label: 'Above (wait 600 s = 10 min) — warning',
+                        label: 'Above (wait 600 s = 10 min), warning',
                         subtitle:
                             'In above-band (450, 900] '
                             '(aboveCeilingMultiplier 3.0)',

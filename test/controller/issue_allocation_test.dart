@@ -6,10 +6,11 @@ import 'package:sleuth/src/models/base_detector.dart';
 import '../helpers/benchmark_helpers.dart';
 
 void main() {
-  group('Issue allocation reduction (M5)', () {
+  group('Issue allocation reduction', () {
     group('_getAllIssues generation cache', () {
-      testWidgets('cached list reused when called twice without scan',
-          (tester) async {
+      testWidgets('cached list reused when called twice without scan', (
+        tester,
+      ) async {
         await tester.pumpWidget(buildMixedTree(500));
         final context = tester.element(find.byType(Directionality));
 
@@ -55,8 +56,9 @@ void main() {
         controller.dispose();
       });
 
-      testWidgets('generation increments independently in scan and timeline',
-          (tester) async {
+      testWidgets('generation increments independently in scan and timeline', (
+        tester,
+      ) async {
         await tester.pumpWidget(buildMixedTree(500));
         final context = tester.element(find.byType(Directionality));
 
@@ -76,8 +78,9 @@ void main() {
     });
 
     group('clean-scan counter interaction', () {
-      testWidgets('cache does not interfere with adaptive scan tracking',
-          (tester) async {
+      testWidgets('cache does not interfere with adaptive scan tracking', (
+        tester,
+      ) async {
         await tester.pumpWidget(buildMixedTree(50));
         final context = tester.element(find.byType(Directionality));
 

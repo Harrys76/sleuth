@@ -16,3 +16,9 @@ test/
 CLAUDE.md
 AGENTS.md
 CHANGELOG.archive.md
+
+# Repo tooling (capture wrapping, local VM-service helper), not part of the package
+/tool/
+
+# packages/ stays in: pub applies this file when publishing packages/sleuth_mcp
+# too, so excluding it here would empty the sleuth_mcp archive.

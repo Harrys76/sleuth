@@ -3,11 +3,7 @@ import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/route_session.dart';
 
-FrameStats _frame({
-  required int number,
-  int uiUs = 4000,
-  int rasterUs = 3000,
-}) {
+FrameStats _frame({required int number, int uiUs = 4000, int rasterUs = 3000}) {
   return FrameStats(
     frameNumber: number,
     uiDuration: Duration(microseconds: uiUs),
@@ -34,8 +30,10 @@ PerformanceIssue _issue({
 void main() {
   group('RouteSession', () {
     test('newly created session is active', () {
-      final session =
-          RouteSession(routeName: '/home', startedAt: DateTime.now());
+      final session = RouteSession(
+        routeName: '/home',
+        startedAt: DateTime.now(),
+      );
       expect(session.isActive, isTrue);
       expect(session.endedAt, isNull);
       expect(session.scanCycleCount, 0);
@@ -44,8 +42,10 @@ void main() {
     });
 
     test('closing session sets endedAt and isActive becomes false', () {
-      final session =
-          RouteSession(routeName: '/home', startedAt: DateTime.now());
+      final session = RouteSession(
+        routeName: '/home',
+        startedAt: DateTime.now(),
+      );
       session.endedAt = DateTime.now();
       expect(session.isActive, isFalse);
       expect(session.endedAt, isNotNull);
@@ -67,14 +67,18 @@ void main() {
 
     group('healthScore', () {
       test('returns 100 with no frames and no issues', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         expect(session.healthScore, 100);
       });
 
       test('perfect FPS with no issues scores 100', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         // Add 60 frames at ~62.5 FPS (16ms each)
         for (var i = 0; i < 60; i++) {
           session.frameStats.add(
@@ -85,8 +89,10 @@ void main() {
       });
 
       test('all jank frames reduce score significantly', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         // Add 10 frames at 20ms each (jank at 60 FPS)
         for (var i = 0; i < 10; i++) {
           session.frameStats.add(
@@ -98,8 +104,10 @@ void main() {
       });
 
       test('critical issues reduce score by 10 each', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         // Good FPS
         for (var i = 0; i < 10; i++) {
           session.frameStats.add(
@@ -107,18 +115,24 @@ void main() {
           );
         }
         // Add 2 critical issues = 20 point penalty
-        session.issueSnapshots['a'] =
-            _issue(stableId: 'a', severity: IssueSeverity.critical);
-        session.issueSnapshots['b'] =
-            _issue(stableId: 'b', severity: IssueSeverity.critical);
+        session.issueSnapshots['a'] = _issue(
+          stableId: 'a',
+          severity: IssueSeverity.critical,
+        );
+        session.issueSnapshots['b'] = _issue(
+          stableId: 'b',
+          severity: IssueSeverity.critical,
+        );
 
         // Perfect FPS (40) + no jank (30) + issues (30 - 20 = 10) = 80
         expect(session.healthScore, closeTo(80, 2));
       });
 
       test('warning issues reduce score by 3 each', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         for (var i = 0; i < 10; i++) {
           session.frameStats.add(
             _frame(number: i + 1, uiUs: 10000, rasterUs: 5000),
@@ -134,8 +148,10 @@ void main() {
       });
 
       test('issue penalty capped at 30', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         for (var i = 0; i < 10; i++) {
           session.frameStats.add(
             _frame(number: i + 1, uiUs: 10000, rasterUs: 5000),
@@ -143,8 +159,10 @@ void main() {
         }
         // 10 critical issues = 100 penalty, but capped at 30
         for (var i = 0; i < 10; i++) {
-          session.issueSnapshots['c$i'] =
-              _issue(stableId: 'c$i', severity: IssueSeverity.critical);
+          session.issueSnapshots['c$i'] = _issue(
+            stableId: 'c$i',
+            severity: IssueSeverity.critical,
+          );
         }
 
         // Perfect FPS (40) + no jank (30) + issues (30 - 30 = 0) = 70
@@ -152,8 +170,10 @@ void main() {
       });
 
       test('score clamped to 0 minimum', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         // Very slow frames: 100ms each ≈ 10 FPS
         for (var i = 0; i < 10; i++) {
           session.frameStats.add(
@@ -162,22 +182,28 @@ void main() {
         }
         // 10 critical issues
         for (var i = 0; i < 10; i++) {
-          session.issueSnapshots['c$i'] =
-              _issue(stableId: 'c$i', severity: IssueSeverity.critical);
+          session.issueSnapshots['c$i'] = _issue(
+            stableId: 'c$i',
+            severity: IssueSeverity.critical,
+          );
         }
         expect(session.healthScore, greaterThanOrEqualTo(0));
       });
 
       test('ok-severity issues do not penalize score', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         for (var i = 0; i < 10; i++) {
           session.frameStats.add(
             _frame(number: i + 1, uiUs: 10000, rasterUs: 5000),
           );
         }
-        session.issueSnapshots['ok1'] =
-            _issue(stableId: 'ok1', severity: IssueSeverity.ok);
+        session.issueSnapshots['ok1'] = _issue(
+          stableId: 'ok1',
+          severity: IssueSeverity.ok,
+        );
         // Perfect FPS (40) + no jank (30) + no penalty (30) = 100
         expect(session.healthScore, 100);
       });
@@ -200,8 +226,10 @@ void main() {
         expect(session.healthScore, lessThan(85));
 
         // Confirm same frames on a 60 FPS target give a perfect score.
-        final session60 =
-            RouteSession(routeName: '/x', startedAt: DateTime.now());
+        final session60 = RouteSession(
+          routeName: '/x',
+          startedAt: DateTime.now(),
+        );
         for (var i = 0; i < 10; i++) {
           session60.frameStats.add(
             _frame(number: i + 1, uiUs: 16000, rasterUs: 10000),
@@ -211,8 +239,10 @@ void main() {
       });
 
       test('fpsTarget defaults to 60', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         expect(session.fpsTarget, 60);
       });
 
@@ -222,8 +252,10 @@ void main() {
       // not change the numeric output and that the score stays robust at
       // low sample counts where actualFps would collapse.
       test('rename-only — v4 averageFps inputs yield same score as v5', () {
-        final sessionV4Like =
-            RouteSession(routeName: '/x', startedAt: DateTime.now());
+        final sessionV4Like = RouteSession(
+          routeName: '/x',
+          startedAt: DateTime.now(),
+        );
         for (var i = 0; i < 10; i++) {
           sessionV4Like.frameStats.add(
             _frame(number: i + 1, uiUs: 16000, rasterUs: 10000),
@@ -240,11 +272,11 @@ void main() {
         // → if healthScore used actualFps, fpsComponent = 1/60 * 40 ≈
         // 0.67 pts. Score would sit near 30. throughputFps is robust:
         // a single fast frame yields target-speed throughput.
-        final session =
-            RouteSession(routeName: '/x', startedAt: DateTime.now());
-        session.frameStats.add(
-          _frame(number: 1, uiUs: 8000, rasterUs: 5000),
+        final session = RouteSession(
+          routeName: '/x',
+          startedAt: DateTime.now(),
         );
+        session.frameStats.add(_frame(number: 1, uiUs: 8000, rasterUs: 5000));
         // throughputFps = 1e6 / 8000 = 125 → clamped to 120.
         // fpsComponent = (120 / 60 * 40).clamp(0, 40) = 40.
         // No jank, no issues → healthScore stays at 100.
@@ -330,8 +362,10 @@ void main() {
       });
 
       test('no percentiles with fewer than 2 frames', () {
-        final session =
-            RouteSession(routeName: '/x', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/x',
+          startedAt: DateTime.now(),
+        );
         session.frameStats.add(_frame(number: 1));
 
         final json = session.toJson();
@@ -348,8 +382,10 @@ void main() {
 
     group('per-tab fields (v0.14.1)', () {
       test('defaults: scaffoldHashKey null, tabVisitIndex 1, genGen 0', () {
-        final session =
-            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+        );
         expect(session.scaffoldHashKey, isNull);
         expect(session.tabVisitIndex, 1);
         expect(session.hotReloadGeneration, 0);
@@ -434,6 +470,51 @@ void main() {
         expect(json['tabVisitIndex'], 4);
         expect(json['hotReloadGeneration'], 2);
       });
+    });
+  });
+  group('RouteSession map caps', () {
+    RouteSession session() =>
+        RouteSession(routeName: '/cap', startedAt: DateTime(2026));
+
+    test('issueSnapshots evicts the oldest-inserted key past the cap', () {
+      final s = session();
+      const cap = RouteSession.maxTrackedEntries;
+      for (var i = 0; i < cap; i++) {
+        s.issueSnapshots['id$i'] = _issue(stableId: 'id$i');
+      }
+      expect(s.issueSnapshots.length, cap);
+
+      // Updating an existing key neither grows the map nor moves the key.
+      s.issueSnapshots['id0'] = _issue(stableId: 'id0');
+      expect(s.issueSnapshots.length, cap);
+      expect(s.issueSnapshots.keys.first, 'id0');
+
+      s.issueSnapshots['new'] = _issue(stableId: 'new');
+      expect(s.issueSnapshots.length, cap);
+      expect(s.issueSnapshots.containsKey('id0'), isFalse);
+      expect(s.issueSnapshots.keys.first, 'id1');
+      expect(s.issueSnapshots.keys.last, 'new');
+    });
+
+    test('rebuildCountsByType evicts the oldest-inserted key past the cap', () {
+      final s = session();
+      const cap = RouteSession.maxTrackedEntries;
+      for (var i = 0; i < cap + 10; i++) {
+        s.rebuildCountsByType['Type$i'] =
+            (s.rebuildCountsByType['Type$i'] ?? 0) + 1;
+      }
+      expect(s.rebuildCountsByType.length, cap);
+      expect(s.rebuildCountsByType.containsKey('Type9'), isFalse);
+      expect(s.rebuildCountsByType.containsKey('Type10'), isTrue);
+      expect(s.totalRebuilds, cap);
+    });
+
+    test('capped maps serialize like plain maps', () {
+      final s = session();
+      s.rebuildCountsByType['A'] = 2;
+      s.issueSnapshots['x'] = _issue(stableId: 'x');
+      expect(Map<String, int>.of(s.rebuildCountsByType), {'A': 2});
+      expect(s.toJson(), isA<Map<String, dynamic>>());
     });
   });
 }

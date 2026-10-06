@@ -32,20 +32,22 @@ class SessionMarkdownExporter {
   static String render(SessionSnapshot snapshot, {required int topN}) {
     final buf = StringBuffer();
     // Header
-    buf.writeln('# Sleuth Session Summary');
+    buf.writeln('# Sleuth session summary');
     buf.writeln();
     buf.writeln('**Captured:** ${_formatTs(snapshot.exportedAt)}');
     buf.writeln();
 
     // Frame stats
     final stats = snapshot.frameStatsSummary;
-    buf.writeln('## Frame Stats');
+    buf.writeln('## Frame stats');
     buf.writeln('- Actual FPS: **${stats.actualFps.round()}**');
     buf.writeln('- Throughput FPS: **${stats.throughputFps.round()}**');
     buf.writeln(
-        '- Worst frame: **${(stats.worstFrameTimeUs / 1000).round()} ms**');
+      '- Worst frame: **${(stats.worstFrameTimeUs / 1000).round()} ms**',
+    );
     buf.writeln(
-        '- Jank frames: **${stats.jankFrames} / ${stats.totalFrames}**');
+      '- Jank frames: **${stats.jankFrames} / ${stats.totalFrames}**',
+    );
     buf.writeln();
 
     // Startup metrics
@@ -59,20 +61,28 @@ class SessionMarkdownExporter {
         buf.writeln('- Time to interactive: **${startup.ttiMs!.round()} ms**');
       }
       if (startup.dominantPhase != 'unknown') {
-        buf.writeln('- Dominant phase: **${startup.dominantPhase}** '
-            '(${startup.dominantPhasePercent.round()}%)');
+        buf.writeln(
+          '- Dominant phase: **${startup.dominantPhase}** '
+          '(${startup.dominantPhasePercent.round()}%)',
+        );
       }
       if (startup.frameworkInitMs != null) {
-        buf.writeln('- Framework init: '
-            '**${startup.frameworkInitMs!.toStringAsFixed(1)} ms**');
+        buf.writeln(
+          '- Framework init: '
+          '**${startup.frameworkInitMs!.toStringAsFixed(1)} ms**',
+        );
       }
       if (startup.preDartOverheadMs != null) {
-        buf.writeln('- Pre-Dart overhead: '
-            '**${startup.preDartOverheadMs!.toStringAsFixed(1)} ms**');
+        buf.writeln(
+          '- Pre-Dart overhead: '
+          '**${startup.preDartOverheadMs!.toStringAsFixed(1)} ms**',
+        );
       }
       if (startup.engineTtffMs != null) {
-        buf.writeln('- Engine TTFF: '
-            '**${startup.engineTtffMs!.toStringAsFixed(1)} ms**');
+        buf.writeln(
+          '- Engine TTFF: '
+          '**${startup.engineTtffMs!.toStringAsFixed(1)} ms**',
+        );
       }
       buf.writeln();
     }
@@ -80,7 +90,7 @@ class SessionMarkdownExporter {
     // Route health
     final routes = snapshot.routeSessions;
     if (routes != null && routes.isNotEmpty) {
-      buf.writeln('## Route Health');
+      buf.writeln('## Route health');
       buf.writeln('| Route | Score | FPS | Issues | Time |');
       buf.writeln('|-------|-------|-----|--------|------|');
       for (final r in routes) {
@@ -96,15 +106,16 @@ class SessionMarkdownExporter {
         final dot = score >= 80
             ? '\u{1F7E2}'
             : score >= 50
-                ? '\u{1F7E1}'
-                : '\u{1F534}';
+            ? '\u{1F7E1}'
+            : '\u{1F534}';
         final fps = r['frameStats'] is Map
             ? (r['frameStats'] as Map)['averageFps'] ?? '-'
             : '-';
         final issueCount = r['issueCount'] as int? ?? 0;
         final criticalCount = r['criticalCount'] as int? ?? 0;
-        final issues =
-            criticalCount > 0 ? '$issueCount ($criticalCount!)' : '$issueCount';
+        final issues = criticalCount > 0
+            ? '$issueCount ($criticalCount!)'
+            : '$issueCount';
         final durationSec = r['durationSeconds'] as int? ?? 0;
         final time = _formatDuration(durationSec);
         buf.writeln('| $name | $score $dot | $fps | $issues | $time |');
@@ -115,10 +126,12 @@ class SessionMarkdownExporter {
     // Top issues
     final top = snapshot.currentIssues.take(topN).toList();
     if (top.isNotEmpty) {
-      buf.writeln('## Top Issues (${top.length})');
+      buf.writeln('## Top issues (${top.length})');
       for (final (i, issue) in top.indexed) {
-        buf.writeln('${i + 1}. **${_escape(issue.title)}** — '
-            '`${issue.stableId ?? issue.category.name}`');
+        buf.writeln(
+          '${i + 1}. **${_escape(issue.title)}**, '
+          '`${issue.stableId ?? issue.category.name}`',
+        );
         if (issue.confidenceReason != null) {
           buf.writeln('   > ${_escape(issue.confidenceReason!)}');
         }
@@ -129,10 +142,10 @@ class SessionMarkdownExporter {
     // Causal chains from sessionSummary
     final causalEdges = snapshot.sessionSummary?['causalEdges'];
     if (causalEdges is List && causalEdges.isNotEmpty) {
-      buf.writeln('## Causal Chains');
+      buf.writeln('## Causal chains');
       for (final edge in causalEdges.take(5)) {
         if (edge is Map) {
-          buf.writeln('- `${edge['cause']}` → `${edge['effect']}`');
+          buf.writeln('- `${edge['cause']}` causes `${edge['effect']}`');
         }
       }
       buf.writeln();

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../debug/debug_snapshot.dart';
@@ -10,28 +12,31 @@ import '../utils/fix_hint_builder.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
-/// Detects StatefulWidgets that own too large a portion of the widget tree.
-/// Confidence is upgraded when rebuild activity is observed (child widget
-/// identity churn between scans).
+/// Detects StatefulWidgets that own too large a portion of the widget tree
+/// and are observed rebuilding.
 ///
 /// Uses three signals:
-/// 1. **Structural**: does the StatefulWidget own >50% of the tree?
-/// 2. **Behavioral**: did `build()` actually re-run? (child widget identity change)
+/// 1. **Structural**: does the StatefulWidget own more than
+///    [SetStateScopeDetector.dirtyRatioThreshold] of the tree?
+/// 2. **Behavioral** (required): did `build()` actually re-run? Either child
+///    widget identity churned between scans, or a debug-callback rebuild
+///    snapshot names the owner type.
 /// 3. **Animation scope**: does the subtree use AnimatedBuilder/AnimatedWidget?
 ///
-/// This avoids false positives on animation-based pages (CustomPainterDemo)
-/// while reliably catching setState-heavy pages (HighLevelSetStateDemo).
+/// A wide static page never emits; a structural ratio alone is not
+/// evidence of a wide `setState()`.
 class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
   SetStateScopeDetector({
     this.dirtyRatioThreshold = 0.5,
     this.minSubtreeSize = 50,
     this.rebuildEvidenceThreshold = 2,
   }) : super(
-          type: DetectorType.setStateScope,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'setState Scope',
-          description: 'Detects StatefulWidgets owning >50% of tree',
-        );
+         type: DetectorType.setStateScope,
+         lifecycle: DetectorLifecycle.structural,
+         name: 'setState Scope',
+         description:
+             'Detects StatefulWidgets that own more than 50% of the tree',
+       );
 
   /// If subtreeSize/totalElements exceeds this ratio, flag it.
   final double dirtyRatioThreshold;
@@ -51,6 +56,11 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
   /// Maps element identity → identityHashCode of its first child widget.
   /// Used to detect when build() re-runs (child widget instance changes).
   Map<int, int> _childSnapshots = {};
+
+  /// The live child-snapshot map; a scan swaps in a new instance, so
+  /// identity changes exactly when a scan ran (for testing).
+  @visibleForTesting
+  Object get childSnapshotsForTest => _childSnapshots;
 
   /// Accumulated rebuild counts per widget name in the current window.
   final Map<String, int> _rebuildEvidence = {};
@@ -157,13 +167,16 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     _stableCountStack.add(0);
 
     // Record widget identity for const-element tracking.
-    _newElementWidgetSnapshots[identityHashCode(element)] =
-        identityHashCode(element.widget);
+    _newElementWidgetSnapshots[identityHashCode(element)] = identityHashCode(
+      element.widget,
+    );
 
     if (element is StatefulElement) {
       final widget = element.widget;
       final name = typeNameCache.lookup(widget);
-      if (!name.startsWith('_') && !isFrameworkWidget(widget)) {
+      if (!name.startsWith('_') &&
+          !isFrameworkWidget(widget) &&
+          !_isTransparentBuilderOwner(name)) {
         // --- Rebuild detection (merged from _detectRebuilds) ---
         Widget? firstChildWidget;
         element.visitChildren((child) {
@@ -213,7 +226,9 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     // Scaffold, Navigator, Overlay, etc. never become the "widest" candidate.
     if (element is StatefulElement && subtreeSize > _maxSubtreeSize) {
       final name = typeNameCache.lookup(element.widget);
-      if (!name.startsWith('_') && !isFrameworkWidget(element.widget)) {
+      if (!name.startsWith('_') &&
+          !isFrameworkWidget(element.widget) &&
+          !_isTransparentBuilderOwner(name)) {
         _maxSubtreeSize = subtreeSize;
         _maxStableCount = totalStable;
         _widestStatefulWidget = name;
@@ -240,10 +255,14 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
 
     if (_totalElements == 0 || _maxSubtreeSize < minSubtreeSize) return;
 
-    // Combine signals to decide whether to flag
+    // Rebuild evidence is required: identity churn across scans, or a
+    // debug-callback snapshot that names the owner type. A structural ratio
+    // alone never emits.
     final hasRebuildEvidence = hasRebuildEvidenceFor(_widestStatefulWidget!);
+    final debugCorrelation = _computeDebugCorrelation(_widestStatefulWidget!);
+    if (!hasRebuildEvidence && debugCorrelation == null) return;
 
-    // Use mutable (non-const) element count for ratio when rebuild evidence
+    // Use mutable (non-const) element count for ratio when churn evidence
     // exists. Without a rebuild, all elements appear "stable" (no change),
     // which doesn't mean they're const — just that nothing triggered build().
     // First scan has no baseline, so _maxStableCount is 0 (conservative).
@@ -255,121 +274,100 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     final hasAnimScope =
         _widestElement != null && _containsAnimationScope(_widestElement!);
 
-    // Debug correlation — upgrade confidence if debug snapshot
-    // confirms the flagged type is actually rebuilding.
-    final debugCorrelation = _computeDebugCorrelation(_widestStatefulWidget!);
+    final severity = ratio > _criticalRatio
+        ? IssueSeverity.critical
+        : IssueSeverity.warning;
 
     final percent = (ratio * 100).toStringAsFixed(0);
     final constNote = hasRebuildEvidence && _maxStableCount > 0
         ? ' ($mutableSubtreeSize mutable of $_maxSubtreeSize total, '
-            '$_maxStableCount const)'
+              '$_maxStableCount const)'
         : '';
-    final rawChain =
-        _widestElement != null ? buildAncestorChain(_widestElement!) : null;
+    final rawChain = _widestElement != null
+        ? buildAncestorChain(_widestElement!)
+        : null;
     final location = rawChain != null ? '\n\n  • $rawChain' : '';
 
     // Compute confidenceReason based on the same logic as the confidence level.
     String confidenceReasonFor(IssueConfidence c) => switch (c) {
-          IssueConfidence.confirmed =>
-            'Measured directly from debug callback rebuild counter',
-          IssueConfidence.likely =>
-            'Rebuild evidence detected + structural subtree scan',
-          IssueConfidence.possible =>
-            'Structural scan only — connect VM for higher confidence',
-        };
+      IssueConfidence.confirmed =>
+        'Measured directly from debug callback rebuild counter',
+      IssueConfidence.likely =>
+        'Rebuild evidence and a structural subtree scan',
+      IssueConfidence.possible =>
+        'Rebuild evidence detected, but an animation scope in the subtree '
+            'may be the rebuild source',
+    };
 
-    if (hasRebuildEvidence) {
-      final baseConfidence =
-          hasAnimScope ? IssueConfidence.possible : IssueConfidence.likely;
-      final effectiveConfidence =
-          debugCorrelation?.confidence ?? baseConfidence;
+    final baseConfidence = hasAnimScope
+        ? IssueConfidence.possible
+        : IssueConfidence.likely;
+    final effectiveConfidence = debugCorrelation?.confidence ?? baseConfidence;
 
-      final (hint, effort) = FixHintBuilder.setStateScope(
-        widgetName: _widestStatefulWidget ?? 'Unknown',
-        subtreePercent: int.tryParse(percent) ?? 0,
+    final (hint, effort) = FixHintBuilder.setStateScope(
+      widgetName: _widestStatefulWidget ?? 'Unknown',
+      subtreePercent: int.tryParse(percent) ?? 0,
+      ancestorChain: rawChain,
+    );
+
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'setstate_scope',
+        severity: severity,
+        category: IssueCategory.build,
+        confidence: effectiveConfidence,
+        title:
+            'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
+        detail:
+            '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
+            'elements (about $percent%) in its subtree$constNote. Sleuth '
+            'observed rebuild activity on this wide subtree.$location',
+        fixHint: hint,
+        fixEffort: effort,
+        widgetName: _widestStatefulWidget,
         ancestorChain: rawChain,
-      );
-
-      _issues.add(
-        PerformanceIssue(
-          stableId: 'setstate_scope',
-          severity:
-              ratio > 0.5 ? IssueSeverity.critical : IssueSeverity.warning,
-          category: IssueCategory.build,
-          confidence: effectiveConfidence,
-          title:
-              'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
-          detail:
-              '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
-              'elements (~$percent%) in its subtree$constNote. Rebuild '
-              'activity was detected on this wide subtree.$location',
-          fixHint: hint,
-          fixEffort: effort,
-          widgetName: _widestStatefulWidget,
-          ancestorChain: rawChain,
-          observationSource:
-              debugCorrelation?.source ?? ObservationSource.structural,
-          detectedAt: DateTime.now(),
-          confidenceReason: confidenceReasonFor(effectiveConfidence),
-        ),
-      );
-      _addHighlight(_widestElement!, _widestStatefulWidget!, hasRebuildEvidence,
-          percent, _maxSubtreeSize);
-    } else if (!hasAnimScope) {
-      final effectiveConfidence =
-          debugCorrelation?.confidence ?? IssueConfidence.possible;
-
-      final (hint2, effort2) = FixHintBuilder.setStateScope(
-        widgetName: _widestStatefulWidget ?? 'Unknown',
-        subtreePercent: int.tryParse(percent) ?? 0,
-        ancestorChain: rawChain,
-      );
-
-      _issues.add(
-        PerformanceIssue(
-          stableId: 'setstate_scope',
-          severity: IssueSeverity.warning,
-          category: IssueCategory.build,
-          confidence: effectiveConfidence,
-          title:
-              'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
-          detail:
-              '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
-              'elements (~$percent%) in its subtree$constNote. Any setState() '
-              'on this widget would rebuild most of the visible tree.$location',
-          fixHint: hint2,
-          fixEffort: effort2,
-          widgetName: _widestStatefulWidget,
-          ancestorChain: rawChain,
-          observationSource:
-              debugCorrelation?.source ?? ObservationSource.structural,
-          detectedAt: DateTime.now(),
-          confidenceReason: confidenceReasonFor(effectiveConfidence),
-        ),
-      );
-      _addHighlight(_widestElement!, _widestStatefulWidget!, hasRebuildEvidence,
-          percent, _maxSubtreeSize);
-    }
-    // else: large subtree + animation scope + no rebuild evidence → suppress
+        observationSource:
+            debugCorrelation?.source ?? ObservationSource.structural,
+        detectedAt: DateTime.now(),
+        confidenceReason: confidenceReasonFor(effectiveConfidence),
+      ),
+    );
+    _addHighlight(
+      _widestElement!,
+      _widestStatefulWidget!,
+      severity,
+      percent,
+      _maxSubtreeSize,
+    );
   }
+
+  /// Ratio above which an emission is critical: 1.5× the configured
+  /// [dirtyRatioThreshold], capped at 1.0.
+  double get _criticalRatio => math.min(1.0, dirtyRatioThreshold * 1.5);
 
   /// Compute debug-based confidence upgrade for the flagged widget type.
   ///
-  /// Returns null if no debug data is available or the type doesn't appear
-  /// in rebuild counts. Otherwise:
+  /// Returns null if no debug-callback data is available or the type doesn't
+  /// appear in rebuild counts. Timeline-sourced counts are ignored: they
+  /// include first builds, so a non-zero count is not evidence of a
+  /// rebuild. Otherwise:
   /// - `confirmed` if the type is unique in the scanned tree (one instance)
   /// - `likely` if multiple instances exist (can't distinguish which rebuilds)
   ({IssueConfidence confidence, ObservationSource source})?
-      _computeDebugCorrelation(String widgetType) {
+  _computeDebugCorrelation(String widgetType) {
     final snapshot = _lastDebugSnapshot;
-    if (snapshot == null) return null;
+    if (snapshot == null ||
+        snapshot.source != RebuildCountSource.debugCallback) {
+      return null;
+    }
 
     final count = snapshot.rebuildCounts[widgetType];
     if (count == null || count == 0) return null;
 
     final instanceCount = _typeInstanceCounts[widgetType] ?? 0;
-    final confidence =
-        instanceCount <= 1 ? IssueConfidence.confirmed : IssueConfidence.likely;
+    final confidence = instanceCount <= 1
+        ? IssueConfidence.confirmed
+        : IssueConfidence.likely;
 
     return (
       confidence: confidence,
@@ -377,20 +375,27 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     );
   }
 
-  void _addHighlight(Element element, String widgetName,
-      bool hasRebuildEvidence, String percent, int subtreeSize) {
+  void _addHighlight(
+    Element element,
+    String widgetName,
+    IssueSeverity severity,
+    String percent,
+    int subtreeSize,
+  ) {
     final ro = element.renderObject;
     if (ro == null) return;
     final rect = getGlobalRect(ro);
     if (rect == null) return;
-    _highlights.add(WidgetHighlight(
-      rect: rect,
-      widgetName: widgetName,
-      severity:
-          hasRebuildEvidence ? IssueSeverity.critical : IssueSeverity.warning,
-      detectorName: 'setState',
-      detail: 'Owns ~$percent% of tree ($subtreeSize elements)',
-    ));
+    _highlights.add(
+      WidgetHighlight(
+        rect: rect,
+        renderObject: ro,
+        widgetName: widgetName,
+        severity: severity,
+        detectorName: 'setState',
+        detail: 'Owns about $percent% of the tree ($subtreeSize elements)',
+      ),
+    );
   }
 
   /// Expire old rebuild evidence.
@@ -432,6 +437,27 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     statefulElement.visitChildren(check);
     return found;
   }
+
+  /// Builder-style owners whose rebuilds are scoped by design (async
+  /// snapshots, listenables, focus, forms). They are never reported as a
+  /// wide setState owner.
+  static const _transparentBuilderOwners = {
+    'FutureBuilder',
+    'StreamBuilder',
+    'ValueListenableBuilder',
+    'ListenableBuilder',
+    'AnimatedSwitcher',
+    'Form',
+    'Focus',
+    'FocusScope',
+    'PopScope',
+    'TickerMode',
+    'Localizations',
+    'SelectionArea',
+  };
+
+  static bool _isTransparentBuilderOwner(String typeName) =>
+      _transparentBuilderOwners.contains(baseTypeName(typeName));
 
   /// Returns true if the widget is a framework StatefulWidget that naturally
   /// owns large subtrees but is not a user anti-pattern.
@@ -505,23 +531,25 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins `setstate_scope` on the '
-            'structural / possible-confidence path only — widest public '
-            'StatefulWidget owns > `dirtyRatioThreshold` of the scanned '
-            'tree AND `_maxSubtreeSize > minSubtreeSize`, with no '
-            'rebuild evidence and no animation scope. Private-named '
-            'widgets skipped (`!name.startsWith("_")`), animation-scope '
-            'suppression (`hasAnimScope && !hasRebuildEvidence`), and '
-            'below-minSubtreeSize silence pinned as negative controls. '
-            'Known uncovered paths at this tier: (a) rebuild-evidence '
-            'branch — two-scan rebuild-counter path, emits '
-            'IssueConfidence.likely or .possible; (b) severity branching '
-            '(`ratio > 0.5 ? critical : warning`); (c) DebugSnapshot '
-            'confidence upgrade via type-name rebuild correlation. '
-            'Thresholds tuned down in tests to validate classification '
-            'semantics, not threshold values.',
-        reproducerPath: 'test/validation/setstate_scope_reproducer_test.dart',
-        coveredStableIds: {'setstate_scope'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins `setstate_scope` on the two-scan '
+        'churn path. The widest public StatefulWidget owns more than '
+        '`dirtyRatioThreshold` of the scanned tree with '
+        '`_maxSubtreeSize >= minSubtreeSize`, and its child widget '
+        'identity changes between scans (`rebuildEvidenceThreshold`). '
+        'Severity is critical above `min(1.0, 1.5 * dirtyRatioThreshold)` '
+        'and warning otherwise. A debug-callback DebugSnapshot that names '
+        'the owner is the other accepted evidence, and it gives confirmed '
+        'confidence. The detector ignores timeline-sourced snapshots. A '
+        'structural ratio without rebuild evidence never emits. An '
+        'animation scope drops confidence to possible. Private-named '
+        'owners, builder-style owners (FutureBuilder, StreamBuilder, '
+        'ValueListenableBuilder, Form, Focus, ...) and trees below '
+        'minSubtreeSize are pinned as negative controls. Tests tune the '
+        'thresholds down to validate classification semantics, not '
+        'threshold values.',
+    reproducerPath: 'test/validation/setstate_scope_reproducer_test.dart',
+    coveredStableIds: {'setstate_scope'},
+  );
 }

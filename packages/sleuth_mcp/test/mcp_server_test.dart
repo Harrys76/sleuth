@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:sleuth_mcp/sleuth_mcp.dart';
@@ -5,11 +6,14 @@ import 'package:sleuth_mcp/src/prompts/diagnostic_prompts.dart';
 import 'package:sleuth_mcp/src/tools/tools.dart';
 import 'package:test/test.dart';
 
+import 'helpers/counting_session.dart';
 import 'helpers/fake_vm_bridge.dart';
 
-JsonRpcMessage _req(String method,
-        {Map<String, Object?> params = const {}, Object? id = 1}) =>
-    JsonRpcMessage(method: method, params: params, id: id);
+JsonRpcMessage _req(
+  String method, {
+  Map<String, Object?> params = const {},
+  Object? id = 1,
+}) => JsonRpcMessage(method: method, params: params, id: id);
 
 JsonRpcMessage _notif(String method) =>
     JsonRpcMessage(method: method, params: const {}, id: null);
@@ -41,8 +45,8 @@ void main() {
       final resp = await server.handleForTest(_req('tools/list', id: 2));
       final result = resp!.result as Map<String, Object?>;
       final tools = result['tools'] as List;
-      // 8 diagnostic + 6 lifecycle (attach/detach/status/list_devices/hot_*).
-      expect(tools, hasLength(13));
+      // 8 diagnostic + 6 lifecycle (attach/detach/status/list_devices/hot_reload/get_logs).
+      expect(tools, hasLength(14));
       for (final t in tools) {
         final tool = t as Map<String, Object?>;
         expect(tool['name'], isA<String>());
@@ -74,11 +78,13 @@ void main() {
 
     test('unknown tool returns isError content', () async {
       await server.handleForTest(_req('initialize'));
-      final resp = await server.handleForTest(_req(
-        'tools/call',
-        params: {'name': 'bogus_tool', 'arguments': <String, Object?>{}},
-        id: 2,
-      ));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'bogus_tool', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
       expect(resp!.isError, isFalse);
       final result = resp.result as Map<String, Object?>;
       expect(result['isError'], true);
@@ -86,21 +92,21 @@ void main() {
 
     test('missing required arg returns isError content', () async {
       await server.handleForTest(_req('initialize'));
-      final resp = await server.handleForTest(_req(
-        'tools/call',
-        params: {
-          'name': 'explain_issue',
-          'arguments': <String, Object?>{},
-        },
-        id: 2,
-      ));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'explain_issue', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
       final result = resp!.result as Map<String, Object?>;
       expect(result['isError'], true);
     });
 
     test('notification returns null', () async {
-      final resp =
-          await server.handleForTest(_notif('notifications/initialized'));
+      final resp = await server.handleForTest(
+        _notif('notifications/initialized'),
+      );
       expect(resp, isNull);
     });
 
@@ -112,25 +118,179 @@ void main() {
       expect(result['protocolVersion'], '2025-06-18');
     });
 
-    test('initialize falls back to server pin on unsupported version',
-        () async {
+    for (final unsupported in ['1999-01-01', '2099-01-01', null]) {
+      test('initialize answers the latest supported version for client '
+          'version $unsupported', () async {
+        final resp = await server.handleForTest(
+          _req('initialize', params: {'protocolVersion': ?unsupported}),
+        );
+        final result = resp!.result as Map<String, Object?>;
+        final latest = (supportedMcpProtocolVersions.toList()..sort()).last;
+        expect(result['protocolVersion'], latest);
+        expect(mcpProtocolVersion, latest);
+        expect(latest, '2025-06-18');
+      });
+    }
+
+    test('an unsupported client version still gets structuredContent from '
+        'the negotiated 2025-06-18', () async {
+      await server.handleForTest(
+        _req('initialize', params: {'protocolVersion': '2099-01-01'}),
+      );
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
       final resp = await server.handleForTest(
-        _req('initialize', params: {'protocolVersion': '1999-01-01'}),
+        _req(
+          'tools/call',
+          params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
       );
       final result = resp!.result as Map<String, Object?>;
-      expect(result['protocolVersion'], mcpProtocolVersion);
+      expect(result.containsKey('structuredContent'), isTrue);
+    });
+
+    test(
+      'initialize carries instructions that describe the workflow',
+      () async {
+        final resp = await server.handleForTest(_req('initialize'));
+        final instructions =
+            (resp!.result as Map<String, Object?>)['instructions'] as String;
+        expect(instructions, mcpServerInstructions);
+        for (final needle in [
+          'flutter run --profile --no-dds',
+          'attach_app',
+          'debugUrl',
+          'udid',
+          'connect(uri)',
+          'get_issues',
+          'explain_issue',
+          'get_snapshot',
+          'full: true',
+          'check_budgets',
+        ]) {
+          expect(instructions, contains(needle));
+        }
+        expect(instructions.length, lessThan(1000), reason: 'keep it short');
+      },
+    );
+
+    test('resources/templates/list returns an empty list', () async {
+      await server.handleForTest(_req('initialize'));
+      final resp = await server.handleForTest(
+        _req('resources/templates/list', id: 2),
+      );
+      expect(resp!.isError, isFalse);
+      expect(resp.result, {'resourceTemplates': <Object?>[]});
+    });
+
+    test('a tool call before connecting says to attach first', () async {
+      await server.handleForTest(_req('initialize'));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'get_issues', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      expect(result['isError'], isTrue);
+      final text = ((result['content'] as List).first as Map)['text'] as String;
+      expect(text, startsWith('not_connected: '));
+      expect(text, contains('attach_app'));
+      expect(text, contains('connect'));
+      expect(text, isNot(contains('VmBridgeException')));
+    });
+
+    test('a version refusal while following a restart comes back as the '
+        'refusal text', () async {
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      bridge.setResponder(
+        'ext.sleuth.issues',
+        (_) => throw VmBridgeException(
+          'version_skew_major: app=0.99.0 sidecar-pin=0.37.0',
+          kind: VmBridgeErrorKind.refused,
+        ),
+      );
+      await server.handleForTest(_req('initialize'));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'get_issues', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      final text = ((result['content'] as List).first as Map)['text'] as String;
+      expect(text, startsWith('version_skew_major:'));
+    });
+
+    test('session_changed says the sidecar follows the new session only '
+        'when the bridge followed it', () async {
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      await server.handleForTest(_req('initialize'));
+      Future<String> toolText(int id) async {
+        final call = await server.handleForTest(
+          _req(
+            'tools/call',
+            params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+            id: id,
+          ),
+        );
+        return (((call!.result as Map)['content'] as List).first as Map)['text']
+            as String;
+      }
+
+      Future<String> readMessage(int id) async {
+        final read = await server.handleForTest(
+          _req(
+            'resources/read',
+            params: {'uri': 'sleuth://encyclopedia'},
+            id: id,
+          ),
+        );
+        return read!.error!.message;
+      }
+
+      bridge.simulateSessionChange('followed-uuid');
+      var text = await toolText(2);
+      expect(text, startsWith('session_changed baseline='));
+      expect(
+        text,
+        endsWith(
+          'The sidecar now follows the new session; call the tool again.',
+        ),
+      );
+
+      bridge.simulateSessionChange('unread-uuid', followed: false);
+      text = await toolText(3);
+      expect(text, contains('The sidecar does not follow the new session yet'));
+      expect(text, endsWith('call attach_app or connect.'));
+
+      bridge.simulateSessionChange('followed-again');
+      var message = await readMessage(4);
+      expect(message, startsWith('session_changed '));
+      expect(
+        message,
+        endsWith('The sidecar now follows the new session; read it again.'),
+      );
+
+      bridge.simulateSessionChange('unread-again', followed: false);
+      message = await readMessage(5);
+      expect(message, contains('does not follow the new session yet'));
     });
 
     test('tools/call rejects non-object arguments', () async {
       await server.handleForTest(_req('initialize'));
-      final resp = await server.handleForTest(_req(
-        'tools/call',
-        params: {
-          'name': 'connect',
-          'arguments': [1, 2, 3]
-        },
-        id: 2,
-      ));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {
+            'name': 'connect',
+            'arguments': [1, 2, 3],
+          },
+          id: 2,
+        ),
+      );
       final result = resp!.result as Map<String, Object?>;
       expect(result['isError'], true);
       final content = (result['content'] as List).first as Map<String, Object?>;
@@ -139,16 +299,18 @@ void main() {
 
     test('tools/call rejects unknown arg keys (typo guard)', () async {
       await server.handleForTest(_req('initialize'));
-      final resp = await server.handleForTest(_req(
-        'tools/call',
-        params: {
-          'name': 'attach_app',
-          // typo: `deviceId` should be `device`. Pre-fix the typo was
-          // silently accepted and attach proceeded device-less.
-          'arguments': {'deviceId': 'iPhone 12'},
-        },
-        id: 2,
-      ));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {
+            'name': 'attach_app',
+            // typo: `deviceId` should be `device`. Pre-fix the typo was
+            // silently accepted and attach proceeded device-less.
+            'arguments': {'deviceId': 'iPhone 12'},
+          },
+          id: 2,
+        ),
+      );
       final result = resp!.result as Map<String, Object?>;
       expect(result['isError'], true);
       final content = (result['content'] as List).first as Map<String, Object?>;
@@ -157,33 +319,34 @@ void main() {
 
     test('tools/call rejects enum-violation arg', () async {
       await server.handleForTest(_req('initialize'));
-      final resp = await server.handleForTest(_req(
-        'tools/call',
-        params: {
-          'name': 'get_issues',
-          'arguments': {'severityAtLeast': 'bogus'},
-        },
-        id: 2,
-      ));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {
+            'name': 'get_issues',
+            'arguments': {'severityAtLeast': 'bogus'},
+          },
+          id: 2,
+        ),
+      );
       final result = resp!.result as Map<String, Object?>;
       expect(result['isError'], true);
       final content = (result['content'] as List).first as Map<String, Object?>;
-      expect(
-        (content['text'] as String),
-        contains('arg_enum_violation'),
-      );
+      expect((content['text'] as String), contains('arg_enum_violation'));
     });
 
     test('tools/call rejects minLength violation', () async {
       await server.handleForTest(_req('initialize'));
-      final resp = await server.handleForTest(_req(
-        'tools/call',
-        params: {
-          'name': 'explain_issue',
-          'arguments': {'stableId': ''},
-        },
-        id: 2,
-      ));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {
+            'name': 'explain_issue',
+            'arguments': {'stableId': ''},
+          },
+          id: 2,
+        ),
+      );
       final result = resp!.result as Map<String, Object?>;
       expect(result['isError'], true);
     });
@@ -194,11 +357,9 @@ void main() {
       await bridge.connect(Uri.parse('ws://localhost/ws'));
       await server.handleForTest(_req('initialize'));
       // Prime encyclopedia cache.
-      final first = await server.handleForTest(_req(
-        'resources/read',
-        params: {'uri': 'sleuth://encyclopedia'},
-        id: 2,
-      ));
+      final first = await server.handleForTest(
+        _req('resources/read', params: {'uri': 'sleuth://encyclopedia'}, id: 2),
+      );
       expect(first!.isError, isFalse);
       // Swap the canned envelope, then re-init — the cache should drop and
       // the next read should fetch the new payload.
@@ -209,15 +370,186 @@ void main() {
         'data': {'count': 99, 'entries': <String, Object?>{}},
       });
       await server.handleForTest(_req('initialize', id: 3));
-      final second = await server.handleForTest(_req(
-        'resources/read',
-        params: {'uri': 'sleuth://encyclopedia'},
-        id: 4,
-      ));
+      final second = await server.handleForTest(
+        _req('resources/read', params: {'uri': 'sleuth://encyclopedia'}, id: 4),
+      );
       final result = second!.result as Map<String, Object?>;
       final contents =
           (result['contents'] as List).first as Map<String, Object?>;
       expect((contents['text'] as String), contains('"count":99'));
+    });
+  });
+
+  group('generic tool timeout', () {
+    test('keeps the bridge connected and says what to do next', () async {
+      final bridge = defaultFakeBridge();
+      final server = McpServer(
+        bridge: bridge,
+        toolTimeout: const Duration(milliseconds: 50),
+      )..registerDefaults();
+      await server.handleForTest(_req('initialize'));
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final gate = bridge.gateExtension('ext.sleuth.diagnose');
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      expect(result['isError'], isTrue);
+      final text = ((result['content'] as List).first as Map)['text'] as String;
+      expect(text, startsWith('timeout_after_50ms: '));
+      expect(text, contains('connection to the app is kept'));
+      expect(text, isNot(contains('re-invoke connect')));
+      expect(bridge.isConnected, isTrue);
+      gate.complete();
+      // The next call works on the same connection.
+      final next = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+          id: 3,
+        ),
+      );
+      expect((next!.result as Map<String, Object?>)['isError'], isNull);
+    });
+
+    test('a resource read timeout keeps the bridge connected', () async {
+      final bridge = defaultFakeBridge();
+      final server = McpServer(
+        bridge: bridge,
+        toolTimeout: const Duration(milliseconds: 50),
+      )..registerDefaults();
+      await server.handleForTest(_req('initialize'));
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final gate = bridge.gateExtension('ext.sleuth.encyclopedia');
+      final resp = await server.handleForTest(
+        _req('resources/read', params: {'uri': 'sleuth://encyclopedia'}, id: 2),
+      );
+      expect(resp!.isError, isTrue);
+      expect(resp.error!.message, contains('kept'));
+      expect(bridge.isConnected, isTrue);
+      gate.complete();
+    });
+
+    test('the bridge timeout fires before the tool timeout', () {
+      expect(
+        bridgeCallTimeoutWithin(const Duration(seconds: 10)),
+        const Duration(seconds: 8),
+      );
+      expect(
+        bridgeCallTimeoutWithin(const Duration(seconds: 60)),
+        const Duration(seconds: 58),
+      );
+      expect(
+        bridgeCallTimeoutWithin(const Duration(seconds: 1)),
+        const Duration(milliseconds: 800),
+      );
+      expect(RealVmBridge().callTimeout, const Duration(seconds: 8));
+    });
+  });
+
+  group('startup gate', () {
+    test(
+      'tools/call waits for holdToolCallsUntil; initialize does not',
+      () async {
+        final bridge = defaultFakeBridge();
+        final server = McpServer(bridge: bridge)..registerDefaults();
+        final ready = Completer<void>();
+        server.holdToolCallsUntil(ready.future);
+        final init = await server
+            .handleForTest(_req('initialize'))
+            .timeout(const Duration(seconds: 1));
+        expect(init!.isError, isFalse);
+        var answered = false;
+        final call = server
+            .handleForTest(
+              _req(
+                'tools/call',
+                params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+                id: 2,
+              ),
+            )
+            .then((r) {
+              answered = true;
+              return r;
+            });
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          answered,
+          isFalse,
+          reason: 'held until the startup connect ends',
+        );
+        await bridge.connect(Uri.parse('ws://localhost/ws'));
+        ready.complete();
+        final result = (await call)!.result as Map<String, Object?>;
+        expect(result['isError'], isNull);
+      },
+    );
+
+    test('a failed startup connect releases the gate', () async {
+      final bridge = defaultFakeBridge();
+      final server = McpServer(bridge: bridge)..registerDefaults();
+      server.holdToolCallsUntil(Future<void>.error(StateError('boom')));
+      await server.handleForTest(_req('initialize'));
+      final resp = await server
+          .handleForTest(
+            _req(
+              'tools/call',
+              params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+              id: 2,
+            ),
+          )
+          .timeout(const Duration(seconds: 1));
+      final text =
+          (((resp!.result as Map)['content'] as List).first as Map)['text']
+              as String;
+      expect(text, startsWith('not_connected: '));
+    });
+  });
+
+  group('session detach on exit', () {
+    test('shutdown and the exit path share one detach', () async {
+      final server = McpServer(bridge: defaultFakeBridge());
+      final session = CountingSession();
+      server.setDaemonSession(session);
+      server.shutdown();
+      await server.detachDaemonSession();
+      await server.detachDaemonSession();
+      expect(session.detachCalls, 1);
+      expect(server.daemonSession, isNull);
+    });
+
+    test('a detach that hangs is bounded by the exit detach timeout', () async {
+      final server = McpServer(
+        bridge: defaultFakeBridge(),
+        exitDetachTimeout: const Duration(milliseconds: 50),
+      );
+      final session = CountingSession(hang: true);
+      server.setDaemonSession(session);
+      final watch = Stopwatch()..start();
+      await server.detachDaemonSession();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(session.detachCalls, 1);
+    });
+
+    test('a detach that throws does not throw from the exit path', () async {
+      final server = McpServer(bridge: defaultFakeBridge());
+      server.setDaemonSession(CountingSession(fail: true));
+      await expectLater(server.detachDaemonSession(), completes);
+    });
+
+    test('stdin EOF starts the detach', () async {
+      final server = McpServer(bridge: defaultFakeBridge())..registerDefaults();
+      final session = CountingSession();
+      server.setDaemonSession(session);
+      await server.serve(
+        input: const Stream<List<int>>.empty(),
+        output: LineSink(),
+      );
+      expect(session.detachCalls, 1);
     });
   });
 
@@ -231,32 +563,32 @@ void main() {
     });
 
     Future<void> init(String protocol) => server.handleForTest(
-          _req('initialize', params: {'protocolVersion': protocol}),
-        );
+      _req('initialize', params: {'protocolVersion': protocol}),
+    );
 
     Future<Map<String, Object?>> call(
       String name,
       Map<String, Object?> args, {
       Object? id = 2,
     }) async {
-      final resp = await server.handleForTest(_req(
-        'tools/call',
-        params: {'name': name, 'arguments': args},
-        id: id,
-      ));
+      final resp = await server.handleForTest(
+        _req('tools/call', params: {'name': name, 'arguments': args}, id: id),
+      );
       return resp!.result as Map<String, Object?>;
     }
 
-    test('2025-06-18 success: structuredContent mirrors the text block',
-        () async {
-      await init('2025-06-18');
-      final result = await call('connect', {'uri': 'ws://localhost/ws'});
-      expect(result.containsKey('isError'), isFalse);
-      final sc = result['structuredContent'] as Map<String, Object?>;
-      final text = (result['content'] as List).first as Map<String, Object?>;
-      expect(sc, jsonDecode(text['text'] as String));
-      expect(sc['connected'], true);
-    });
+    test(
+      '2025-06-18 success: structuredContent mirrors the text block',
+      () async {
+        await init('2025-06-18');
+        final result = await call('connect', {'uri': 'ws://localhost/ws'});
+        expect(result.containsKey('isError'), isFalse);
+        final sc = result['structuredContent'] as Map<String, Object?>;
+        final text = (result['content'] as List).first as Map<String, Object?>;
+        expect(sc, jsonDecode(text['text'] as String));
+        expect(sc['connected'], true);
+      },
+    );
 
     test('2024-11-05: older client receives no structuredContent', () async {
       await init('2024-11-05');
@@ -275,26 +607,33 @@ void main() {
 
     test('re-initialize downgrade stops structuredContent emission', () async {
       await init('2025-06-18');
-      final upgraded =
-          await call('connect', {'uri': 'ws://localhost/ws'}, id: 2);
+      final upgraded = await call('connect', {
+        'uri': 'ws://localhost/ws',
+      }, id: 2);
       expect(upgraded.containsKey('structuredContent'), isTrue);
       // Re-init at an older protocol must revert the gate.
       await init('2024-11-05');
-      final downgraded =
-          await call('connect', {'uri': 'ws://localhost/ws'}, id: 3);
+      final downgraded = await call('connect', {
+        'uri': 'ws://localhost/ws',
+      }, id: 3);
       expect(downgraded.containsKey('structuredContent'), isFalse);
     });
 
-    test('passthrough success: structuredContent is the whole envelope',
-        () async {
-      await init('2025-06-18');
-      await call('connect', {'uri': 'ws://localhost/ws'});
-      final result = await call('get_snapshot', const {}, id: 3);
-      final sc = result['structuredContent'] as Map<String, Object?>;
-      expect(sc['sessionUuid'], 'fake-uuid');
-      expect(sc.containsKey('data'), isTrue,
-          reason: 'mirrors the full envelope, not just data');
-    });
+    test(
+      'passthrough success: structuredContent is the whole envelope',
+      () async {
+        await init('2025-06-18');
+        await call('connect', {'uri': 'ws://localhost/ws'});
+        final result = await call('get_snapshot', const {}, id: 3);
+        final sc = result['structuredContent'] as Map<String, Object?>;
+        expect(sc['sessionUuid'], 'fake-uuid');
+        expect(
+          sc.containsKey('data'),
+          isTrue,
+          reason: 'mirrors the full envelope, not just data',
+        );
+      },
+    );
 
     test('pipelined re-init downgrade keeps SC on an in-flight call', () async {
       await init('2025-06-18');
@@ -302,42 +641,56 @@ void main() {
       // Hold get_snapshot in-flight at the extension call, then re-init older
       // concurrently. The response must honor the protocol at request start.
       final gate = bridge.gateExtension('ext.sleuth.snapshot');
-      final inflight = server.handleForTest(_req(
-        'tools/call',
-        params: {
-          'name': 'get_snapshot',
-          'arguments': const <String, Object?>{}
-        },
-        id: 3,
-      ));
+      final inflight = server.handleForTest(
+        _req(
+          'tools/call',
+          params: {
+            'name': 'get_snapshot',
+            'arguments': const <String, Object?>{},
+          },
+          id: 3,
+        ),
+      );
       await init('2024-11-05');
       gate.complete();
       final result = (await inflight)!.result as Map<String, Object?>;
-      expect(result.containsKey('structuredContent'), isTrue,
-          reason: 'call started under 2025-06-18 keeps SC despite mid-flight '
-              'downgrade');
+      expect(
+        result.containsKey('structuredContent'),
+        isTrue,
+        reason:
+            'call started under 2025-06-18 keeps SC despite mid-flight '
+            'downgrade',
+      );
     });
 
-    test('pipelined re-init upgrade does not add SC to an older-started call',
-        () async {
-      await init('2024-11-05');
-      await call('connect', {'uri': 'ws://localhost/ws'});
-      final gate = bridge.gateExtension('ext.sleuth.snapshot');
-      final inflight = server.handleForTest(_req(
-        'tools/call',
-        params: {
-          'name': 'get_snapshot',
-          'arguments': const <String, Object?>{}
-        },
-        id: 3,
-      ));
-      await init('2025-06-18');
-      gate.complete();
-      final result = (await inflight)!.result as Map<String, Object?>;
-      expect(result.containsKey('structuredContent'), isFalse,
-          reason: 'call started under 2024-11-05 must not gain SC from a '
-              'mid-flight upgrade');
-    });
+    test(
+      'pipelined re-init upgrade does not add SC to an older-started call',
+      () async {
+        await init('2024-11-05');
+        await call('connect', {'uri': 'ws://localhost/ws'});
+        final gate = bridge.gateExtension('ext.sleuth.snapshot');
+        final inflight = server.handleForTest(
+          _req(
+            'tools/call',
+            params: {
+              'name': 'get_snapshot',
+              'arguments': const <String, Object?>{},
+            },
+            id: 3,
+          ),
+        );
+        await init('2025-06-18');
+        gate.complete();
+        final result = (await inflight)!.result as Map<String, Object?>;
+        expect(
+          result.containsKey('structuredContent'),
+          isFalse,
+          reason:
+              'call started under 2024-11-05 must not gain SC from a '
+              'mid-flight upgrade',
+        );
+      },
+    );
   });
 
   group('prompts', () {
@@ -362,26 +715,29 @@ void main() {
       expect(caps.containsKey('prompts'), isTrue);
     });
 
-    test('prompts/list returns the locked set with valid descriptors',
-        () async {
-      await server.handleForTest(_req('initialize'));
-      final resp = await server.handleForTest(_req('prompts/list', id: 2));
-      final prompts =
-          ((resp!.result as Map<String, Object?>)['prompts'] as List)
-              .cast<Map<String, Object?>>();
-      expect(prompts.map((p) => p['name']).toSet(), expectedNames);
-      for (final p in prompts) {
-        expect(p['name'], isA<String>());
-        expect(p['description'], isA<String>());
-        expect(p['arguments'], isA<List<Object?>>());
-      }
-    });
+    test(
+      'prompts/list returns the locked set with valid descriptors',
+      () async {
+        await server.handleForTest(_req('initialize'));
+        final resp = await server.handleForTest(_req('prompts/list', id: 2));
+        final prompts =
+            ((resp!.result as Map<String, Object?>)['prompts'] as List)
+                .cast<Map<String, Object?>>();
+        expect(prompts.map((p) => p['name']).toSet(), expectedNames);
+        for (final p in prompts) {
+          expect(p['name'], isA<String>());
+          expect(p['description'], isA<String>());
+          expect(p['arguments'], isA<List<Object?>>());
+        }
+      },
+    );
 
     test('prompts/get returns a valid user-text message per prompt', () async {
       await server.handleForTest(_req('initialize'));
       for (final name in expectedNames) {
-        final resp = await server
-            .handleForTest(_req('prompts/get', params: {'name': name}, id: 2));
+        final resp = await server.handleForTest(
+          _req('prompts/get', params: {'name': name}, id: 2),
+        );
         final res = resp!.result as Map<String, Object?>;
         expect(res['description'], isA<String>());
         final messages = (res['messages'] as List).cast<Map<String, Object?>>();
@@ -397,47 +753,82 @@ void main() {
 
     test('prompts/get unknown name returns invalidParams', () async {
       await server.handleForTest(_req('initialize'));
-      final resp = await server
-          .handleForTest(_req('prompts/get', params: {'name': 'nope'}, id: 2));
+      final resp = await server.handleForTest(
+        _req('prompts/get', params: {'name': 'nope'}, id: 2),
+      );
       expect(resp!.isError, isTrue);
       expect(resp.error!.code, JsonRpcError.invalidParams);
     });
 
-    test('re-initialize keeps the prompt set (static, not invalidated)',
-        () async {
-      await server.handleForTest(_req('initialize'));
-      await server.handleForTest(_req('initialize', id: 2));
-      final resp = await server.handleForTest(_req('prompts/list', id: 3));
-      final prompts =
-          ((resp!.result as Map<String, Object?>)['prompts'] as List)
-              .cast<Map<String, Object?>>();
-      expect(prompts.map((p) => p['name']).toSet(), expectedNames);
+    test(
+      're-initialize keeps the prompt set (static, not invalidated)',
+      () async {
+        await server.handleForTest(_req('initialize'));
+        await server.handleForTest(_req('initialize', id: 2));
+        final resp = await server.handleForTest(_req('prompts/list', id: 3));
+        final prompts =
+            ((resp!.result as Map<String, Object?>)['prompts'] as List)
+                .cast<Map<String, Object?>>();
+        expect(prompts.map((p) => p['name']).toSet(), expectedNames);
+      },
+    );
+
+    test('triage_performance uses get_issues plus a projected snapshot', () {
+      final text = builtInPrompts['triage_performance']!.text;
+      expect(
+        text.indexOf('get_issues'),
+        lessThan(text.indexOf('get_snapshot')),
+      );
+      final sections = RegExp(r'sections \[([^\]]*)\]').firstMatch(text);
+      expect(sections, isNotNull, reason: 'get_snapshot must name sections');
+      final named = RegExp(
+        r'"([A-Za-z]+)"',
+      ).allMatches(sections!.group(1)!).map((m) => m.group(1)!).toList();
+      expect(named, isNotEmpty);
+      expect(snapshotSectionKeys, containsAll(named));
+      expect(
+        named,
+        isNot(contains('currentIssues')),
+        reason: 'get_issues already returns the issues',
+      );
+      for (final heavy in heavySnapshotSections) {
+        expect(named, isNot(contains(heavy)));
+      }
     });
 
     test('prompt usesTools matches registered tools + text (drift guard)', () {
-      final registered = {
-        ...builtInTools.keys,
-        ...lifecycleTools(server).keys,
-      };
+      final registered = {...builtInTools.keys, ...lifecycleTools(server).keys};
       for (final prompt in builtInPrompts.values) {
         // Every declared tool exists — catches a renamed/removed tool.
-        expect(prompt.usesTools.difference(registered), isEmpty,
-            reason: '${prompt.descriptor.name} declares unknown tools: '
-                '${prompt.usesTools.difference(registered)}');
+        expect(
+          prompt.usesTools.difference(registered),
+          isEmpty,
+          reason:
+              '${prompt.descriptor.name} declares unknown tools: '
+              '${prompt.usesTools.difference(registered)}',
+        );
         // Every declared tool is actually named in the text.
         for (final tool in prompt.usesTools) {
-          expect(RegExp('\\b$tool\\b').hasMatch(prompt.text), isTrue,
-              reason: '${prompt.descriptor.name} declares $tool but text '
-                  'never names it');
+          expect(
+            RegExp('\\b$tool\\b').hasMatch(prompt.text),
+            isTrue,
+            reason:
+                '${prompt.descriptor.name} declares $tool but text '
+                'never names it',
+          );
         }
         // Reverse: every registered tool named in the text is declared —
         // catches text referencing a tool absent from usesTools (which would
         // escape the rename check above).
         for (final tool in registered) {
           if (RegExp('\\b$tool\\b').hasMatch(prompt.text)) {
-            expect(prompt.usesTools.contains(tool), isTrue,
-                reason: '${prompt.descriptor.name} text names $tool but '
-                    'usesTools omits it');
+            expect(
+              prompt.usesTools.contains(tool),
+              isTrue,
+              reason:
+                  '${prompt.descriptor.name} text names $tool but '
+                  'usesTools omits it',
+            );
           }
         }
       }
