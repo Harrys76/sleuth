@@ -3,8 +3,14 @@ import 'package:flutter/widgets.dart';
 /// Bounded cache of widget [Type] → abbreviated "file:line" source locations.
 ///
 /// Uses [InspectorSerializationDelegate.additionalNodeProperties] to access
-/// creation location data injected by `--track-widget-creation` (the default
-/// in debug mode). Returns null in profile mode or when tracking is disabled.
+/// creation location data injected by the track-widget-creation kernel
+/// transform. Flutter's tool applies it in every build mode except release,
+/// and `flutter run` (debug or profile) and `flutter build apk` / `appbundle`
+/// turn it on by default, so profile builds usually have locations. Returns
+/// null when the build does not track widget creation: release builds,
+/// `--no-track-widget-creation`, or an iOS build from `flutter build ios` /
+/// `ipa`, which writes `TRACK_WIDGET_CREATION=false` into the generated
+/// xcconfig (Xcode or fastlane archives that reuse it inherit the setting).
 ///
 /// Cache is bounded by [maxEntries] — when full, new types are not cached
 /// but existing lookups remain valid. Source locations are stable per widget
@@ -20,8 +26,9 @@ class SourceLocationCache {
 
   /// Returns abbreviated "file:line" for the [element]'s widget, or null.
   ///
-  /// Results are cached by `widget.runtimeType`. Returns null when widget
-  /// creation tracking is unavailable (profile mode, `--no-track-widget-creation`).
+  /// Results are cached by `widget.runtimeType`. Returns null when the build
+  /// does not track widget creation (release, `--no-track-widget-creation`,
+  /// or an iOS build from `flutter build ios` / `ipa` without the setting).
   String? lookup(Element element) {
     _trackingAvailable ??= WidgetInspectorService.instance
         .isWidgetCreationTracked();

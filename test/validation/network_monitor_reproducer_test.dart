@@ -27,18 +27,18 @@ import 'package:sleuth/src/network/http_monitor.dart';
 import 'package:sleuth/src/network/request_record.dart';
 
 /// How the Layer 2 consumer drains the response body. Each mode exercises
-/// a different `StreamSubscription` code path the v0.16.1 AB1 fix covers:
+/// a different `StreamSubscription` code path the v0.16.1 fix covers:
 /// before the fix, `drain` and `asFuture` silently replaced the proxy's
 /// wrapping `onDone` and the `RequestRecord` never landed.
 enum DrainMode {
   /// `await for (final _ in response) {}` — the subscription's `onDone`
   /// is the one the proxy installed, so the record emission path fires
-  /// naturally. Safe even on the pre-AB1 implementation.
+  /// naturally. Safe even on the pre-v0.16.1 implementation.
   awaitFor,
 
   /// `response.drain<void>()` — internally calls `listen(null,
   /// cancelOnError: true).asFuture(futureValue)`, which replaces the
-  /// inner subscription's `_onDone`. Before AB1, the proxy's record
+  /// inner subscription's `_onDone`. Before v0.16.1, the proxy's record
   /// never emitted on this path.
   drain,
 
@@ -352,14 +352,14 @@ void main() {
       },
     );
 
-    // AB1 regression tests (v0.16.1): the proxy must emit a
+    // Regression tests (v0.16.1): the proxy must emit a
     // `RequestRecord` regardless of how the consumer drains the
     // response. Before the `_MonitoringSubscription` wrapper,
     // `Stream.drain()` and `StreamSubscription.asFuture()` each
     // replaced the inner subscription's `_onDone` and silently
     // erased the proxy's record emission. These four parameterised
     // tests pin the fix so a regression fails CI.
-    test('AB1: drain() still emits RequestRecord', () async {
+    test('drain() still emits RequestRecord', () async {
       await drive(
         serverDelay: const Duration(milliseconds: 50),
         drainMode: DrainMode.drain,
@@ -374,7 +374,7 @@ void main() {
       );
     });
 
-    test('AB1: listen().asFuture() still emits RequestRecord', () async {
+    test('listen().asFuture() still emits RequestRecord', () async {
       await drive(
         serverDelay: const Duration(milliseconds: 50),
         drainMode: DrainMode.listenAsFuture,
@@ -389,7 +389,7 @@ void main() {
       );
     });
 
-    test('AB1: early cancel() still emits RequestRecord', () async {
+    test('early cancel() still emits RequestRecord', () async {
       await drive(
         serverDelay: const Duration(milliseconds: 50),
         drainMode: DrainMode.cancelEarly,
@@ -405,7 +405,7 @@ void main() {
       );
     });
 
-    test('AB1: slow response via drain() still escalates to warning', () async {
+    test('slow response via drain() still escalates to warning', () async {
       await drive(
         serverDelay: const Duration(milliseconds: 1100),
         drainMode: DrainMode.drain,
@@ -438,7 +438,7 @@ void main() {
     // emission is invariant under rebinding.
 
     test(
-      'B2: post-listen sub.onDone(newCb) fires newCb AND emits RequestRecord',
+      'post-listen sub.onDone(newCb) fires newCb AND emits RequestRecord',
       () async {
         server.listen((req) async {
           req.response.add(List<int>.filled(64, 0x41));
@@ -484,7 +484,7 @@ void main() {
     );
 
     test(
-      'B2: post-listen sub.onError(newCb) fires newCb AND emits RequestRecord',
+      'post-listen sub.onError(newCb) fires newCb AND emits RequestRecord',
       () async {
         // Server accepts the connection, writes nothing, then destroys the
         // socket to surface a stream error on the client side.
@@ -546,12 +546,12 @@ void main() {
           isTrue,
           reason:
               'either the rebound error handler fires, or the error '
-              'surfaced earlier on the request path — both satisfy B2',
+              'surfaced earlier on the request path. Both are acceptable.',
         );
       },
     );
 
-    test('B2: mid-stream server-close emits record with partial bytes AND '
+    test('mid-stream server-close emits record with partial bytes AND '
         'asFuture() surfaces the error', () async {
       // Bind a raw ServerSocket instead of reusing `server` (HttpServer)
       // so we can hand-write an HTTP response with a content-length
@@ -632,7 +632,7 @@ void main() {
       }
     });
 
-    test('B2: cancel-before-first-chunk emits record with bytes=0 and marks '
+    test('cancel-before-first-chunk emits record with bytes=0 and marks '
         'cancelled=true', () async {
       // Server delays long enough for the client to cancel before any
       // data is written.
@@ -686,7 +686,7 @@ void main() {
     });
 
     test(
-      'B3: cancelled records are excluded from slow_request classification',
+      'cancelled records are excluded from slow_request classification',
       () async {
         // Server delay > 1000 ms so a completion would trip slow_request.
         server.listen((req) async {

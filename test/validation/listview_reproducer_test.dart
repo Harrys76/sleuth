@@ -628,7 +628,7 @@ void main() {
             child: CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(
-                  // F1: SizedBox wraps the INNER ListView (layout
+                  // SizedBox wraps the INNER ListView (layout
                   // constraints), not the outer SliverToBoxAdapter.
                   child: SizedBox(
                     height: 200,

@@ -228,7 +228,9 @@ class PerformanceIssue {
   final String? confidenceReason;
 
   /// Package name extracted from the leaf element's source location.
-  /// Null in profile mode or when source tracking is unavailable.
+  /// Null when the build does not track widget creation (release,
+  /// `--no-track-widget-creation`, or an iOS build from `flutter build ios` /
+  /// `ipa` without the setting).
   final String? packageName;
 
   /// `identityHashCode` of the innermost visible Scaffold Element when the

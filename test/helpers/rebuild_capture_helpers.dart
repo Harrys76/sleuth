@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 
-/// Anti-tautology rebuild capture helpers — support for spec v15 M11.
+/// Anti-tautology rebuild capture helpers.
 ///
 /// Existing detector tests feed hand-coded `const DebugSnapshot` literals
 /// into detectors, which validates that the detector's *reaction* to a
@@ -23,7 +23,7 @@ import 'package:sleuth/src/debug/debug_snapshot.dart';
 ///
 /// Widget tests run under `kDebugMode`, so the coordinator installs on its
 /// debug path (`debugOnRebuildDirtyWidget`) — the profile-mode
-/// `FlutterTimeline` drain (KDD-1) is NOT exercised here; that path has
+/// `FlutterTimeline` drain is NOT exercised here; that path has
 /// its own dedicated suite under `test/debug/`.
 
 /// A tiny stateful widget whose build output is driven by an integer

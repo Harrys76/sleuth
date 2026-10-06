@@ -16,10 +16,11 @@ import 'capture_driver.dart';
 /// satisfy `ProfileCaptureSchema.validateBracket(...
 /// requireDetectorTraceRecord: true, ...)` ONLY when SleuthController's
 /// VmServiceClient is connected — i.e. the run is in VM+ mode, not FRAME
-/// mode. USB-tethered iPhone profile-mode is FRAME mode (the VM service
-/// port is not routed to the host); use **wireless debugging** via Xcode →
-/// Window → Devices and Simulators → "Connect via network", or run on the
-/// iOS simulator.
+/// mode. Sleuth connects to the app's own VM service from inside the app,
+/// so USB and wireless both work. What blocks it is DDS: `flutter run`
+/// starts DDS by default and DDS keeps the VM service as its only client,
+/// which leaves Sleuth in FRAME mode. Launch with `--no-dds` (step 1), or
+/// start the installed app from the home screen.
 ///
 /// In FRAME mode, the `MemoryPressureDetector` (vmOnly lifecycle) never
 /// receives heap samples, so `_recordIssuesForCapture` never emits the
@@ -40,8 +41,9 @@ import 'capture_driver.dart';
 ///
 /// **Procedure per leg:**
 ///
-///   1. `cd example && fvm flutter run --profile -d DEVICE \
-///         --dart-define=SLEUTH_CAPTURE_MODE=true`.
+///   1. `cd example && fvm flutter run --profile --no-dds -d DEVICE \
+///         --dart-define=SLEUTH_CAPTURE_MODE=true \
+///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
 ///   2. Wait ≥ 5 s after app launch (lets the detector's 3 s heap-trend
 ///      warmup elapse and the rolling sample window stabilize).
 ///   3. Tap **Calibrate** — runs a 1-second allocation warmup and pins
@@ -64,12 +66,10 @@ import 'capture_driver.dart';
 ///
 ///   below:   0 < bytes/sec < 512 000   (sub-threshold; detector silent)
 ///   at:      512 000 ≤ bytes/sec ≤ 768 000  (atTolerance 0.50 → [T, 1.5×T])
-///   above:   800 000 ≤ bytes/sec ≤ 1 024 000  (above-ceiling 2.0 × T)
+///   above:   768 001 ≤ bytes/sec ≤ 1 024 000  (above-ceiling 2.0 × T)
 ///
-/// The above-band screen-side floor (800 000) sits one tick above the at-
-/// band's schema-allowed upper (768 000) so at and above magnitudes stay
-/// disjoint even though the schema's strict-greater-than at-upper formally
-/// allows above to start at 512 001.
+/// The above-band floor (768 001) sits one above the at-band's upper
+/// (768 000), so at and above magnitudes stay disjoint.
 ///
 /// **Retention reset between legs.** Each leg's allocation runs into a
 /// fresh `_retainedAllocations` list — the prior leg's retained bytes are
@@ -376,8 +376,8 @@ class _MemoryPressureCaptureScreenState
 
       // Post-end barrier before exportCaptureJson: VM service buffer
       // needs to flush the just-emitted scenario.end marker before
-      // service.getVMTimeline can return it. Over wireless debug the
-      // RPC can otherwise observe a snapshot that pre-dates the end
+      // service.getVMTimeline can return it. Without the wait the
+      // RPC can observe a snapshot that pre-dates the end
       // marker, making the controller's pair-finder return null on
       // endTs == null. Mirrors NetworkMonitor's proven 800 ms post-end
       // pattern.

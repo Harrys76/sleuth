@@ -1,18 +1,17 @@
-// Profile-mode coordinator tests — spec v15 M12.
+// Profile-mode coordinator tests.
 //
 // **Important:** widget tests run under `kDebugMode == true`, so the full
 // profile-mode wiring used in production (`kProfileMode == true` plus the
 // framework's `debugProfileBuildsEnabledUserWidgets` heavy-flags path)
 // CANNOT be validated here. These tests exercise the coordinator's state
-// machine, canonicalization logic, and `FlutterTimeline`-drain path — the
-// only real profile-mode validation is the M1 probe
-// (`example/lib/rebuild_stats_probe.dart`) run under
-// `fvm flutter run --profile` against a physical device.
+// machine, canonicalization logic, and `FlutterTimeline`-drain path. The
+// only real profile-mode validation is a `fvm flutter run --profile`
+// session on a physical device.
 //
 // Coverage:
 // - `installProfileMode` flips `FlutterTimeline.debugCollectionEnabled`.
-// - Refuses to install when already `true` (DevTools / second-Sleuth
-//   conflict, KDD-1 + R20).
+// - Refuses to install when already `true`, so it does not take over a
+//   buffer that DevTools or a second Sleuth instance already owns.
 // - `uninstallProfileMode` and `dispose` restore the prior flag value.
 // - Double-install (same mode) is an idempotent no-op.
 // - `snapshot()` drains via `canonicalizeTypeName`, aggregates by name.
@@ -320,7 +319,7 @@ void main() {
         ),
         isNull,
       );
-      // v0.15.1 follow-up (KDD-10b): identifier-shaped frame scopes that
+      // v0.15.1 follow-up: identifier-shaped frame scopes that
       // were missing from the original denylist and leaked into the
       // Rebuild Stats drilldown as fake "widgets" with one entry per
       // frame (~60/sec at 60 FPS). Each is sourced from a
@@ -533,7 +532,7 @@ void main() {
       },
     );
 
-    // v0.15.1 hotfix KDD-10: every entry in the framework + Sleuth-overlay
+    // v0.15.1 hotfix: every entry in the framework + Sleuth-overlay
     // denylist must canonicalize to null so the profile-mode drain never
     // attributes self-contamination to the active session. The audit test
     // in `test/debug/overlay_denylist_audit_test.dart` enforces the set's
@@ -541,7 +540,7 @@ void main() {
     // BEHAVIOR through `canonicalizeTypeName`. Both layers are required —
     // parity without behavior would allow a misplaced early-return to
     // silently let entries through.
-    group('framework widget denylist (KDD-10)', () {
+    group('framework widget denylist', () {
       test('every denylist entry is dropped by canonicalizeTypeName', () {
         final denyList =
             DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList;
@@ -558,7 +557,7 @@ void main() {
           reason:
               'These denylist entries passed through canonicalizeTypeName '
               'instead of being dropped, which means Sleuth will self-measure '
-              'them in profile mode (KDD-10 regression):\n'
+              'them in profile mode:\n'
               '  ${leaked..sort()}',
         );
       });

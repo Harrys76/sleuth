@@ -216,10 +216,10 @@ void main() {
     });
   });
 
-  // v0.17.0 C3 regression: null-tail decay. If newer frames arrive without
+  // v0.17.0 regression: null-tail decay. If newer frames arrive without
   // rasterFinishUs, the window anchor must not freeze on old valid
   // timestamps while the engine clock (vsyncStartUs) keeps advancing.
-  group('FrameStatsBuffer.actualFps — C3 null-tail decay', () {
+  group('FrameStatsBuffer.actualFps — null-tail decay', () {
     FrameStats frameAt({required int number, int? rasterUs, int? vsyncUs}) {
       return FrameStats(
         frameNumber: number,

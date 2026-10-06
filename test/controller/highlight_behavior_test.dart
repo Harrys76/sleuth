@@ -191,7 +191,7 @@ void main() {
     );
   });
 
-  group('highlight dirty-check (Pillar 2a M2)', () {
+  group('highlight dirty-check', () {
     late SleuthController controller;
 
     setUp(() {

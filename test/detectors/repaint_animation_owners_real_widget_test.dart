@@ -17,16 +17,16 @@
 // categories (LinearProgressIndicator, RefreshProgressIndicator,
 // AnimatedBuilder, ValueListenableBuilder, TweenAnimationBuilder,
 // AnimatedContainer) and the two architectural edge cases the v0.15.3
-// C1/C3 fixes were explicitly designed to close:
+// per-paint attribution was designed to close:
 //
-//  - **C1 polymorphic-key collision**: two `CustomPaint` widgets with
+//  - **Polymorphic-key collision**: two `CustomPaint` widgets with
 //    the same runtimeType key, one descendant-of-AnimatedBuilder (owned)
-//    and one not (un-owned). Pre-C1, the chain cache stored whichever was
-//    seen first and the gate either fully suppressed the chart's bug or
-//    fully fired on the indicator's spinner. Post-C1, per-paint
+//    and one not (un-owned). Before v0.15.3 the chain cache stored
+//    whichever was seen first and the gate either fully suppressed the
+//    chart's bug or fully fired on the indicator's spinner. Per-paint
 //    attribution must produce a mixed `animationOwnedPaintCounts` entry.
 //
-//  - **C3 chain-walks-up gap**: `CircularProgressIndicator` mounted
+//  - **Chain-walks-up gap**: `CircularProgressIndicator` mounted
 //    WITHOUT a wrapping `RepaintBoundary`. The dirty-paint propagates UP
 //    through the tree to the nearest layer-owning ancestor; some of the
 //    paint events that fire are for render objects ABOVE CPI in the
@@ -184,11 +184,11 @@ void main() {
         // AnimatedBuilder (owned), one driven by an external Ticker that
         // calls setState on a non-owner host (un-owned). Both share the
         // runtimeType key 'CustomPaint' so they collide in `paintCounts`
-        // and `animationOwnedPaintCounts`. Pre-C1 fix the chain cache
-        // would store whichever ancestor chain was seen first and the
-        // detector either fully suppressed both or fully fired on both.
-        // Post-C1 the per-paint attribution must produce a MIXED entry:
-        // some paints owned, some not.
+        // and `animationOwnedPaintCounts`. Before per-paint attribution
+        // the chain cache stored whichever ancestor chain was seen first
+        // and the detector either fully suppressed both or fully fired on
+        // both. Per-paint attribution must produce a MIXED entry: some
+        // paints owned, some not.
         final captured = await _captureRealPaints(
           tester: tester,
           root: const Center(
@@ -219,7 +219,7 @@ void main() {
           ownedCustomPaint,
           greaterThan(0),
           reason:
-              'C1 fix: per-paint attribution must mark the AnimatedBuilder-'
+              'per-paint attribution must mark the AnimatedBuilder-'
               'descendant CustomPaint as owned. If this is zero, the chain '
               'walk failed to find AnimatedBuilder as an ancestor of the '
               'owned CustomPaint.',
@@ -228,7 +228,7 @@ void main() {
           ownedCustomPaint,
           lessThan(totalCustomPaint),
           reason:
-              'C1 fix: per-paint attribution must NOT mark the '
+              'per-paint attribution must NOT mark the '
               'externally-rebuilt CustomPaint as owned. If owned == total, '
               'the un-owned host is being mis-attributed (likely because the '
               'descendant walk is finding something it should not).',
@@ -279,7 +279,7 @@ void main() {
           repaintIssues,
           hasLength(1),
           reason:
-              'C1 fix: residual CustomPaint paints must produce exactly '
+              'residual CustomPaint paints must produce exactly '
               'one repaint_debug_CustomPaint issue. If zero, the gate is '
               'over-suppressing (treating mixed as fully owned). If more '
               'than one, the gate is double-counting.',
@@ -317,11 +317,11 @@ void main() {
         // never reaches CPI. Only the bounded descendant walk
         // (`hasAnimationOwnerDescendant`) can find CPI from those elements.
         //
-        // If this test fails after the C3 fix, the descendant walk's
-        // visit cap or depth cap is insufficient for a normal-depth tree,
-        // OR `_handleProfilePaint` isn't calling `isAnimationOwnedPaint`
-        // for ancestor paints at all. Either way the v0.15.3 C3 fix
-        // would be incomplete.
+        // If this test fails, the descendant walk's visit cap or depth
+        // cap is insufficient for a normal-depth tree, OR
+        // `_handleProfilePaint` isn't calling `isAnimationOwnedPaint` for
+        // ancestor paints at all. Either way the descendant walk added in
+        // v0.15.3 would not close the gap.
         final captured = await _captureRealPaints(
           tester: tester,
           root: const Center(child: CircularProgressIndicator()),
@@ -331,7 +331,7 @@ void main() {
           captured.animationOwnedPaintCounts,
           isNotEmpty,
           reason:
-              'C3 fix: bare CPI without RepaintBoundary must still get '
+              'bare CPI without RepaintBoundary must still get '
               'owned attribution via the descendant walk. If empty, the '
               'descendant walk in isAnimationOwnedPaint is not catching CPI '
               'when the dirty leaf is an ancestor of CPI in the tree.',
@@ -597,7 +597,7 @@ class _AnimatedContainerHostState extends State<_AnimatedContainerHost> {
 }
 
 // ---------------------------------------------------------------------------
-// C1 polymorphic-collision hosts: two CustomPaints with the same runtimeType
+// Polymorphic-key collision hosts: two CustomPaints with the same runtimeType
 // key but different ownership.
 // ---------------------------------------------------------------------------
 

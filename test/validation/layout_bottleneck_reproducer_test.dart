@@ -1,9 +1,9 @@
 // Hermetic reproducer for [LayoutBottleneckDetector].
 //
 // Pins two stableIds via the real `scanTree(root)` entry point on a
-// hand-built `pumpWidget` tree (anti-tautology, Tactic 9 — the detector
-// observes the live Element/RenderObject tree, not hand-rolled
-// PerformanceIssue objects).
+// hand-built `pumpWidget` tree (anti-tautology: the detector observes the
+// live Element/RenderObject tree, not hand-rolled PerformanceIssue
+// objects).
 //
 //   - `layout_bottleneck` — fired when the scanned subtree contains at
 //     least one `IntrinsicHeight` or `IntrinsicWidth` widget that is

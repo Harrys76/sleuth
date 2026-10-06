@@ -273,7 +273,7 @@ class TimelineParser {
   }
 
   // Known event name patterns — multi-case matching to avoid toLowerCase()
-  // allocation per event (Pillar 2a M3).
+  // allocation per event.
   // Flutter emits BUILD, LAYOUT, PAINT (v3+); LAYOUT (root) / PAINT (root) (v3.13+).
   // Older versions: Build, Layout, Paint (v2.x).
   static bool _isBuild(String name) =>

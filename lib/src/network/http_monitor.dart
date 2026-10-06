@@ -503,8 +503,9 @@ class _MonitoringResponse extends Stream<List<int>>
     //   `final sub = response.listen(...); sub.onDone(...);` (or
     //   `sub.onError(...)`) to rebind terminal callbacks AFTER listen.
     //   If those setters were forwarded to `_inner`, they would strip
-    //   the closures that call `_emitRecord` — resurfacing AB1 via a
-    //   new vector. To guard against that, the inner subscription's
+    //   the closures that call `_emitRecord`, and the record would be
+    //   lost again (the same failure as the `asFuture()` case above)
+    //   through a new path. To guard against that, the inner subscription's
     //   handlers are PERMANENTLY owned by this proxy; the wrapper
     //   stores user-supplied callbacks in mutable fields and the
     //   permanent handlers dereference those fields at call time.

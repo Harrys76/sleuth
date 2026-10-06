@@ -13,7 +13,7 @@
 // true)`. Round-trip success means the same constant flowed through
 // both paths byte-for-byte.
 //
-// Limitation (Tactic 9 — Test Fixture Audit): the JSON fixture is
+// Limitation: the JSON fixture is
 // hand-constructed in `_writeCapture(...)` below, NOT captured from
 // a real `flutter run --profile` session. Both the emitter side
 // (CaptureHelper.composeIssueEvent) and the parser side

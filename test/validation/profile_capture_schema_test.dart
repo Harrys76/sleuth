@@ -249,7 +249,7 @@ void main() {
       }
     });
 
-    // CODEX-R1-3: magnitude must be strictly positive.
+    // Magnitude must be strictly positive.
     test('zero observed is rejected', () {
       final meta = _validMetadata()
         ..['expectedMagnitude'] = {
@@ -347,7 +347,7 @@ void main() {
       );
     });
 
-    // CODEX-R1-4: out-of-range date/time components are rejected.
+    // Out-of-range date/time components are rejected.
     test('month rollover (month 13) is rejected', () {
       final meta = _validMetadata()..['captureDate'] = '2026-13-01T12:00:00Z';
       final bytes = _wrap(meta);
@@ -415,7 +415,7 @@ void main() {
       expect(() => ProfileCaptureSchema.parse(bytes), returnsNormally);
     });
 
-    // AB-3: the prior implementation compared `toUtc().toIso8601String()`
+    // An earlier implementation compared `toUtc().toIso8601String()`
     // against a string-normalised raw. That only bridged `+00:00` ↔ `Z`,
     // so any valid capture carrying a real non-zero UTC offset round-tripped
     // to a different moment's UTC form and was incorrectly rejected.
@@ -449,9 +449,9 @@ void main() {
       );
     });
 
-    // Bundle E (AGR-1): expectedMagnitude.unit is mandatory. Before
-    // Bundle E, missing/non-String unit was silently accepted AND
-    // silently disabled the AB-1 trace/observed cross-check.
+    // expectedMagnitude.unit is mandatory. A missing or non-String unit
+    // was once silently accepted AND silently disabled the
+    // trace-vs-observed cross-check.
     test('missing expectedMagnitude.unit is rejected', () {
       final meta = _validMetadata()
         ..['expectedMagnitude'] = <String, Object?>{
@@ -554,13 +554,13 @@ void main() {
       expect(() => ProfileCaptureSchema.parse(bytes), returnsNormally);
     });
 
-    // AB-2: duplicate-key scanner must decode `\uXXXX` escapes the same
+    // The duplicate-key scanner must decode `\uXXXX` escapes the same
     // way `jsonDecode` does. Previously the scanner preserved `\u` runs
     // verbatim, so two structurally identical keys encoded differently
     // (`"captureDate"` and `"\u0063aptureDate"`) were treated as distinct
     // by the scanner but collapsed by `jsonDecode` into last-write-wins —
     // exactly the review-bypass surface the scanner exists to close.
-    // AB-1 phase-set assertion: a capture composed entirely of metadata
+    // Phase-set assertion: a capture composed entirely of metadata
     // (`M`) or instant (`i`) events passes the length + allowed-phase
     // checks but carries no runtime evidence. The phase-set assertion
     // requires at least 3 work-phase events (B/E/X/b/e) per capture.
@@ -591,9 +591,9 @@ void main() {
       );
     });
 
-    // AB-1 cross-check: when the scenario-marker span is orders of
-    // magnitude smaller than expectedMagnitude.observed, the capture
-    // cannot have produced that magnitude in profile mode.
+    // Trace-vs-observed cross-check: when the scenario-marker span is
+    // orders of magnitude smaller than expectedMagnitude.observed, the
+    // capture cannot have produced that magnitude in profile mode.
     test('observed of 1000 ms with 1 µs scenario span is rejected', () {
       final suspiciousEvents = [
         for (var i = 0; i < 6; i++)
@@ -665,7 +665,7 @@ void main() {
       );
     });
 
-    // R3-NEW-1 (Bundle F): prior impl computed span from the global
+    // An earlier implementation computed span from the global
     // work-phase min/max; an attacker could pad an unrelated event far
     // from the scenario to inflate the denominator and slide an
     // otherwise-fabricated claim through. With scenario-marker binding,
@@ -743,7 +743,8 @@ void main() {
       );
     });
 
-    // AGR-2 (Bundle F): regression series. Previously 100_000×; now 100×.
+    // Regression series for the inverse-ratio ceiling, which dropped from
+    // 100_000× to 100×.
     test('ratio 50× passes (within new 100× ceiling)', () {
       final body = _buildCaptureWithSpan(
         observedMs: 50,
@@ -831,7 +832,7 @@ void main() {
       expect(() => ProfileCaptureSchema.parse(body), returnsNormally);
     });
 
-    // R3-NEW-1: scenario-marker presence, uniqueness, and ordering.
+    // Scenario-marker presence, uniqueness, and ordering.
     test('missing scenario markers are rejected', () {
       final events = _validTraceEvents()
           .where(
@@ -1027,7 +1028,7 @@ void main() {
       // The role-vs-label assertion in `_parseOrThrowWithLabel` fires
       // before the bracket-ordering check. A capture with role='above'
       // placed in the below-slot is rejected immediately so a
-      // mis-rolled triad cannot suppress the AB-1 inverse-ratio bypass
+      // mis-rolled triad cannot suppress the inverse-ratio bypass
       // by occupying the wrong slot.
       expect(
         () => ProfileCaptureSchema.validateBracket(
@@ -1161,7 +1162,7 @@ void main() {
         'role-vs-label check before any bracket math', () async {
       // Direct regression for the v0.19.0 audit-bypass: a real at-leg
       // capture whose `metadata.role` was hand-edited to `'below'`
-      // would otherwise silently disable the AB-1 inverse-ratio bypass
+      // would otherwise silently disable the inverse-ratio bypass
       // (parse() reads role and skips the inverse-ratio half) while
       // being audited in the at-slot. The role-vs-label assertion in
       // `_parseOrThrowWithLabel` rejects this triad with a clear error
@@ -1231,7 +1232,7 @@ void main() {
       );
     });
 
-    // Bundle E (AGR-1): validateBracket must enforce unit equality
+    // validateBracket must enforce unit equality
     // across the triad AND against the caller's bracket unit. Without
     // this a tier raise could assemble three captures in mismatched
     // scales (ms/µs/s) and the threshold comparison would be scale-
@@ -1314,7 +1315,7 @@ void main() {
       );
     });
 
-    // NEW-CODEX-1 (Bundle G): provenance cross-check. Three captures
+    // Provenance cross-check. Three captures
     // assembled from different devices / OS versions / Flutter patch
     // levels are not comparable — their observed values sit on
     // different reference axes even when the numerical bracketing
@@ -2149,79 +2150,77 @@ void main() {
       );
     });
 
-    test(
-      'synthetic-spec error text byte-for-byte identical (F2 preservation)',
-      () async {
-        // Build a bracket-violation triad and run BOTH entrypoints. The
-        // refactor extracted `_validateOneBracket(BracketSpec, ...)` as the
-        // shared body, so error messages must match byte-for-byte between
-        // (a) public validateBracket(named-args) and (b) validateBracketSpec.
-        // Drift here breaks every existing test pinned on string-match.
-        final tmp = await Directory.systemTemp.createTemp('sleuth_spec_eq_');
-        addTearDown(() => tmp.delete(recursive: true));
-        final belowF = _writeRoleCapture(
-          tmp,
-          'below.json',
-          role: 'below',
-          observed: 800,
-        );
-        final atF = _writeRoleCapture(
-          tmp,
-          'at.json',
-          role: 'at',
-          observed: 1200,
-        ); // > 1100 at-band ceiling
-        final aboveF = _writeRoleCapture(
-          tmp,
-          'above.json',
-          role: 'above',
-          observed: 1500,
-        );
+    test('synthetic-spec error text is byte-for-byte identical across both '
+        'entrypoints', () async {
+      // Build a bracket-violation triad and run BOTH entrypoints. The
+      // refactor extracted `_validateOneBracket(BracketSpec, ...)` as the
+      // shared body, so error messages must match byte-for-byte between
+      // (a) public validateBracket(named-args) and (b) validateBracketSpec.
+      // Drift here breaks every existing test pinned on string-match.
+      final tmp = await Directory.systemTemp.createTemp('sleuth_spec_eq_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final belowF = _writeRoleCapture(
+        tmp,
+        'below.json',
+        role: 'below',
+        observed: 800,
+      );
+      final atF = _writeRoleCapture(
+        tmp,
+        'at.json',
+        role: 'at',
+        observed: 1200,
+      ); // > 1100 at-band ceiling
+      final aboveF = _writeRoleCapture(
+        tmp,
+        'above.json',
+        role: 'above',
+        observed: 1500,
+      );
 
-        String? msgFromNamedArgs;
-        try {
-          ProfileCaptureSchema.validateBracket(
-            belowFile: belowF,
-            atFile: atF,
-            aboveFile: aboveF,
+      String? msgFromNamedArgs;
+      try {
+        ProfileCaptureSchema.validateBracket(
+          belowFile: belowF,
+          atFile: atF,
+          aboveFile: aboveF,
+          threshold: threshold,
+          unit: unit,
+        );
+      } on FormatException catch (e) {
+        msgFromNamedArgs = e.message;
+      }
+
+      String? msgFromSpec;
+      try {
+        ProfileCaptureSchema.validateBracketSpec(
+          const BracketSpec(
+            stableId: '',
+            severityLabel: '',
             threshold: threshold,
             unit: unit,
-          );
-        } on FormatException catch (e) {
-          msgFromNamedArgs = e.message;
-        }
-
-        String? msgFromSpec;
-        try {
-          ProfileCaptureSchema.validateBracketSpec(
-            const BracketSpec(
-              stableId: '',
-              severityLabel: '',
-              threshold: threshold,
-              unit: unit,
-              coveredThresholds: <String>{},
-              profileCapturePaths: <String>[],
-              requireDetectorTraceRecord: false,
-            ),
-            belowFile: belowF,
-            atFile: atF,
-            aboveFile: aboveF,
-          );
-        } on FormatException catch (e) {
-          msgFromSpec = e.message;
-        }
-
-        expect(msgFromNamedArgs, isNotNull);
-        expect(
-          msgFromSpec,
-          equals(msgFromNamedArgs),
-          reason:
-              'synthetic-spec wrapper must produce byte-identical '
-              'error text. Drift would break every existing string-match '
-              'assertion in the audit + reproducer test suite.',
+            coveredThresholds: <String>{},
+            profileCapturePaths: <String>[],
+            requireDetectorTraceRecord: false,
+          ),
+          belowFile: belowF,
+          atFile: atF,
+          aboveFile: aboveF,
         );
-      },
-    );
+      } on FormatException catch (e) {
+        msgFromSpec = e.message;
+      }
+
+      expect(msgFromNamedArgs, isNotNull);
+      expect(
+        msgFromSpec,
+        equals(msgFromNamedArgs),
+        reason:
+            'synthetic-spec wrapper must produce byte-identical '
+            'error text. Drift would break every existing string-match '
+            'assertion in the audit + reproducer test suite.',
+      );
+    });
 
     test('per-spec iteration: 2 specs both validate independently', () {
       final s1 = mkSpec();
@@ -2690,7 +2689,7 @@ List<Map<String, Object?>> _validTraceEvents() => [
     'tid': 40,
     'args': {'name': '1.raster'},
   },
-  // Bundle F: scenario markers bound the AB-1 cross-check span.
+  // Scenario markers bound the trace-vs-observed cross-check span.
   // observed = 1000 ms in `_validMetadata()`; span below is
   // 1_000_000 µs so ratio = 1.0.
   {
@@ -2774,8 +2773,8 @@ List<int> _wrap(Map<String, Object?> metadata) => utf8.encode(
 );
 
 /// Builds a capture whose scenario markers span exactly [spanMicros] µs
-/// and whose `expectedMagnitude.observed` is [observedMs] ms. Lets AB-1
-/// ratio tests vary the trace-span / observed ratio deterministically.
+/// and whose `expectedMagnitude.observed` is [observedMs] ms. Lets
+/// inverse-ratio tests vary the trace-span / observed ratio deterministically.
 List<int> _buildCaptureWithSpan({
   required num observedMs,
   required int spanMicros,
@@ -2922,9 +2921,9 @@ class _FakeDetectorMetadataProvider with DetectorMetadataProvider {
 /// each leg's `sleuthMetadata.role` matches its bracket slot but the
 /// observed values can be tuned to violate downstream invariants
 /// (ordering, tolerance, etc.) in isolation. Trace events span exactly
-/// `observed * 1000` µs so AB-1 ratio = 1.0 and the inverse-ratio
-/// half passes for at/above roles regardless of the bracket-violation
-/// being exercised.
+/// `observed * 1000` µs so the trace/observed ratio is 1.0 and the
+/// inverse-ratio half passes for at/above roles regardless of the
+/// bracket violation being exercised.
 File _writeRoleCapture(
   Directory dir,
   String filename, {

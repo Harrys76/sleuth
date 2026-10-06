@@ -24,7 +24,7 @@ void main() {
       // scenario markers, plus enough unrelated metadata to clear
       // ProfileCaptureSchema's `minTraceEvents` floor (= 10).
       final events = <Map<String, Object?>>[
-        // Scenario markers — required for AB-1 cross-check.
+        // Scenario markers, required for the trace-vs-observed cross-check.
         {
           'name': 'sleuth.scenario.begin',
           'cat': 'embedder',
@@ -136,7 +136,7 @@ void main() {
       expect(result.stderr.toString(), contains('Unknown flag'));
     });
 
-    // M1 — refuse --input == --output to prevent destroying the raw
+    // Refuse --input == --output to prevent destroying the raw
     // DevTools export.
     test(
       'refuses --output that resolves to the same path as --input',
@@ -162,7 +162,7 @@ void main() {
       },
     );
 
-    // M1 — refuse to overwrite an existing output file without --force.
+    // Refuse to overwrite an existing output file without --force.
     test('refuses to overwrite existing output without --force', () async {
       final outputPath = '${tempDir.path}/wrapped.json';
       File(outputPath).writeAsStringSync('{"prior": true}');
@@ -196,7 +196,7 @@ void main() {
       expect(File(outputPath).readAsStringSync(), contains('"prior"'));
     });
 
-    // M1 — --force allows overwrite.
+    // --force allows overwrite.
     test('--force overwrites an existing output file', () async {
       final outputPath = '${tempDir.path}/wrapped.json';
       File(outputPath).writeAsStringSync('{"prior": true}');
@@ -234,7 +234,7 @@ void main() {
       expect(File(outputPath).readAsStringSync(), contains('sleuthMetadata'));
     });
 
-    // M1 — refuse to double-wrap an already-wrapped capture.
+    // Refuse to double-wrap an already-wrapped capture.
     test('refuses to double-wrap an already-wrapped capture', () async {
       final wrappedInput = File('${tempDir.path}/already_wrapped.json');
       wrappedInput.writeAsStringSync(
@@ -286,8 +286,9 @@ void main() {
     // BUILD cross-check: when the captured timeline contains a BUILD
     // event inside the scenario span, --magnitude-observed must agree
     // with that event's `dur` within ±10 %. This is what protects the
-    // capture from Stopwatch-vs-BUILD skew on USB-tethered FRAME-mode
-    // recordings — the BUILD is the signal the detector classifies on.
+    // capture from Stopwatch-vs-BUILD skew when the operator's
+    // Stopwatch and the recorded BUILD disagree. The BUILD is the
+    // signal the detector classifies on.
     Future<File> writeBuildFixture({required int buildDurUs}) async {
       // BUILD spans the scenario; scenario markers fall inside it.
       const scenarioBeginUs = 1001000;

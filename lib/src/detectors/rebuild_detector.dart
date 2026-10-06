@@ -464,7 +464,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     // Priority 1: Debug snapshot (per-widget type attribution), through
     // the same held types as the issues so highlights and cards agree.
     // Source-mode `flutterTimeline` includes initial widget inflations
-    // (KDD-5) — `_evaluate` suppresses per-type issues for that source,
+    // (first builds), so `_evaluate` suppresses per-type issues for that source,
     // and the held set is empty for it.
     if (_pendingDebugSnapshot != null) {
       return {
@@ -508,8 +508,8 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   void updateDebugSnapshot(DebugSnapshot snapshot) {
     _pendingDebugSnapshot = snapshot;
     if (snapshot.source == RebuildCountSource.flutterTimeline) {
-      // Profile counts include initial inflations (KDD-5): no per-type
-      // issues from them.
+      // Profile counts include initial inflations (first builds), not
+      // only rebuilds: no per-type issues from them.
       _perType.reset();
       return;
     }

@@ -458,7 +458,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   bool _showRebuildStats = false;
   // Snapshot captured at tap time so mutations to the live session
   // (from background scans) don't shuffle rows while the drilldown is open.
-  // Spec v15 M10: drilldown is snapshot-at-open, not live.
+  // The drilldown is a snapshot taken at open, not live.
   Map<String, int>? _rebuildStatsSnapshot;
   String? _rebuildStatsRouteName;
   String? _detailStableId;
@@ -491,7 +491,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Height of the card footer: a control row and its top border.
   static const double _footerHeight = _controlRowHeight + 1;
 
-  // ─── Window state (M2) ─────────────────────────────────────────────
+  // ─── Window state ──────────────────────────────────────────────────
   CardWindowState _windowState = CardWindowState.normal;
 
   /// Stored when transitioning away from normal so restore is exact.
@@ -792,7 +792,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _onListActivity();
   }
 
-  // ─── Window controls (M2) ──────────────────────────────────────────
+  // ─── Window controls ───────────────────────────────────────────────
 
   void _minimize() {
     if (_windowState == CardWindowState.minimized) return;
@@ -1091,7 +1091,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Clears pin/selection/chat state when referenced issues are no longer
   /// present.
   ///
-  /// v0.15.5 (C1 fix): pin pruning is keyed against the VISIBLE list —
+  /// Since v0.15.5, pin pruning is keyed against the VISIBLE list —
   /// not the raw `issuesNotifier.value` — because a pinned root's
   /// downstream children may churn without the root itself disappearing.
   /// Using raw keys leaked "zombie pins" for cards that stopped rendering
@@ -3801,7 +3801,8 @@ class _StartupMetricsBanner extends StatelessWidget {
 /// previous `rebuild_hotspot_summary` rollup IssueCard was removed because
 /// (a) the panel covers both the data and the signal, (b) an always-pinned
 /// IssueCard collided with ranker reorders,
-/// and (c) profile-mode KDD-5 inflations made route entry look like a
+/// and (c) profile-mode counts include first builds (inflations), which
+/// made route entry look like a
 /// warning storm in the issues list.
 ///
 /// **Two states:**
@@ -3875,7 +3876,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
   /// user is reading a frozen view. Cleared on Resume or on route change.
   Map<String, int>? _frozenCounts;
 
-  /// F3/P3: Hoisted `Listenable.merge` so the panel attaches its
+  /// Hoisted `Listenable.merge` so the panel attaches its
   /// listeners exactly once instead of allocating a fresh merge wrapper
   /// (which detaches and re-attaches both source listeners) on every
   /// build. The panel rebuilds frequently — once per scan tick plus
@@ -3915,7 +3916,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
       _paused = false;
       _frozenCounts = null;
     });
-    // H2: notify the host card so it can surface a transient
+    // Notify the host card so it can surface a transient
     // "Pause cleared — route changed" snackbar. Without this signal the
     // user comes back from a tab swap to find their pause silently gone.
     widget.onPauseDiscarded();
@@ -3942,13 +3943,13 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
   @override
   Widget build(BuildContext context) {
     return SleuthListenableBuilder(
-      // F3/P3: hoisted merge — see field declaration. Allocating
+      // Hoisted merge — see field declaration. Allocating
       // `Listenable.merge(...)` inline here would re-create the wrapper
       // on every build and detach/re-attach both source listeners.
       listenable: _mergedListenable,
       builder: (context) {
         final session = widget.controller.activeRouteSession;
-        // H4: distinguish "no session" from "session exists but no
+        // Distinguish "no session" from "session exists but no
         // counts" — the latter is debug-info-worthy when the user is
         // expecting to see attribution. Both paths still suppress the
         // panel from view, but with explicit reasons rather than a
@@ -3978,7 +3979,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
 
         return DecoratedBox(
           decoration: BoxDecoration(color: color.withValues(alpha: 0.1)),
-          // H1 compromise: tightened the panel's internal vertical
+          // Tap-target compromise: tightened the panel's internal vertical
           // padding (4 → 2) and the header→rows spacer (8 → 2) to
           // reclaim the pixels spent on enlarged tap targets, so the
           // expanded panel still fits the cramped 330dp overlay budget.
@@ -4059,7 +4060,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              // F1: pause indicator on the COLLAPSED header. Without
+              // Pause indicator on the COLLAPSED header. Without
               // this, a user who pauses, collapses, and walks away has
               // no visual signal that the displayed total is frozen.
               if (!_expanded && _paused) ...[
@@ -4119,7 +4120,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
     required int count,
     required double barFraction,
   }) {
-    // H1 compromise: per-row bottom gap tightened from spacingXxs (4dp)
+    // Tap-target compromise: per-row bottom gap tightened from spacingXxs (4dp)
     // to 2dp so 3 rows reclaim 6dp toward the enlarged tap-target
     // budget. The bar still has visible separation thanks to the row's
     // intrinsic Text + bar layout.
@@ -4161,7 +4162,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
               // — long enough to read, short enough not to lag behind a
               // 1-second scan tick.
               //
-              // F2: `IntTween(begin: 0, end: count)` is the canonical
+              // `IntTween(begin: 0, end: count)` is the canonical
               // pattern. On first appearance the row tweens from 0 → N;
               // on subsequent rebuilds with a different `end`,
               // TweenAnimationBuilder's `didUpdateWidget` substitutes
@@ -4189,7 +4190,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
               ),
             ],
           ),
-          // H1 compromise: 1dp gap + 2dp bar (from 4dp + 3dp) reclaims
+          // Tap-target compromise: 1dp gap + 2dp bar (from 4dp + 3dp) reclaims
           // 4dp/row × 3 rows = 12dp toward the enlarged tap-target
           // budget. The bar is still a visible rule.
           const SizedBox(height: 1),
@@ -4217,7 +4218,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
     Color color,
     int widgetCount,
   ) {
-    // C2: the "See all N →" link is only meaningful when the drilldown
+    // The "See all N →" link is only meaningful when the drilldown
     // would actually surface widgets that are NOT already shown inline.
     // With top-N = 3, a route with ≤ 3 widgets has nothing to drill into,
     // so the link is suppressed to avoid a redundant tap target.
@@ -4237,10 +4238,11 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // KDD-5 inflation footnote — abbreviated form of the disclaimer
-        // that the drilldown page renders in full. The inline panel only
-        // has room for a one-liner; users who need the full caveat (and
-        // the KDD-10 self-measurement note) tap through to the drilldown.
+        // Inflation footnote (profile counts include first builds), the
+        // short form of the disclaimer that the drilldown page renders in
+        // full. The inline panel only has room for a one-liner; users who
+        // need the full caveat (and the note that Sleuth's own overlay
+        // widgets are excluded) tap through to the drilldown.
         Flexible(
           child: Text(
             'incl. inflations',
@@ -4264,7 +4266,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
               height: 48,
               child: GestureDetector(
                 onTap: () {
-                  // C1: pass the panel's frozen snapshot through to the
+                  // Pass the panel's frozen snapshot through to the
                   // drilldown when paused, so the drilldown opens against
                   // the same data the user is reading on the panel.
                   widget.onTap(_paused ? _frozenCounts : null);

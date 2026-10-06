@@ -33,12 +33,15 @@ typedef StartupTimelineCallback = void Function(StartupTimelineEvents events);
 
 /// Connects to the app's own VM Service for exact performance data.
 ///
-/// Uses [dart:developer.Service.controlWebServer] to start/query the
-/// VM web server and connects via WebSocket. Works reliably on desktop
-/// and simulators. On real iOS devices launched via IDE (USB bridge) or
-/// Android with adb-forwarded ports, the reported URI may be unreachable
-/// from the device — in that case the controller falls back to BASIC mode
-/// (FrameTiming + structural analysis).
+/// Uses [dart:developer.Service.controlWebServer] to start or query the
+/// VM web server and connects to it over a WebSocket from inside the app,
+/// loopback first (see [candidateWebSocketUris]), so the link between the
+/// device and the host (USB or wireless) does not matter. `flutter run` and
+/// `flutter attach` start DDS by default, and DDS keeps the VM service as
+/// its only client, so this connection is refused and the controller falls
+/// back to BASIC mode (FrameTiming plus structural analysis). Launching with
+/// `--no-dds`, or starting the installed app from the home screen, leaves
+/// the service open to this client.
 class VmServiceClient {
   VmServiceClient({
     this.onTimelineData,
@@ -202,9 +205,8 @@ class VmServiceClient {
         // Use controlWebServer(enable: true) rather than getInfo() so we
         // proactively *start* the VM web server if it's dormant. Service.getInfo()
         // only queries state — if the server hasn't bound its port yet (common
-        // on cold start, especially Android adb-forwarded ports) it returns
-        // a null serverUri and we'd have to poll-spin until the framework got
-        // around to starting it. controlWebServer forces the bind and returns
+        // on cold start) it returns a null serverUri and we'd have to
+        // poll-spin until the framework got around to starting it. controlWebServer forces the bind and returns
         // a fully-populated ServiceProtocolInfo in one shot.
         //
         // **Timeout**: on some cold-start scenarios (Android Studio first
@@ -272,8 +274,8 @@ class VmServiceClient {
 
         // Loopback first, reported host second (see
         // [candidateWebSocketUris]). Each attempt has its own timeout so an
-        // unreachable address (host-forwarded on Android, a LAN address on
-        // a wirelessly launched iOS app) fails fast.
+        // unreachable address (such as the LAN address a wirelessly launched
+        // iOS app reports) fails fast.
         VmService? connected;
         Object? lastError;
         for (final candidate in candidateWebSocketUris(wsUri)) {
@@ -334,9 +336,9 @@ class VmServiceClient {
   /// (cumulative ~31s before giving up).
   ///
   /// Pre-v0.16.0 this ladder stopped at 4s (7s cumulative), which was
-  /// shorter than the 30s window documented in CLAUDE.md and too
+  /// shorter than the documented 30s reconnect window and too
   /// impatient for cold-start scenarios on Android emulators where the
-  /// VM service socket can take ~10–20s to bind. C3 fix: extend the
+  /// VM service socket can take ~10–20s to bind. v0.16.0 extended the
   /// ladder to match the documented window.
   Future<bool> reconnect() async {
     if (_reconnecting || _disposed) return false;

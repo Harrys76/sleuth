@@ -114,7 +114,7 @@ void main() {
     handle.dispose();
   });
 
-  group('M5: Inline confidence reasoning', () {
+  group('Inline confidence reasoning', () {
     testWidgets('expanded card with non-null confidenceReason shows text', (
       tester,
     ) async {
@@ -221,7 +221,7 @@ void main() {
       );
 
       // Tooltip was removed (crashes in bare Overlay — no _RenderTheaterMarker).
-      // Confidence reason is shown inline when expanded (M5) and as a
+      // Confidence reason is shown inline when expanded and as a
       // Semantics label for accessibility.
       expect(find.byType(Tooltip), findsNothing);
 
@@ -236,7 +236,7 @@ void main() {
     });
   });
 
-  group('M3: Recurrence badge', () {
+  group('Recurrence badge', () {
     testWidgets('stable trend with ratio >= 0.9 shows "persistent"', (
       tester,
     ) async {

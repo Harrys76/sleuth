@@ -709,7 +709,7 @@ void main() {
       });
     });
 
-    // -- v0.16.0 C1 regression: duration-based warmup gate --
+    // -- v0.16.0 regression: duration-based warmup gate --
     //
     // The pre-v0.16.0 default suppressed jank for 180 frames, which ends
     // warmup in 1.5 s on 120 Hz displays rather than the documented ~3 s.

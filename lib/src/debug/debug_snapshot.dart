@@ -1,13 +1,13 @@
 /// Origin of the [DebugSnapshot.rebuildCounts] data.
 ///
-/// Sleuth populates rebuild counts from exactly one source per mode
-/// (see spec v15 KDD-1 "mutual exclusivity by mode"):
+/// Sleuth populates rebuild counts from exactly one source per mode; the
+/// debug and profile sources never run together:
 ///
 /// - [debugCallback]: debug-mode `debugOnRebuildDirtyWidget` callback.
 ///   Counts actual rebuilds only (initial builds excluded).
 /// - [flutterTimeline]: profile-mode `FlutterTimeline.debugCollect()` drain.
-///   Counts include initial widget inflations as well as rebuilds (KDD-5),
-///   so route entry shows transient elevated values.
+///   Counts include initial widget inflations as well as rebuilds, so route
+///   entry shows transient elevated values.
 /// - [none]: no source is active; `rebuildCounts` is empty. Also the
 ///   default used by fixture/test snapshots that don't care about source.
 enum RebuildCountSource { none, debugCallback, flutterTimeline }

@@ -719,7 +719,7 @@ void main() {
   //   test/detectors/repaint_animation_filter_real_widget_test.dart
   // and pumps an actual `CircularProgressIndicator` through the real
   // `DebugInstrumentationCoordinator` paint pipeline. The two suites
-  // together address the Tactic 9 fixture-tautology risk: this group
+  // together address the fixture-tautology risk: this group
   // pins the gate algebra against synthetic chains, the real-widget
   // suite proves the chains we depend on actually exist at runtime.
   // ---------------------------------------------------------------
@@ -746,7 +746,7 @@ void main() {
       detector.vmConnected = false;
     });
 
-    // T1 — Gate A: every paint of `CustomPaint` is owned (residual=0)
+    // Gate A: every paint of `CustomPaint` is owned (residual=0)
     // → no issue emitted even at 60 paints/sec.
     test('Gate A skips per-widget when fully owned (residual=0)', () {
       detector.updateDebugSnapshot(
@@ -769,7 +769,7 @@ void main() {
       );
     });
 
-    // T2 — Gate A default-fire: no owned-counts entry → ownedCount
+    // Gate A default-fire: no owned-counts entry → ownedCount
     // defaults to 0, residual = total → fires. Preserves the
     // "never silently mask a real bug" invariant.
     test('Gate A fires when no owned attribution recorded (default-fire)', () {
@@ -794,7 +794,7 @@ void main() {
       expect(detector.issues.first.stableId, 'repaint_debug_CustomPaint');
     });
 
-    // T3 — Gate A explicit zero-owned: explicit `{'CustomPaint': 0}`
+    // Gate A explicit zero-owned: explicit `{'CustomPaint': 0}`
     // is the same as missing key → fires. (Defends against a future
     // change that decides to write zeros instead of omitting keys.)
     test('Gate A fires when explicit owned count is zero', () {
@@ -812,7 +812,7 @@ void main() {
       expect(detector.issues.first.stableId, 'repaint_debug_CustomPaint');
     });
 
-    // T4 — C1 polymorphic-collision case (the bug the C1+C3 fix exists
+    // Polymorphic-key collision (the bug per-paint attribution exists
     // to solve). Two distinct widgets share `CustomPaint` as their
     // typeName key: half the paints are owned by a CPI's internal
     // CustomPaint, the other half are a chart's bare CustomPaint.
@@ -820,7 +820,7 @@ void main() {
     // (cached chain didn't have the owner) or fully suppress (cached
     // chain did) — both wrong. Post-fix, the residual is exactly the
     // unowned half and the issue fires with the residual rate.
-    test('Gate A fires with residual rate on partial ownership (C1)', () {
+    test('Gate A fires with residual rate on partial ownership', () {
       detector.updateDebugSnapshot(
         const DebugSnapshot(
           rebuildCounts: {},
@@ -849,7 +849,7 @@ void main() {
       expect(issue.detail, contains('Excludes 30 animation-owned paint'));
     });
 
-    // T5 — Gate A residual below threshold: 60 total - 35 owned = 25
+    // Gate A residual below threshold: 60 total - 35 owned = 25
     // residual which is BELOW the 30/sec threshold → suppressed even
     // though the unowned subset exists.
     test('Gate A suppresses when residual rate is below threshold', () {
@@ -867,7 +867,7 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
-    // T6 — Gate B: VM aggregate fallback suppressed when *every*
+    // Gate B: VM aggregate fallback suppressed when *every*
     // per-widget paint is fully owned. The per-widget rate is
     // sub-threshold (skipping Gate A's residual check), but the VM
     // window says >10 % paint share — without Gate B that VM gate would fire
@@ -900,7 +900,7 @@ void main() {
       );
     });
 
-    // T7 — Gate B does NOT suppress when paintCounts is empty (no
+    // Gate B does NOT suppress when paintCounts is empty (no
     // per-widget evidence) — VM gate must still fire.
     testWidgets('Gate B fires VM fallback when paintCounts empty', (
       tester,
@@ -923,7 +923,7 @@ void main() {
       expect(detector.issues.first.stableId, 'excessive_repaint');
     });
 
-    // T8 — Gate B does NOT suppress when at least one per-widget paint
+    // Gate B does NOT suppress when at least one per-widget paint
     // is NOT animation-owned (mixed scene). One typeName fully owned,
     // the other has zero ownership → all-owned check fails → VM fires.
     testWidgets('Gate B fires VM fallback in mixed-owner scene', (
@@ -953,7 +953,7 @@ void main() {
       expect(detector.issues.first.stableId, 'excessive_repaint');
     });
 
-    // T9 — Gate C residual fires from the aggregate path: total=200,
+    // Gate C residual fires from the aggregate path: total=200,
     // totalOwned=120, residual=80/sec → emits `excessive_repaint_debug`
     // with the residual rate in title and the exclusion suffix in detail.
     //
@@ -986,8 +986,8 @@ void main() {
       expect(issue.detail, contains('Excludes 120 animation-owned paints'));
     });
 
-    // T10 — Gate C short-circuit when residualCount <= 0 (every paint
-    // attributed). Belt-and-braces for arithmetic edge cases where
+    // Gate C short-circuit when residualCount <= 0 (every paint
+    // attributed). Covers the arithmetic edge case where
     // `totalAnimationOwnedPaintCount == totalPaintCount`.
     test('Gate C short-circuits when residualCount is zero', () {
       detector.updateDebugSnapshot(
@@ -1003,7 +1003,7 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
-    // T11 — Gate C residual subtraction: total=200, totalOwned=180,
+    // Gate C residual subtraction: total=200, totalOwned=180,
     // residual=20/sec which is BELOW the 30/sec threshold → suppressed.
     test('Gate C suppresses when residual rate is below threshold', () {
       detector.updateDebugSnapshot(

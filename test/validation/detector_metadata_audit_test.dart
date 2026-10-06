@@ -25,7 +25,7 @@
 //   - If a `reproducerPath` is present AND the test is running from the
 //     repo root, the file is inside the repo (no absolute paths / `..`
 //     traversal / symlink escapes), it contains `test(` /
-//     `testWidgets(` outside of line AND block comments (CLAUDE-R4-1),
+//     `testWidgets(` outside of line AND block comments,
 //     and it references the detector's runtimeType by name.
 //   - If `profileCapturePaths` is declared, every path is inside the
 //     repo and parses cleanly via `ProfileCaptureSchema.parseFile`.
@@ -339,7 +339,7 @@ void main() {
             break;
         }
 
-        // CLAUDE-R1-2 tightening also runs on non-externallyCited tiers
+        // The citation URL check also runs on non-externallyCited tiers
         // whenever a citationUrl is set voluntarily — a malformed URL in a
         // `reproducerOnly` metadata is still a bug.
         if (meta.tier != EvidenceTier.externallyCited) {
@@ -524,7 +524,7 @@ void main() {
     });
 
     test('filesystem walk: every `class X extends BaseDetector` in '
-        'lib/src/detectors/ is registered on the controller (CLAUDE-R6-1)', () {
+        'lib/src/detectors/ is registered on the controller', () {
       if (!File('pubspec.yaml').existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
         return;
@@ -748,7 +748,7 @@ void main() {
       // mentions is retired alongside the legitimate critical bracket
       // backed by its own capture triad below.
 
-      // AB4 default-drift cross-check: when `bracketThreshold`
+      // Default-drift cross-check: when `bracketThreshold`
       // is set, it must match the detector's runtime default — otherwise
       // a change adjusting one but not the other creates silent drift.
       // Dormant at reproducerOnly; fires on v0.16.7 re-raise.
@@ -758,7 +758,7 @@ void main() {
           detector.slowThresholdMs,
           equals(meta.bracketThreshold),
           reason:
-              'AB4: metadata bracketThreshold (${meta.bracketThreshold} '
+              'Metadata bracketThreshold (${meta.bracketThreshold} '
               '${meta.bracketUnit}) must track the detector\'s runtime '
               'default (slowThresholdMs = ${detector.slowThresholdMs}). A '
               'mismatch means the externally-cited bracket claims a '
@@ -2120,7 +2120,8 @@ void main() {
         equals('percent'),
         reason:
             'Denominator-independent axis — robust to buffer underfill '
-            'on rate-based jank injection. AB-1 cross-check skips for '
+            'on rate-based jank injection. The trace-vs-observed '
+            'cross-check skips for '
             'non-time units; the percent axis is certified instead via '
             'observedAxisArgKey.',
       );
@@ -2729,7 +2730,7 @@ void main() {
     });
 
     test('checkBracketValidation rejects runtimeVerified without '
-        'bracketThreshold / bracketUnit (CODEX-R1-2)', () {
+        'bracketThreshold / bracketUnit', () {
       const triadNoThreshold = DetectorMetadata(
         tier: EvidenceTier.runtimeVerified,
         rationale: 'Synthetic — valid triad but no bracketThreshold/Unit.',

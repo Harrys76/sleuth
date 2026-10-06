@@ -1177,7 +1177,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // M11: real widget tree (anti-tautology)
+  // Real widget tree (anti-tautology)
   //
   // The other groups in this file feed hand-coded `const DebugSnapshot`
   // literals into the detector. That validates the *reaction* but NOT

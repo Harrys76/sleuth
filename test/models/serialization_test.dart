@@ -990,7 +990,7 @@ void main() {
       );
     });
 
-    // v0.17.0 C1 regression: v4 → fromJson → toJson must NOT produce a
+    // v0.17.0 regression: v4 → fromJson → toJson must NOT produce a
     // schemaVersion=4 payload wrapping v5 field shape. Upgrade-on-read
     // normalises schemaVersion to 5 so the declared version matches the
     // actual emitted shape.
@@ -1452,7 +1452,7 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      // v0.17.0 C1 fix: upgrade-on-read normalises schemaVersion<5 to 5
+      // v0.17.0: upgrade-on-read normalises schemaVersion<5 to 5
       // so the in-memory shape matches what toJson unconditionally emits.
       // Historical behaviour (schemaVersion=1 default for absent key) is
       // preserved only in terms of which input path was taken.
@@ -1514,7 +1514,7 @@ void main() {
       expect(json.containsKey('platformChannelEvents'), isTrue);
       expect(json.containsKey('recentFrames'), isTrue);
 
-      // v0.17.0 C1 fix: fromJson upgrades schemaVersion<5 → 5 on read so
+      // v0.17.0: fromJson upgrades schemaVersion<5 → 5 on read so
       // the in-memory object advertises the v5 shape it actually carries.
       final restored = SessionSnapshot.fromJson(json);
       expect(restored.schemaVersion, 5);
@@ -1543,7 +1543,7 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      // v0.17.0 C1 upgrade-on-read: 2 → 5.
+      // v0.17.0 upgrade-on-read: 2 → 5.
       expect(snapshot.schemaVersion, 5);
       expect(snapshot.phaseEvents, isNull);
       expect(snapshot.gcEvents, isNull);
@@ -1597,7 +1597,7 @@ void main() {
       final decoded = jsonDecode(jsonString) as Map<String, dynamic>;
       final restored = SessionSnapshot.fromJson(decoded);
 
-      // v0.17.0 C1 upgrade-on-read: v2 normalises to v5 because toJson
+      // v0.17.0 upgrade-on-read: v2 normalises to v5 because toJson
       // always emits v5 frameStatsSummary shape.
       expect(restored.schemaVersion, 5);
       expect(restored.phaseEvents, hasLength(1));
@@ -2054,7 +2054,7 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // E1 regression: fromJson must not throw on non-int values for
+    // Regression: fromJson must not throw on non-int values for
     // scaffoldHashKey / tabVisitIndex. A JavaScript consumer (v0.15 MCP
     // server) can round-trip large ints as strings due to 53-bit Number
     // precision, and hand-rolled payloads may encode ordinals as doubles.
@@ -2114,14 +2114,14 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // C3 regression: PerformanceIssue.routeName must stay RAW (no `(tab-N)`
+  // Regression: PerformanceIssue.routeName must stay RAW (no `(tab-N)`
   // suffix baked in). Display surfaces derive the disambiguated label via
   // routeDisplayName so group-by-route keys remain stable and a route
   // literally named '"/x (tab-2)"' stays distinguishable from a disambiguated
   // tab-2 of "/x".
   // ---------------------------------------------------------------------------
 
-  group('PerformanceIssue.routeDisplayName (C3)', () {
+  group('PerformanceIssue.routeDisplayName', () {
     PerformanceIssue make({String? routeName, int? tabVisitIndex}) =>
         PerformanceIssue(
           severity: IssueSeverity.warning,
@@ -2286,7 +2286,7 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      // v0.17.0 C1 upgrade-on-read: 2 → 5.
+      // v0.17.0 upgrade-on-read: 2 → 5.
       expect(snapshot.schemaVersion, 5);
       expect(snapshot.sessionSummary, isNull);
       expect(snapshot.currentIssues, hasLength(1));
@@ -2374,7 +2374,7 @@ void main() {
       expect(json['routeSessions'], hasLength(2));
 
       final restored = SessionSnapshot.fromJson(json);
-      // v0.17.0 C1 upgrade-on-read: 4 → 5.
+      // v0.17.0 upgrade-on-read: 4 → 5.
       expect(restored.schemaVersion, 5);
       expect(restored.routeSessions, isNotNull);
       expect(restored.routeSessions, hasLength(2));

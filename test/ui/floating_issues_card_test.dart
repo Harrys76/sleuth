@@ -38,7 +38,7 @@ PerformanceIssue _pinIssue({
 }
 
 /// Minimal fake coordinator for the rebuild-stats banner tests. Mirrors
-/// the M12 `_FakeCoordinator` pattern in `rebuild_stats_scan_test.dart`:
+/// the `_FakeCoordinator` pattern in `rebuild_stats_scan_test.dart`:
 /// returns a pre-configured snapshot from `snapshot()` so the real
 /// `_scanTreeInner` drain → merge block runs against synthetic
 /// `flutterTimeline`-source data without needing profile-mode compilation.
@@ -129,7 +129,7 @@ void main() {
   // debug-mode disclaimer in _WarningBanners.
   const bannerText = 'timings are';
 
-  group('M2: Minimize/maximize/restore', () {
+  group('Minimize/maximize/restore', () {
     testWidgets('minimize hides body, shows only header', (tester) async {
       await tester.pumpWidget(pumpCard());
 
@@ -255,7 +255,7 @@ void main() {
     });
   });
 
-  group('M6: Debug-mode banner', () {
+  group('Debug-mode banner', () {
     testWidgets('banner present in debug mode with default config', (
       tester,
     ) async {
@@ -325,7 +325,7 @@ void main() {
     // (and the always-on chip above the issue list) was removed in
     // v0.15.2 because (a) the panel covers both the data and the signal,
     // (b) an always-pinned IssueCard collided with issue ranker reorders,
-    // and (c) profile-mode KDD-5 inflations
+    // and (c) profile-mode counts include first builds (inflations), which
     // made route entry look like a warning storm in the issues list.
     //
     // The panel must therefore render whenever the active RouteSession
@@ -333,7 +333,7 @@ void main() {
     // are still reachable through `RebuildStatsPage` via the inline
     // "See all N →" drilldown link.
     //
-    // Tests use the M12 fake-coordinator + scanTreeFullPathForTest pattern
+    // Tests use the fake-coordinator + scanTreeFullPathForTest pattern
     // from `test/controller/rebuild_stats_scan_test.dart` to inject
     // synthetic `flutterTimeline`-source counts through the real
     // `_scanTreeInner` drain → merge path. The first scan creates the
@@ -363,7 +363,7 @@ void main() {
     ) async {
       // First scan — creates the active route session. Merge runs before
       // route detection, so any counts on this scan land on a `null`
-      // session and are dropped (R18). Feed an empty snapshot.
+      // session and are dropped. Feed an empty snapshot.
       c.scanTreeFullPathForTest(tester.element(find.byType(MaterialApp)));
       // Second scan merges synthetic counts into the now-active session.
       fake.nextSnapshot = DebugSnapshot(
@@ -692,10 +692,10 @@ void main() {
         // wiring end-to-end through the same snapshot-and-push code path
         // the v0.15.0/v0.15.1 rollup IssueCard used before removal.
         //
-        // Needs ≥ 4 widget types because v0.15.2 C2 hides the redundant
-        // "See all N →" link when widgetCount ≤ topN = 3 (the inline rows
-        // already show every widget in that case, so a drilldown would
-        // surface nothing new).
+        // Needs ≥ 4 widget types because since v0.15.2 the card hides the
+        // redundant "See all N →" link when widgetCount ≤ topN = 3 (the
+        // inline rows already show every widget in that case, so a drilldown
+        // would surface nothing new).
         controller.dispose();
         controller = SleuthController(
           config: const SleuthConfig(
@@ -747,9 +747,9 @@ void main() {
       // (or auto-resume on route change) clears the freeze.
       //
       // We need ≥ 4 widget types in the panel so that the inline panel
-      // renders the "See all N →" drilldown link (v0.15.2 C2: link is
+      // renders the "See all N →" drilldown link (since v0.15.2 the link is
       // suppressed when widgetCount ≤ topN = 3 because the inline rows
-      // already show everything). Without ≥ 4 the TF2 panel↔drilldown
+      // already show everything). Without ≥ 4 the panel↔drilldown
       // contract assertion below could not exercise the snapshot path.
       controller.dispose();
       controller = SleuthController(
@@ -808,12 +808,12 @@ void main() {
       expect(find.text('Rebuilds: 15 across 4 widgets'), findsOneWidget);
       expect(find.text('Rebuilds: 20 across 4 widgets'), findsNothing);
 
-      // TF2: panel ↔ drilldown contract. While paused, tapping the
+      // Panel ↔ drilldown contract. While paused, tapping the
       // "See all N →" link must open RebuildStatsPage against the
       // FROZEN counts, not the live `session.rebuildCountsByType`.
       // Pre-fix the drilldown snapshot was read from `session` at tap
       // time, so a paused panel showing 15 would push a drilldown
-      // showing 20 — the C1 snapshot-drift bug. This assertion pins
+      // showing 20. This assertion pins
       // the fix end-to-end through the full
       // banner.onTap → _onSeeAllRebuildsTap(overrideCounts) → push
       // path.
@@ -1329,7 +1329,7 @@ void main() {
       tester,
     ) async {
       useTallView(tester);
-      // M5: summary bar reads the pre-freeze visible list. Whether the
+      // The summary bar reads the pre-freeze visible list. Whether the
       // user has a card expanded or not, counts must not move.
       controller.issuesNotifier.value = [
         _pinIssue(id: 'A', severity: IssueSeverity.critical),

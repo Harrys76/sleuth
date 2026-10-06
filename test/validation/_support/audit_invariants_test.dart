@@ -45,7 +45,7 @@ import 'package:sleuth/src/detectors/heavy_compute_detector.dart'
 import 'audit_invariants.dart';
 
 void main() {
-  group('stripDartComments (CLAUDE-R4-1)', () {
+  group('stripDartComments', () {
     test('removes line comments', () {
       const source = '''
 void main() {
@@ -88,30 +88,25 @@ void main() {}
       expect(result, isNot(contains('inner line comment')));
     });
 
-    test(
-      'AB-10: preserves `//`-looking content inside single-quoted strings',
-      () {
-        const source = r'''
+    test('preserves `//`-looking content inside single-quoted strings', () {
+      const source = r'''
 void main() {
   final s = '// not actually a comment, just string content';
   print(s);
 }
 ''';
-        final result = stripDartComments(source);
-        expect(
-          result,
-          contains('not actually a comment, just string content'),
-          reason:
-              'Line-comment stripper must not touch content inside string '
-              'literals.',
-        );
-      },
-    );
+      final result = stripDartComments(source);
+      expect(
+        result,
+        contains('not actually a comment, just string content'),
+        reason:
+            'Line-comment stripper must not touch content inside string '
+            'literals.',
+      );
+    });
 
-    test(
-      'AB-10: preserves comment-like content inside triple-quoted strings',
-      () {
-        const source = """
+    test('preserves comment-like content inside triple-quoted strings', () {
+      const source = """
 void main() {
   final doc = '''
     // docstring-style body
@@ -121,43 +116,37 @@ void main() {
   print(doc);
 }
 """;
-        final result = stripDartComments(source);
-        expect(result, contains('docstring-style body'));
-        expect(result, contains('looks like a block comment'));
-        expect(
-          result,
-          contains("test('fake inside string'"),
-          reason: 'Triple-quoted string contents must pass through untouched.',
-        );
-      },
-    );
+      final result = stripDartComments(source);
+      expect(result, contains('docstring-style body'));
+      expect(result, contains('looks like a block comment'));
+      expect(
+        result,
+        contains("test('fake inside string'"),
+        reason: 'Triple-quoted string contents must pass through untouched.',
+      );
+    });
 
-    test(
-      'AB-10: raw strings do not interpret backslash — delimiter still closes',
-      () {
-        // In a raw string, a `\'` does NOT escape the closing quote. The
-        // walker must not treat the escape sequence as preserving the quote.
-        const source = r"""
+    test('raw strings do not interpret backslash — delimiter still closes', () {
+      // In a raw string, a `\'` does NOT escape the closing quote. The
+      // walker must not treat the escape sequence as preserving the quote.
+      const source = r"""
 void main() {
   final a = r'\' + 'after';
   final b = r'next raw';
   print(a + b);
 }
 """;
-        final result = stripDartComments(source);
-        // We only care that the post-lexer source still compiles-equivalent —
-        // the code that follows each raw string must remain intact.
-        expect(result, contains("'after'"));
-        expect(result, contains("r'next raw'"));
-      },
-    );
+      final result = stripDartComments(source);
+      // We only care that the post-lexer source still compiles-equivalent —
+      // the code that follows each raw string must remain intact.
+      expect(result, contains("'after'"));
+      expect(result, contains("r'next raw'"));
+    });
 
-    test(
-      'AB-10: string containing `/*` does not swallow code that follows',
-      () {
-        // Before AB-10, a greedy `/*` regex could chew from a string opener
-        // forward if a later `*/` closed inside another string.
-        const source = r'''
+    test('string containing `/*` does not swallow code that follows', () {
+      // A greedy `/*` regex would chew from a string opener forward if a
+      // later `*/` closed inside another string.
+      const source = r'''
 void main() {
   final a = '/* pretend block opener';
   final b = 'still code after';
@@ -165,14 +154,13 @@ void main() {
   test('post-string test', () {});
 }
 ''';
-        final result = stripDartComments(source);
-        expect(result, contains('still code after'));
-        expect(result, contains("test('post-string test'"));
-      },
-    );
+      final result = stripDartComments(source);
+      expect(result, contains('still code after'));
+      expect(result, contains("test('post-string test'"));
+    });
   });
 
-  group('isPathInsideRepo (CODEX-R6-1)', () {
+  group('isPathInsideRepo', () {
     late Directory repoRoot;
 
     setUp(() async {
@@ -220,7 +208,7 @@ void main() {
     });
   });
 
-  group('checkReproducerFile (CLAUDE-R4-1 + CODEX-R6-1 + CODEX-R3-2)', () {
+  group('checkReproducerFile', () {
     late Directory root;
 
     setUp(() async {
@@ -237,12 +225,11 @@ void main() {
     test(
       'accepts a file with a real test() call that references the token',
       () async {
-        // Bundle I (R3-NEW-2): the token must appear as a real identifier
-        // in the AST — not just inside a string literal. Before Bundle I,
-        // `contains('MyThing')` matched the token inside `'exercises
-        // MyThing'`, so a reproducer could satisfy AB3 without ever
-        // touching the thing under claim. Now the fixture uses MyThing
-        // as a real variable reference.
+        // The token must appear as a real identifier in the AST, not just
+        // inside a string literal. A plain `contains('MyThing')` would match
+        // the token inside `'exercises MyThing'`, so a reproducer could pass
+        // the name-reference check without ever touching the thing under
+        // claim. The fixture uses MyThing as a real variable reference.
         final file = File('${root.path}/good_test.dart');
         await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
@@ -266,11 +253,11 @@ void main() {
       },
     );
 
-    // R3-NEW-2 (Bundle I): a reproducer that only names the token
-    // inside a string literal must be rejected — the point of the AB3
-    // parity check is to enforce real code exercising the claim.
-    test('rejects a file whose only token reference is inside a string literal '
-        '(R3-NEW-2)', () async {
+    // A reproducer that only names the token inside a string literal
+    // must be rejected. The name-reference check exists to require real
+    // code exercising the claim.
+    test('rejects a file whose only token reference is inside a string '
+        'literal', () async {
       final file = File('${root.path}/string_only_test.dart');
       await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
@@ -291,16 +278,17 @@ void main() {
       expect(failures.single, contains('does not reference "XyzDetector"'));
     });
 
-    // AGR-3 (Bundle I): a reproducer that hides its only `test(...)`
+    // A reproducer that hides its only `test(...)`
     // invocation inside `${...}` interpolation SHOULD pass (interpolation
     // expressions are real code), and a `test(...)` inside a block
     // comment embedded in interpolation SHOULD still be rejected.
     // Exercising this through AST keeps both behaviours correct without
     // the mini-lexer needing to enter interpolation as code mode.
-    test('accepts a real `test(` inside a \${...} interpolation expression '
-        '(AGR-3)', () async {
-      final file = File('${root.path}/interp_test.dart');
-      await file.writeAsString(r'''
+    test(
+      'accepts a real `test(` inside a \${...} interpolation expression',
+      () async {
+        final file = File('${root.path}/interp_test.dart');
+        await file.writeAsString(r'''
 import 'package:flutter_test/flutter_test.dart';
 
 class MyDetector {}
@@ -313,17 +301,18 @@ void main() {
   label.toString();
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'MyDetector',
-        reproducerPath: 'interp_test.dart',
-        requiredTokens: ['MyDetector'],
-        repoRoot: root.path,
-      );
-      expect(failures, isEmpty);
-    });
+        final failures = checkReproducerFile(
+          label: 'MyDetector',
+          reproducerPath: 'interp_test.dart',
+          requiredTokens: ['MyDetector'],
+          repoRoot: root.path,
+        );
+        expect(failures, isEmpty);
+      },
+    );
 
     test('rejects a file whose only test() calls are inside a /* */ block '
-        'comment (CLAUDE-R4-1)', () async {
+        'comment', () async {
       final file = File('${root.path}/block_comment_only_test.dart');
       await file.writeAsString('''
 /*
@@ -349,30 +338,25 @@ void main() {
       expect(failures.first, contains('no test()/testWidgets() calls'));
     });
 
-    test(
-      'rejects absolute reproducerPath outside the repo (CODEX-R6-1)',
-      () async {
-        final outside = await Directory.systemTemp.createTemp(
-          'sleuth_outside_',
+    test('rejects absolute reproducerPath outside the repo', () async {
+      final outside = await Directory.systemTemp.createTemp('sleuth_outside_');
+      try {
+        final file = File('${outside.path}/escaped_test.dart');
+        await file.writeAsString('void main() { test((){}); }');
+        final failures = checkReproducerFile(
+          label: 'MyThing',
+          reproducerPath: file.path, // absolute, not inside `root`
+          requiredTokens: ['MyThing'],
+          repoRoot: root.path,
         );
-        try {
-          final file = File('${outside.path}/escaped_test.dart');
-          await file.writeAsString('void main() { test((){}); }');
-          final failures = checkReproducerFile(
-            label: 'MyThing',
-            reproducerPath: file.path, // absolute, not inside `root`
-            requiredTokens: ['MyThing'],
-            repoRoot: root.path,
-          );
-          expect(failures, isNotEmpty);
-          expect(failures.first, contains('escapes the repo root'));
-        } finally {
-          if (outside.existsSync()) await outside.delete(recursive: true);
-        }
-      },
-    );
+        expect(failures, isNotEmpty);
+        expect(failures.first, contains('escapes the repo root'));
+      } finally {
+        if (outside.existsSync()) await outside.delete(recursive: true);
+      }
+    });
 
-    test('rejects ../../ traversal escaping the repo (CODEX-R6-1)', () {
+    test('rejects ../../ traversal escaping the repo', () {
       final failures = checkReproducerFile(
         label: 'MyThing',
         reproducerPath: '../../etc/passwd',
@@ -383,27 +367,24 @@ void main() {
       expect(failures.first, contains('escapes the repo root'));
     });
 
-    test(
-      'rejects reproducer file that does not reference the token (AB3)',
-      () async {
-        final file = File('${root.path}/unrelated_test.dart');
-        await file.writeAsString('''
+    test('rejects reproducer file that does not reference the token', () async {
+      final file = File('${root.path}/unrelated_test.dart');
+      await file.writeAsString('''
 void main() {
   test('some real test', () {});
 }
 ''');
-        final failures = checkReproducerFile(
-          label: 'MyThing',
-          reproducerPath: 'unrelated_test.dart',
-          requiredTokens: ['MyThing'],
-          repoRoot: root.path,
-        );
-        expect(failures, isNotEmpty);
-        expect(failures.first, contains('does not reference "MyThing"'));
-      },
-    );
+      final failures = checkReproducerFile(
+        label: 'MyThing',
+        reproducerPath: 'unrelated_test.dart',
+        requiredTokens: ['MyThing'],
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('does not reference "MyThing"'));
+    });
 
-    // B4 Bundle K (v0.16.3 blocker): the reproducer gate must prove the
+    // Since v0.16.3 the reproducer gate must prove the
     // detector is actually constructed inside a test scope — not just
     // referenced by name. A file with an unused type annotation and a
     // single unrelated test would previously satisfy the old gate. These
@@ -411,7 +392,7 @@ void main() {
     // reproducers (which instantiate in setUp at group scope) passing
     // because setUp is tracked as a wrapper.
     test(
-      'B4: rejects a file with token only in a top-level type annotation',
+      'rejects a file with token only in a top-level type annotation',
       () async {
         final file = File('${root.path}/top_level_only_test.dart');
         await file.writeAsString('''
@@ -444,7 +425,7 @@ void main() {
     );
 
     test(
-      'B4: rejects a file with token referenced but never instantiated',
+      'rejects a file with token referenced but never instantiated',
       () async {
         final file = File('${root.path}/no_instantiation_test.dart');
         await file.writeAsString('''
@@ -475,7 +456,7 @@ void main() {
       },
     );
 
-    test('B4: accepts instantiation in setUp at group scope (v0.16.3 '
+    test('accepts instantiation in setUp at group scope (v0.16.3 '
         'reproducer pattern)', () async {
       final file = File('${root.path}/group_setup_test.dart');
       await file.writeAsString('''
@@ -510,7 +491,7 @@ void main() {
       );
     });
 
-    test('B4: rejects when coveredStableIds is declared but no stable-id '
+    test('rejects when coveredStableIds is declared but no stable-id '
         'literal appears in a test scope', () async {
       final file = File('${root.path}/missing_covered_id_test.dart');
       await file.writeAsString('''
@@ -537,7 +518,7 @@ void main() {
       expect(failures.first, contains('my_family'));
     });
 
-    test('B4: accepts coveredStableIds prefix match (family:suffix covers '
+    test('accepts coveredStableIds prefix match (family:suffix covers '
         'the canonical family id)', () async {
       final file = File('${root.path}/prefix_covered_test.dart');
       await file.writeAsString('''
@@ -1475,7 +1456,7 @@ void main() {
     });
   });
 
-  group('checkCitationUrl (CLAUDE-R1-2)', () {
+  group('checkCitationUrl', () {
     test('accepts a valid https URL', () {
       expect(
         checkCitationUrl('x', 'https://api.flutter.dev/foo', required: true),
@@ -1525,7 +1506,7 @@ void main() {
       expect(failures, isNotEmpty);
     });
 
-    test('AB-11: rejects single-label host (intranet)', () {
+    test('rejects single-label host (intranet)', () {
       final failures = checkCitationUrl(
         'x',
         'http://intranet/spec',
@@ -1535,7 +1516,7 @@ void main() {
       expect(failures.first, contains('single-label'));
     });
 
-    test('AB-11: rejects localhost', () {
+    test('rejects localhost', () {
       final failures = checkCitationUrl(
         'x',
         'http://localhost:8080/path',
@@ -1545,7 +1526,7 @@ void main() {
       expect(failures.first, contains('loopback'));
     });
 
-    test('AB-11: rejects 127.0.0.1 loopback', () {
+    test('rejects 127.0.0.1 loopback', () {
       final failures = checkCitationUrl(
         'x',
         'http://127.0.0.1/spec',
@@ -1555,7 +1536,7 @@ void main() {
       expect(failures.first, contains('loopback'));
     });
 
-    test('AB-11: rejects IPv6 loopback [::1]', () {
+    test('rejects IPv6 loopback [::1]', () {
       final failures = checkCitationUrl(
         'x',
         'http://[::1]/spec',
@@ -1565,24 +1546,24 @@ void main() {
       expect(failures.first, contains('loopback'));
     });
 
-    test('AB-11: accepts dotted external host', () {
+    test('accepts dotted external host', () {
       expect(
         checkCitationUrl('x', 'https://api.flutter.dev/x', required: true),
         isEmpty,
       );
     });
 
-    test('AB-11: accepts IPv4 with dots (non-loopback)', () {
+    test('accepts IPv4 with dots (non-loopback)', () {
       expect(
         checkCitationUrl('x', 'http://93.184.216.34/', required: true),
         isEmpty,
       );
     });
 
-    // NEW-CODEX-2 (Bundle H): externally cited claims must resolve
+    // Externally cited claims must resolve
     // off-network, so RFC1918 private-range and link-local literals
     // are rejected alongside loopback.
-    test('Bundle H: rejects RFC1918 10.0.0.0/8', () {
+    test('rejects RFC1918 10.0.0.0/8', () {
       final failures = checkCitationUrl(
         'x',
         'http://10.0.0.1/',
@@ -1592,7 +1573,7 @@ void main() {
       expect(failures.single, contains('RFC1918'));
     });
 
-    test('Bundle H: rejects RFC1918 172.16.0.0/12 (at lower bound)', () {
+    test('rejects RFC1918 172.16.0.0/12 (at lower bound)', () {
       final failures = checkCitationUrl(
         'x',
         'http://172.16.1.1/',
@@ -1602,7 +1583,7 @@ void main() {
       expect(failures.single, contains('RFC1918'));
     });
 
-    test('Bundle H: rejects RFC1918 172.16.0.0/12 (at upper bound)', () {
+    test('rejects RFC1918 172.16.0.0/12 (at upper bound)', () {
       final failures = checkCitationUrl(
         'x',
         'http://172.31.255.254/',
@@ -1612,21 +1593,21 @@ void main() {
       expect(failures.single, contains('RFC1918'));
     });
 
-    test('Bundle H: accepts 172.15.x.x (outside RFC1918 172.16/12)', () {
+    test('accepts 172.15.x.x (outside RFC1918 172.16/12)', () {
       expect(
         checkCitationUrl('x', 'http://172.15.0.1/', required: true),
         isEmpty,
       );
     });
 
-    test('Bundle H: accepts 172.32.x.x (above RFC1918 172.16/12)', () {
+    test('accepts 172.32.x.x (above RFC1918 172.16/12)', () {
       expect(
         checkCitationUrl('x', 'http://172.32.0.1/', required: true),
         isEmpty,
       );
     });
 
-    test('Bundle H: rejects RFC1918 192.168.0.0/16', () {
+    test('rejects RFC1918 192.168.0.0/16', () {
       final failures = checkCitationUrl(
         'x',
         'http://192.168.1.1/',
@@ -1636,7 +1617,7 @@ void main() {
       expect(failures.single, contains('RFC1918'));
     });
 
-    test('Bundle H: rejects IPv4 link-local 169.254.0.0/16', () {
+    test('rejects IPv4 link-local 169.254.0.0/16', () {
       final failures = checkCitationUrl(
         'x',
         'http://169.254.1.1/',
@@ -1646,7 +1627,7 @@ void main() {
       expect(failures.single, contains('link-local'));
     });
 
-    test('Bundle H: rejects IPv6 link-local fe80::/10', () {
+    test('rejects IPv6 link-local fe80::/10', () {
       final failures = checkCitationUrl(
         'x',
         'http://[fe80::1]/',
@@ -1656,7 +1637,7 @@ void main() {
       expect(failures.single, contains('link-local IPv6'));
     });
 
-    test('Bundle H: rejects IPv6 unique-local fc00::/7', () {
+    test('rejects IPv6 unique-local fc00::/7', () {
       final failures = checkCitationUrl(
         'x',
         'http://[fc00::beef]/',
@@ -1666,7 +1647,7 @@ void main() {
       expect(failures.single, contains('unique-local IPv6'));
     });
 
-    test('Bundle H: accepts external IPv6 (Google DNS)', () {
+    test('accepts external IPv6 (Google DNS)', () {
       expect(
         checkCitationUrl('x', 'http://[2001:4860:4860::8888]/', required: true),
         isEmpty,
@@ -2064,7 +2045,7 @@ void main() {
 
     test('bracketStableId without runtimeVerified+ effective tier is '
         'rejected (regression guard for v0.18.3 audit-bypass)', () {
-      // Reproduces the C1 audit-bypass: a hypothetical detector at base
+      // Reproduces the v0.18.3 audit bypass: a hypothetical detector at base
       // unvalidated with a perStableIdTier raise targeting an unrelated
       // family — the bracket fields would otherwise validate against
       // captures while the bracketStableId family stays at unvalidated.

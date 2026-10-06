@@ -2,7 +2,7 @@
 // (fires only on subclassing). Remove when analyzer-server recognizes the
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
-// CODEX-R4-1: ledger-sync gate.
+// Ledger-sync gate.
 //
 // `doc/validation_ledger.md` is the public reliability statement — it
 // lists every built-in detector with its current `EvidenceTier`. The
@@ -196,7 +196,7 @@ void main() {
     test('pinned detector-row assertion — NetworkMonitorDetector is on '
         'the ledger at reproducerOnly with slow_request raised via '
         'perStableIdTier (v0.19.0)', () {
-      // AB-9: The tier-counts test above is coarse — it proves "N
+      // The tier-counts test above is coarse. It proves "N
       // detectors are at runtimeVerified" but cannot catch a ledger
       // edit that swaps which specific detector holds a given tier
       // without changing the count. Pin the specific row so a silent
@@ -253,7 +253,7 @@ void main() {
       );
     });
 
-    // AB-7: the detector-side gates slice out everything under
+    // The detector-side gates slice out everything under
     // `## Non-Detector Components`, so any row in the component section
     // had zero CI coverage — the ledger could promise a `reproducerOnly`
     // component without the registry carrying a matching entry. Mirror
@@ -269,7 +269,7 @@ void main() {
     // the canonical place to dispatch `registerMetadata()` from
     // `setUpAll` so the registry reflects the post-dispatch state.
     test('component-ledger per-tier counts match ValidatedComponentRegistry '
-        'tier counts (AB-7)', () {
+        'tier counts', () {
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
@@ -327,8 +327,7 @@ void main() {
       );
     });
 
-    test('component-ledger summary matches registry size when non-empty '
-        '(AB-7)', () {
+    test('component-ledger summary matches registry size when non-empty', () {
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');

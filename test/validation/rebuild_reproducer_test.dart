@@ -22,8 +22,9 @@
 //     a coincidental gate.
 //   Source-mode suppression — `source: RebuildCountSource.flutterTimeline`
 //     blocks `_evaluateDebugData` because profile-mode counts include
-//     initial inflations (KDD-5). Default `RebuildCountSource.none` keeps
-//     the per-type path live for backwards compatibility.
+//     initial inflations (first builds), not only rebuilds. Default
+//     `RebuildCountSource.none` keeps the per-type path live for backwards
+//     compatibility.
 //   Structural fallback (`stateful_density`) — disconnects VM, mounts a
 //     tree of public-named StatefulWidgets above the threshold, asserts
 //     the structural-only emission fires.
@@ -420,7 +421,7 @@ void main() {
         'flutterTimeline source: per-type path skipped even at warning rate',
         (tester) async {
           // Per-type rate 20/sec would normally fire warning. Profile-mode
-          // counts include initial inflations (KDD-5) so the per-type
+          // counts include initial inflations (first builds), so the per-type
           // emission is gated off; route entry must not surface critical
           // false positives for `ProductCard × 50` list inflations.
           detector.updateDebugSnapshot(
@@ -580,7 +581,8 @@ void main() {
               builder: (_, _) => const SizedBox(),
             ),
           );
-          // Issue suppression for KDD-5 inflation false-positives.
+          // Profile counts include first builds, so per-type issues stay
+          // suppressed to avoid inflation false positives.
           expect(issues, isEmpty);
           // Highlight path must share the gate. Without it, overlay paints
           // hot-widget boxes for `ProductCard × 50` list-entry inflations

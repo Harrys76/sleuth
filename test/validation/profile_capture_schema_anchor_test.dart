@@ -54,31 +54,28 @@ void main() {
       );
     });
 
-    // CLAUDE-R3-1: pin a structural fingerprint of the anchor fixture so
+    // Pin a structural fingerprint of the anchor fixture so
     // unintended edits (e.g. a well-meaning format touch-up, a field
     // rename during refactoring, a synthetic event swap) fail this test.
     // Intentional updates require also updating _expectedAnchorSha256 —
     // that's the point: a single-line PR diff flags "anchor changed"
     // so reviewers look.
-    test(
-      'anchor fixture byte-for-byte fingerprint is pinned (CLAUDE-R3-1)',
-      () {
-        final bytes = anchor.readAsBytesSync();
-        final digest = sha256.convert(bytes).toString();
-        expect(
-          digest,
-          equals(_expectedAnchorSha256),
-          reason:
-              'The anchor fixture bytes changed. If this was '
-              'intentional (e.g. replacing the synthetic anchor with a '
-              'real DevTools export in v0.16.4), update '
-              '_expectedAnchorSha256 in this file to the new digest and '
-              'call it out in the PR description. Unintentional edits '
-              'should be reverted — the anchor is the schema-drift '
-              'contract.',
-        );
-      },
-    );
+    test('anchor fixture byte-for-byte fingerprint is pinned', () {
+      final bytes = anchor.readAsBytesSync();
+      final digest = sha256.convert(bytes).toString();
+      expect(
+        digest,
+        equals(_expectedAnchorSha256),
+        reason:
+            'The anchor fixture bytes changed. If this was '
+            'intentional (e.g. replacing the synthetic anchor with a '
+            'real DevTools export in v0.16.4), update '
+            '_expectedAnchorSha256 in this file to the new digest and '
+            'call it out in the PR description. Unintentional edits '
+            'should be reverted — the anchor is the schema-drift '
+            'contract.',
+      );
+    });
   });
 }
 

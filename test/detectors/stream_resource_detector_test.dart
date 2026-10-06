@@ -873,7 +873,7 @@ void main() {
       },
     );
 
-    // -- Diagnostic poll result (B1) --
+    // -- Diagnostic poll result --
 
     test(
       'pollAllocationProfileNow returns succeeded with diagnostics',

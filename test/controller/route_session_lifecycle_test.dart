@@ -48,7 +48,7 @@ BuildContext _rootContext(WidgetTester tester) =>
     tester.element(find.byType(MaterialApp));
 
 void main() {
-  group('Route session lifecycle (M2)', () {
+  group('Route session lifecycle', () {
     late SleuthController controller;
 
     setUp(() {

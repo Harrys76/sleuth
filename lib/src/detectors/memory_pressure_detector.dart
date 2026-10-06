@@ -223,7 +223,7 @@ class MemoryPressureDetector extends BaseDetector
 
   // processTimelineData intentionally NOT overridden.
   //
-  // Prior to Phase 1, this method read `data.gcEvents.length` as the GC count
+  // Previously, this method read `data.gcEvents.length` as the GC count
   // and pushed it into the sliding window. That count came from TimelineParser,
   // which aggregates the VM's `'X'` complete GC events AND the `'B'/'E'`
   // begin/end pair events — a single GC cycle emits 5–15 sub-phase trace

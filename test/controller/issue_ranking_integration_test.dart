@@ -240,7 +240,7 @@ void main() {
       expect(withJank.any((i) => i.severity == IssueSeverity.critical), isTrue);
 
       // Then: inject many smooth frames to evict the jank pattern. Detector
-      // buffer capacity is fixed at 240 in v0.17.0 C2 fix (decoupled from
+      // buffer capacity is fixed at 240 since v0.17.0 (decoupled from
       // fpsTarget so actualFpsRaw is a faithful device rate). Fill must be
       // at least 240 smooth frames to evict the 5 original jank frames.
       for (var i = 0; i < 245; i++) {

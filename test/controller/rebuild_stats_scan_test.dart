@@ -1,12 +1,11 @@
-// Rebuild-stats scan-path unit tests — spec v15 M12.
+// Rebuild-stats scan-path unit tests.
 //
 // These tests exercise the `_scanTreeInner` drain → merge → route-switch
-// pipeline that was added in M5/M7 for profile-mode per-widget rebuild
+// pipeline that v0.15.0 added for profile-mode per-widget rebuild
 // counting. Widget tests run under `kDebugMode == true`, so the real
 // profile-mode coordinator install (`installProfileMode()`) is NOT used
-// here — spec R3 explicitly documents this limitation and notes that the
-// only full end-to-end profile validation is the `rebuild_stats_probe.dart`
-// M1 probe run against a physical device.
+// here. The only full end-to-end profile validation is a
+// `flutter run --profile` session on a physical device.
 //
 // Instead of producing real `FlutterTimeline` events, these tests inject
 // a fake [DebugInstrumentationCoordinator] subclass via the `@visibleForTesting`
@@ -18,15 +17,15 @@
 // code path while keeping the test harness in debug mode.
 //
 // Coverage:
-// - **Scan re-entry regression (R7):** a second `_scanTree` call while
+// - **Scan re-entry regression:** a second `_scanTree` call while
 //   `_scanInProgress == true` must be a silent no-op — the guard
 //   prevents double-draining the coordinator (which would reset
 //   `_lastSnapshotTime` and corrupt elapsed/per-second rate math).
-// - **Null-route drop (R18):** when `_activeRouteSession == null`
+// - **Null-route drop:** when `_activeRouteSession == null`
 //   (route is in `routeIgnorePatterns`, or pre-first-session), merged
 //   counts are silently discarded rather than attributed to an unknown
 //   session.
-// - **Drain → attribute → route-switch ordering (R5):** within a single
+// - **Drain → attribute → route-switch ordering:** within a single
 //   `_scanTreeInner` call, merged counts MUST land on the pre-route-change
 //   active session (A) even when the same scan detects a route change
 //   and creates a fresh session (B). Reordering this pair (route-switch
@@ -95,7 +94,7 @@ const _config = SleuthConfig(
 );
 
 void main() {
-  group('Rebuild-stats scan pipeline (spec v15 M12)', () {
+  group('Rebuild-stats scan pipeline', () {
     late SleuthController controller;
     late _FakeCoordinator fake;
 
@@ -199,54 +198,52 @@ void main() {
       },
     );
 
-    testWidgets(
-      'null active route session drops merged counts silently (R18)',
-      (tester) async {
-        // Reconfigure with an ignore pattern so the first scan sees /home as
-        // ignored and sets `_activeRouteSession = null`.
-        controller.dispose();
-        controller = SleuthController(
-          config: const SleuthConfig(
-            treeScanInterval: Duration(seconds: 1),
-            enabledDetectors: {DetectorType.frameTiming},
-            routeIgnorePatterns: {'/home'},
-          ),
-        );
-        controller.initializeDetectorsForTest();
-        fake = _FakeCoordinator();
-        controller.debugCoordinatorForTest = fake;
+    testWidgets('null active route session drops merged counts silently', (
+      tester,
+    ) async {
+      // Reconfigure with an ignore pattern so the first scan sees /home as
+      // ignored and sets `_activeRouteSession = null`.
+      controller.dispose();
+      controller = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+          routeIgnorePatterns: {'/home'},
+        ),
+      );
+      controller.initializeDetectorsForTest();
+      fake = _FakeCoordinator();
+      controller.debugCoordinatorForTest = fake;
 
-        await tester.pumpWidget(_appWith('/home'));
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(_appWith('/home'));
+      await tester.pumpAndSettle();
 
-        fake.nextSnapshot = const DebugSnapshot(
-          rebuildCounts: {'IgnoredCard': 7},
-          totalPaintCount: 0,
-          elapsed: Duration(milliseconds: 500),
-          source: RebuildCountSource.flutterTimeline,
-        );
-        controller.scanTreeFullPathForTest(_rootContext(tester));
+      fake.nextSnapshot = const DebugSnapshot(
+        rebuildCounts: {'IgnoredCard': 7},
+        totalPaintCount: 0,
+        elapsed: Duration(milliseconds: 500),
+        source: RebuildCountSource.flutterTimeline,
+      );
+      controller.scanTreeFullPathForTest(_rootContext(tester));
 
-        // Route /home is ignored → no active session was created.
-        expect(controller.activeRouteSessionForTest, isNull);
-        // And the drained counts were dropped — nothing in route history
-        // received them.
-        expect(
-          controller.routeHistoryForTest,
-          isEmpty,
-          reason: 'ignored routes must not spawn sessions',
-        );
-        expect(
-          fake.snapshotCallCount,
-          1,
-          reason:
-              'drain still ran — counts were simply discarded at merge time',
-        );
-      },
-    );
+      // Route /home is ignored → no active session was created.
+      expect(controller.activeRouteSessionForTest, isNull);
+      // And the drained counts were dropped — nothing in route history
+      // received them.
+      expect(
+        controller.routeHistoryForTest,
+        isEmpty,
+        reason: 'ignored routes must not spawn sessions',
+      );
+      expect(
+        fake.snapshotCallCount,
+        1,
+        reason: 'drain still ran — counts were simply discarded at merge time',
+      );
+    });
 
     testWidgets('drain → attribute → route-switch ordering: '
-        'counts land on pre-route-change session (R5)', (tester) async {
+        'counts land on pre-route-change session', (tester) async {
       // First, establish session A on /home.
       fake.nextSnapshot = const DebugSnapshot(
         rebuildCounts: {},
@@ -300,7 +297,8 @@ void main() {
     });
 
     testWidgets('debugCallback-source snapshots are NOT merged into '
-        'rebuildCountsByType (KDD-1 mutual exclusivity)', (tester) async {
+        'rebuildCountsByType (debug and profile sources are mutually '
+        'exclusive)', (tester) async {
       // The merge block is gated on `source == flutterTimeline`. Debug-mode
       // snapshots (source == debugCallback) are consumed by detectors via
       // `updateDebugSnapshot()` and must never touch the session rollup

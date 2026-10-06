@@ -354,7 +354,7 @@ void main() {
     });
   });
 
-  group('contextIssue substitution (M4)', () {
+  group('contextIssue substitution', () {
     testWidgets('substitutes widgetName and count in target entry', (
       tester,
     ) async {

@@ -1,7 +1,7 @@
 // Hermetic reproducer for [SetStateScopeDetector].
 //
 // Pins `setstate_scope` via real tree + `scanTree`-equivalent walks
-// (anti-tautology, Tactic 9). Emission requires observed rebuilds: the
+// (anti-tautology). Emission requires observed rebuilds: the
 // two-scan path mounts a public StatefulWidget that owns most of the
 // tree, scans, triggers a real `setState`, pumps, and scans again so
 // child-identity churn crosses `rebuildEvidenceThreshold`. A debug-callback

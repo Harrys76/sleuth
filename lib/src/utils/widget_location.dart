@@ -73,9 +73,9 @@ const _frameworkNames = {
 /// Walks up the tree to find the nearest user page/screen widget,
 /// then shows the path down to the flagged element.
 ///
-/// Example output (debug mode with source locations):
+/// Example output (build tracks widget creation):
 ///   "NestedScrollDemo > Column > SingleChildScrollView (lib/screens/demo.dart:42)"
-/// Example output (profile mode or tracking unavailable):
+/// Example output (build does not track widget creation):
 ///   "NestedScrollDemo > Column > SingleChildScrollView"
 ///
 /// When [visitedAncestors] is given, every ancestor the walk reads is
@@ -108,7 +108,7 @@ String buildAncestorChain(
 }
 
 /// Extracts the package name from the leaf element's source location.
-/// Returns null in profile mode or when tracking is unavailable.
+/// Returns null when the build does not track widget creation.
 String? extractPackageNameFromElement(Element element) {
   final structured = sourceLocationCache.lookupStructured(element);
   return structured?.packageName;

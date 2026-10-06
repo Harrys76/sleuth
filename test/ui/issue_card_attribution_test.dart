@@ -44,7 +44,7 @@ void main() {
     return border.left.color == color && border.left.width == 3;
   }
 
-  group('IssueCard left border accent (R1)', () {
+  group('IssueCard left border accent', () {
     testWidgets('vmTimeline source shows green accent', (tester) async {
       await tester.pumpWidget(
         _buildCard(_testIssue(observationSource: ObservationSource.vmTimeline)),
@@ -133,7 +133,7 @@ void main() {
     });
   });
 
-  group('IssueCard category badge (R2)', () {
+  group('IssueCard category badge', () {
     testWidgets('build category shows BUILD badge', (tester) async {
       await tester.pumpWidget(
         _buildCard(_testIssue(category: IssueCategory.build)),
@@ -196,7 +196,7 @@ void main() {
     });
   });
 
-  group('IssueCard ancestor chain display (R6)', () {
+  group('IssueCard ancestor chain display', () {
     testWidgets('expanded card with ancestorChain shows Ancestors: line', (
       tester,
     ) async {

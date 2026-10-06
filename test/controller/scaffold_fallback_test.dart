@@ -415,7 +415,7 @@ void main() {
 
       // Scan 1 on tab 0 — establishes the innermost-Scaffold baseline.
       controller.scanTreeFullPathForTest(root);
-      // H1 pin: assert we went down the happy path, not the navigating
+      // Pin: assert we went down the happy path, not the navigating
       // sentinel. If the IndexedStack onstage descent ever regresses and both
       // tabs' Scaffolds become siblings, the scan would return null, the
       // sentinel path would fire clearRecords(), and the post-switch
@@ -446,7 +446,7 @@ void main() {
       // Scan 2 — innermost Scaffold Element identity changed → clear fires.
       controller.scanTreeFullPathForTest(root);
 
-      // H1 pin: scan 2 must ALSO go down the happy path. The clear below
+      // Pin: scan 2 must ALSO go down the happy path. The clear below
       // must come from the Scaffold-hash signal, not the sentinel path.
       expect(
         controller.interactionStateForTest,
@@ -476,8 +476,8 @@ void main() {
       'tab-switch clear stamps _ignoreBeforeTimestamp: in-flight responses '
       'from the previous tab are dropped on arrival (cutoff contract)',
       (tester) async {
-        // H2: the fixture-tautology fix. The other tests in this group stamp
-        // records at DateTime(2100) so they always land after any
+        // This test avoids a fixture tautology. The other tests in this
+        // group stamp records at DateTime(2100) so they always land after any
         // _ignoreBeforeTimestamp the detector might set — convenient for
         // isolation but it hides whether the cutoff actually works.
         //
@@ -1586,8 +1586,7 @@ void main() {
     // -----------------------------------------------------------------------
 
     testWidgets(
-      'tabVisitIndex remains unique across live history after FIFO eviction '
-      '(C1 regression)',
+      'tabVisitIndex remains unique across live history after FIFO eviction',
       (tester) async {
         // Use a dedicated controller with a small cap so eviction happens
         // quickly. The shared top-level controller has the default 50 cap.
@@ -1652,8 +1651,8 @@ void main() {
             indices.length,
             reason:
                 'Sessions for scaffoldHashKey=${entry.key} must have '
-                'unique tabVisitIndex values, got $indices. This is the C1 '
-                'collision: count+1 duplicated after eviction; max+1 must not.',
+                'unique tabVisitIndex values, got $indices. count+1 '
+                'duplicated an index after eviction; max+1 must not.',
           );
         }
 
@@ -1683,7 +1682,7 @@ void main() {
   // pre-reload session continues.
   // -------------------------------------------------------------------------
 
-  group('hot reload closes active session (C2 regression)', () {
+  group('hot reload closes active session', () {
     testWidgets('reassembleForTest closes active session and starts a fresh '
         'one with incremented hotReloadGeneration on next scan', (
       tester,

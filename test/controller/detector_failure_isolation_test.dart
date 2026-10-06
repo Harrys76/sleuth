@@ -168,7 +168,7 @@ class _ScopedErrorCapture {
 
 void main() {
   group(
-    'v0.16.0 F3 — detector failures route through FlutterError.reportError',
+    'v0.16.0: detector failures route through FlutterError.reportError',
     () {
       for (final stage in _scanStages) {
         testWidgets('throw in ${stage.name} → FlutterError.reportError fires', (
@@ -250,7 +250,7 @@ void main() {
     },
   );
 
-  group('v0.16.0 F3 — quarantine skips a failing detector in later stages', () {
+  group('v0.16.0: quarantine skips a failing detector in later stages', () {
     testWidgets(
       'prepareScan throw → checkElement/afterElement/notifyWalkCompleted/'
       'finalizeScan all skipped',

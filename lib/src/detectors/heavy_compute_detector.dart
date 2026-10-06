@@ -351,14 +351,21 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
         '`Sleuth.markScenarioBegin/End` + `flushTimelineNow` to '
         'drive synchronous detector emission inside the scenario '
         'span. Captures recorded under v0.18.2+ producer-side dedup '
-        '(stable per-BUILD `detectedAt` derived from '
+        '(a stable per-BUILD trace identity taken from '
         '`event.timestampUs`) so the strong uniqueness invariant '
         '(`requireUniqueDetectedAtMicros: true`) protects against '
-        'capture replay forgery on both brackets. Issue lifetime: '
-        'heavy_compute is one-shot per BUILD scope. Emitted issues '
+        'capture replay forgery on both brackets. The 8 ms / 16 ms '
+        'thresholds apply at the `fpsTarget` frame budget; when the '
+        'resolved budget is shorter (a faster display) the warning '
+        'threshold drops to half of it (critical stays 2×), unless '
+        '`heavyComputeGapMs` is set. Capture mode keeps the '
+        '`fpsTarget` budget. Issue lifetime: each VM batch emits at most one '
+        'issue, for the longest BUILD over the threshold, with the '
+        'count of other slow builds in the detail. Emitted issues '
         'persist for `emissionPersistence` wall-clock duration '
-        '(default 10s, monotonic Stopwatch) so a one-shot compute '
-        'event stays observable past the tap-to-open delay on the '
+        '(default 10s, monotonic Stopwatch) so a slow build that '
+        'appears in a single batch stays observable past the '
+        'tap-to-open delay on the '
         'FloatingIssuesCard. Wall-clock semantics are independent '
         'of VM poll cadence — iOS profile-mode batches arrive '
         'multiple times per second. Fresh emissions reset the '
@@ -385,8 +392,8 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     aboveCeilingMultiplier: 1.875,
     coveredStableIds: {'heavy_compute'},
     coveredThresholds: {'heavy_compute.warning', 'heavy_compute.critical'},
-    // Captures recorded under v0.18.2+ producer-side dedup with
-    // stable per-BUILD `detectedAt`. Opt into the strong
+    // Captures recorded under v0.18.2+ producer-side dedup with a
+    // stable per-BUILD trace identity. Opt into the strong
     // uniqueness invariant so the audit gate rejects any future
     // capture whose in-span trace records share a
     // `detectedAtMicros` (forgery / replay protection).

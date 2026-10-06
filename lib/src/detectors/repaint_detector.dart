@@ -564,7 +564,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// Debug callback path — per-widget paint attribution.
   ///
   /// **Gate A — per-widget residual subtraction.**
-  /// Earlier (v0.15.3 M1) this gate did `if (_isAnimationOwned(...))
+  /// Earlier (v0.15.3) this gate did `if (_isAnimationOwned(...))
   /// continue;` — a binary skip-or-fire on the cached ancestor chain.
   /// That behaved correctly for monomorphic typeNames, but for
   /// polymorphic keys like `'CustomPaint'` (where one widget's paints

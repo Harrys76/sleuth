@@ -724,7 +724,7 @@ void main() {
     });
 
     test('vmConnected = false immediately clears stale gc_pressure issue', () {
-      // Phase 1 / M3 fix: on VM disconnect, the GC sliding window is
+      // On VM disconnect, the GC sliding window is
       // cleared AND `_evaluate()` is re-run so any `gc_pressure` issue
       // emitted just before the disconnect is removed from the live
       // issues list. Without the re-evaluate, the stale issue would

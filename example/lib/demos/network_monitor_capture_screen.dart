@@ -24,15 +24,17 @@ import 'capture_driver.dart';
 ///
 /// **Procedure (USB iPhone, in-app export — no DevTools needed):**
 ///
-///  1. `cd example && fvm flutter run --profile -d "iPhone 12" \
-///        --dart-define=SLEUTH_CAPTURE_MODE=true`. First build attaches
-///     DevTools (FRAME mode for Sleuth — capture won't work yet).
-///  2. Quit `flutter run` (`q`). DevTools detaches.
-///  3. Re-open the app from the iPhone home screen. No DevTools
-///     attached → SleuthController.VmServiceClient connects → VM+
-///     mode active → real `NetworkMonitorDetector` observes HTTP
-///     completions and emits the three target trace records.
-///  4. Navigate to "NetworkMonitor capture helper" → pick a mode →
+///  1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+///        --dart-define=SLEUTH_CAPTURE_MODE=true \
+///        --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
+///  2. Sleuth's VmServiceClient connects to the app's own VM service
+///     (VM+ mode), so the real `NetworkMonitorDetector` observes HTTP
+///     completions and emits the three target trace records. Without
+///     `--no-dds`, `flutter run` starts DDS, which keeps the VM service
+///     as its only client and leaves Sleuth in FRAME mode. In that case
+///     quit `flutter run` (`q`) and re-open the app from the home
+///     screen, so no DDS attaches.
+///  3. Navigate to "NetworkMonitor capture helper" → pick a mode →
 ///     tap a leg → wait for "tap Export now" log line → tap **Export
 ///     last leg**.
 ///

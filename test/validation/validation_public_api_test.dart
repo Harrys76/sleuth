@@ -60,12 +60,11 @@ void main() {
         expect(provider.validationMetadata.tier, EvidenceTier.reproducerOnly);
       });
 
-      // CODEX-R4-2: v0.16.2 adds the parallel component surface plus the
+      // v0.16.2 adds the parallel component surface plus the
       // capture-schema parser. All three must be reachable through the
       // public barrel so downstream users and forks don't have to import
       // `package:sleuth/src/...`.
-      test('ComponentMetadata can be constructed via the public API '
-          '(CODEX-R4-2)', () {
+      test('ComponentMetadata can be constructed via the public API', () {
         const metadata = ComponentMetadata(
           componentName: 'ExampleComponent',
           tier: EvidenceTier.reproducerOnly,
@@ -78,36 +77,37 @@ void main() {
         expect(metadata.coveredClaimIds, contains('x'));
       });
 
-      test('ComponentMetadataProvider mixin is reachable for implementers '
-          '(CODEX-R4-2)', () {
+      test('ComponentMetadataProvider mixin is reachable for implementers', () {
         final provider = _ExampleComponentMetadataProvider();
         expect(provider.validationMetadata.componentName, 'ExampleComponent');
         expect(provider.validationMetadata.tier, EvidenceTier.reproducerOnly);
       });
 
-      test('ProfileCaptureSchema.parseFile is reachable via the public API '
-          '(CODEX-R4-2)', () {
-        final anchor = File(
-          'test/validation/captures/_fixtures/anchor_devtools_export.json',
-        );
-        if (!anchor.existsSync()) {
-          markTestSkipped('anchor fixture not available (non-repo-root CWD)');
-          return;
-        }
-        // The smoke path: it's the public type, callable, and returns
-        // a Map with the canonical metadata keys.
-        final meta = ProfileCaptureSchema.parseFile(anchor);
-        expect(meta, isA<Map<String, Object?>>());
-        expect(meta, containsPair('device', isA<String>()));
-        expect(
-          ProfileCaptureSchema.approvedFlutterMajorMinor,
-          isNotEmpty,
-          reason:
-              'approvedFlutterMajorMinor constant is part of the '
-              'public contract; a fork that pins its own major.minor '
-              'reads this.',
-        );
-      });
+      test(
+        'ProfileCaptureSchema.parseFile is reachable via the public API',
+        () {
+          final anchor = File(
+            'test/validation/captures/_fixtures/anchor_devtools_export.json',
+          );
+          if (!anchor.existsSync()) {
+            markTestSkipped('anchor fixture not available (non-repo-root CWD)');
+            return;
+          }
+          // The smoke path: it's the public type, callable, and returns
+          // a Map with the canonical metadata keys.
+          final meta = ProfileCaptureSchema.parseFile(anchor);
+          expect(meta, isA<Map<String, Object?>>());
+          expect(meta, containsPair('device', isA<String>()));
+          expect(
+            ProfileCaptureSchema.approvedFlutterMajorMinor,
+            isNotEmpty,
+            reason:
+                'approvedFlutterMajorMinor constant is part of the '
+                'public contract; a fork that pins its own major.minor '
+                'reads this.',
+          );
+        },
+      );
     },
   );
 }

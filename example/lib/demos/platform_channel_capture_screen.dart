@@ -16,10 +16,11 @@ import 'capture_driver.dart';
 /// runtimeVerified capture screens: SleuthController's VmServiceClient
 /// must be connected (VM+ overlay) so `_recordIssuesForCapture` lands
 /// the `sleuth.issue.platform_channel_traffic.warning` trace event
-/// inside the scenario span. USB-tethered iPhone profile-mode is FRAME
-/// mode and does not work; use **wireless debugging** via Xcode →
-/// Window → Devices and Simulators → "Connect via network" or the iOS
-/// simulator.
+/// inside the scenario span. Sleuth connects to the app's own VM service
+/// from inside the app, so USB and wireless both work. `flutter run`
+/// starts DDS by default, and DDS keeps the VM service as its only
+/// client, which leaves Sleuth in FRAME mode. Launch with `--no-dds`
+/// (step 1), or start the installed app from the home screen.
 ///
 /// **Why the procedure differs from `MemoryPressureCaptureScreen`.**
 ///
@@ -47,8 +48,9 @@ import 'capture_driver.dart';
 ///
 /// **Procedure per leg:**
 ///
-///   1. `cd example && fvm flutter run --profile -d DEVICE \
-///         --dart-define=SLEUTH_CAPTURE_MODE=true`.
+///   1. `cd example && fvm flutter run --profile --no-dds -d DEVICE \
+///         --dart-define=SLEUTH_CAPTURE_MODE=true \
+///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
 ///   2. Wait ≥ 3 s after app launch (lets VM service connection settle
 ///      and the parser's per-tid cursor map initialize).
 ///   3. Tap a leg (Below / At / Above). Workload runs ≥ 1.5 s of
@@ -79,23 +81,21 @@ import 'capture_driver.dart';
 ///                                above-leg cannot ambiently bracket
 ///                                the critical tier)
 ///
-/// Per-leg send-rate targets are picked mid-band so iOS scheduling
-/// jitter stays inside the band without retries:
+/// Per-leg send rates aim the detector count at the middle of each band.
+/// The above leg sends more than its band because coalescing lowers the
+/// detector count (see the constants below):
 ///
 ///   below:  3 calls / 200 ms tick = 15/sec
 ///   at:     5 calls / 200 ms tick = 25/sec
-///   above:  7 calls / 200 ms tick = 35/sec
+///   above:  9 calls / 200 ms tick = 45/sec
 ///
 /// **Parallel send.** Each tick fires K parallel `invokeMethod` Futures
-/// via `Future.wait` rather than sequential awaits. iOS round-trip
-/// latency on `MethodChannel` averages ~12–25 ms over a USB cable and
-/// 30–80 ms over wireless debug — sequential awaits would cap the
-/// effective send rate at ~12–80/sec depending on link, making the
-/// `above` band unreachable on wireless. Parallel batches let the
-/// per-tick cost be the slowest single round-trip, not the sum.
+/// via `Future.wait` rather than sequential awaits, so the per-tick cost
+/// is the slowest single round trip, not the sum. Sequential awaits would
+/// cap the send rate at one call per round trip.
 ///
 /// **Cooldown.** The detector emits ONCE per fire then suppresses for
-/// the next 3 evaluation cycles. With a 1.5 s scenario span and 1 s
+/// the next 3 evaluation cycles. With a 1.5 s call phase and 1 s
 /// evaluation windows, exactly one emission lands per leg — the
 /// cooldown only matters as a guard against the second second
 /// firing again, which it does not under the chosen budget.
@@ -161,8 +161,8 @@ const _callPhaseDurationMs = 1500;
 const _postCallDwellMs = 1500;
 
 // Extra barrier after markScenarioEnd before exportCaptureJson reads
-// the VM trace buffer. Over wireless debug the RPC may otherwise
-// observe a snapshot that pre-dates the end marker.
+// the VM trace buffer. Without it the RPC may observe a snapshot that
+// pre-dates the end marker.
 const _postEndBarrierMs = 200;
 
 const _maxRetriesPerLeg = 5;
@@ -309,8 +309,8 @@ class _PlatformChannelCaptureScreenState
       while (sw.elapsedMilliseconds < _callPhaseDurationMs) {
         // Parallel send: K invokeMethod Futures fire concurrently per
         // tick. Sequential awaits would serialize the round-trips and
-        // cap the effective send rate at ~12–80/sec on wireless,
-        // making the above band unreachable. Future.wait completes
+        // cap the send rate at one call per round trip, which can leave
+        // the above band unreachable. Future.wait completes
         // when the slowest single round-trip completes, so per-tick
         // cost ≈ slowest RT not sum-of-RTs.
         final batch = <Future<void>>[];

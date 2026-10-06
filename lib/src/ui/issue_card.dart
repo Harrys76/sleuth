@@ -1184,7 +1184,7 @@ class _IssueCardState extends State<IssueCard> {
       textScaler: _badgeScaler(context),
     );
 
-    // Confidence reasoning is shown inline when expanded (M5), so no Tooltip
+    // Confidence reasoning is shown inline when expanded, so no Tooltip
     // needed. Tooltip also crashes in the Sleuth overlay's bare Overlay widget
     // (no Navigator → no _RenderTheaterMarker for OverlayPortal).
     if (reason == null) return badge;

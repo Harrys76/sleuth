@@ -1,4 +1,4 @@
-// RebuildStatsPage widget tests — spec v15 M12.
+// RebuildStatsPage widget tests.
 //
 // These tests exercise the drilldown page that opens from the
 // `_RebuildStatsBanner` panel's "See all N →" link on the floating
@@ -7,20 +7,20 @@
 // replaced by the always-on inline panel.)
 // Key contracts under test:
 //
-// - **Empty state (R21):** a session with zero rebuild counts must render
+// - **Empty state:** a session with zero rebuild counts must render
 //   the empty-state message, not a blank ListView.
-// - **Descending sort (M10):** rows are sorted by count descending so the
+// - **Descending sort:** rows are sorted by count descending so the
 //   heaviest rebuilder is always at rank 1, regardless of map insertion
 //   order.
 // - **Header + summary chips:** total and type-count chips reflect the
 //   counts passed in at construction time.
-// - **Close button (R22):** back-arrow and system-back both invoke
+// - **Close button:** back-arrow and system-back both invoke
 //   `onClose` exactly once.
-// - **Snapshot-at-open (M10):** mutations to the caller's counts map
+// - **Snapshot-at-open:** mutations to the caller's counts map
 //   after the page is constructed MUST NOT reflow or reorder the rendered
 //   rows — the page takes a defensive copy inside its constructor.
 //   Live-updating a drilldown while the user reads it would shuffle rows
-//   out from under them and is explicitly avoided per spec.
+//   out from under them, so the page does not do it.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,7 +31,7 @@ Widget _pump(RebuildStatsPage page) {
 }
 
 void main() {
-  group('RebuildStatsPage (spec v15 M12)', () {
+  group('RebuildStatsPage', () {
     testWidgets('empty counts map renders empty-state message', (tester) async {
       await tester.pumpWidget(
         _pump(
@@ -147,8 +147,9 @@ void main() {
     });
 
     testWidgets('inflation disclaimer text is always visible', (tester) async {
-      // Disclaimer mirrors the KDD-5 caveat on the rollup issue so a user
-      // who drills in doesn't miss it. Present on empty AND populated.
+      // Profile counts include first builds (inflations), not only
+      // rebuilds. The disclaimer says so on the page so a user who drills
+      // in doesn't miss it. Present on empty AND populated.
       await tester.pumpWidget(
         _pump(
           RebuildStatsPage(
@@ -172,7 +173,7 @@ void main() {
       (tester) async {
         // Build a mutable map, hand it to the page, then mutate it. The
         // rendered rows must reflect the counts as they were at construction
-        // time — defensive-copy semantics per spec M10.
+        // time, because the page copies the map in its constructor.
         final liveCounts = <String, int>{'ProductCard': 5, 'Header': 2};
 
         await tester.pumpWidget(

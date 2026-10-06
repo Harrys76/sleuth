@@ -60,7 +60,7 @@ void main() {
   // Capture mode gated behind a dart-define so ordinary profile-mode runs
   // see no extra Timeline.instantSync traffic. Flip on for the
   // runtimeVerified capture procedure:
-  //   fvm flutter run --profile --dart-define=SLEUTH_CAPTURE_MODE=true
+  //   fvm flutter run --profile --no-dds --dart-define=SLEUTH_CAPTURE_MODE=true
   // Capture screens emit `sleuth.scenario.{begin,end}` +
   // `sleuth.issue.<id>.<severity>` instant events while enabled.
   const captureMode = bool.fromEnvironment('SLEUTH_CAPTURE_MODE');

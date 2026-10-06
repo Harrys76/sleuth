@@ -16,9 +16,11 @@ import 'capture_driver.dart';
 /// **VM-service connection required.** Captures satisfy
 /// `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:
 /// true, ...)` ONLY when SleuthController's VmServiceClient is connected
-/// (VM+ mode). USB-tethered iPhone profile-mode is FRAME mode (the VM
-/// service port is not routed to the host); use **wireless debugging** via
-/// Xcode → Window → Devices and Simulators → "Connect via network".
+/// (VM+ mode). Sleuth connects to the app's own VM service from inside the
+/// app, so USB and wireless both work. `flutter run` starts DDS by default,
+/// and DDS keeps the VM service as its only client, which leaves Sleuth in
+/// FRAME mode. Launch with `--no-dds` (step 1), or start the installed app
+/// from the home screen.
 ///
 /// **Why FrameTiming differs from the prior runtimeVerified raises.**
 ///
@@ -31,8 +33,9 @@ import 'capture_driver.dart';
 ///     relative to scenario span boundaries.
 ///   * `Sleuth.flushTimelineNow()` — deterministic; flush also iterates
 ///     ALL detectors regardless of lifecycle and calls
-///     `_recordIssuesForCapture(const <BaseDetector>{})` (controller
-///     line 2806, batch path; line 2990, flush path).
+///     `_recordIssuesForCapture(const <BaseDetector>{})` from
+///     `SleuthController._onTimelineData`, which the flush runs before it
+///     returns.
 ///
 /// The capture screen calls `flushTimelineNow()` immediately before
 /// `markScenarioEnd` so the detector's per-frame emission lands inside
@@ -368,8 +371,8 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       // Post-end barrier before exportCaptureJson — mirrors the
       // MemoryPressure proven pattern. VM service buffer needs to flush
       // the just-emitted scenario.end marker before service.getVMTimeline
-      // can return it; over wireless debug the RPC can otherwise
-      // observe a snapshot that pre-dates the end marker.
+      // can return it; without the wait the RPC can observe a snapshot
+      // that pre-dates the end marker.
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
 

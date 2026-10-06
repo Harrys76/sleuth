@@ -12,7 +12,7 @@
 // contains the `CircularProgressIndicator` token the filter looks for,
 // and then proves the detector skips the captured snapshot. If the
 // chain capture format ever drifts from what the filter expects
-// (e.g. KDD-6 polymorphic-key collision rewrites the chain, or
+// (e.g. a fix for the polymorphic-key collision rewrites the chain, or
 // `widget_location.dart` changes its strip rules) THIS test fails
 // where the synthetic ones would silently keep passing.
 
@@ -98,7 +98,7 @@ void main() {
                 'at least one paint event captured by the coordinator.',
           );
 
-          // The C1+C3 fix changed the filter contract: ownership is no
+          // Per-paint attribution changed the filter contract: ownership is no
           // longer derived from chain-string containment in the detector,
           // it is computed per-paint by the coordinator and exposed as
           // `animationOwnedPaintCounts` / `totalAnimationOwnedPaintCount`.

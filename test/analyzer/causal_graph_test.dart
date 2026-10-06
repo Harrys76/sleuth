@@ -996,10 +996,10 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // Pillar 3a: New causal patterns (v0.10.7)
+  // Causal patterns added in v0.10.7
   // ---------------------------------------------------------------------------
 
-  group('Pillar 3a causal chains', () {
+  group('v0.10.7 causal chains', () {
     test('setstate_scope → rebuild_debug_* (non-merged rebuild)', () {
       final issues = [
         makeIssue(

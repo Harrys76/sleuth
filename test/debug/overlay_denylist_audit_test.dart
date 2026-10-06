@@ -2,7 +2,8 @@
 // (fires only on subclassing). Remove when analyzer-server recognizes the
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
-// v0.15.1 hotfix CI audit — KDD-10 Framework widget contamination.
+// v0.15.1 hotfix CI audit: framework and overlay widgets must not be
+// counted as user widgets in profile mode.
 //
 // The `_frameworkWidgetDenyList` in `debug_instrumentation_coordinator.dart`
 // must stay in lockstep with the widgets Sleuth's own overlay actually uses,
@@ -104,7 +105,7 @@ const _appOwnedFrameworkWidgets = <String>{
 /// list on the class being declared (e.g.
 /// `class _FooCard<T extends Bar> extends StatelessWidget`). Without it,
 /// any future overlay widget that takes a type parameter would silently
-/// fall out of the audit set and re-expose KDD-10 self-measurement. The
+/// fall out of the audit set and Sleuth would measure itself again. The
 /// character class is intentionally permissive (`[\w,\s<>?]`) so nested
 /// generic bounds still match.
 final _overlayClassRegex = RegExp(
@@ -181,7 +182,7 @@ List<File> _dartFilesUnder(String relative) {
 List<File> _uiSourceFiles() => _dartFilesUnder('lib/src/ui');
 
 void main() {
-  group('overlay denylist audit (KDD-10 / v0.15.1)', () {
+  group('overlay denylist audit (v0.15.1)', () {
     late List<File> uiFiles;
     late Map<File, String> uiSources;
 
@@ -199,7 +200,7 @@ void main() {
       // Regression guard: if the regex ever stops matching generic class
       // declarations, a future overlay widget like
       // `class _FooCard<T extends Bar> extends StatelessWidget` will silently
-      // vanish from the audit set and re-expose KDD-10 self-measurement.
+      // vanish from the audit set and Sleuth would measure itself again.
       const fixture = '''
 class _NonGeneric extends StatelessWidget {}
 class _WithGeneric<T> extends StatefulWidget {}
@@ -257,7 +258,7 @@ class _WidgetLike extends WidgetsBindingObserver {}
         reason:
             'These Sleuth overlay widget classes are NOT in '
             '`_frameworkWidgetDenyList`, so Sleuth will self-measure them '
-            'in profile mode (KDD-10). Add them to the denylist in '
+            'in profile mode. Add them to the denylist in '
             'lib/src/debug/debug_instrumentation_coordinator.dart:\n'
             '  ${missing.toList()..sort()}',
       );

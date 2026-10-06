@@ -24,7 +24,7 @@ BuildContext _rootContext(WidgetTester tester) =>
     tester.element(find.byType(MaterialApp));
 
 void main() {
-  group('Route-scoped issue aggregation (M3)', () {
+  group('Route-scoped issue aggregation', () {
     late SleuthController controller;
 
     setUp(() {

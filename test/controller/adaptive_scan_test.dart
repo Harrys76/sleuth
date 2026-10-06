@@ -14,7 +14,7 @@ const _cleanConfig = SleuthConfig(
 );
 
 void main() {
-  group('Adaptive scan frequency (M4)', () {
+  group('Adaptive scan frequency', () {
     testWidgets('backs off after 3 consecutive clean scans', (tester) async {
       await tester.pumpWidget(buildMixedTree(50));
       final context = tester.element(find.byType(Directionality));

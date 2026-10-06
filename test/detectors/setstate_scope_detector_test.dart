@@ -644,7 +644,7 @@ void main() {
     });
 
     // -----------------------------------------------------------------
-    // M11: Anti-tautology — drive a real setState rebuild through the
+    // Anti-tautology: drive a real setState rebuild through the
     // real DebugInstrumentationCoordinator pipeline and feed the
     // resulting DebugSnapshot to the detector. Verifies that the
     // between-scan child-identity rebuild detection AND the debug

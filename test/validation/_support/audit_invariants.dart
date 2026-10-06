@@ -20,8 +20,8 @@
 //     silently passed absolute paths, `../../` traversal, or symlink
 //     escapes when the target file happened to exist.
 //   - Component-side name reference: the component audit never enforced
-//     that the reproducer references the component by name (AB3 parity
-//     with the detector side).
+//     that the reproducer references the component by name, which the
+//     detector side already required.
 //
 // Centralizing the helpers lets a single fix close all three gaps on both
 // audit surfaces, and gives future audits (ledger-sync, public-barrel
@@ -52,7 +52,7 @@ import 'package:sleuth/sleuth.dart'
 /// invocations — without block-comment stripping, commented-out test bodies
 /// satisfy the regex and mask an empty reproducer.
 ///
-/// AB-10: a naive regex-only implementation mangles strings that happen to
+/// A naive regex-only implementation mangles strings that happen to
 /// contain comment-like text. A triple-quoted docstring that includes
 /// `// example invocation` is real code, not a comment; a regex pass would
 /// still strip it and the audit would fail a valid reproducer when the
@@ -243,11 +243,10 @@ List<String> checkRationale(String label, String rationale) {
 }
 
 /// Invariant: `citationUrl`, when non-null, parses as an HTTP/HTTPS URI
-/// with an external-looking authority. Closes CLAUDE-R1-2 — the prior
-/// check only asserted non-empty, so `citationUrl: 'see spec'` or
-/// `citationUrl: '   '` satisfied the gate.
+/// with an external-looking authority. A non-empty check alone would let
+/// `citationUrl: 'see spec'` or `citationUrl: '   '` satisfy the gate.
 ///
-/// AB-11: external citation means a public source of truth, so also
+/// External citation means a public source of truth, so also
 /// reject single-label hosts (`http://intranet`) and loopback hostnames
 /// (`localhost`, `127.0.0.1`, `::1`, and their variants). None of those
 /// can be an externally resolvable citation by construction; accepting
@@ -291,7 +290,7 @@ List<String> checkCitationUrl(
           'hosts ($rawHost) are rejected: $url',
     ];
   }
-  // NEW-CODEX-2 (Bundle H): reject RFC1918 private-range IPv4 addresses
+  // Reject RFC1918 private-range IPv4 addresses
   // (10/8, 172.16/12, 192.168/16), IPv4 link-local (169.254/16), IPv6
   // link-local (fe80::/10), and IPv6 unique-local (fc00::/7). An
   // `externallyCited` tier is, by definition, backed by a citation a
@@ -318,7 +317,7 @@ List<String> checkCitationUrl(
 }
 
 /// Returns a non-null failure message if [rawHost] is an IP literal
-/// inside any of the private / link-local ranges Bundle H rejects.
+/// inside any of the private / link-local ranges [checkCitationUrl] rejects.
 /// `null` means "not an IP literal or not in a blocked range" — the
 /// caller keeps walking its other host checks.
 String? _rejectPrivateRangeHost(String label, String rawHost, String url) {
@@ -415,7 +414,7 @@ List<String> checkReproducerFile({
     failures.add('$label: reproducerPath does not exist: $reproducerPath');
     return failures;
   }
-  // AGR-3 + R3-NEW-2 (Bundle I): parse the reproducer as Dart AST and
+  // Parse the reproducer as Dart AST and
   // walk it with a recursive visitor. String literals carry no
   // `SimpleIdentifier` or `MethodInvocation` AST nodes, so an author
   // cannot satisfy the gate by writing `test('uses XyzDetector')` — the
@@ -426,11 +425,11 @@ List<String> checkReproducerFile({
   // descent into `StringInterpolation.elements`. This closes two gaps
   // that the previous regex+contains approach left open:
   //
-  //   - AGR-3: the mini-lexer did not enter `${...}` as code, so a
+  //   - The mini-lexer did not enter `${...}` as code, so a
   //     `/* */` block comment inside interpolation survived in the
   //     stripped output as string content rather than being stripped.
   //     With AST, comments are structurally absent.
-  //   - R3-NEW-2: `contains('XyzDetector')` matched inside surviving
+  //   - `contains('XyzDetector')` matched inside surviving
   //     string literals, so the gate was lexical and satisfiable by
   //     writing the token in a string body rather than using it in
   //     code. With AST, the visitor only observes identifier nodes
@@ -1152,8 +1151,9 @@ List<String> checkCapturePaths({
     try {
       // v0.18.3: schema-driven role plumbing replaces the filename-suffix
       // heuristic. ProfileCaptureSchema.parseFile reads
-      // `sleuthMetadata.role` directly and applies AB-1 inverse-ratio
-      // bypass when role == 'below'. No filename inspection here.
+      // `sleuthMetadata.role` directly and bypasses the inverse-ratio half
+      // of the trace-vs-observed cross-check when role == 'below'. No
+      // filename inspection here.
       ProfileCaptureSchema.parseFile(file);
     } on FormatException catch (e) {
       failures.add('$label: $capture — ${e.message}');
@@ -2788,7 +2788,7 @@ List<String> checkAdditionalBracketValidation({
   return failures;
 }
 
-/// CODEX-R1-2: Invariant wiring the audit gate to
+/// Invariant wiring the audit gate to
 /// `ProfileCaptureSchema.validateBracket`. For `runtimeVerified` /
 /// `externallyCited` tiers, `bracketThreshold` + `bracketUnit` must be
 /// present AND the declared three captures must actually bracket the

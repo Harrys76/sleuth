@@ -19,9 +19,9 @@
 //      the repo root: the path resolves inside the repo (no absolute
 //      paths / `..` traversal / symlink escapes), the file exists, it
 //      contains `test(` / `testWidgets(` outside of line AND block
-//      comments (CLAUDE-R4-1), AND the file references the component's
-//      `componentName` by name (AB3 parity with the detector gate —
-//      CODEX-R3-2).
+//      comments, AND the file references the component's
+//      `componentName` by name, as the detector gate requires for the
+//      detector type.
 //   5. If `profileCapturePaths` is non-empty: every file is inside the
 //      repo, exists on disk, AND parses cleanly via
 //      `ProfileCaptureSchema.parseFile`.
@@ -123,8 +123,7 @@ void main() {
       expect(failures.join('\n'), contains('missing reproducerPath'));
     });
 
-    test('invariant 3b: runtimeVerified requires 3-capture bracket '
-        '(CODEX-R2-1 parity)', () {
+    test('invariant 3b: runtimeVerified requires 3-capture bracket', () {
       final failures = _runInvariants([
         const ComponentMetadata(
           componentName: 'RuntimeVerifiedNoCaptures',
@@ -161,7 +160,7 @@ void main() {
         contains('exactly 3'),
         reason:
             'One-capture claim must be rejected by the 3-capture '
-            'bracketing rule (CODEX-R2-1 parity with detector gate).',
+            'bracketing rule, as the detector gate does.',
       );
     });
 
@@ -216,8 +215,8 @@ void main() {
           joined,
           contains('citationUrl'),
           reason:
-              'CLAUDE-R1-2: non-empty check is not enough — must be '
-              'a parseable http/https URI with an authority.',
+              'A non-empty check is not enough. The URL must be a '
+              'parseable http/https URI with an authority.',
         );
       },
     );
@@ -262,8 +261,8 @@ void main() {
       expect(failures.join('\n'), contains('NonExistentReproducer'));
     });
 
-    test('invariant 4 AB3: reproducer file must reference the component by '
-        'name (CODEX-R3-2 parity)', () {
+    test('invariant 4: reproducer file must reference the component by '
+        'name', () {
       if (!File('pubspec.yaml').existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
         return;
@@ -271,8 +270,8 @@ void main() {
       final failures = _runInvariants([
         const ComponentMetadata(
           // The existing schema test file does not contain the token
-          // "ComponentThatIsNotMentionedAnywhere", so the AB3 check
-          // must fail.
+          // "ComponentThatIsNotMentionedAnywhere", so the name-reference
+          // check must fail.
           componentName: 'ComponentThatIsNotMentionedAnywhere',
           tier: EvidenceTier.reproducerOnly,
           rationale: 'Reproducer exists but does not reference componentName.',
@@ -286,7 +285,7 @@ void main() {
         joined,
         contains('by name'),
         reason:
-            'CODEX-R3-2: the component audit must require that the '
+            'The component audit must require that the '
             'reproducer references the componentName textually, same as '
             'the detector gate does with runtimeType.',
       );
@@ -319,7 +318,7 @@ void main() {
     });
 
     test('filesystem walk: every `with ComponentMetadataProvider` class in '
-        'lib/src/ appears in _expectedRegisteredComponents (CODEX-R1-1)', () {
+        'lib/src/ appears in _expectedRegisteredComponents', () {
       if (!File('pubspec.yaml').existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
         return;
@@ -339,7 +338,7 @@ void main() {
         r'class\s+(\w+)(?:<[^>]*>)?\s+[^{]*?\bComponentMetadataProvider\b',
         multiLine: true,
       );
-      // AB-4: `ComponentMetadata`'s docstring documents a second
+      // `ComponentMetadata`'s docstring documents a second
       // registration pattern — `const` registries and top-level utilities
       // that lack an instance publish metadata by calling
       // `ValidatedComponentRegistry.instance.register(const
@@ -403,7 +402,7 @@ void main() {
 
     test(
       'filesystem walk matches `ValidatedComponentRegistry.instance.register` '
-      'direct-call pattern (AB-4 regression)',
+      'direct-call pattern',
       () {
         // Inline snapshot of the regex the filesystem walk uses. If this
         // regression fails, the walk has regressed in a way that would let
@@ -456,7 +455,7 @@ void _registerFrameworkWidgetDenyList() {
     );
 
     test('registry: register same metadata twice under the same name is '
-        'a no-op (CLAUDE-R1-1)', () {
+        'a no-op', () {
       const metadata = ComponentMetadata(
         componentName: 'CollisionTestSameValue',
         tier: EvidenceTier.unvalidated,
@@ -477,7 +476,7 @@ void _registerFrameworkWidgetDenyList() {
     });
 
     test('registry: register differing metadata under the same name throws '
-        'StateError (CLAUDE-R1-1)', () {
+        'StateError', () {
       const first = ComponentMetadata(
         componentName: 'CollisionTestDifferingValues',
         tier: EvidenceTier.unvalidated,
@@ -513,8 +512,8 @@ void _registerFrameworkWidgetDenyList() {
     });
 
     test('registry: collision StateError names the diverging field values '
-        'on both operands (AB-5 / CLAUDE-R1-1 completion)', () {
-      // The prior CLAUDE-R1-1 test asserts that the StateError is
+        'on both operands', () {
+      // The test above asserts that the StateError is
       // raised and that its message contains the component name. But
       // it does not assert that the message is actually *useful* —
       // without a `ComponentMetadata.toString()` override, both
@@ -575,7 +574,8 @@ void _registerFrameworkWidgetDenyList() {
           ),
           const ComponentMetadata(
             // Use a token we know appears in the target reproducer file so
-            // AB3 passes. `profile_capture_schema_test.dart` contains the
+            // the name-reference check passes.
+            // `profile_capture_schema_test.dart` contains the
             // literal string `ProfileCaptureSchema` many times.
             componentName: 'ProfileCaptureSchema',
             tier: EvidenceTier.reproducerOnly,
@@ -705,8 +705,8 @@ List<String> _runInvariants(List<ComponentMetadata> components) {
         checkReproducerFile(
           label: label,
           reproducerPath: reproducer,
-          // CODEX-R3-2 parity with the detector gate: the reproducer must
-          // textually reference the componentName by name.
+          // Like the detector gate, the reproducer must textually
+          // reference the componentName by name.
           requiredTokens: [m.componentName],
           // Components cover non-detector entities (schemas, validators,
           // utility classes) — many have only static methods and are

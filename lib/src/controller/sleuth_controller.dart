@@ -201,7 +201,7 @@ class SleuthController {
   final Map<String, RecurrenceTrend> _recurrenceTrends = {};
   int _scanCycleIndex = 0;
 
-  // Fix verification baseline (Pillar 3a)
+  // Fix verification baseline
   FixBaseline? _fixBaseline;
   int _postReassembleGraceCycles = 0;
   static const _reassembleGraceCycles = 3;
@@ -308,7 +308,7 @@ class SleuthController {
   bool _disposed = false;
   Timer? _treeScanTimer;
 
-  /// M5 / KDD re-entry guard. If a scan is already in progress and something
+  /// Re-entry guard. If a scan is already in progress and something
   /// (a frame callback, a notifier listener, a detector side-effect) triggers
   /// `_scanTree` again synchronously, we must not enter twice — the second
   /// call would drain `_debugCoordinator?.snapshot()` a second time, resetting
@@ -365,7 +365,7 @@ class SleuthController {
   /// Elements visited by the last unified structural walk.
   int _lastScanElementCount = 0;
 
-  // -- M5: Issue allocation reduction caches --
+  // -- Issue allocation reduction caches --
 
   /// Generation counter incremented when detectors produce fresh issues
   /// (after structural scans or timeline evaluateNow). Allows
@@ -375,7 +375,7 @@ class SleuthController {
   List<PerformanceIssue>? _cachedAllIssues;
 
   /// Detectors that threw during any stage of the most recent structural
-  /// scan. F3 quarantine (v0.16.0) stops later-stage callbacks for these
+  /// scan. Quarantine (v0.16.0) stops later-stage callbacks for these
   /// detectors, but the partial output they already emitted before throwing
   /// must not leak into `_getAllIssues()` / `_collectHighlights()` — a
   /// `SimpleStructuralDetector` subclass that throws mid-walk has already
@@ -978,10 +978,10 @@ class SleuthController {
       return;
     }
 
-    // Cap: stop retrying after exhausting the delay ladder. On platforms
-    // where the VM web server is structurally unreachable (e.g. real iOS
-    // devices launched via IDE — the USB bridge port is host-only), there
-    // is no point retrying forever.
+    // Cap: stop retrying after exhausting the delay ladder. When the VM
+    // service stays unavailable for the session (for example, `flutter run`
+    // or `flutter attach` started DDS, which keeps the service as its only
+    // client), there is no point retrying forever.
     if (_backgroundReconnectAttempt >= _backgroundReconnectDelays.length) {
       return;
     }
@@ -1140,7 +1140,7 @@ class SleuthController {
 
     // Factory map for non-typed detectors. Only detectors present in
     // [enabledDetectors] are constructed — saves buffer allocations and
-    // reduces the unified walk iteration count (M6: lazy initialization).
+    // reduces the unified walk iteration count (lazy initialization).
     final factories = <DetectorType, BaseDetector Function()>{
       DetectorType.shaderJank: () => ShaderJankDetector(
         thresholdMs: config.thresholds.shaderJankMs,
@@ -1424,7 +1424,7 @@ class SleuthController {
   }
 
   /// Inject a detector into the live `_detectors` list so tests can exercise
-  /// the scan-stage failure paths (v0.16.0 F3 quarantine regression tests).
+  /// the scan-stage failure paths (v0.16.0 quarantine regression tests).
   ///
   /// Callers are expected to have called [initializeDetectorsForTest] first.
   /// Production code must never call this.
@@ -1779,18 +1779,19 @@ class SleuthController {
     routeHistoryNotifier.value = List<RouteSession>.unmodifiable(sessions);
   }
 
-  /// Injects a (typically fake) [DebugInstrumentationCoordinator] so M12
+  /// Injects a (typically fake) [DebugInstrumentationCoordinator] so
   /// controller tests can observe `snapshot()` invocations and feed
   /// synthetic `flutterTimeline`-source [DebugSnapshot] values through the
   /// real `_scanTreeInner` drain→merge→route-switch path without needing
-  /// profile-mode compilation (see spec v15 R3).
+  /// profile-mode compilation. Widget tests run in debug mode, so they
+  /// cannot exercise the real profile-mode drain.
   ///
   /// The previous coordinator is NOT disposed — tests own the lifecycle.
   @visibleForTesting
   set debugCoordinatorForTest(DebugInstrumentationCoordinator? c) =>
       _debugCoordinator = c;
 
-  /// Exposes [_scanInProgress] for M12 re-entry regression tests. A second
+  /// Exposes [_scanInProgress] for re-entry regression tests. A second
   /// synchronous `_scanTree` call while this is `true` must be a silent
   /// no-op — the guard prevents double-draining the coordinator (which
   /// would reset `_lastSnapshotTime` and corrupt per-second rate math).
@@ -2099,8 +2100,9 @@ class SleuthController {
     if (client == null || !client.isConnected) {
       final reason =
           'VM service client ${client == null ? "not initialised" : "disconnected"}. '
-          'Capture mode requires wireless debug or simulator (VM+). '
-          'USB-tethered FRAME mode will not work.';
+          'Capture mode needs a VM service connection (VM+). Launch with '
+          '`flutter run --profile --no-dds`, or start the installed app '
+          'from the home screen, so DDS does not take the VM service.';
       _lastCaptureExportFailure = reason;
       debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
       return null;
@@ -2694,7 +2696,7 @@ class SleuthController {
 
   void _scanTree(BuildContext context) {
     if (!_initialized || kReleaseMode) return;
-    // M5 re-entry guard (KDD spec v15). A second synchronous `_scanTree` call
+    // Re-entry guard. A second synchronous `_scanTree` call
     // would drain `_debugCoordinator?.snapshot()` twice and corrupt the
     // `_lastSnapshotTime` window used for per-second rate math. Try/finally
     // ensures the flag is released even if the inner body throws.
@@ -2714,10 +2716,10 @@ class SleuthController {
     _scaffoldFreeRouteName = null;
 
     // Always drain debug counts so they don't carry over across page
-    // transitions. KDD-2 / M3: the historical assert wrapper is stripped in
-    // profile, so profile-mode drains never happened. Top-level mode split
-    // preserves debug path bit-for-bit and lets M4's `installProfileMode()`
-    // feed a snapshot into the same `debugSnapshot` variable in profile.
+    // transitions. An `assert` wrapper is stripped in profile, so the drain
+    // cannot live only inside one. The top-level mode split keeps the debug
+    // path unchanged and lets the coordinator's `installProfileMode()` feed
+    // a snapshot into the same `debugSnapshot` variable in profile.
     DebugSnapshot? debugSnapshot;
     if (kDebugMode) {
       assert(() {
@@ -2725,7 +2727,7 @@ class SleuthController {
         return true;
       }());
     } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
-      // PROFILE BRANCH — M4/M5. In profile mode the coordinator is wired
+      // PROFILE BRANCH. In profile mode the coordinator is wired
       // via `installProfileMode()`, so `snapshot()` internally dispatches
       // to `_drainProfileBuffer()` which drains
       // `FlutterTimeline.debugCollect()` and returns a snapshot tagged
@@ -2733,7 +2735,7 @@ class SleuthController {
       debugSnapshot = _debugCoordinator?.snapshot();
     }
 
-    // M7 / KDD-4: additively merge profile-mode rebuild counts into the
+    // Additively merge profile-mode rebuild counts into the
     // currently-active route session BEFORE the route-change block below
     // replaces `_activeRouteSession`. Any counts drained while the session
     // was active stay attributed to it; sessions born from the subsequent
@@ -2748,7 +2750,7 @@ class SleuthController {
     // Debug-mode snapshots (source == debugCallback) are NOT merged here
     // — existing detectors already consume them via
     // `updateDebugSnapshot()`, and mixing the two sources on the same map
-    // would violate KDD-1 mutual exclusivity.
+    // would break the rule that debug and profile counts never mix.
     if (debugSnapshot != null &&
         debugSnapshot!.source == RebuildCountSource.flutterTimeline) {
       final session = _activeRouteSession;
@@ -2769,7 +2771,7 @@ class SleuthController {
       // and set interaction state to navigating.
       //
       // Note: profile-mode rebuild counts for this scan have ALREADY
-      // been merged into `_activeRouteSession` by the M7 merge block
+      // been merged into `_activeRouteSession` by the merge block
       // above, which runs before this transition check. The counts
       // therefore land on the pre-transition session (still the active
       // one at drain time) and are not lost — `debugSnapshot` itself
@@ -3525,7 +3527,7 @@ class SleuthController {
     }
 
     // Detectors that throw during any stage of this scan are added here and
-    // skipped in every subsequent per-detector stage (v0.16.0 F3 quarantine).
+    // skipped in every subsequent per-detector stage (v0.16.0 quarantine).
     // A detector with half-initialised state in `prepareScan` would otherwise
     // keep being called on every element and every later stage, potentially
     // throwing `LateInitializationError` on uninitialised fields or amplifying
@@ -3534,7 +3536,7 @@ class SleuthController {
     // Also consulted post-scan by `_getAllIssues()` and `_collectHighlights()`
     // so partial output a detector already committed (via `report(...)`
     // during earlier walk callbacks) does not leak into aggregation — the
-    // F3 quarantine is only sound if tainted output is suppressed too.
+    // Quarantine is only sound if tainted output is suppressed too.
     final failedDetectors = _lastScanFailedDetectors;
     failedDetectors.clear();
     // A detector quarantined from the per-frame hook gets another chance
@@ -3542,11 +3544,11 @@ class SleuthController {
     _frameHookFailed.clear();
 
     // Phase 1: Preparation. Per-detector try/catch isolates a misbehaving
-    // detector from the rest of the scan (v0.16.0 C2 fix — previously
-    // only checkElement/afterElement were guarded, so an exception in
+    // detector from the rest of the scan (since v0.16.0; before that only
+    // checkElement/afterElement were guarded, so an exception in
     // prepareScan would crash the entire scan cycle). Failures are routed
     // through `FlutterError.reportError` so they surface in profile mode
-    // (v0.16.0 F3 — assert() is stripped outside debug).
+    // (assert() is stripped outside debug).
     for (final d in unified) {
       try {
         d.prepareScan(scanContext);
@@ -3618,9 +3620,9 @@ class SleuthController {
     // notifyWalkCompleted only for detectors that participated in the walk.
     // finalizeScan for ALL unified detectors — exempted detectors need it
     // to clear stale state (e.g. swap empty _childSnapshots, clear _usages).
-    // Per-detector try/catch (v0.16.0 C2 fix). Quarantined detectors are
+    // Per-detector try/catch (v0.16.0). Quarantined detectors are
     // skipped so a `prepareScan` failure doesn't leak garbage issues from
-    // partially-initialised state (v0.16.0 F3).
+    // partially-initialised state.
     if (walkCompleted) {
       for (final d in walkDetectors) {
         if (failedDetectors.contains(d)) continue;
@@ -3643,7 +3645,7 @@ class SleuthController {
     }
 
     // Phase 4: Legacy custom detectors (separate walks).
-    // Per-detector try/catch (v0.16.0 C2 fix) so a buggy custom detector
+    // Per-detector try/catch (v0.16.0) so a buggy custom detector
     // can't crash the rest of the scan cycle. Custom detectors that throw
     // during scanTree() are added to failedDetectors so any partial output
     // they committed before the throw is suppressed at aggregation time.
@@ -3667,7 +3669,7 @@ class SleuthController {
   /// Detectors collect highlights during their scanTree() calls.
   /// This method just gathers them — no tree walking or re-detection.
   void _collectHighlights() {
-    // F3 aggregation filter (v0.16.0): skip detectors that threw during the
+    // Aggregation filter (v0.16.0): skip detectors that threw during the
     // most recent structural scan. See `_getAllIssues` for the full
     // rationale — highlights are subject to the same half-scan leakage risk
     // as issues because detectors append to `_highlights` inside
@@ -3676,7 +3678,7 @@ class SleuthController {
 
     // Fast path: if no highlights existed last scan and no detector produced
     // any this scan, skip the list spread, generation increment, and notifier
-    // update to avoid unnecessary overlay repaints (Pillar 2a M2).
+    // update to avoid unnecessary overlay repaints.
     if (highlightsNotifier.value.items.isEmpty) {
       bool anyHighlights = false;
       for (final d in _detectors) {
@@ -4586,7 +4588,7 @@ class SleuthController {
     suppressedCountNotifier.value = suppressedCount;
 
     // Upsert visible issues into the active route session so each route
-    // accumulates its own issue snapshot history (M3: route-scoped aggregation).
+    // accumulates its own issue snapshot history (route-scoped aggregation).
     if (_activeRouteSession != null) {
       for (final issue in visible) {
         final id = issue.stableId ?? issue.title;
@@ -4840,7 +4842,7 @@ class SleuthController {
         _cachedAllIssues != null) {
       return _cachedAllIssues!;
     }
-    // F3 aggregation filter (v0.16.0): skip detectors that threw during the
+    // Aggregation filter (v0.16.0): skip detectors that threw during the
     // most recent structural scan. Their `.issues` list may hold partial
     // findings committed via `report(...)` before the throw, and publishing
     // that half-scan output would defeat the quarantine set up in
@@ -4912,20 +4914,20 @@ class SleuthController {
 
   /// Producer-side dedup set for the capture-mode emission path. Each
   /// entry is `'<detectorRuntimeType>|<stableId>|<severity>|<micros>'`.
-  /// Cleared by [resetCaptureState] (called explicitly by capture
-  /// screens between legs) and by the scenario-begin observer.
+  /// Never cleared, not even by [resetCaptureState]: events from an earlier
+  /// scenario can still sit in the retained VM timeline buffer, and they
+  /// must not emit again during the next scenario's polls or flush.
   final Set<String> _captureEmittedKeys = <String>{};
 
   // -- Debug instrumentation helpers --
 
   void _installDebugInstrumentation() {
-    // KDD-2 (spec v15): the original `assert(() { ... return true; }())`
-    // wrapper is stripped by the compiler in profile mode. Profile-relevant
-    // code (heavy-flag install, coordinator install) MUST live outside the
-    // assert — otherwise it silently becomes a no-op in profile and the
-    // rebuild-stats feature never emits data. The top-level `if (kDebugMode)`
-    // split below preserves debug behavior bit-for-bit while letting M5 wire
-    // a sibling profile branch.
+    // The `assert(() { ... return true; }())` wrapper is stripped by the
+    // compiler in profile mode. Profile-relevant code (heavy-flag install,
+    // coordinator install) MUST live outside the assert, otherwise it
+    // silently becomes a no-op in profile and the rebuild-stats feature
+    // never emits data. The top-level `if (kDebugMode)` split below keeps
+    // debug behavior unchanged and adds a sibling profile branch.
     if (kDebugMode) {
       assert(() {
         if (config.enableDebugCallbacks) {
@@ -4945,7 +4947,7 @@ class SleuthController {
         return true;
       }());
     } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
-      // PROFILE BRANCH — M5 (spec v15, KDD-8 widened gate).
+      // PROFILE BRANCH, gated on `enableDeepDebugInstrumentation` alone.
       //
       // 1. Construct the coordinator even when `enableDebugCallbacks == false`.
       //    The debug-callback slots (`debugOnRebuildDirtyWidget`,
@@ -4961,14 +4963,14 @@ class SleuthController {
       //    the profile-mode drain would return zero user-widget events.
       // 3. `installProfileMode()` saves `FlutterTimeline.debugCollectionEnabled`
       //    and flips it to `true`; refuses if another consumer (DevTools or
-      //    another Sleuth instance) already owns the buffer — see R20/B1 in
-      //    the spec.
+      //    another Sleuth instance) already owns the buffer, so neither
+      //    consumer stomps the other's save and restore.
       _debugCoordinator = DebugInstrumentationCoordinator(
         maxTrackedTypes: config.maxTrackedTypes,
         installRebuild: false,
         installPaint: false,
       );
-      // KDD-9 (spec v15): defer the FlutterTimeline flag flip so it lands
+      // Defer the FlutterTimeline flag flip so it lands
       // at scheduler-idle, outside ANY active FlutterTimeline start/finish
       // pair. Direct call and `addPostFrameCallback` both crash — see below.
       //
@@ -5018,14 +5020,14 @@ class SleuthController {
       // heavy-flag install + collection install remain a single atomic unit.
       //
       // Cost: the very first few frames after Sleuth mount have no profile-
-      // mode rebuild data. Acceptable — the KDD-5 disclaimer already warns
-      // that route-entry counts are transient, and no real use case
+      // mode rebuild data. Acceptable: the inflation disclaimer already
+      // warns that route-entry counts are transient, and no real use case
       // inspects rebuild hotspots from the mount frame.
       Timer.run(_deferredInstallProfileMode);
     }
   }
 
-  /// KDD-9 (spec v15): install the profile-mode `FlutterTimeline` drain once
+  /// Installs the profile-mode `FlutterTimeline` drain once
   /// the scheduler is back at [SchedulerPhase.idle] — i.e. when NO frame is
   /// in progress and therefore no `FlutterTimeline` start/finish pair is
   /// open. See the long comment in [_installDebugInstrumentation] for the
@@ -5048,7 +5050,7 @@ class SleuthController {
     } on StateError catch (e) {
       // Another consumer owns the buffer. Abandon the coordinator so the
       // scan loop's `_debugCoordinator?.snapshot()` short-circuits and we
-      // stay in KDD-1 `RebuildCountSource.none` mode — no stomping.
+      // stay in `RebuildCountSource.none` mode — no stomping.
       debugPrint('Sleuth: $e');
       _debugCoordinator = null;
       _restoreHeavyFlags();
@@ -5139,10 +5141,10 @@ class SleuthController {
     }
     _restorePlatformChannelProfiling();
 
-    // KDD-2 / M3: mirror the install-side restructure. The historical
-    // assert wrapper stripped coordinator disposal AND heavy-flag restore
-    // in profile, leaking `debugProfileBuildsEnabledUserWidgets = true`
-    // across hot-restart. The top-level mode split fixes both halves.
+    // Mirrors the install-side mode split. An assert wrapper alone would
+    // strip coordinator disposal AND heavy-flag restore in profile, leaking
+    // `debugProfileBuildsEnabledUserWidgets = true` across hot-restart. The
+    // top-level mode split covers both halves.
     if (kDebugMode) {
       assert(() {
         _debugCoordinator?.dispose();
@@ -5151,7 +5153,7 @@ class SleuthController {
         return true;
       }());
     } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
-      // PROFILE BRANCH — M5 (spec v15).
+      // PROFILE BRANCH.
       //
       // Dispose order matters: `uninstallProfileMode()` restores
       // `FlutterTimeline.debugCollectionEnabled` BEFORE `_restoreHeavyFlags()`
@@ -5550,7 +5552,7 @@ class SleuthConfig {
   /// `debugProfileBuildsEnabled` and related flags. Measurable overhead
   /// (~5–10% extra frame time on heavy scenes) — use sparingly.
   ///
-  /// **Profile-mode behavior (spec v15):** when true in a profile build,
+  /// **Profile-mode behavior (since v0.15.0):** when true in a profile build,
   /// Sleuth installs a `FlutterTimeline.debugCollect()` drain that records
   /// per-widget rebuild counts and attributes them to the active
   /// `RouteSession`'s `rebuildCountsByType` map. These counts power the

@@ -6,7 +6,7 @@ import 'package:sleuth/src/models/base_detector.dart';
 import '../helpers/benchmark_helpers.dart';
 
 void main() {
-  group('Issue allocation reduction (M5)', () {
+  group('Issue allocation reduction', () {
     group('_getAllIssues generation cache', () {
       testWidgets('cached list reused when called twice without scan', (
         tester,

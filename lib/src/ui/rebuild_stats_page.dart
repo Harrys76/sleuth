@@ -12,13 +12,13 @@ import 'sleuth_theme.dart';
 /// [StartupMetricsPage] / [GuidePage] so it composes identically inside the
 /// floating card's overlay stack.
 ///
-/// **Snapshot semantics (spec v15 M10):** the counts map passed into the
+/// **Snapshot semantics:** the counts map passed into the
 /// constructor is copied at open time and never live-updates. If the user
 /// navigates to another route (or the underlying session is cleared) while
 /// the page is open, the displayed data reflects the moment of the tap.
 /// This is deliberate — live-updating a drilldown while the user reads it
-/// would shuffle rows underneath them, and profile-mode inflations (KDD-5)
-/// make per-scan churn noisy.
+/// would shuffle rows underneath them, and profile-mode counts include
+/// first builds (inflations), which make per-scan churn noisy.
 class RebuildStatsPage extends StatefulWidget {
   RebuildStatsPage({
     super.key,
@@ -80,7 +80,8 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
   /// The summary chips and the inflation disclaimer, first item of the
   /// list.
   ///
-  /// The disclaimer (KDD-5 + KDD-10) sits immediately below the summary
+  /// The disclaimer (counts include first builds, not only rebuilds) sits
+  /// immediately below the summary
   /// chips so a user sees the caveat BEFORE forming a mental model from
   /// the row labels. It is set in `fontSm` + `textSecondary` with an info
   /// icon so it doesn't read like a footnote, and notes that Sleuth's own

@@ -87,13 +87,13 @@ class RouteSession {
   int scanCycleCount = 0;
 
   /// Per-widget-type rebuild counts accumulated during this session
-  /// (spec v15, M6). Populated only in profile mode when
+  /// (since v0.15.0). Populated only in profile mode when
   /// [SleuthConfig.enableDeepDebugInstrumentation] is `true` — otherwise
   /// stays empty. The controller additively merges
   /// [DebugSnapshot.rebuildCounts] into this map on every scan where
-  /// `DebugSnapshot.source == RebuildCountSource.flutterTimeline` (M7).
+  /// `DebugSnapshot.source == RebuildCountSource.flutterTimeline`.
   ///
-  /// KDD-5 divergence note: counts include initial widget inflations as
+  /// Divergence from debug mode: counts include initial widget inflations as
   /// well as actual rebuilds, because the framework emits the same
   /// `FlutterTimeline.startSync('${runtimeType}')` from `_tryRebuild`,
   /// `updateChild`, and `inflateWidget`. Route entry therefore shows a
@@ -217,9 +217,9 @@ class RouteSession {
       'criticalCount': criticalCount,
       'warningCount': warningCount,
       'issues': issueSnapshots.keys.toList(),
-      // M6 / KDD-7: purely additive optional field. Emitted only when
-      // non-empty so debug-mode exports (which never populate this map)
-      // stay byte-identical to v0.14.1 and the schema stays at v4.
+      // Purely additive optional field, added in v0.15.0 without a schema
+      // bump. Emitted only when non-empty so debug-mode exports (which
+      // never populate this map) omit it.
       if (rebuildCountsByType.isNotEmpty)
         'rebuildCountsByType': Map<String, int>.of(rebuildCountsByType),
       if (rebuildCountsByType.isNotEmpty) 'totalRebuilds': totalRebuilds,

@@ -7,7 +7,7 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import '../helpers/benchmark_helpers.dart';
 
 void main() {
-  group('Detector lazy initialization (M6)', () {
+  group('Detector lazy initialization', () {
     testWidgets('only enabled detectors are constructed', (tester) async {
       await tester.pumpWidget(buildMixedTree(50));
 
@@ -192,7 +192,7 @@ class _TestCustomDetector extends BaseDetector {
         type: DetectorType.custom,
         lifecycle: DetectorLifecycle.structural,
         name: 'Test Custom',
-        description: 'Test custom detector for M6',
+        description: 'Test custom detector for lazy initialization',
       );
 
   bool _isEnabled = true;

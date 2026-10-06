@@ -16,12 +16,14 @@ import 'capture_driver.dart';
 ///
 /// **Procedure (USB iPhone, in-app export):**
 ///
-///  1. `cd example && fvm flutter run --profile -d "iPhone 12" \
-///        --dart-define=SLEUTH_CAPTURE_MODE=true`. First build attaches
-///     DevTools (FRAME mode).
-///  2. Quit `flutter run` (`q`). DevTools detaches.
-///  3. Re-open the app from the home screen so VM+ mode activates.
-///  4. Navigate to "Tracked resource capture helper" → tap a leg →
+///  1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+///        --dart-define=SLEUTH_CAPTURE_MODE=true \
+///        --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
+///  2. Sleuth connects to the app's own VM service (VM+ mode). Without
+///     `--no-dds`, `flutter run` starts DDS, which keeps the VM service
+///     as its only client and leaves Sleuth in FRAME mode. In that case
+///     quit `flutter run` (`q`) and re-open the app from the home screen.
+///  3. Navigate to "Tracked resource capture helper" → tap a leg →
 ///     wait for "tap Export now" → tap **Export last leg** → paste
 ///     from clipboard.
 ///
@@ -202,8 +204,9 @@ class _TrackedResourceCaptureScreenState
       _streamsSuspended = true;
 
       // Long-lived legs: scenario span opens 10 s BEFORE flush so the
-      // span width is large enough to satisfy schema AB-1 inverse-ratio
-      // (`expectedMagnitude.observed × unit_micros / span_micros < 100×`).
+      // span width is large enough to satisfy the schema's inverse-ratio
+      // check (`expectedMagnitude.observed × unit_micros / span_micros <
+      // 100×`).
       // For 600 s observed, span ≥ 6 s; we pick 10 s for headroom and
       // to keep span < 600 s so a long real-time wait does not fill the
       // VM ring buffer before markers are emitted. The ref is

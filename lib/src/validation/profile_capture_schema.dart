@@ -1425,7 +1425,7 @@ class ProfileCaptureSchema {
     required String context,
   }) {
     // Reuse `_rawTraceEvents` stashed by `_parseOrThrowWithLabel` so
-    // the bracket triad is parsed exactly once (M2). Fall back to a
+    // the bracket triad is parsed exactly once. Fall back to a
     // direct read when called outside `validateBracket` (no current
     // caller, but defensive — preserves the helper's invariant).
     final List events;

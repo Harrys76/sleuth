@@ -17,7 +17,7 @@ import 'debug_snapshot.dart';
 
 /// Which installation path a coordinator is currently on.
 ///
-/// Debug and profile are mutually exclusive (KDD-1): exactly one source
+/// Debug and profile are mutually exclusive: exactly one source
 /// populates [DebugSnapshot.rebuildCounts] per coordinator lifetime.
 enum _InstalledMode { none, debug, profile }
 
@@ -30,8 +30,8 @@ enum _InstalledMode { none, debug, profile }
 /// - **Profile mode** uses `FlutterTimeline.debugCollect()` drained on every
 ///   scan. Counts include initial widget inflations as well as rebuilds
 ///   because the framework emits the same `FlutterTimeline.startSync` from
-///   `_tryRebuild`, `updateChild`, AND `inflateWidget` (KDD-5). The rollup
-///   issue copy, config doc, and CHANGELOG all disclose this divergence.
+///   `_tryRebuild`, `updateChild`, AND `inflateWidget`. The rebuild stats
+///   panel, its drilldown page and the config doc disclose this divergence.
 ///
 /// Install policy (debug path): only installs when the global callback slot
 /// is `null`. If DevTools (WidgetInspectorService) already occupies a slot,
@@ -133,8 +133,8 @@ class DebugInstrumentationCoordinator {
   /// — the default in widget tests and in production — that field stays
   /// `false` for the entire element lifetime, so every call to the
   /// callback passes `builtOnce: false` and the detector would never count
-  /// anything. That is exactly the bug the M11 anti-tautology test catches,
-  /// and the reason we cannot trust that parameter.
+  /// anything. That is exactly the bug the real-widget-tree rebuild test
+  /// catches, and the reason we cannot trust that parameter.
   ///
   /// [Expando] key-weakly references the element, so entries are collected
   /// when the element is reclaimed. No manual cleanup required.
@@ -289,13 +289,13 @@ class DebugInstrumentationCoordinator {
   /// Mutually exclusive with [install]: calling both is a programming error
   /// and the existing [_installedMode] guard throws.
   ///
-  /// Policy (KDD-1, M4 per spec v15):
+  /// Policy:
   /// 1. Assert `!kReleaseMode`.
   /// 2. Refuse if already installed on either path.
   /// 3. **Refuse if `FlutterTimeline.debugCollectionEnabled` is already
   ///    `true`** — DevTools or another Sleuth instance owns the buffer. We
-  ///    must not stomp their save/restore. This resolves R20 (DevTools
-  ///    conflict) and B1 (two Sleuth instances stomping the buffer).
+  ///    must not stomp their save/restore, whether the other owner is
+  ///    DevTools or a second Sleuth instance.
   /// 4. Save the prior value, flip to `true`, mark `_installedMode.profile`.
   ///
   /// Setting `debugCollectionEnabled = true` when it was previously `false`
@@ -307,8 +307,8 @@ class DebugInstrumentationCoordinator {
       'installProfileMode is not supported in release mode',
     );
     if (_installedMode != _InstalledMode.none) {
-      // Double-install no-op (idempotent). The spec tolerates this in M12
-      // because controller wiring may call install twice across hot-restart.
+      // Double-install no-op (idempotent), because controller wiring may
+      // call install twice across hot-restart.
       return;
     }
     if (FlutterTimeline.debugCollectionEnabled) {
@@ -355,7 +355,7 @@ class DebugInstrumentationCoordinator {
   /// - [_InstalledMode.debug]: drains the debug-callback maps populated by
   ///   `_handleRebuildDirtyWidget` / `_handleProfilePaint`.
   /// - [_InstalledMode.profile]: drains `FlutterTimeline.debugCollect()`
-  ///   through the KDD-3 three-layer filter ([canonicalizeTypeName]) and
+  ///   through the type-name filter ([canonicalizeTypeName]) and
   ///   aggregates by canonical type name.
   /// - [_InstalledMode.none]: returns an empty snapshot with
   ///   `source: RebuildCountSource.none` (test and no-op cases).
@@ -413,9 +413,9 @@ class DebugInstrumentationCoordinator {
     _totalAnimationOwnedPaintCount = 0;
   }
 
-  /// Drains `FlutterTimeline.debugCollect()`, applies the three-layer filter
-  /// (KDD-3, M8), aggregates by canonical type name, and produces a snapshot
-  /// tagged with `RebuildCountSource.flutterTimeline`.
+  /// Drains `FlutterTimeline.debugCollect()`, applies the type-name filter
+  /// ([canonicalizeTypeName]), aggregates by canonical type name, and
+  /// produces a snapshot tagged with `RebuildCountSource.flutterTimeline`.
   ///
   /// Destructive: each call empties the framework buffer.
   DebugSnapshot _drainProfileBuffer() {
@@ -431,7 +431,7 @@ class DebugInstrumentationCoordinator {
         if (canonical == null) continue;
         if (counts.length >= _maxTrackedTypes &&
             !counts.containsKey(canonical)) {
-          continue; // 200-type cap (KDD-3 layer 4 — unbounded keys).
+          continue; // Type cap (default 200) keeps the key set bounded.
         }
         counts[canonical] = (counts[canonical] ?? 0) + 1;
       }
@@ -467,7 +467,7 @@ class DebugInstrumentationCoordinator {
     _totalAnimationOwnedPaintCount = 0;
   }
 
-  /// KDD-3 / KDD-10 / M8: five-layer filter applied to raw `TimedBlock.name`
+  /// Five-layer filter applied to raw `TimedBlock.name`
   /// strings.
   ///
   /// 1. **Deny-list** of known frame-level scopes that the framework emits
@@ -495,7 +495,7 @@ class DebugInstrumentationCoordinator {
   /// 4. **Generic canonicalization**: `Provider<Foo>` → `Provider`, so
   ///    parameterized generics don't explode the 200-type cap and inflate
   ///    the "unique hotspot widgets" count with spurious duplicates.
-  /// 5. **Framework + Sleuth overlay deny-list** (KDD-10 / v0.15.1 hotfix):
+  /// 5. **Framework + Sleuth overlay deny-list** (v0.15.1 hotfix):
   ///    drops core Flutter framework widgets (`Container`, `Padding`,
   ///    `ValueListenableBuilder`, `FadeTransition`, …) and Sleuth's own
   ///    overlay widgets (`FloatingIssuesCard`, `TriggerButton`,
@@ -514,7 +514,7 @@ class DebugInstrumentationCoordinator {
   ///    before the set lookup.
   ///
   /// Returns `null` when the name should be dropped; otherwise the
-  /// canonical form to use as an aggregation key. Pure; unit-tested by M12.
+  /// canonical form to use as an aggregation key. Pure; unit-tested.
   static String? canonicalizeTypeName(String raw) {
     if (_denyList.contains(raw)) return null;
     if (_isRenderObjectName(raw)) return null;
@@ -589,7 +589,7 @@ class DebugInstrumentationCoordinator {
   static Set<String> get debugFrameworkWidgetDenyList =>
       _frameworkWidgetDenyList;
 
-  /// KDD-10 (v0.15.1 hotfix): Flutter framework widgets used inside Sleuth's
+  /// Since the v0.15.1 hotfix: Flutter framework widgets used inside Sleuth's
   /// own overlay AND Sleuth's own overlay widget classes. Any widget in this
   /// set is dropped from profile-mode `FlutterTimeline.debugCollect()` drains
   /// so Sleuth never self-measures its own UI.

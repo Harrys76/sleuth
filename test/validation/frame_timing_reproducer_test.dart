@@ -19,20 +19,20 @@
 // [FrameTimingDetector.addFrameForTest]) AND a real `FrameTiming` leg
 // (via [FrameTimingDetector.handleTimingsForTest]) so hand-written
 // synthetic fixtures cannot encode the detector's own expected shape
-// (anti-tautology, Tactic 9 / blocker B2).
+// (anti-tautology).
 //
-// Warmup is bypassed in every `setUp` via `warmupDuration: Duration.zero`
-// (blocker B1). Without it, the default 3-second gate at
+// Warmup is bypassed in every `setUp` via `warmupDuration: Duration.zero`.
+// Without it, the default 3-second gate at
 // `_isPastWarmup` silences both `_evaluateJank` and
 // `_evaluateCacheTrends` for the entire test run.
 //
-// Thresholds are chosen to survive `Duration.inMilliseconds` truncation
-// (blocker B5): 17 ms for a jank frame (17 > 16) and 33 ms for a severe
+// Thresholds are chosen to survive `Duration.inMilliseconds` truncation:
+// 17 ms for a jank frame (17 > 16) and 33 ms for a severe
 // jank frame (33 > 32).
 //
 // A dedicated Impeller-zero suppression test documents why every other
-// cache-family test sets `pictureCacheBytes: 1` as a belt-and-suspender
-// (blocker F2): the moment all four cache metrics read 0 for ≥30
+// cache-family test sets `pictureCacheBytes: 1`, which keeps the Impeller
+// branch from arming: the moment all four cache metrics read 0 for ≥30
 // consecutive frames, the detector marks the runtime as Impeller-backed
 // and actively clears cache-family issues, which would silently eat
 // both `raster_cache_thrashing` and `raster_cache_growing` if a future
@@ -116,7 +116,7 @@ void main() {
     test(
       '2 severe + 12 normal — neither sustained nor jank_detected fires',
       () {
-        // Blocker B4: with 2 severe frames out of a 14-frame sample,
+        // With 2 severe frames out of a 14-frame sample,
         // severeCount < 3 AND jankPercent = round(2 / 14 * 100) = 14,
         // which is NOT > 15 — so jank_detected also stays silent.
         for (var i = 0; i < 2; i++) {
@@ -242,7 +242,7 @@ void main() {
 
     test('real FrameTiming pipeline — sustained_jank fires via '
         'handleTimingsForTest', () {
-      // Blocker B2: anti-tautology leg. The synthetic `addFrameForTest`
+      // Anti-tautology leg. The synthetic `addFrameForTest`
       // path bypasses the `_onTimings` FrameStats construction; this leg
       // drives the detector through the exact `addTimingsCallback` code
       // path the engine uses.
@@ -359,7 +359,7 @@ void main() {
         hasLength(1),
         reason:
             'jankPercent > 15 → jank_detected.warning fires '
-            'concurrently (Option B parallel emission)',
+            'concurrently (the two issues emit in parallel)',
       );
       expect(sustained.first.severity, IssueSeverity.critical);
       expect(jankDetected.first.severity, IssueSeverity.warning);
@@ -507,7 +507,7 @@ void main() {
           makeStats(
             frameNumber: i,
             // 1 KiB per frame, always > 0 so the Impeller-zero branch
-            // never arms (F2 belt-and-suspender).
+            // never arms.
             pictureCacheBytes: 1024 * (i + 1),
           ),
         );
@@ -594,8 +594,7 @@ void main() {
             // All four cache metrics literally zero — this is the only
             // shape that arms the Impeller-detected branch. Every other
             // cache-family test in this file uses pictureCacheBytes: 1
-            // precisely so this branch cannot silently eat their signal
-            // (blocker F2).
+            // precisely so this branch cannot silently eat their signal.
             pictureCacheCount: 0,
             pictureCacheBytes: 0,
             layerCacheCount: 0,
@@ -622,7 +621,7 @@ void main() {
   // v0.17.0 FPS semantics (count-based actualFps, rolling 1-s window
   // anchored on latest rasterFinishUs). Every test uses the real
   // `handleTimingsForTest` path so hand-written synthetic fixtures
-  // cannot encode the detector's own expected shape (Tactic 9).
+  // cannot encode the detector's own expected shape.
   group('FrameTimingDetector reproducer — FPS semantics', () {
     // Build one `FrameTiming` per intended-presented frame with rasterFinish
     // timestamps stepping at `1_000_000 / fps` microseconds. Matches the

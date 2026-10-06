@@ -276,7 +276,7 @@ Element? findAnimationOwnerAncestor(Element element, {int maxDepth = 16}) {
 ///    the chain depth budget. Catches deeply-nested framework owners
 ///    (e.g. `RefreshProgressIndicator` → AnimatedBuilder ~13 levels up).
 /// 3. [hasAnimationOwnerDescendant] — typed descendant walk. Catches the
-///    KDD-3 gap where a `CircularProgressIndicator` mounted *without* a
+///    gap where a `CircularProgressIndicator` mounted *without* a
 ///    wrapping `RepaintBoundary` propagates its dirty mark UP to a
 ///    plain ancestor like `Center`, which becomes the leaf in the paint
 ///    callback — the owner is then a *child* of the captured leaf.
