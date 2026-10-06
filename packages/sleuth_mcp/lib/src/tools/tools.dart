@@ -253,15 +253,21 @@ Future<Object> _connectHandler(
   final diag = result.diagnose!;
   final data = diag['data'];
   String? appVersion;
+  bool? vmConnected;
   if (data is Map<String, Object?>) {
     final v = data['packageVersion'];
     if (v is String) appVersion = v;
+    final flag = data['vmConnected'];
+    if (flag is bool) vmConnected = flag;
   }
   final connectResult = <String, Object?>{
     'connected': true,
     'vmServiceUri': uri,
     'sessionUuid': diag['sessionUuid'],
     'connectionMode': diag['connectionMode'],
+    // `basic` also covers a healthy VM-connected session, so pass the app's
+    // own flag beside it.
+    'vmConnected': vmConnected,
     'sidecarVersion': sleuthMcpVersion,
     'appPackageVersion': appVersion,
   };
@@ -414,6 +420,15 @@ Future<Object> _getIssuesHandler(
   if (route is String && route.isNotEmpty) {
     extArgs['route'] = route;
   }
+  // An app older than sleuth 0.37 has no `vmConnected` in the issues payload,
+  // and `basic` alone cannot tell a session without a VM link from a
+  // connected one that has not janked since connect. For such an app read the
+  // flag from diagnose first. The issues call runs last and outside the
+  // fallback's catch, so a session rotation between the two calls fails the
+  // issues call instead of being swallowed as a missing advisory.
+  final fallbackDiagnose = _issuesPayloadHasVmConnected(bridge)
+      ? null
+      : await _diagnoseForIssuesAdvisory(bridge);
   final envelope = await bridge.callExtension(
     'ext.sleuth.issues',
     args: extArgs,
@@ -459,9 +474,79 @@ Future<Object> _getIssuesHandler(
     newData['_truncated'] = true;
     newData['_totalCount'] = projected.total;
   }
-  final advisory = launchModeAdvisoryForEnvelope(envelope);
+  final advisory = _issuesAdvisory(envelope, fallbackDiagnose);
   if (advisory != null) newData['launchModeAdvisory'] = advisory;
   return Map<String, Object?>.from(envelope)..['data'] = newData;
+}
+
+/// Upper bound on the diagnose read behind the get_issues advisory, kept
+/// well inside the generic tool timeout so a slow read costs the advisory
+/// and not the issue list.
+const Duration _issuesAdvisoryDiagnoseTimeout = Duration(seconds: 2);
+
+/// Whether the connected app stamps `vmConnected` on `ext.sleuth.issues`,
+/// which sleuth 0.37.0 added. Reads the bridge's last diagnose envelope; an
+/// unreadable version counts as an older app.
+bool _issuesPayloadHasVmConnected(VmBridge bridge) {
+  final data = bridge.lastDiagnoseEnvelope?['data'];
+  if (data is! Map<String, Object?>) return false;
+  final version = data['packageVersion'];
+  final lineage = version is String ? versionLineage(version) : null;
+  if (lineage == null) return false;
+  final parts = lineage.split('.').map(int.parse).toList();
+  return parts[0] > 0 || parts[1] >= 37;
+}
+
+/// Reads `ext.sleuth.diagnose` for the get_issues advisory. An ordinary
+/// bridge failure or a read slower than [_issuesAdvisoryDiagnoseTimeout]
+/// returns null, which drops the advisory. [SessionChangedException] and a
+/// version refusal (`version_skew_*`) propagate so the client sees them.
+Future<Map<String, Object?>?> _diagnoseForIssuesAdvisory(
+  VmBridge bridge,
+) async {
+  try {
+    return await bridge
+        .callExtension('ext.sleuth.diagnose')
+        .timeout(_issuesAdvisoryDiagnoseTimeout);
+  } on TimeoutException {
+    return null;
+  } on VmBridgeException catch (e) {
+    if (e.message.startsWith('version_skew_')) rethrow;
+    return null;
+  }
+}
+
+/// Advisory for a get_issues [issues] envelope. The VM flag comes from the
+/// payload, else from [diagnose] read on the same session. `basic` with no
+/// readable flag gets no advisory, because the session may be healthy.
+String? _issuesAdvisory(
+  Map<String, Object?> issues,
+  Map<String, Object?>? diagnose,
+) {
+  final mode = issues['connectionMode'];
+  if (mode is! String) return null;
+  final data = issues['data'];
+  final payloadFlag = data is Map<String, Object?> ? data['vmConnected'] : null;
+  if (payloadFlag is bool || mode != 'basic') {
+    return launchModeAdvisoryFor(
+      mode,
+      vmConnected: payloadFlag is bool ? payloadFlag : null,
+    );
+  }
+  if (diagnose == null) return null;
+  final issuesUuid = issues['sessionUuid'];
+  final diagnoseUuid = diagnose['sessionUuid'];
+  if (issuesUuid is! String || diagnoseUuid is! String) return null;
+  if (issuesUuid != diagnoseUuid) {
+    // Never pair one session's VM flag with another session's issues.
+    throw SessionChangedException(baseline: diagnoseUuid, current: issuesUuid);
+  }
+  final diagnoseData = diagnose['data'];
+  final flag = diagnoseData is Map<String, Object?>
+      ? diagnoseData['vmConnected']
+      : null;
+  if (flag is! bool) return null;
+  return launchModeAdvisoryFor(mode, vmConnected: flag);
 }
 
 int? _asInt(Object? v) {
@@ -693,8 +778,8 @@ final Map<String, BuiltInTool> builtInTools = {
           'Pure client-side diff of two snapshots. No app call. Use for AI '
           'conversation context: did this code change regress performance? '
           'Issues aggregate per stableId (highest severity + count). Refuses '
-          'snapshots from different sleuth lineages or with different VM '
-          'coverage.',
+          'snapshots from different sleuth lineages, with different VM '
+          'coverage, or taken during warmup.',
       inputSchema: {
         'type': 'object',
         'properties': {

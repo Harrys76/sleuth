@@ -259,6 +259,10 @@ FutureOr<Map<String, Object?>> extSnapshotHandler(
 
 /// `ext.sleuth.issues` — currently-aggregated issues, optional `route` filter
 /// against `routeName` or `sourceRoute`.
+///
+/// `vmConnected` is the same flag `ext.sleuth.diagnose` reports. A client
+/// needs it to read `connectionMode: basic`, which a VM-connected session
+/// also reports until a frame gets a VM-tier verdict.
 FutureOr<Map<String, Object?>> extIssuesHandler(
   SleuthController controller,
   Map<String, String> args,
@@ -275,6 +279,7 @@ FutureOr<Map<String, Object?>> extIssuesHandler(
     data: <String, Object?>{
       'issues': [for (final i in filtered) i.toJson()],
       'route': ?route,
+      'vmConnected': controller.isVmConnected,
     },
   );
 }

@@ -1242,7 +1242,30 @@ void main() {
       final c = _newController();
       final env = await extIssuesHandler(c, const {'route': '/home'});
       final actual = (env['data'] as Map<String, Object?>).keys.toSet();
-      expect(actual, containsAll(<String>['issues', 'route']));
+      expect(actual, containsAll(<String>['issues', 'route', 'vmConnected']));
+    });
+
+    test('vmConnected is the controller VM link, as diagnose reports it, '
+        'including on a basic session', () async {
+      for (final connected in [true, false]) {
+        // Past the warmup window with no frame verdict: basic either way.
+        final c = _newController()
+          ..markInitializedAtForTest(
+            DateTime.now().subtract(const Duration(minutes: 1)),
+          )
+          ..vmConnectedForTest = connected;
+        final issues = await extIssuesHandler(c, const {});
+        final diagnose = await extDiagnoseHandler(c, const {});
+        expect(issues['connectionMode'], 'basic');
+        expect(
+          (issues['data'] as Map<String, Object?>)['vmConnected'],
+          connected,
+        );
+        expect(
+          (issues['data'] as Map<String, Object?>)['vmConnected'],
+          (diagnose['data'] as Map<String, Object?>)['vmConnected'],
+        );
+      }
     });
 
     test('data values match documented types and nullability', () async {

@@ -33,10 +33,11 @@ Kind `direct`. Args: `uri` (String, required).
 | `vmServiceUri` | String | yes | echoes the arg |
 | `sessionUuid` | String | yes | from `ext.sleuth.diagnose` |
 | `connectionMode` | String | yes | one of `disconnected` / `warmup` / `basic` / `full` / `correlated` |
+| `vmConnected` | bool | yes (nullable) | the app's own VM link, from `ext.sleuth.diagnose` `data.vmConnected`; null when that envelope has no boolean flag. `basic` with `vmConnected: true` is a healthy session that has had no VM-tier frame verdict yet. |
 | `sidecarVersion` | String | yes | the sidecar's own version (`sleuthMcpVersion`) |
 | `appPackageVersion` | String | yes (nullable) | the app's reported `kSleuthPackageVersion` |
 | `warning` | String | no | `version_skew_minor` (a different version in the pinned lineage) or `version_skew_prior_lineage` (the accepted prior lineage, 0.36) |
-| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` without a live VM self-connect, which means the VM-only detectors are off; asks for a `flutter run --profile --no-dds` relaunch |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` with `vmConnected: false`, which means the VM-only detectors are off. The `basic` text suggests reopening the app and names DDS as one possible cause. A `basic` session with `vmConnected: true` gets none. |
 
 **Errors:**
 
@@ -82,7 +83,7 @@ Data shape: `AppStatusPayload.toJson()`, defined in `packages/sleuth_mcp/lib/src
 | `transportMode` | String | no | `wired` / `wireless` / `unknown`; present only when `launchMode == 'ios-direct'` |
 | `wsUri` | String | no | iOS-direct sessions only |
 | `warning` | String | no | same values as `connect.warning`: `version_skew_minor` (a different version in the pinned lineage) or `version_skew_prior_lineage` (the accepted prior lineage); attached sessions only |
-| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` without a live VM self-connect, which means the VM-only detectors are off; asks for a `flutter run --profile --no-dds` relaunch |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` with `vmConnected: false`, which means the VM-only detectors are off. The `basic` text suggests reopening the app and names DDS as one possible cause. A `basic` session with `vmConnected: true` gets none. |
 
 An attach that fails without throwing, for example a spawn failure, a refused `debugUrl` or a non-mobile `device`, returns this payload with `state: error` and a `lastError` instead of an error result.
 
@@ -163,7 +164,7 @@ Issues aggregate per stableId into the highest severity across its occurrences a
 | `fpsDelta` | double | yes (nullable) | `afterFps - beforeFps`. Declared nullable, but the current code returns a `snapshot …` error instead of null when a side has neither `frameStatsSummary.averageFps` nor `actualFps`. |
 | `beforeFps` | double | yes (nullable) | |
 | `afterFps` | double | yes (nullable) | |
-| `coverageWarning` | String | no | present when neither snapshot had a VM service link. It starts with `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover. |
+| `coverageWarning` | String | no | present when neither snapshot had a VM service link (both report `isVmConnected: false`). It starts with `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover. |
 
 **Errors:**
 
@@ -172,7 +173,8 @@ Issues aggregate per stableId into the highest severity across its occurrences a
 - `arg_capped_issues_uncomparable`: one or both inputs were projected with `maxIssueCount`. A truncated top-N window cannot be diffed, because an issue that left the window looks the same as one that was resolved.
 - `arg_section_mismatch`: the inputs were projected to different sections or with different pagination limits.
 - `arg_lineage_mismatch`: the two `packageVersion` values fall in different sleuth `major.minor` lineages, or either is missing or not semver. Detector ids and defaults change between lineages, so the diff would report instrumentation changes as app changes.
-- `arg_coverage_mismatch`: only one snapshot had a VM service link, or either lacks a boolean `isVmConnected`. A snapshot counts as having no link when it reports `isVmConnected: false` or carries a `launchModeAdvisory`. VM-only detectors report nothing without a link, so their issues would read as resolved or new.
+- `arg_snapshot_in_warmup`: one or both snapshots were taken while Sleuth was still warming up, so their issue lists may be incomplete. A snapshot counts as a warmup snapshot when it carries `connectionMode: warmup` or the warmup `launchModeAdvisory` that `get_snapshot` adds. Wait a few seconds and take that snapshot again.
+- `arg_coverage_mismatch`: only one snapshot had a VM service link, or either lacks a boolean `isVmConnected`. Coverage reads `isVmConnected` only, so a `basic` session with a VM link counts as covered. VM-only detectors report nothing without a link, so their issues would read as resolved or new.
 - `snapshot …`: a snapshot lacks or mistypes `currentIssues`, `currentIssues[].stableId` or `severity`, or the `frameStatsSummary` fps (schema drift).
 
 ## check_budgets
@@ -209,7 +211,7 @@ The tool returns the extension's `data` block with two keys the sidecar adds, pl
 | (all keys from `ext.sleuth.diagnose.data`) | | | passed through; see `mcp_schema.md` |
 | `sidecarVersion` | String | yes | `sleuthMcpVersion` |
 | `sidecarBuiltAgainstSleuth` | String | yes | `sleuthPackageVersionPin` |
-| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` without a live VM self-connect, which means the VM-only detectors are off; asks for a `flutter run --profile --no-dds` relaunch |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` with `vmConnected: false`, which means the VM-only detectors are off. The `basic` text suggests reopening the app and names DDS as one possible cause. A `basic` session with `vmConnected: true` gets none. |
 
 Apps on sleuth 0.36 do not report the keys added in sleuth 0.37.0: `effectiveFrameRateHz`, `frameBudgetUs`, `frameRateSource`, and the `lastPoll*`, `maxPoll*`, `pollDuplicatesDropped` and `pollWindowFallbacks` timings.
 
@@ -239,7 +241,7 @@ Kind `passthrough` (`ext.sleuth.issues`). Args: `route` (String, optional; an em
 
 **Shim `compact_projection`.** After the severity filter, the sidecar keeps the first `maxIssueCount` entries of `data.issues` in the app's ranked order. The default is 50, `0` removes the cap, and a negative value returns `arg_invalid_int`, as in `get_snapshot`. Unless `verbose: true`, it then trims each kept entry to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`). The cap and the trim are independent: `verbose` changes field shape only and never disables the cap. Compaction drops fields but never shortens a value, so it does not bound the response size; use `maxIssueCount` here, or `get_snapshot` with `diskHandoff`. When the cap drops at least one issue, `data` gains `_truncated: true` and `_totalCount`, the count after the filter and before the cap. An envelope without a `data` map or an `issues` list, such as an error envelope, comes back unchanged.
 
-**Shim `launch_mode_advisory`.** On a degraded session the sidecar adds `data.launchModeAdvisory`, warning that the issue list is incomplete because the VM-only detectors are off. The `ext.sleuth.issues` payload has no VM flag, so `get_issues` adds the advisory on every `basic` session, including one whose VM is connected while its verdict warms up.
+**Shim `launch_mode_advisory`.** On a degraded session (`connectionMode` `warmup` or `disconnected`, or `basic` with `vmConnected: false`) the sidecar adds `data.launchModeAdvisory`, warning that the issue list is incomplete because the VM-only detectors are off. Apps on sleuth 0.37 and later send `data.vmConnected` in the `ext.sleuth.issues` payload, and the tool passes it through. For an app on 0.36 the sidecar first reads `ext.sleuth.diagnose` on the same session and uses its `data.vmConnected`. The issues call runs second and its errors are never swallowed, so a session change between the two calls fails the tool call instead of pairing two sessions. A `session_changed` or `version_skew_*` error from the diagnose read also propagates. A diagnose read that fails or takes longer than 2 seconds drops the advisory, and `basic` with no readable flag gets none.
 
 **Errors:** `arg_invalid_int` for a negative `maxIssueCount`. An `ext.sleuth.issues` error envelope comes back unchanged.
 

@@ -363,13 +363,26 @@ void main() {
       expect(text, contains('heap_growing'));
     });
 
-    test('a launchModeAdvisory counts as no VM coverage', () async {
-      final result = await _compare(
-        _snap([]),
-        _snap([], extra: {'launchModeAdvisory': launchAdvisoryWarmup}),
-      );
-      expect(_errorText(result), startsWith('arg_coverage_mismatch:'));
-    });
+    test(
+      'coverage reads isVmConnected only, not a launchModeAdvisory',
+      () async {
+        final result =
+            await _compare(
+                  _snap([
+                    {'stableId': 'heap_growing', 'severity': 'warning'},
+                  ]),
+                  _snap(
+                    [
+                      {'stableId': 'heap_growing', 'severity': 'warning'},
+                    ],
+                    extra: {'launchModeAdvisory': launchAdvisoryBasic},
+                  ),
+                )
+                as Map<String, Object?>;
+        expect(result['removed'], isEmpty);
+        expect(result.containsKey('coverageWarning'), isFalse);
+      },
+    );
 
     for (final (label, value) in <(String, Object?)>[
       ('missing', null),
@@ -408,6 +421,72 @@ void main() {
         result['coverageWarning'] as String,
         startsWith('vm_detectors_not_observed:'),
       );
+    });
+  });
+
+  group('warmup guard', () {
+    final warmup = {'launchModeAdvisory': launchAdvisoryWarmup};
+
+    test('refuses one warmup snapshot with its own code, not a coverage '
+        'mismatch', () async {
+      final text = _errorText(
+        await _compare(_snap([]), _snap([], extra: warmup)),
+      );
+      expect(text, startsWith('arg_snapshot_in_warmup:'));
+      expect(text, contains('snapshot "after"'));
+      expect(text, contains('take that snapshot again'));
+      expect(text, isNot(contains('no-dds')));
+    });
+
+    test('refuses two warmup snapshots instead of diffing them as '
+        'uncovered', () async {
+      final text = _errorText(
+        await _compare(
+          _snap([], isVmConnected: false, extra: warmup),
+          _snap([], isVmConnected: false, extra: warmup),
+        ),
+      );
+      expect(text, startsWith('arg_snapshot_in_warmup:'));
+      expect(text, contains('both snapshots'));
+      expect(text, isNot(contains('VM service link')));
+    });
+
+    test('a warmup snapshot wins over a coverage mismatch', () async {
+      final text = _errorText(
+        await _compare(
+          _snap([], extra: warmup),
+          _snap([], isVmConnected: false),
+        ),
+      );
+      expect(text, startsWith('arg_snapshot_in_warmup:'));
+      expect(text, contains('snapshot "before"'));
+    });
+
+    test('connectionMode warmup counts as a warmup snapshot', () async {
+      final text = _errorText(
+        await _compare(
+          _snap([], extra: {'connectionMode': 'warmup'}),
+          _snap([]),
+        ),
+      );
+      expect(text, startsWith('arg_snapshot_in_warmup:'));
+    });
+
+    test('recognises the warmup advisory by its opening words', () async {
+      final text = _errorText(
+        await _compare(
+          _snap([]),
+          _snap(
+            [],
+            extra: {
+              'launchModeAdvisory':
+                  '$launchAdvisoryWarmupLead (first few seconds), so the '
+                  'connection tier is not final yet.',
+            },
+          ),
+        ),
+      );
+      expect(text, startsWith('arg_snapshot_in_warmup:'));
     });
   });
 }

@@ -19,6 +19,8 @@ Every handler returns one of the envelope shapes below.
 | `sessionUuid` | String | yes | no | changes when sleuth initializes, for example after a hot restart |
 | `data` | Map | yes | no | per-handler shape below |
 
+`connectionMode` is the best frame verdict so far, not the state of the VM link. `warmup` covers the first seconds after sleuth initializes. `basic` means no frame has a VM-tier verdict yet: either sleuth has no VM service link, or it has one and no frame has received a verdict since it connected. Sleuth publishes verdicts for jank frames only, so a smooth session with a live VM link stays `basic` while its VM-backed detectors run. `ext.sleuth.diagnose` and `ext.sleuth.issues` report the link itself as `data.vmConnected`, and `ext.sleuth.snapshot` reports it as `data.isVmConnected`.
+
 ### Error envelope
 
 | Field | Type | Required | Nullable | Notes |
@@ -189,6 +191,7 @@ The current aggregated issues. Args: `route` (String, optional). With a non-empt
 |---|---|---|---|
 | `issues` | List\<Map\> | yes | always; item shape = `PerformanceIssue.toJson()` |
 | `route` | String | no | only when the route arg was non-empty |
+| `vmConnected` | bool | yes | always; the same flag as `ext.sleuth.diagnose` `data.vmConnected`, which tells a VM-connected `basic` session from one without a VM link |
 
 ### `ext.sleuth.routeHealth`
 

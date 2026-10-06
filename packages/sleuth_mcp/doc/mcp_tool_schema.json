@@ -51,6 +51,7 @@
         "vmServiceUri": {"type": "String", "required": true, "nullable": false},
         "sessionUuid": {"type": "String", "required": true, "nullable": false},
         "connectionMode": {"type": "String", "required": true, "nullable": false, "values": ["disconnected", "warmup", "basic", "full", "correlated"]},
+        "vmConnected": {"type": "bool", "required": true, "nullable": true, "doc": "the app's own VM link from ext.sleuth.diagnose data.vmConnected; null when that envelope has no boolean flag. basic with vmConnected true is a healthy session that has had no VM-tier frame verdict yet."},
         "sidecarVersion": {"type": "String", "required": true, "nullable": false},
         "appPackageVersion": {"type": "String", "required": true, "nullable": true},
         "warning": {
@@ -60,7 +61,7 @@
           "values": ["version_skew_minor", "version_skew_prior_lineage"],
           "presence": "when the connected app's packageVersion lineage differs from the sidecar pin within accepted bounds"
         },
-        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup or disconnected, or basic with vmConnected false, which means the VM-only detectors are off; the basic text suggests reopening the app and names DDS as one possible cause. A basic session with vmConnected true gets none."}
       },
       "errors": [
         {"code": "missing_required_arg", "doc": "uri arg missing or empty", "messagePrefix": "missing_required_arg: uri"},
@@ -93,7 +94,7 @@
         "transportMode": {"type": "String", "required": false, "nullable": false, "values": ["wired", "wireless", "unknown"], "presence": "when launchMode == 'ios-direct'"},
         "wsUri": {"type": "String", "required": false, "nullable": false, "presence": "when launchMode == 'ios-direct'"},
         "warning": {"type": "String", "required": false, "nullable": false, "values": ["version_skew_minor", "version_skew_prior_lineage"], "presence": "when attached and the app's packageVersion differs from the sidecar pin within accepted bounds; same values as connect.warning"},
-        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup or disconnected, or basic with vmConnected false, which means the VM-only detectors are off; the basic text suggests reopening the app and names DDS as one possible cause. A basic session with vmConnected true gets none."}
       },
       "errors": [
         {"code": "session_missing", "doc": "DaemonSession not initialized on this server", "messagePrefix": "internal: daemon session not initialized"},
@@ -220,7 +221,7 @@
         "fpsDelta": {"type": "double", "required": true, "nullable": true, "presence": "null when either snapshot lacked frameStatsSummary.averageFps/actualFps"},
         "beforeFps": {"type": "double", "required": true, "nullable": true},
         "afterFps": {"type": "double", "required": true, "nullable": true},
-        "coverageWarning": {"type": "String", "required": false, "nullable": false, "presence": "when neither snapshot had a VM service link (isVmConnected false or a launchModeAdvisory); text starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover"}
+        "coverageWarning": {"type": "String", "required": false, "nullable": false, "presence": "when neither snapshot had a VM service link (both report isVmConnected false); text starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover"}
       },
       "errors": [
         {"code": "arg_before_not_object", "doc": "`before` arg not a Map", "messagePrefix": "arg \"before\" must be object"},
@@ -228,7 +229,8 @@
         {"code": "arg_capped_issues_uncomparable", "doc": "one/both snapshots projected with maxIssueCount — a truncated top-N issue window can't be diffed (left-window vs resolved are indistinguishable)", "messagePrefix": "arg_capped_issues_uncomparable:"},
         {"code": "arg_section_mismatch", "doc": "the two snapshots were projected to different sections or different pagination limits", "messagePrefix": "arg_section_mismatch:"},
         {"code": "arg_lineage_mismatch", "doc": "the two snapshots' packageVersion values fall in different sleuth major.minor lineages, or either is missing or not semver; detector ids and defaults change between lineages", "messagePrefix": "arg_lineage_mismatch:"},
-        {"code": "arg_coverage_mismatch", "doc": "only one snapshot had a VM service link (the other reports isVmConnected false or carries a launchModeAdvisory), or either lacks a boolean isVmConnected; VM-only detector issues would read as resolved or new", "messagePrefix": "arg_coverage_mismatch:"},
+        {"code": "arg_snapshot_in_warmup", "doc": "one or both snapshots were taken while Sleuth was still warming up (connectionMode warmup, or the warmup launchModeAdvisory that get_snapshot adds), so their issue lists may be incomplete; take that snapshot again after a few seconds", "messagePrefix": "arg_snapshot_in_warmup:"},
+        {"code": "arg_coverage_mismatch", "doc": "only one snapshot had a VM service link (the other reports isVmConnected false), or either lacks a boolean isVmConnected; VM-only detector issues would read as resolved or new. Coverage reads isVmConnected only, so a basic session with a VM link counts as covered.", "messagePrefix": "arg_coverage_mismatch:"},
         {"code": "snapshot_schema_drift", "doc": "a snapshot lacks or mistypes currentIssues, currentIssues[].stableId/severity, or frameStatsSummary averageFps/actualFps", "messagePrefix": "snapshot "}
       ]
     },
@@ -311,7 +313,7 @@
         "pollWindowFallbacks": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
         "sidecarVersion": {"type": "String", "required": true, "nullable": false},
         "sidecarBuiltAgainstSleuth": {"type": "String", "required": true, "nullable": false},
-        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup or disconnected, or basic with vmConnected false, which means the VM-only detectors are off; the basic text suggests reopening the app and names DDS as one possible cause. A basic session with vmConnected true gets none."}
       },
       "errors": []
     },
@@ -358,11 +360,12 @@
         "verbose": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "When false (default) each kept issue in data.issues is trimmed to the compact actionable subset; true returns full issue fields. Field shape only — the maxIssueCount cap still applies."}
       },
       "data": {
-        "_doc": "Passthrough of ext.sleuth.issues, then field-trimmed + capped. data.issues entries carry the compact key set unless verbose:true. The two keys below are stamped on data only when the cap dropped at least one issue.",
+        "_doc": "Passthrough of ext.sleuth.issues, then field-trimmed + capped. data.issues entries carry the compact key set unless verbose:true. _truncated and _totalCount are stamped on data only when the cap dropped at least one issue.",
+        "vmConnected": {"type": "bool", "required": false, "nullable": false, "presence": "app sleuth >= 0.37.0", "doc": "passed through from ext.sleuth.issues data.vmConnected, the app's own VM link (the same flag diagnose reports)"},
         "_truncated": {"type": "bool", "required": false, "nullable": false, "presence": "stamped true only when maxIssueCount dropped at least one issue from data.issues"},
         "_totalCount": {"type": "int", "required": false, "nullable": false, "presence": "post-filter pre-cap issue count; stamped alongside _truncated"},
         "severityAtLeast": {"type": "String", "required": false, "nullable": false, "presence": "echo stamped only when the severity filter was applied"},
-        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "stamped in data on a degraded session (connectionMode warmup/disconnected, or basic without a live VM self-connect); warns the issue list is incomplete (VM-only detectors suppressed)"}
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "stamped in data when connectionMode is warmup or disconnected, or basic with no VM service link; warns the issue list is incomplete because the VM-only detectors are off. See the launch_mode_advisory shim for where the VM flag comes from."}
       },
       "compactIssueKeys": ["severity", "category", "confidence", "title", "detail", "fixHint", "stableId", "widgetName", "routeName", "sourceRoute", "confidenceReason", "rootCauseIds"],
       "shims": [
@@ -373,6 +376,10 @@
         {
           "name": "compact_projection",
           "doc": "After the optional severity filter, data.issues is capped to the front maxIssueCount entries (default 50; 0 = unbounded) of the app's already-ranked order, then — unless verbose:true — each kept entry is trimmed to compactIssueKeys (only present keys copied). When the cap dropped any issue, data gains `_truncated:true` + `_totalCount` (post-filter pre-cap count). Error envelopes (no `data` map / no `issues` list) pass through unmodified."
+        },
+        {
+          "name": "launch_mode_advisory",
+          "doc": "Adds data.launchModeAdvisory on a degraded session: connectionMode warmup or disconnected, or basic with vmConnected false. The flag is data.vmConnected, which apps on sleuth 0.37 and later send. For an older app the sidecar first reads ext.sleuth.diagnose on the same session and uses its data.vmConnected. The issues call runs second and its errors are never swallowed, so a session change between the two calls fails the tool call (session_changed when the bridge sees a new sessionUuid) instead of pairing two sessions. A session_changed or version_skew_* error from the diagnose read also propagates. A diagnose read that fails or takes longer than 2 seconds drops the advisory, and basic with no readable flag gets none."
         }
       ],
       "errors": [

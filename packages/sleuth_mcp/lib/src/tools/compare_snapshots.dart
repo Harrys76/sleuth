@@ -15,16 +15,21 @@ import 'launch_mode_advisory.dart';
 ///
 /// Refuses snapshots from different sleuth lineages (detector ids and
 /// defaults change between lineages, so the diff would report
-/// instrumentation changes as app changes) and snapshots whose VM
+/// instrumentation changes as app changes), snapshots taken during warmup
+/// (the detectors have not had a full window yet), and snapshots whose VM
 /// coverage differs or is unknown (VM-only detectors report nothing
-/// without a VM link, so their issues would read as resolved or new).
+/// without a VM link, so their issues would read as resolved or new). VM
+/// coverage is the snapshot's `isVmConnected` flag alone: a `basic`
+/// session with a VM link has full coverage.
 ///
 /// Schema-drift behaviour: this tool consumes `packageVersion`,
 /// `isVmConnected`, `currentIssues[].stableId`, `currentIssues[].severity`,
 /// and `frameStatsSummary.averageFps | actualFps`. If those fields are
 /// missing or malformed the tool returns an error envelope rather than
 /// silently dropping entries — otherwise a rename in the snapshot schema
-/// would surface as an empty diff and look like a clean comparison.
+/// would surface as an empty diff and look like a clean comparison. It
+/// also reads the optional `launchModeAdvisory` and `connectionMode` keys
+/// to spot a warmup snapshot.
 Future<Object> compareSnapshotsHandler(
   VmBridge bridge,
   Map<String, Object?> args,
@@ -60,6 +65,9 @@ Future<Object> compareSnapshotsHandler(
 
   final lineageReject = _lineageMismatch(before, after);
   if (lineageReject != null) return lineageReject;
+
+  final warmupReject = _warmupReject(before, after);
+  if (warmupReject != null) return warmupReject;
 
   final coverageReject = _coverageMismatch(before, after);
   if (coverageReject != null) return coverageReject;
@@ -239,14 +247,45 @@ ToolCallResult? _lineageMismatch(
   return null;
 }
 
-/// VM coverage of one snapshot: true with a VM service link, false without
-/// one (`isVmConnected` false, or `get_snapshot` stamped a
-/// `launchModeAdvisory` on a degraded session), null when `isVmConnected`
-/// is missing or not a bool.
+/// Returns an `arg_snapshot_in_warmup` error envelope when either snapshot
+/// was taken while Sleuth was still warming up, else null. During warmup
+/// the detectors have not had a full window, so a diff would report
+/// issues that were not measured yet as resolved or new. A snapshot is a
+/// warmup snapshot when it carries `connectionMode: warmup` or the warmup
+/// `launchModeAdvisory` that `get_snapshot` adds.
+ToolCallResult? _warmupReject(
+  Map<String, Object?> before,
+  Map<String, Object?> after,
+) {
+  bool inWarmup(Map<String, Object?> s) =>
+      s['connectionMode'] == 'warmup' ||
+      isWarmupAdvisory(s['launchModeAdvisory']);
+
+  final beforeWarm = inWarmup(before);
+  final afterWarm = inWarmup(after);
+  if (!beforeWarm && !afterWarm) return null;
+  final both = beforeWarm && afterWarm;
+  final which = both
+      ? 'both snapshots were'
+      : 'snapshot "${beforeWarm ? 'before' : 'after'}" was';
+  final retake = both
+      ? 'take both snapshots again with get_snapshot, and compare once '
+            'neither carries'
+      : 'take that snapshot again with get_snapshot, and compare once it '
+            'no longer carries';
+  return ToolCallResult.text(
+    'arg_snapshot_in_warmup: $which taken while Sleuth was still warming '
+    'up, so the issue list may be incomplete. Wait a few seconds, $retake '
+    'the warmup launchModeAdvisory.',
+    isError: true,
+  );
+}
+
+/// VM coverage of one snapshot: its `isVmConnected` flag, or null when the
+/// flag is missing or not a bool.
 bool? _vmCoverage(Map<String, Object?> snapshot) {
   final connected = snapshot['isVmConnected'];
-  if (connected is! bool) return null;
-  return connected && !snapshot.containsKey('launchModeAdvisory');
+  return connected is bool ? connected : null;
 }
 
 /// Returns an `arg_coverage_mismatch` error envelope when the snapshots'
@@ -272,10 +311,9 @@ ToolCallResult? _coverageMismatch(
     final covered = beforeCoverage ? 'before' : 'after';
     return ToolCallResult.text(
       'arg_coverage_mismatch: only the "$covered" snapshot had a VM service '
-      'link; the other reports isVmConnected=false or carries a '
-      'launchModeAdvisory. VM-only detectors ($vmOnlyStableIds) report '
-      'nothing without one, so their issues would read as resolved or new. '
-      'Re-capture both runs with a VM link '
+      'link; the other reports isVmConnected=false. VM-only detectors '
+      '($vmOnlyStableIds) report nothing without one, so their issues would '
+      'read as resolved or new. Re-capture both runs with a VM link '
       '(`flutter run --profile --no-dds`).',
       isError: true,
     );

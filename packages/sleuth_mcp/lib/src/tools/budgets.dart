@@ -74,8 +74,8 @@ Object evaluateBudgets({
 
   // Without a VM service link the VM-only detectors never ran, so a pass
   // would vouch for memory, CPU and repaint behaviour nobody observed.
-  // Basic connection mode with the VM connected (verdict still warming)
-  // reports isVmConnected true and passes through.
+  // Basic connection mode with the VM connected (no VM-tier frame verdict
+  // yet) reports isVmConnected true and passes through.
   final vmConnected = snapshot['isVmConnected'];
   if (vmConnected != true) {
     final reading = vmConnected is bool

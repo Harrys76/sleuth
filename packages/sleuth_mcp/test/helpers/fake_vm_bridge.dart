@@ -117,7 +117,9 @@ FakeVmBridge defaultFakeBridge() {
     'connectionMode': 'basic',
     'schemaVersion': 1,
     'sessionUuid': 'fake-uuid',
-    'data': {'issues': fullFakeIssues()},
+    // Same VM link as the diagnose envelope: a basic session whose VM is
+    // connected but has had no VM-tier frame verdict yet.
+    'data': {'issues': fullFakeIssues(), 'vmConnected': true},
   });
   bridge.setEnvelope('ext.sleuth.routeHealth', {
     'connectionMode': 'basic',

@@ -211,7 +211,8 @@
       },
       "data": {
         "issues": {"type": "List<Map>", "required": true, "nullable": false, "item_shape": "PerformanceIssue.toJson()"},
-        "route": {"type": "String", "required": false, "nullable": false, "presence": "only when route arg was non-empty"}
+        "route": {"type": "String", "required": false, "nullable": false, "presence": "only when route arg was non-empty"},
+        "vmConnected": {"type": "bool", "required": true, "nullable": false, "doc": "the same flag as ext.sleuth.diagnose data.vmConnected; tells a VM-connected basic session from one without a VM link"}
       }
     },
     "ext.sleuth.routeHealth": {

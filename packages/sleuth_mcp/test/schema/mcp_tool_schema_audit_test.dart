@@ -344,9 +344,15 @@ void main() {
           'vmServiceUri',
           'sessionUuid',
           'connectionMode',
+          'vmConnected',
           'sidecarVersion',
           'appPackageVersion',
         ]),
+      );
+      expect(
+        actual,
+        containsAll(_requiredKeys(tools['connect'] as Map<String, Object?>)),
+        reason: 'every documented required connect key is returned',
       );
       // No undocumented keys.
       expect(
@@ -646,6 +652,66 @@ void main() {
         );
       },
     );
+
+    test('get_issues data keys are ext.sleuth.issues keys or documented '
+        'sidecar keys', () async {
+      final appSchema =
+          jsonDecode(
+                File(
+                  '${_packageDir().path}/doc/mcp_schema.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, Object?>;
+      final appKeys =
+          (((appSchema['handlers'] as Map<String, Object?>)['ext.sleuth.issues']
+                      as Map<String, Object?>)['data']
+                  as Map<String, Object?>)
+              .keys
+              .toSet();
+      final documented = _documentedKeys(
+        tools['get_issues'] as Map<String, Object?>,
+      );
+      expect(
+        documented.contains('vmConnected') && appKeys.contains('vmConnected'),
+        isTrue,
+        reason: 'vmConnected is an ext.sleuth.issues key the tool passes on',
+      );
+      final bridge = defaultFakeBridge()
+        ..setEnvelope('ext.sleuth.issues', {
+          'connectionMode': 'basic',
+          'schemaVersion': 1,
+          'sessionUuid': 'fake-uuid',
+          'data': {
+            'issues': fullFakeIssues(),
+            'route': '/home',
+            'vmConnected': false,
+          },
+        });
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final result =
+          await builtInTools['get_issues']!.handler(bridge, {
+                'route': '/home',
+                'severityAtLeast': 'warning',
+                'maxIssueCount': 1,
+              })
+              as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      expect(
+        data.keys,
+        containsAll(<String>[
+          'launchModeAdvisory',
+          'severityAtLeast',
+          '_truncated',
+          '_totalCount',
+          'vmConnected',
+        ]),
+      );
+      expect(
+        data.keys.toSet().difference(appKeys.union(documented)),
+        isEmpty,
+        reason: 'get_issues emitted undocumented data keys',
+      );
+    });
 
     test('explain_issue: missing_required_arg when stableId absent', () async {
       final bridge = defaultFakeBridge();
