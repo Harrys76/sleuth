@@ -67,22 +67,23 @@ class _GpuPressureDemoState extends State<GpuPressureDemo>
     return DemoScaffold(
       title: 'GPU Pressure',
       description:
-          '❌ BAD: Stacking expensive GPU operations (blur, clip, color filter, '
-          'opacity) on deep subtrees overwhelms the rasterizer.\n'
-          '✅ FIX: Reduce blur radius, simplify clipping, avoid stacking '
-          'multiple GPU-heavy layers, prefer Clip.hardEdge over antiAliasWithSaveLayer.\n\n'
-          '▶ The animated blur at the top repaints every frame without '
-          'rebuilding any widget: raster time climbs while UI time stays '
+          'Bad: Stacking expensive GPU operations (blur, clip, color '
+          'filter, opacity) on deep subtrees overloads the rasterizer.\n'
+          'Fix: Reduce the blur radius, simplify clipping, avoid stacking '
+          'several GPU-heavy layers, and prefer Clip.hardEdge over '
+          'antiAliasWithSaveLayer.\n\n'
+          'The animated blur at the top repaints every frame without '
+          'rebuilding any widget. Raster time climbs while UI time stays '
           'low, so `raster_dominance` appears within a few seconds. Use the '
           'switch to pause it.\n'
-          '▶ Scroll through the cards — each one stacks BackdropFilter (σ=15), '
-          'ClipPath, ColorFiltered, and Opacity on a subtree with >5 '
-          'descendants. They raise the structural `expensive_gpu_nodes` '
-          'card. The per-frame repaint can also show on the repaint '
-          'counters.\n'
-          '▶ Flip to Fixed Pattern — the animation stops and the cards '
+          'Scroll through the cards. Each one stacks BackdropFilter '
+          '(σ=15), ClipPath, ColorFiltered and Opacity on a subtree with '
+          'more than 5 descendants. They raise the structural '
+          '`expensive_gpu_nodes` card. The per-frame repaint can also show '
+          'on the repaint counters.\n'
+          'Flip to Fixed Pattern. The animation stops and the cards '
           'render with a single hard-edge clip and no stacked filters. '
-          'Detector should go quiet.',
+          'The detector should go quiet.',
       onToggle: _handleToggle,
       body: Column(
         children: [

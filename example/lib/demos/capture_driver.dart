@@ -1413,8 +1413,8 @@ Future<void> runTimeShareLeg({
       );
     }
     driver.addLog(
-      '[$label] pre-pass ${measured.toStringAsFixed(2)} % → $knob $scaled '
-      'for target ${leg.targetPercent.toStringAsFixed(1)} %',
+      '[$label] pre-pass measured ${measured.toStringAsFixed(2)} %; using '
+      '$knob $scaled for target ${leg.targetPercent.toStringAsFixed(1)} %',
     );
 
     final band = timeShareBand(
@@ -1425,7 +1425,7 @@ Future<void> runTimeShareLeg({
       aboveCeilingMultiplier: leg.bracket.aboveCeilingMultiplier,
     );
     final bandText =
-        '${band.min.toStringAsFixed(1)}–${band.max.toStringAsFixed(1)}';
+        '${band.min.toStringAsFixed(1)} to ${band.max.toStringAsFixed(1)}';
 
     // One measured span at knob [value]. Returns the detector peak
     // rounded to one decimal (the precision the emission arg carries).
@@ -1680,7 +1680,7 @@ class CaptureLegPanel extends StatelessWidget {
             Text(
               'State: ${driver.state.name}'
               '${driver.leg == null ? '' : ' (${driver.leg})'}'
-              '${driver.observed == null ? '' : ' — ${driver.observed} %'}',
+              '${driver.observed == null ? '' : ', observed ${driver.observed} %'}',
               style: const TextStyle(fontFamily: 'monospace'),
             ),
             const Divider(),

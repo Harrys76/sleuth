@@ -216,8 +216,9 @@ class _StreamResourceCaptureScreenState
     final monitor = Sleuth.streamResourceDetector;
     if (monitor == null) {
       _appendLog(
-        'FAIL: StreamResourceDetector not available — verify '
-        'kReleaseMode=false AND DetectorType.streamResource enabled.',
+        'FAIL: StreamResourceDetector not available. Check that '
+        'kReleaseMode is false and DetectorType.streamResource is '
+        'enabled.',
       );
       return;
     }
@@ -260,7 +261,7 @@ class _StreamResourceCaptureScreenState
         if (elapsed >= _heapWarmupSec) break;
       }
 
-      _appendLog('byte-pressure warmup complete — entering scenario');
+      _appendLog('byte-pressure warmup complete, entering scenario');
 
       // Narrow VM timeline to `Dart` stream only so the 50 s scenario
       // doesn't overflow the ring buffer and roll markScenarioBegin
@@ -286,13 +287,13 @@ class _StreamResourceCaptureScreenState
         if (elapsedInScenario > _scenarioHeapGrowingTimeoutSec) {
           throw StateError(
             'heap_growing did not re-activate within '
-            '$_scenarioHeapGrowingTimeoutSec s post-scenario-begin — '
-            'abort. Verify byte pressure exceeds the detector\'s '
-            'growthThresholdBytesPerSec (default 512 KB/s).',
+            '$_scenarioHeapGrowingTimeoutSec s after scenario begin, so '
+            'the leg stops. Check that the byte pressure exceeds the '
+            'detector\'s growthThresholdBytesPerSec (default 512 KB/s).',
           );
         }
       }
-      _appendLog('heap_growing re-armed inside scenario — starting workload');
+      _appendLog('heap_growing re-armed inside scenario, starting workload');
 
       // Drive polls explicitly so the K=4 window populates even when
       // the timeline buffer is idle. Inline allocation pacing keeps
@@ -380,7 +381,7 @@ class _StreamResourceCaptureScreenState
         );
         messenger.showSnackBar(
           SnackBar(
-            content: Text('${leg.label} REFUSED — see log'),
+            content: Text('${leg.label} REFUSED (see log)'),
             duration: const Duration(seconds: 4),
           ),
         );
@@ -627,14 +628,14 @@ class _StreamResourceCaptureScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Stream Resource Capture')),
+      appBar: AppBar(title: const Text('StreamResource capture helper')),
       body: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Bracket triad — StreamSubscription pattern only.',
+              'Bracket triad for the StreamSubscription pattern only.',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -671,7 +672,7 @@ class _StreamResourceCaptureScreenState
             ValueListenableBuilder<bool>(
               valueListenable: _heapGrowingActive,
               builder: (_, active, _) => Text(
-                'heap_growing: ${active ? "ACTIVE" : "—"}',
+                'heap_growing: ${active ? "ACTIVE" : "inactive"}',
                 style: TextStyle(color: active ? Colors.green : Colors.grey),
               ),
             ),
@@ -681,7 +682,7 @@ class _StreamResourceCaptureScreenState
             ),
             ValueListenableBuilder<int?>(
               valueListenable: _lastObservedDelta,
-              builder: (_, delta, _) => Text('Top-class Δ: ${delta ?? "—"}'),
+              builder: (_, delta, _) => Text('Top-class Δ: ${delta ?? "none"}'),
             ),
             const SizedBox(height: 16),
             ValueListenableBuilder<bool>(

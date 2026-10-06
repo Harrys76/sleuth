@@ -178,8 +178,9 @@ class RasterHotSpotDetector extends BaseDetector {
                   'Stack widget${_candidates.length == 1 ? '' : 's'} with '
                   '$stackChildLimit+ children were found in the current '
                   'frame.'
-            : 'VM timeline not connected — reporting structural evidence '
-                  'only. ${_candidates.length} Stack widget'
+            : 'The VM timeline is not connected, so this reports '
+                  'structural evidence only. ${_candidates.length} Stack '
+                  'widget'
                   '${_candidates.length == 1 ? '' : 's'} with '
                   '$stackChildLimit+ children were found in the current '
                   'frame. Connect the VM service for raster confirmation.',

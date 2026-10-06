@@ -121,12 +121,12 @@ class _StreamResourceDemoState extends State<StreamResourceDemo> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Drives a sustained leak across StreamController + '
-              'StreamSubscription watchlist classes alongside heap '
+              'Drives a sustained leak across the StreamController and '
+              'StreamSubscription watchlist classes while adding heap '
               'pressure. The detector emits '
               '`stream_resource_growth.warning` once heap_growing '
-              'latches AND ≥2 watchlist classes cross minDelta — '
-              'typically 30–60 s after Start.',
+              'latches and at least 2 watchlist classes cross minDelta, '
+              'usually 30 to 60 s after Start.',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 16),
@@ -137,8 +137,8 @@ class _StreamResourceDemoState extends State<StreamResourceDemo> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
               child: Text(
-                '“Stream Resources Growing: StreamController '
-                '+N instances (3 classes, M total)” — warning, '
+                '"Stream Resources Growing: StreamController '
+                '+N instances (3 classes, M total)". Severity: warning, '
                 'category: memory, confidence: likely.',
                 style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
               ),

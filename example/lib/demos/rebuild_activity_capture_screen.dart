@@ -157,7 +157,7 @@ class _RebuildActivityCaptureScreenState
   Widget build(BuildContext context) {
     final capture = Sleuth.diagnoseCaptureState();
     return Scaffold(
-      appBar: AppBar(title: const Text('RebuildActivity Capture')),
+      appBar: AppBar(title: const Text('RebuildActivity capture helper')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

@@ -46,7 +46,7 @@ class CustomDetectorCookbookDemo extends StatelessWidget {
             number: '01',
             title: 'Tooltip Usage Detector',
             subtitle:
-                'SimpleStructuralDetector — inspect a tree, emit '
+                'A SimpleStructuralDetector inspects the tree and emits '
                 'one issue per match.',
             body: Tooltip(
               message: 'This tooltip triggers cookbook detector 01',
@@ -72,7 +72,7 @@ class CustomDetectorCookbookDemo extends StatelessWidget {
             number: '02',
             title: 'Slow Frame Detector',
             subtitle:
-                'BaseDetector (runtime) — watches timings callback, '
+                'A runtime BaseDetector watches the timings callback and '
                 'reports frames over 32 ms.',
             body: _SlowFrameTrigger(),
           ),
@@ -81,8 +81,8 @@ class CustomDetectorCookbookDemo extends StatelessWidget {
             number: '03',
             title: 'Raster Hot Spot Detector',
             subtitle:
-                'BaseDetector (hybrid) — tallies wide Stacks when '
-                'VM raster budget is exceeded.',
+                'A hybrid BaseDetector counts wide Stacks when the VM '
+                'raster budget is exceeded.',
             body: _WideStackExample(),
           ),
           const SizedBox(height: 24),

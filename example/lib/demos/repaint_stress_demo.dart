@@ -69,17 +69,18 @@ class _RepaintStressDemoState extends State<RepaintStressDemo>
     return DemoScaffold(
       title: 'Live Waveform',
       description:
-          '❌ BAD: A 60 Hz CustomPaint scrolling oscilloscope plus per-frame '
-          'header labels (BPM, Peak), with no RepaintBoundary, so every '
-          'repaint also redraws the labels around it. In debug mode Sleuth '
-          'names the CustomPaint as the likely repaint origin and flags the '
-          'missing boundary; profile-mode `excessive_repaint` fires only '
-          'when paint takes over 10% of UI-thread time.\n'
-          '✅ FIX: Wrap the painter in a RepaintBoundary so its repaint '
+          'Bad: A 60 Hz scrolling oscilloscope (a CustomPaint) and '
+          'per-frame header labels (BPM, Peak) have no RepaintBoundary, so '
+          'every repaint also redraws the labels around it. In debug mode '
+          'Sleuth names the CustomPaint as the likely repaint origin and '
+          'flags the missing boundary. In profile mode, `excessive_repaint` '
+          'fires only when paint takes over 10% of UI-thread time.\n'
+          'Fix: Wrap the painter in a RepaintBoundary so its repaint '
           'stays in its own layer.\n\n'
-          '▶ Open Bad path → wait 1–2 s for the issue cards. Toggle Fixed '
-          '→ the missing-boundary card clears within 2–3 s. The origin '
-          'card stays, because the waveform still repaints every frame.',
+          'Open the bad path and wait 1 to 2 s for the issue cards. Toggle '
+          'Fixed, and the missing-boundary card clears within 2 to 3 s. The '
+          'origin card stays, because the waveform still repaints every '
+          'frame.',
       metricsBar: MetricsBar(
         chips: [
           // The Paints notifier ticks once per frame. Without an own

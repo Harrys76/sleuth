@@ -248,7 +248,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       );
       if (!_captureModeOn) {
         _log.add(
-          '⚠ captureMode OFF — restart with --dart-define='
+          '⚠ captureMode OFF. Restart with --dart-define='
           'SLEUTH_CAPTURE_MODE=true to emit scenario markers.',
         );
       }
@@ -397,12 +397,12 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       setState(() {
         _busy = false;
         _log.add(
-          '[${tier.label}/${leg.label}] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[${tier.label}/${leg.label}] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[${tier.label}/${leg.label}] Paste into Notes / Mail / AirDrop '
-          '→ send to Mac. Save the pasted JSON as $fileName under '
+          '[${tier.label}/${leg.label}] Paste it into Notes, Mail or AirDrop '
+          'and send it to the Mac. Save the pasted JSON as $fileName under '
           'test/validation/captures/heavy_compute/.',
         );
       });
@@ -549,7 +549,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
           _lastCompletedTier = inBand ? pendingTier : null;
           _lastMeasuredMs = inBand ? measuredMs : null;
           _log.add(
-            '[${pendingTier.label}/${pending.label}] $marker — '
+            '[${pendingTier.label}/${pending.label}] $marker: '
             'measured ${measuredMs.toStringAsFixed(2)} ms '
             '(must be [${spec.msMin.toStringAsFixed(1)}, '
             '${spec.msMax.toStringAsFixed(1)}] ms; '
@@ -559,8 +559,9 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
           if (!inBand) {
             _log.add(
               '[${pendingTier.label}/${pending.label}] retry: tap '
-              '${pending.label} again — rate refined; next tap should '
-              'land closer to band. Do NOT export an out-of-band run.',
+              '${pending.label} again. The screen refined its rate, so the '
+              'next tap should land closer to the band. Do not export an '
+              'out-of-band run.',
             );
           }
         });
@@ -572,9 +573,9 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
           _busy = false;
           if (inBand) {
             _log.add(
-              '[${pendingTier.label}/${pending.label}] ready to Export — '
-              'tap "Export last leg" to copy the wrapped capture to '
-              'clipboard.',
+              '[${pendingTier.label}/${pending.label}] ready to Export. '
+              'Tap "Export last leg" to copy the wrapped capture to '
+              'the clipboard.',
             );
           }
         });
@@ -607,12 +608,12 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Records profile-mode captures bracketing the heavy_compute '
-                'thresholds. Pick the active tier — Warning (8 ms) or '
-                'Critical (16 ms = 2× warning) — and the screen tunes its '
-                'leg targets, scenario name, and capture file name to match. '
-                'See class docstring + doc/capture_procedure.md for the '
-                'full recording protocol.',
+                'Records profile-mode captures that bracket the heavy_compute '
+                'thresholds. Pick the active tier: Warning (8 ms) or '
+                'Critical (16 ms, 2× warning). The screen then tunes its '
+                'leg targets, scenario name and capture file name to match. '
+                'See the class doc comment and doc/capture_procedure.md for '
+                'the full recording protocol.',
                 style: TextStyle(fontSize: 13),
               ),
               const SizedBox(height: 16),
@@ -635,9 +636,9 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
                               _lastCompletedTier = null;
                               _lastMeasuredMs = null;
                               _log.add(
-                                'Switched active tier → ${next.label} '
+                                'Switched active tier to ${next.label} '
                                 '(threshold ${next.thresholdMs} ms). '
-                                'Leg targets retuned.',
+                                'Retuned the leg targets.',
                               );
                             });
                           },
@@ -659,12 +660,12 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
                 label:
                     'Below '
                     '(${activeSpecs[_Leg.below]!.targetMs.toStringAsFixed(1)} '
-                    'ms) — '
+                    'ms), '
                     '${_activeTier == _Tier.warning ? "silent" : "warning fires"}',
                 subtitle: _activeTier == _Tier.warning
                     ? 'Under $_warningThresholdMs ms threshold; detector silent'
                     : 'Between $_warningThresholdMs ms and $_criticalThresholdMs '
-                          'ms — fires .warning, NOT .critical',
+                          'ms, so .warning fires but not .critical',
                 enabled: ready,
                 onTap: () => _requestCapture(_Leg.below),
               ),
@@ -673,7 +674,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
                 label:
                     'At '
                     '(${activeSpecs[_Leg.at]!.targetMs.toStringAsFixed(1)} '
-                    'ms) — ${_activeTier.label}',
+                    'ms), ${_activeTier.label}',
                 subtitle:
                     'In [${activeSpecs[_Leg.at]!.msMin.toStringAsFixed(1)}, '
                     '${activeSpecs[_Leg.at]!.msMax.toStringAsFixed(1)}] '
@@ -686,7 +687,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
                 label:
                     'Above '
                     '(${activeSpecs[_Leg.above]!.targetMs.toStringAsFixed(1)} '
-                    'ms) — ${_activeTier.label}',
+                    'ms), ${_activeTier.label}',
                 subtitle:
                     'In [${activeSpecs[_Leg.above]!.msMin.toStringAsFixed(1)}, '
                     '${activeSpecs[_Leg.above]!.msMax.toStringAsFixed(1)}] '

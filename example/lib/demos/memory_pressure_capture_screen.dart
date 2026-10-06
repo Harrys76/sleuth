@@ -211,7 +211,7 @@ class _MemoryPressureCaptureScreenState
     super.initState();
     if (!_captureModeOn) {
       _log.add(
-        '⚠ captureMode OFF — restart with --dart-define='
+        '⚠ captureMode OFF. Restart with --dart-define='
         'SLEUTH_CAPTURE_MODE=true to emit scenario markers.',
       );
     }
@@ -222,8 +222,8 @@ class _MemoryPressureCaptureScreenState
       );
     }
     _log.add(
-      'Wait ≥ 5 s after app launch before calibrating — '
-      'detector warmup needs to elapse.',
+      'Wait at least 5 s after app launch before calibrating, so '
+      'the detector warmup can elapse.',
     );
   }
 
@@ -282,9 +282,9 @@ class _MemoryPressureCaptureScreenState
     if (_persistentRewriteError) {
       setState(() {
         _log.add(
-          '[${leg.label}] persistent rewriteError on a prior leg — '
-          'restart the screen to retry. Same shape-drift bug breaks '
-          'every leg; running another scenario would waste 30 s.',
+          '[${leg.label}] persistent rewriteError on a prior leg. '
+          'Restart the screen to retry. The same shape-drift bug breaks '
+          'every leg, so another scenario would waste 30 s.',
         );
       });
       return;
@@ -297,10 +297,10 @@ class _MemoryPressureCaptureScreenState
       setState(() {
         if (!_captureModeOn) {
           _log.add(
-            '[${leg.label}] ABORT — captureMode is OFF. Restart the app '
+            '[${leg.label}] ABORT: captureMode is OFF. Restart the app '
             'with `--dart-define=SLEUTH_CAPTURE_MODE=true`. Without it '
-            'markScenarioBegin/End are no-ops, no scenario markers reach '
-            'the VM trace buffer, and Export will fail with no markers '
+            'markScenarioBegin/End do nothing, no scenario markers reach '
+            'the VM trace buffer, and Export fails with no markers '
             'found. Running the leg now would waste 30 s and emit '
             'nothing.',
           );
@@ -326,7 +326,7 @@ class _MemoryPressureCaptureScreenState
       _lastMeasuredBps = null;
       _stashedCaptureJson = null;
       _log.add(
-        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg — '
+        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg: '
         'target ${(leg.targetBps / 1024).toStringAsFixed(0)} KB/s, '
         'band [${(leg.bpsMin / 1024).toStringAsFixed(0)}, '
         '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s',
@@ -506,7 +506,7 @@ class _MemoryPressureCaptureScreenState
             ? (detectorBps / operatorBps).toStringAsFixed(2)
             : null;
         _log.add(
-          '[${leg.label}] $marker — '
+          '[${leg.label}] $marker: '
           'operator ${(operatorBps / 1024).toStringAsFixed(0)} KB/s, '
           'detector ${detectorBps == null ? '(silent)' : '${(detectorBps / 1024).toStringAsFixed(0)} KB/s'}'
           '${ratio == null ? '' : ' (det/op ratio $ratio)'} '
@@ -517,8 +517,8 @@ class _MemoryPressureCaptureScreenState
         if (stashedJson != null) {
           _activeRetryLeg = null;
           _log.add(
-            '[${leg.label}] capture stashed (${stashedJson.length} chars) — '
-            'tap "Export last leg" to copy to clipboard.',
+            '[${leg.label}] capture stashed (${stashedJson.length} chars). '
+            'Tap "Export last leg" to copy it to the clipboard.',
           );
         } else {
           if (stashed == null) {
@@ -534,11 +534,11 @@ class _MemoryPressureCaptureScreenState
             _retryCount = _maxRetriesPerLeg;
             _persistentRewriteError = true;
             _log.add(
-              '[${leg.label}] post-process FAILED — $rewriteError. '
-              'Wrapped capture shape changed; update '
-              '_replaceExpectedObserved before retrying. Retry budget '
-              'exhausted to prevent burning through identical failures '
-              '— restart the screen after fixing.',
+              '[${leg.label}] post-process FAILED: $rewriteError. '
+              'The wrapped capture shape changed; update '
+              '_replaceExpectedObserved before retrying. The screen used '
+              'up the retry budget so the same failure does not repeat. '
+              'Restart the screen after fixing.',
             );
           } else if (leg != _MemoryLeg.below && detectorBps == null) {
             _log.add(
@@ -603,13 +603,13 @@ class _MemoryPressureCaptureScreenState
         _log.add(
           '[${leg.label}] Export FAILED: no stashed capture. The leg '
           "completed but Sleuth.exportCaptureJson returned null at "
-          'compose-time. Common causes: (1) captureMode OFF — restart '
+          'compose-time. Common causes: (1) captureMode is OFF. Restart '
           'the app with `--dart-define=SLEUTH_CAPTURE_MODE=true`. '
           'Without it, markScenarioBegin/End emit nothing and the '
-          'export has no markers to wrap. (2) VM service disconnected '
-          '(FRAME mode) — kill the app from Xcode and re-open from the '
-          'home screen so VM+ mode activates. Re-tap the leg after '
-          'fixing.',
+          'export has no markers to wrap. (2) The VM service '
+          'disconnected (FRAME mode). Kill the app from Xcode and '
+          're-open it from the home screen so VM+ mode activates. '
+          'Re-tap the leg after fixing.',
         );
       });
       return;
@@ -630,7 +630,7 @@ class _MemoryPressureCaptureScreenState
     if (validation != null) {
       setState(() {
         _busy = false;
-        _log.add('[${leg.label}] Export REJECTED — $validation');
+        _log.add('[${leg.label}] Export REJECTED: $validation');
       });
       return;
     }
@@ -642,12 +642,12 @@ class _MemoryPressureCaptureScreenState
       setState(() {
         _busy = false;
         _log.add(
-          '[${leg.label}] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[${leg.label}] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[${leg.label}] Paste into Notes / Mail / AirDrop note → '
-          'send to Mac. Save the pasted JSON as '
+          '[${leg.label}] Paste it into Notes, Mail or an AirDrop note '
+          'and send it to the Mac. Save the pasted JSON as '
           'heap_growing_${leg.label}.json under '
           'test/validation/captures/memory_pressure/.',
         );
@@ -737,16 +737,18 @@ class _MemoryPressureCaptureScreenState
     final expected = leg == _MemoryLeg.below ? 0 : 1;
     if (heapGrowingCount != expected) {
       final cause = heapGrowingCount == 0
-          ? 'Detector did not fire. Likely cause: (1) regression slope '
-                'never crossed 512 KB/s threshold — pre-scenario flat '
-                'heap samples in the 30 s regression window dampened '
-                'the slope below the allocator rate. Allocate longer '
-                '(30 s minimum) so the entire regression window fills '
-                'with ramp samples. (2) detector warmup not elapsed — '
-                'wait ≥ 5 s after app launch before tapping leg. '
-                '(3) allocator rate too low for this leg. Recalibrate.'
-          : 'Sustained window broke and re-engaged mid-leg — slope '
-                'dipped below threshold then resumed. Retry the leg.';
+          ? 'Detector did not fire. Likely causes: (1) The regression '
+                'slope never crossed the 512 KB/s threshold. Flat '
+                'pre-scenario heap samples in the 30 s regression window '
+                'held the slope below the allocator rate. Allocate longer '
+                '(30 s minimum) so ramp samples fill the whole regression '
+                'window. (2) The detector warmup had not elapsed. Wait at '
+                'least 5 s after app launch before tapping a leg. '
+                '(3) The allocator rate is too low for this leg. '
+                'Recalibrate.'
+          : 'The sustained window broke and re-engaged mid-leg: the '
+                'slope dipped below the threshold, then rose again. '
+                'Retry the leg.';
       return 'expected $expected `$heapGrowingEventName` events inside '
           'scenario span, found $heapGrowingCount. $cause';
     }
@@ -876,15 +878,17 @@ class _MemoryPressureCaptureScreenState
           children: [
             const Text(
               'Records profile-mode captures for heap_growing WARNING-tier '
-              'bracketing (512 KB/s threshold, sustained ≥ 10 s). Above '
-              'preset stays well under any critical-tier collision because '
-              'heap_growing has only a warning severity. See class docstring '
-              '+ doc/capture_procedure.md for the full recording protocol.',
+              'bracketing (512 KB/s threshold, sustained for at least '
+              '10 s). The above preset stays well under any critical-tier '
+              'collision because '
+              'heap_growing has only a warning severity. See the class doc '
+              'comment and doc/capture_procedure.md for the full recording '
+              'protocol.',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 16),
             _CaptureButton(
-              label: 'Below (${_belowTargetBps ~/ 1024} KB/s) — passes',
+              label: 'Below (${_belowTargetBps ~/ 1024} KB/s), passes',
               subtitle:
                   'Under ${_warningThresholdBytesPerSec ~/ 1024} KB/s '
                   'threshold; detector stays silent',
@@ -893,7 +897,7 @@ class _MemoryPressureCaptureScreenState
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'At (op ${_atTargetBps ~/ 1024} KB/s) — warning',
+              label: 'At (op ${_atTargetBps ~/ 1024} KB/s), warning',
               subtitle:
                   'Detector slope must land in [512, 768] KB/s '
                   '(operator rate adjusted for ~+50% allocator drift)',
@@ -902,7 +906,7 @@ class _MemoryPressureCaptureScreenState
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'Above (op ${_aboveTargetBps ~/ 1024} KB/s) — warning',
+              label: 'Above (op ${_aboveTargetBps ~/ 1024} KB/s), warning',
               subtitle:
                   'Detector slope must land in [769, 1024] KB/s '
                   '(operator rate adjusted for ~+12% allocator drift)',

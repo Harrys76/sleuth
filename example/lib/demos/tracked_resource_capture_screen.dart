@@ -170,15 +170,16 @@ class _TrackedResourceCaptureScreenState
       _lastCompletedBracket = null;
       _legObservedPeak = null;
       _log.add(
-        '[${leg.label}] pre-leg → untrackAll($_kResourceName), '
+        '[${leg.label}] pre-leg: untrackAll($_kResourceName), '
         'clear heldRefs (${_heldRefs.length})',
       );
       if (leg.family == _LegFamily.longLived) {
         _log.add(
-          '[${leg.label}] long-lived leg: register ref → wait '
-          '${leg.ageSeconds - 10} s pre-span → markScenarioBegin → wait '
-          '10 s inside span → flush. Span ~10 s keeps schema inverse-'
-          'ratio under 100× while ring buffer cannot roll markers off.',
+          '[${leg.label}] long-lived leg: register the ref, wait '
+          '${leg.ageSeconds - 10} s before the span, call '
+          'markScenarioBegin, wait 10 s inside the span, then flush. A '
+          'span of about 10 s keeps the schema inverse ratio under 100× '
+          'and is too short for the ring buffer to roll the markers off.',
         );
       }
     });
@@ -333,7 +334,7 @@ class _TrackedResourceCaptureScreenState
         _legObservedPeak = observed;
         _log.add(
           '[${leg.scenarioFamily}/${leg.label}] scenario.end '
-          '(peak: $observed $unitLabel) — tap "Export last leg".',
+          '(peak: $observed $unitLabel). Tap "Export last leg".',
         );
       });
       messenger.showSnackBar(
@@ -487,11 +488,11 @@ class _TrackedResourceCaptureScreenState
       setState(() {
         _busy = false;
         _log.add(
-          '[$leg] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[$leg] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[$leg] Paste into Notes / Mail / AirDrop → send to Mac. '
+          '[$leg] Paste it into Notes, Mail or AirDrop and send it to the Mac. '
           'Save as $leg.json under '
           'test/validation/captures/$scenarioFamily/.',
         );
@@ -540,21 +541,21 @@ class _TrackedResourceCaptureScreenState
                       ),
                       const SizedBox(height: 6),
                       _LegButton(
-                        label: 'Below (5 instances) — passes',
+                        label: 'Below (5 instances), passes',
                         subtitle: 'Sub-threshold; peakObservedLiveCount = 5',
                         enabled: !_busy,
                         onTap: () => _runLeg(_Leg.concurrentBelow),
                       ),
                       const SizedBox(height: 8),
                       _LegButton(
-                        label: 'At (8 instances) — warning',
+                        label: 'At (8 instances), warning',
                         subtitle: 'In at-band [6, 9] (atTolerance 0.5)',
                         enabled: !_busy,
                         onTap: () => _runLeg(_Leg.concurrentAt),
                       ),
                       const SizedBox(height: 8),
                       _LegButton(
-                        label: 'Above (16 instances) — warning',
+                        label: 'Above (16 instances), warning',
                         subtitle:
                             'In above-band (9, 18] '
                             '(aboveCeilingMultiplier 3.0)',
@@ -572,21 +573,21 @@ class _TrackedResourceCaptureScreenState
                       ),
                       const SizedBox(height: 6),
                       _LegButton(
-                        label: 'Below (wait 250 s ≈ 4 min) — passes',
+                        label: 'Below (wait 250 s ≈ 4 min), passes',
                         subtitle: 'Sub-threshold; no emission',
                         enabled: !_busy,
                         onTap: () => _runLeg(_Leg.longLivedBelow),
                       ),
                       const SizedBox(height: 8),
                       _LegButton(
-                        label: 'At (wait 380 s ≈ 6 min) — warning',
+                        label: 'At (wait 380 s ≈ 6 min), warning',
                         subtitle: 'In at-band [300, 450] (atTolerance 0.5)',
                         enabled: !_busy,
                         onTap: () => _runLeg(_Leg.longLivedAt),
                       ),
                       const SizedBox(height: 8),
                       _LegButton(
-                        label: 'Above (wait 600 s = 10 min) — warning',
+                        label: 'Above (wait 600 s = 10 min), warning',
                         subtitle:
                             'In above-band (450, 900] '
                             '(aboveCeilingMultiplier 3.0)',

@@ -73,17 +73,17 @@ class _NetworkStressDemoState extends State<NetworkStressDemo>
     return DemoScaffold(
       title: 'Search + Gallery',
       description:
-          '❌ BAD: Search fires a request on every keystroke (no debounce). '
-          'Gallery auto-pulls 1.1 MiB pages on scroll. NetworkMonitor flags '
-          '`request_frequency` (>30 reqs/5 s) and `large_response` (>1 MiB). '
-          'Toggle the Slow API switch to fire `slow_request.critical` '
-          '(>3000 ms).\n'
-          '✅ FIX: Search debounces to 300 ms; gallery loads small (200 KB) '
-          'pages behind a manual button.\n\n'
-          '▶ Type aggressively in Search and scroll Gallery — issue cards '
-          'appear in the Sleuth overlay.\n\n'
-          'Requires internet. Capped at $_maxSessionRequests requests per '
-          'session to stay under httpbin.org\'s rate limit.',
+          'Bad: Search fires a request on every keystroke (no debounce). '
+          'Gallery loads 1.1 MiB pages on its own as you scroll. '
+          'NetworkMonitor flags `request_frequency` (more than 30 requests '
+          'in 5 s) and `large_response` (more than 1 MiB). Toggle the Slow '
+          'API switch to fire `slow_request.critical` (over 3000 ms).\n'
+          'Fix: Search debounces to 300 ms, and the gallery loads small '
+          '(200 KB) pages from a manual button.\n\n'
+          'Type quickly in Search and scroll Gallery. Issue cards appear '
+          'in the Sleuth overlay.\n\n'
+          'Requires internet. The demo stops at $_maxSessionRequests '
+          'requests per session to stay under httpbin.org\'s rate limit.',
       metricsBar: MetricsBar(
         chips: [
           ValueListenableBuilder<int>(
@@ -263,7 +263,7 @@ class _SearchTabState extends State<_SearchTab> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Slow API (3 s+ response)'),
             subtitle: const Text(
-              'Routes search to /delay/4 — fires slow_request.critical',
+              'Routes search to /delay/4, which fires slow_request.critical',
               style: TextStyle(fontSize: 11),
             ),
             value: _slowApi,

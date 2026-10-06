@@ -64,7 +64,7 @@ each leg, record a 6 s scenario, and publish results through
 `ext.sleuthDemo.captureResult`. See the "RebuildActivity + Repaint
 time-share captures" section of `doc/capture_procedure.md`.
 
-Most demos explain the anti-pattern and its fix in `BAD:` and `FIX:`
+Most demos explain the anti-pattern and its fix in `Bad:` and `Fix:`
 lines.
 
 ## AI chat
@@ -158,7 +158,7 @@ screen, and its fixed side applies every fix together:
 - **Chat App** has tabbed conversations with `AutomaticKeepAliveClientMixin`, uncached avatars, a 40 ms platform-channel typing poll and a top-level `setState` when a message arrives.
 - **Social Feed** has cards with uncached post images, an `IntrinsicHeight` header row and a top-level `setState` on Like.
 
-Both descriptions use the same format: a BAD line, a FIX line and a
+Both descriptions use the same format: a Bad line, a Fix line and a
 step that reproduces the issue.
 
 ## What to look for

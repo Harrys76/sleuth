@@ -388,7 +388,7 @@ class _NetworkMonitorCaptureScreenState
       _busy = true;
       _resetLastLeg();
       _log.add(
-        '[${tier.label}/$label] scenario.begin → GET /slow?delay=$delayMs',
+        '[${tier.label}/$label] scenario.begin, then GET /slow?delay=$delayMs',
       );
     });
 
@@ -451,8 +451,8 @@ class _NetworkMonitorCaptureScreenState
         _lastCompletedTier = tier;
         _lastMeasuredMs = measuredMs;
         _log.add(
-          '[${tier.label}/$label] scenario.end (${measuredMs}ms, ${bytes}B) — '
-          'tap "Export last leg" to write the wrapped capture.',
+          '[${tier.label}/$label] scenario.end (${measuredMs}ms, ${bytes}B). '
+          'Tap "Export last leg" to write the wrapped capture.',
         );
       });
       messenger.showSnackBar(
@@ -491,7 +491,7 @@ class _NetworkMonitorCaptureScreenState
     setState(() {
       _busy = true;
       _resetLastLeg();
-      _log.add('[$label] scenario.begin → GET /sized?bytes=$responseBytes');
+      _log.add('[$label] scenario.begin, then GET /sized?bytes=$responseBytes');
     });
 
     final scenarioName = 'large_response_$label';
@@ -534,7 +534,7 @@ class _NetworkMonitorCaptureScreenState
         _lastObservedBytes = bytes;
         _log.add(
           '[$label] scenario.end (${bytes}B observed, target '
-          '${responseBytes}B) — tap "Export last leg" to write the '
+          '${responseBytes}B). Tap "Export last leg" to write the '
           'wrapped capture.',
         );
       });
@@ -575,8 +575,8 @@ class _NetworkMonitorCaptureScreenState
       _busy = true;
       _resetLastLeg();
       _log.add(
-        '[$label] scenario.begin → $requestCount× GET /ping over 4 s '
-        '(scenario span 5.5 s)',
+        '[$label] scenario.begin, then $requestCount GET /ping requests over '
+        '4 s (scenario span 5.5 s)',
       );
     });
 
@@ -688,8 +688,8 @@ class _NetworkMonitorCaptureScreenState
         _lastObservedCount = observedCount;
         _log.add(
           '[$label] scenario.end ($observedCount requests sent across '
-          '${DateTime.now().difference(scenarioStart).inMilliseconds}ms) '
-          '— tap "Export last leg" to write the wrapped capture.',
+          '${DateTime.now().difference(scenarioStart).inMilliseconds}ms). '
+          'Tap "Export last leg" to write the wrapped capture.',
         );
       });
       messenger.showSnackBar(
@@ -866,12 +866,12 @@ class _NetworkMonitorCaptureScreenState
       setState(() {
         _busy = false;
         _log.add(
-          '[$leg] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[$leg] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[$leg] Paste into Notes / Mail / AirDrop note → send to '
-          'Mac. Save the pasted JSON as $scenarioName.json under '
+          '[$leg] Paste it into Notes, Mail or an AirDrop note and send it '
+          'to the Mac. Save the pasted JSON as $scenarioName.json under '
           'test/validation/captures/network_monitor/.',
         );
       });
@@ -948,9 +948,9 @@ class _NetworkMonitorCaptureScreenState
                             _slowRequestTier = next;
                             _resetLastLeg();
                             _log.add(
-                              'Switched slow_request tier → ${next.label} '
+                              'Switched slow_request tier to ${next.label} '
                               '(threshold ${next.thresholdMs} ms). '
-                              'Leg targets retuned.',
+                              'Retuned the leg targets.',
                             );
                           });
                         },
@@ -1005,13 +1005,13 @@ class _NetworkMonitorCaptureScreenState
             'ambiently bracket the 3000 ms critical tier.';
       case _CaptureMode.largeResponse:
         return 'large_response WARNING tier (1 MB threshold). No '
-            'critical tier on this family — above-leg ceiling is '
+            'critical tier on this family. The above-leg ceiling is '
             '2.0× threshold (2 MB).';
       case _CaptureMode.requestFrequency:
         return 'request_frequency WARNING tier (> 30 req per 5 s '
             'sliding window). At-band [30, 45] (atTolerance 0.50 '
             'absorbs iOS scheduling jitter on Dart HttpClient). '
-            'Above-ceiling 60 (2.0×) — no critical tier.';
+            'Above-ceiling 60 (2.0×). No critical tier.';
     }
   }
 
@@ -1024,11 +1024,11 @@ class _NetworkMonitorCaptureScreenState
         final above = _slowRequestLegSpec(tier, 'above');
         final belowSubtitle = tier == _Tier.warning
             ? 'Under 1000 ms slow threshold; detector silent'
-            : 'Between 1000 ms and 3000 ms — fires .warning, NOT .critical';
+            : 'Between 1000 ms and 3000 ms, so .warning fires but not .critical';
         return [
           _CaptureButton(
             label:
-                'Below (${below.delayMs} ms) — '
+                'Below (${below.delayMs} ms), '
                 '${tier == _Tier.warning ? "silent" : "warning fires"}',
             subtitle: belowSubtitle,
             enabled: ready && !_busy,
@@ -1040,7 +1040,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'At (${at.delayMs} ms) — ${tier.label}',
+            label: 'At (${at.delayMs} ms), ${tier.label}',
             subtitle:
                 'In [${at.msMin}, ${at.msMax}] at-band '
                 '(${tier == _Tier.warning ? "10% tolerance" : "40% tolerance"})',
@@ -1053,10 +1053,10 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'Above (${above.delayMs} ms) — ${tier.label}',
+            label: 'Above (${above.delayMs} ms), ${tier.label}',
             subtitle:
                 'In (${above.msMin}, ${above.msMax}] above-band'
-                '${tier == _Tier.warning ? "; stays under 3000 ms crit" : "; ceiling 6000 ms (2.0×)"}',
+                '${tier == _Tier.warning ? "; stays under the 3000 ms critical" : "; ceiling 6000 ms (2.0×)"}',
             enabled: ready && !_busy,
             onTap: () => _runSlowRequestCapture(
               tier: tier,
@@ -1068,7 +1068,7 @@ class _NetworkMonitorCaptureScreenState
       case _CaptureMode.largeResponse:
         return [
           _CaptureButton(
-            label: 'Below (800 KB) — passes',
+            label: 'Below (800 KB), passes',
             subtitle: 'Under 1 MB large_response threshold',
             enabled: ready && !_busy,
             onTap: () => _runLargeResponseCapture(
@@ -1078,7 +1078,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'At (1.05 MB) — warning',
+            label: 'At (1.05 MB), warning',
             subtitle: 'In [1 MB, 1.1 MB] at-band (10% tolerance)',
             enabled: ready && !_busy,
             onTap: () =>
@@ -1086,7 +1086,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'Above (1.5 MB) — warning',
+            label: 'Above (1.5 MB), warning',
             subtitle: 'In (1 MB, 2 MB) above-band; ceiling 2 MB (2.0×)',
             enabled: ready && !_busy,
             onTap: () => _runLargeResponseCapture(
@@ -1098,7 +1098,7 @@ class _NetworkMonitorCaptureScreenState
       case _CaptureMode.requestFrequency:
         return [
           _CaptureButton(
-            label: 'Below (25 req) — passes',
+            label: 'Below (25 req), passes',
             subtitle: 'Under 30-req/5s frequency threshold',
             enabled: ready && !_busy,
             onTap: () =>
@@ -1106,7 +1106,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'At (38 req) — warning',
+            label: 'At (38 req), warning',
             subtitle: 'In [30, 45] at-band (50% tolerance for iOS jitter)',
             enabled: ready && !_busy,
             onTap: () =>
@@ -1114,7 +1114,7 @@ class _NetworkMonitorCaptureScreenState
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'Above (52 req) — warning',
+            label: 'Above (52 req), warning',
             subtitle: 'In (45, 60] above-band; ceiling 60 (2.0×)',
             enabled: ready && !_busy,
             onTap: () =>

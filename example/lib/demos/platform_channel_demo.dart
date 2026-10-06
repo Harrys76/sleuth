@@ -113,7 +113,7 @@ class _PlatformChannelDemoState extends State<PlatformChannelDemo> {
     if (isFixed && _sustainedRunning) {
       _sustainedTimer?.cancel();
       _sustainedTimer = null;
-      _addLog('Switched to Fixed Pattern — sustained load stopped.');
+      _addLog('Switched to Fixed Pattern and stopped the sustained load.');
       setState(() => _sustainedRunning = false);
     }
   }
@@ -133,13 +133,16 @@ class _PlatformChannelDemoState extends State<PlatformChannelDemo> {
     return DemoScaffold(
       title: 'Platform Channel Traffic',
       description:
-          '❌ BAD: Excessive platform channel calls (>20/sec) block the UI thread.\n'
-          '✅ FIX: Batch calls, use EventChannel for streams, or use Pigeon.\n\n'
-          '▶ Tap "Rapid Fire" or "Sustained Load" — Sleuth flags >20 calls/sec '
-          'or >8ms cumulative duration per second.\n'
-          '▶ Flip to Fixed Pattern — a single batched call replaces 50 chatty '
-          'ones, staying well below the threshold.\n\n'
-          'Requires VM service connection (profile mode).',
+          'Bad: Too many platform channel calls (more than 20 a second) '
+          'block the UI thread.\n'
+          'Fix: Batch calls, use EventChannel for streams, or use '
+          'Pigeon.\n\n'
+          'Tap "Rapid Fire" or "Sustained Load". Sleuth flags more than 20 '
+          'calls a second, and the issue counts the calls slower than '
+          '8 ms.\n'
+          'Flip to Fixed Pattern. A single batched call replaces 50 chatty '
+          'ones and stays well below the threshold.\n\n'
+          'Requires a VM service connection (profile mode).',
       onToggle: _handleToggle,
       fixedBody: _buildFixedBody(context),
       body: Column(

@@ -146,7 +146,7 @@ void main() {
       tester,
     ) async {
       await pumpScreen(tester, const TrackedResourceCaptureScreen());
-      await tapLeg(tester, find.text('Below (wait 250 s ≈ 4 min) — passes'));
+      await tapLeg(tester, find.text('Below (wait 250 s ≈ 4 min), passes'));
       expectRefused('below');
       expect(find.textContaining('pre-leg'), findsNothing);
       expect(find.textContaining('long-lived leg'), findsNothing);
@@ -333,7 +333,7 @@ void main() {
       expect(pushes, 0);
       await tester.pumpAndSettle();
       expect(CaptureDriver.instance.screenFor('repaint'), isNull);
-      expect(find.text('RebuildActivity Capture'), findsOneWidget);
+      expect(find.text('RebuildActivity capture helper'), findsOneWidget);
     });
 
     testWidgets('a screen in front is used without navigating', (tester) async {

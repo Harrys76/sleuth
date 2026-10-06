@@ -19,13 +19,14 @@ class ShaderJankDemo extends StatelessWidget {
     return DemoScaffold(
       title: 'Shader Jank',
       description:
-          '❌ BAD: First-time pipeline/shader builds cause frame drops.\n'
-          '✅ FIX: Trigger heavy effects during a warm-up or splash frame.\n\n'
-          '▶ Tap "Navigate" — the first visit builds pipelines and jank is '
-          'visible. Subsequent visits are smooth (pipelines are cached).\n'
-          '▶ Flip to Fixed Pattern to see the architecture-level fix.\n\n'
-          'Note: fires on Impeller Vulkan (Android) pipeline builds and '
-          'Skia shader compiles. Impeller Metal (iOS) precompiles '
+          'Bad: First-time pipeline and shader builds cause frame drops.\n'
+          'Fix: Trigger heavy effects during a warm-up or splash frame.\n\n'
+          'Tap "Navigate". The first visit builds pipelines, and the jank '
+          'is visible. Later visits are smooth because the pipelines are '
+          'cached.\n'
+          'Flip to Fixed Pattern to see the architecture-level fix.\n\n'
+          'The detector fires on Impeller Vulkan (Android) pipeline builds '
+          'and Skia shader compiles. Impeller Metal (iOS) precompiles '
           'pipelines, so the detector stays silent there.',
       body: Column(
         children: [
@@ -48,7 +49,7 @@ class ShaderJankDemo extends StatelessWidget {
                       ),
                     ),
                     icon: const Icon(Icons.open_in_new),
-                    label: const Text('Navigate to Shader-Heavy Screen'),
+                    label: const Text('Navigate to shader-heavy screen'),
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -127,10 +128,10 @@ class _ShaderJankFixedBody extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Text(
-                'Neither fix can be demonstrated at runtime from within '
-                'the example app — both happen at build/splash time. '
-                'Toggle back to the Bad Pattern and navigate to see the '
-                'problem you are fixing.',
+                'The example app cannot show either fix at runtime, '
+                'because both happen at build or splash time. Toggle back '
+                'to Bad Pattern and navigate to see the problem you are '
+                'fixing.',
                 style: TextStyle(
                   fontSize: 12,
                   color: colorScheme.onPrimaryContainer,
@@ -202,7 +203,7 @@ class _ShaderHeavyPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Shader-Heavy Screen')),
+      appBar: AppBar(title: const Text('Shader-heavy screen')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

@@ -217,7 +217,7 @@ class _PlatformChannelCaptureScreenState
     super.initState();
     if (!_captureModeOn) {
       _log.add(
-        '⚠ captureMode OFF — restart with --dart-define='
+        '⚠ captureMode OFF. Restart with --dart-define='
         'SLEUTH_CAPTURE_MODE=true to emit scenario markers.',
       );
     }
@@ -228,8 +228,8 @@ class _PlatformChannelCaptureScreenState
       );
     }
     _log.add(
-      'Wait ≥ 3 s after app launch before tapping a leg — '
-      'VM service connection needs to settle.',
+      'Wait at least 3 s after app launch before tapping a leg, so '
+      'the VM service connection can settle.',
     );
   }
 
@@ -245,8 +245,8 @@ class _PlatformChannelCaptureScreenState
     if (_persistentRewriteError) {
       setState(() {
         _log.add(
-          '[${leg.label}] persistent rewriteError on a prior leg — '
-          'restart the screen to retry. Same shape-drift bug breaks '
+          '[${leg.label}] persistent rewriteError on a prior leg. '
+          'Restart the screen to retry. The same shape-drift bug breaks '
           'every leg.',
         );
       });
@@ -260,10 +260,10 @@ class _PlatformChannelCaptureScreenState
       setState(() {
         if (!_captureModeOn) {
           _log.add(
-            '[${leg.label}] ABORT — captureMode is OFF. Restart the app '
+            '[${leg.label}] ABORT: captureMode is OFF. Restart the app '
             'with `--dart-define=SLEUTH_CAPTURE_MODE=true`. Without it '
-            'markScenarioBegin/End are no-ops, no scenario markers reach '
-            'the VM trace buffer, and Export will fail with no markers '
+            'markScenarioBegin/End do nothing, no scenario markers reach '
+            'the VM trace buffer, and Export fails with no markers '
             'found.',
           );
         }
@@ -288,7 +288,7 @@ class _PlatformChannelCaptureScreenState
       _lastMeasuredCps = null;
       _stashedCaptureJson = null;
       _log.add(
-        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg — '
+        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg: '
         'target ${leg.targetCps} calls/sec '
         '(${leg.callsPerBatch} per ${_batchTickMs}ms tick), '
         'band [${leg.cpsMin}, ${leg.cpsMax}] calls/sec',
@@ -460,7 +460,7 @@ class _PlatformChannelCaptureScreenState
             ? (detectorCps / operatorCps).toStringAsFixed(2)
             : null;
         _log.add(
-          '[${leg.label}] $marker — '
+          '[${leg.label}] $marker: '
           'operator ${operatorCps.toStringAsFixed(1)} calls/sec, '
           'detector ${detectorCps == null ? '(silent)' : '${detectorCps.toStringAsFixed(1)} calls/sec'}'
           '${ratio == null ? '' : ' (det/op ratio $ratio)'} '
@@ -473,8 +473,8 @@ class _PlatformChannelCaptureScreenState
         if (stashedJson != null) {
           _activeRetryLeg = null;
           _log.add(
-            '[${leg.label}] capture stashed (${stashedJson.length} chars) '
-            '— tap "Export last leg" to copy to clipboard.',
+            '[${leg.label}] capture stashed (${stashedJson.length} chars). '
+            'Tap "Export last leg" to copy it to the clipboard.',
           );
         } else {
           if (stashed == null) {
@@ -490,11 +490,11 @@ class _PlatformChannelCaptureScreenState
             _retryCount = _maxRetriesPerLeg;
             _persistentRewriteError = true;
             _log.add(
-              '[${leg.label}] post-process FAILED — $rewriteError. '
-              'Wrapped capture shape changed; update '
-              '_replaceExpectedObserved before retrying. Retry budget '
-              'exhausted to prevent burning through identical failures '
-              '— restart the screen after fixing.',
+              '[${leg.label}] post-process FAILED: $rewriteError. '
+              'The wrapped capture shape changed; update '
+              '_replaceExpectedObserved before retrying. The screen used '
+              'up the retry budget so the same failure does not repeat. '
+              'Restart the screen after fixing.',
             );
           } else if (leg != _ChannelLeg.below && detectorCps == null) {
             _log.add(
@@ -553,10 +553,10 @@ class _PlatformChannelCaptureScreenState
         _log.add(
           '[${leg.label}] Export FAILED: no stashed capture. The leg '
           "completed but Sleuth.exportCaptureJson returned null at "
-          'compose-time. Common causes: (1) captureMode OFF — '
-          'restart with --dart-define=SLEUTH_CAPTURE_MODE=true. '
-          '(2) VM service disconnected (FRAME mode) — re-launch from '
-          'home screen so VM+ mode activates. Re-tap after fixing.',
+          'compose-time. Common causes: (1) captureMode is OFF. '
+          'Restart with --dart-define=SLEUTH_CAPTURE_MODE=true. '
+          '(2) The VM service disconnected (FRAME mode). Re-launch from '
+          'the home screen so VM+ mode activates. Re-tap after fixing.',
         );
       });
       return;
@@ -571,7 +571,7 @@ class _PlatformChannelCaptureScreenState
     if (validation != null) {
       setState(() {
         _busy = false;
-        _log.add('[${leg.label}] Export REJECTED — $validation');
+        _log.add('[${leg.label}] Export REJECTED: $validation');
       });
       return;
     }
@@ -583,12 +583,12 @@ class _PlatformChannelCaptureScreenState
       setState(() {
         _busy = false;
         _log.add(
-          '[${leg.label}] Export OK — wrapped capture '
-          '(${jsonText.length} chars) copied to iOS clipboard.',
+          '[${leg.label}] Export OK. Copied the wrapped capture '
+          '(${jsonText.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[${leg.label}] Paste into Notes / Mail / AirDrop note → '
-          'send to Mac. Save the pasted JSON as '
+          '[${leg.label}] Paste it into Notes, Mail or an AirDrop note '
+          'and send it to the Mac. Save the pasted JSON as '
           'platform_channel_traffic_${leg.label}.json under '
           'test/validation/captures/platform_channel/.',
         );
@@ -675,16 +675,16 @@ class _PlatformChannelCaptureScreenState
     final expected = leg == _ChannelLeg.below ? 0 : 1;
     if (trafficCount != expected) {
       final cause = trafficCount == 0
-          ? 'Detector did not fire. Likely cause: (1) parser '
+          ? 'Detector did not fire. Likely causes: (1) The parser '
                 'dropped channel events because '
-                'debugProfilePlatformChannels was not enabled — '
-                'check the framework flag is true at leg start. '
-                '(2) iOS coalesced parallel calls and rate stayed '
-                'below 20/sec. Recheck batch geometry.'
-          : 'Detector fired more than once inside scenario span — '
-                'cooldown failed. Likely cause: scenario span '
-                'extended into a second 1 s evaluation cycle '
-                'and the cooldown counter did not suppress. Retry.';
+                'debugProfilePlatformChannels was not enabled. Check '
+                'that the framework flag is true at leg start. '
+                '(2) iOS coalesced parallel calls and the rate stayed '
+                'below 20/sec. Recheck the batch geometry.'
+          : 'Detector fired more than once inside the scenario span, '
+                'so the cooldown failed. Likely cause: the scenario span '
+                'reached a second 1 s evaluation cycle and the cooldown '
+                'counter did not suppress it. Retry.';
       return 'expected $expected `$trafficEventName` events inside '
           'scenario span, found $trafficCount. $cause';
     }
@@ -738,8 +738,8 @@ class _PlatformChannelCaptureScreenState
       return 'expected each `$trafficEventName` to carry a unique '
           '`detectedAtMicros` (producer-side dedup invariant). Found '
           '$trafficCount records but only ${uniqueDetectedAtMicros.length} '
-          'distinct values inside scenario span — capture replay or '
-          'forgery. Re-record the leg.';
+          'distinct values inside the scenario span, which points to a '
+          'replayed or forged capture. Re-record the leg.';
     }
 
     return null;
@@ -872,13 +872,13 @@ class _PlatformChannelCaptureScreenState
               '(20 calls/sec threshold, frequency axis only). '
               'Above preset stays under any critical-tier collision '
               '(critical = 41 calls/sec; above-band ceiling = 39). '
-              'See class docstring + doc/capture_procedure.md for '
-              'the full recording protocol.',
+              'See the class doc comment and doc/capture_procedure.md '
+              'for the full recording protocol.',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 16),
             _CaptureButton(
-              label: 'Below ($_belowTargetCps calls/sec) — passes',
+              label: 'Below ($_belowTargetCps calls/sec), passes',
               subtitle:
                   'Under $_warningThresholdCallsPerSec calls/sec '
                   'threshold; detector stays silent',
@@ -887,7 +887,7 @@ class _PlatformChannelCaptureScreenState
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'At (op $_atTargetCps calls/sec) — warning',
+              label: 'At (op $_atTargetCps calls/sec), warning',
               subtitle:
                   'Detector count must land in [20, 30] '
                   '(operator ≈ detector on this leg)',
@@ -896,7 +896,7 @@ class _PlatformChannelCaptureScreenState
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'Above (op $_aboveTargetCps calls/sec) — warning',
+              label: 'Above (op $_aboveTargetCps calls/sec), warning',
               subtitle:
                   'Detector count must land in [31, 39] '
                   '(operator overshoots; iOS coalescing reduces detector '

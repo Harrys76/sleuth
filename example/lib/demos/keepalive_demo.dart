@@ -98,17 +98,17 @@ class _KeepAliveDemoState extends State<KeepAliveDemo>
     return DemoScaffold(
       title: 'KeepAlive Overuse',
       description:
-          '❌ BAD: $_tabCount tabs, each using AutomaticKeepAliveClientMixin '
-          'with wantKeepAlive: true. Flutter retains every tab subtree in '
+          'Bad: $_tabCount tabs each use AutomaticKeepAliveClientMixin '
+          'with wantKeepAlive: true. Flutter keeps every tab subtree in '
           'memory after you swipe away, and the detector flags "more than '
           '5 keep-alive clients" in the TabBarView.\n'
-          '✅ FIX: Only opt tabs into AutomaticKeepAlive when they hold '
-          'expensive state that re-creating would hurt (a form with user '
-          'input, an in-flight download, a video). Here the first two '
-          'tabs act like stateful forms and stay alive; the rest are '
-          'recycled when off-screen.\n\n'
-          '▶ Flip to Fixed Pattern — only 2 tabs are kept alive, below '
-          'the threshold, so the detector goes quiet.',
+          'Fix: Opt a tab into AutomaticKeepAlive only when it holds state '
+          'that is costly to re-create (a form with user input, an '
+          'in-flight download, a video). Here the first two tabs act like '
+          'stateful forms and stay alive; the rest are recycled when '
+          'off-screen.\n\n'
+          'Flip to Fixed Pattern. Only 2 tabs stay alive, below the '
+          'threshold, so the detector goes quiet.',
       onToggle: _handleToggle,
       body: _BadTabs(controller: _tabController),
       fixedBody: _FixedTabs(controller: _tabController),
@@ -218,8 +218,8 @@ class _KeepAliveTabState extends State<_KeepAliveTab>
           const SizedBox(height: 8),
           Text(
             widget.keepAlive
-                ? 'wantKeepAlive: true — retained across tab swipes'
-                : 'wantKeepAlive: false — recycled when off-screen',
+                ? 'wantKeepAlive: true, kept across tab swipes'
+                : 'wantKeepAlive: false, recycled when off-screen',
             textAlign: TextAlign.center,
           ),
         ],

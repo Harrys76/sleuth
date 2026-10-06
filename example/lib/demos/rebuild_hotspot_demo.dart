@@ -96,13 +96,14 @@ class _RebuildHotspotDemoState extends State<RebuildHotspotDemo> {
     return DemoScaffold(
       title: 'Rebuild Hotspot (Dashboard)',
       description:
-          '❌ BAD: A ValueListenableBuilder wraps the ENTIRE fake dashboard. '
+          'Bad: A ValueListenableBuilder wraps the entire fake dashboard. '
           'Every 100 ms tick rebuilds 5 distinct widget types: 1 header, '
-          '4 metric cards, 8 chart bars, 12 activity rows, 5 tag chips '
+          '4 metric cards, 8 chart bars, 12 activity rows and 5 tag chips '
           '(30 builds per tick).\n'
-          '✅ FIX: The dashboard is const. Only a tiny "Last updated" chip '
-          'subscribes to the tick notifier — 1 rebuild per tick.\n\n'
-          '▶ Tap "Start Ticker", open the Sleuth overlay (paw icon) and '
+          'Fix: The dashboard is const. Only a small "Last updated" chip '
+          'subscribes to the tick notifier, so each tick rebuilds one '
+          'widget.\n\n'
+          'Tap "Start Ticker", open the Sleuth overlay (paw icon) and '
           'wait a few seconds. In PROFILE mode the "Rebuilds" banner at the '
           'top of the card counts the widgets built on this screen; expand '
           'it and tap "See all" for the Rebuild Stats drilldown. In DEBUG '

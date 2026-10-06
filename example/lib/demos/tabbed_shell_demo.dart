@@ -78,7 +78,7 @@ class _TabNote extends StatelessWidget {
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           child: Text(
-            '$text\nOnly this tab\'s pattern is reported, although '
+            '$text\nSleuth reports only this tab\'s pattern, although '
             'IndexedStack keeps every tab built.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
@@ -101,8 +101,9 @@ class _ListTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const _TabNote(
-            '▶ Expect `non_lazy_list`: a SingleChildScrollView + Column '
-            'builds all $_itemCount rows up front.',
+            'This tab should raise `non_lazy_list`, because a '
+            'SingleChildScrollView with a Column builds all $_itemCount '
+            'rows up front.',
           ),
           Expanded(
             child: SingleChildScrollView(
@@ -133,8 +134,8 @@ class _ImagesTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const _TabNote(
-            '▶ Expect `uncached_images`: 800 px images shown at 80 dp '
-            'without cacheWidth/cacheHeight.',
+            'This tab should raise `uncached_images`, because it shows '
+            '800 px images at 80 dp without cacheWidth or cacheHeight.',
           ),
           Expanded(
             child: GridView.builder(
@@ -174,8 +175,8 @@ class _LayoutTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const _TabNote(
-            '▶ Expect `layout_bottleneck`: each row is wrapped in '
-            'IntrinsicHeight, which lays its children out twice.',
+            'This tab should raise `layout_bottleneck`, because each row '
+            'sits in an IntrinsicHeight, which lays its children out twice.',
           ),
           Expanded(
             child: SingleChildScrollView(

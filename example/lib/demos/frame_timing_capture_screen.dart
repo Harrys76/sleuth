@@ -211,7 +211,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           _detectedRefreshRate = null;
           _refreshRateOk = false;
           _log.add(
-            'Pre-flight: no platform view available — refresh rate '
+            'Pre-flight: no platform view is available, so refresh rate '
             'detection failed. Re-open the screen.',
           );
         });
@@ -223,7 +223,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         _detectedRefreshRate = rate;
         _refreshRateOk = ok;
         _log.add(
-          'Pre-flight: detected refresh rate ${rate.toStringAsFixed(1)} Hz — '
+          'Pre-flight: detected refresh rate ${rate.toStringAsFixed(1)} Hz, '
           '${ok ? 'OK' : 'REJECTED (expected 60 Hz)'}',
         );
         if (!ok) {
@@ -250,7 +250,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     if (!_refreshRateOk) {
       setState(() {
         _log.add(
-          '[${leg.label}] ABORT — refresh rate not 60 Hz '
+          '[${leg.label}] ABORT: refresh rate is not 60 Hz '
           '(${_detectedRefreshRate?.toStringAsFixed(1) ?? "unknown"} Hz).',
         );
       });
@@ -259,11 +259,11 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     if (!_captureModeOn) {
       setState(() {
         _log.add(
-          '[${leg.label}] ABORT — captureMode is OFF. Restart the app '
+          '[${leg.label}] ABORT: captureMode is OFF. Restart the app '
           'with `--dart-define=SLEUTH_CAPTURE_MODE=true`. Without it, '
-          'markScenarioBegin/End are no-ops AND '
-          'FrameTimingDetector.captureMode stays false (the 3 s warmup '
-          'gate suppresses every leg).',
+          'markScenarioBegin/End do nothing, and '
+          'FrameTimingDetector.captureMode stays false, so the 3 s warmup '
+          'gate suppresses every leg.',
         );
       });
       return;
@@ -272,7 +272,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     if (provenance == null) {
       setState(() {
         _log.add(
-          '[${leg.label}] ABORT — capture provenance: '
+          '[${leg.label}] ABORT: capture provenance: '
           '${_provenance.problem}.',
         );
       });
@@ -294,7 +294,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       _lastCompletedLeg = null;
       _stashedCaptureJson = null;
       _log.add(
-        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg — '
+        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg: '
         'rate-based injection, target ${leg.targetJankPercent}%, '
         'band [${leg.jankPercentMin}, ${leg.jankPercentMax}]',
       );
@@ -440,13 +440,13 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
             'Re-tap leg after fixing.',
           );
         } else if (validationFailure != null) {
-          _log.add('[${leg.label}] Validation REJECTED — $validationFailure');
+          _log.add('[${leg.label}] Validation REJECTED: $validationFailure');
           _logRetryHint(leg);
         } else {
           _activeRetryLeg = null;
           _log.add(
-            '[${leg.label}] capture stashed (${stashed.length} chars) — '
-            'tap "Export last leg" to copy to clipboard.',
+            '[${leg.label}] capture stashed (${stashed.length} chars). '
+            'Tap "Export last leg" to copy it to the clipboard.',
           );
         }
       });
@@ -583,12 +583,13 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       }
     } else {
       if (jankWarningCount < 1) {
-        return 'expected ≥1 `$jankEventName` events inside scenario span, '
-            'found 0. Detector did not fire. Likely cause: (1) jankPercent '
-            'never crossed 15 % gate — spin too low for this device; '
-            '(2) FrameTimingDetector captureMode flag not plumbed (check '
-            'SleuthConfig.captureMode == true); (3) buffer did not reach '
-            'steady state — extend scenario beyond $_scenarioDurationSec s.';
+        return 'expected at least 1 `$jankEventName` event inside the '
+            'scenario span, found 0. Detector did not fire. Likely causes: (1) jankPercent '
+            'never crossed the 15 % gate, so the spin is too low for this '
+            'device. (2) The FrameTimingDetector captureMode flag is not '
+            'plumbed; check that SleuthConfig.captureMode is true. (3) The '
+            'buffer did not reach steady state, so extend the scenario '
+            'beyond $_scenarioDurationSec s.';
       }
       // Freshness invariant: the LAST in-span emission must
       // reflect a near-full buffer. Rolling-aggregate axis is unreliable
@@ -616,7 +617,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           lastObservedJankPercent > leg.jankPercentMax) {
         return 'observedJankPercent ($lastObservedJankPercent%) outside '
             'expected band [${leg.jankPercentMin}, ${leg.jankPercentMax}]. '
-            'Spin calibration drift — retry will bump spin.';
+            'Retry the leg.';
       }
     }
     return null;
@@ -646,13 +647,14 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       if (!mounted) return;
       setState(() {
         _log.add(
-          '[${leg.label}] Export OK — wrapped capture (${json.length} '
-          'chars) copied to iOS clipboard.',
+          '[${leg.label}] Export OK. Copied the wrapped capture '
+          '(${json.length} chars) to the iOS clipboard.',
         );
         _log.add(
-          '[${leg.label}] Paste into Notes / Mail / AirDrop note → send '
-          'to Mac. Save the pasted JSON as jank_detected_${leg.label}.json '
-          'under test/validation/captures/frame_timing/.',
+          '[${leg.label}] Paste it into Notes, Mail or an AirDrop note and '
+          'send it to the Mac. Save the pasted JSON as '
+          'jank_detected_${leg.label}.json under '
+          'test/validation/captures/frame_timing/.',
         );
       });
       messenger.showSnackBar(
@@ -707,17 +709,16 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
                       'denominator-independent jankPercent axis (detector '
                       'emits at rounded jankPercent > 15; first reachable '
                       'observed value is 16). Bracket bands: at [16, 24], '
-                      'above (24, 29.6]. Sustained_jank.critical may '
-                      'co-fire on noisy devices — that is benign for this '
-                      'bracket axis under parallel-emission semantics. See '
-                      'class docstring + doc/capture_procedure.md for full '
-                      'protocol.',
+                      'above (24, 29.6]. sustained_jank.critical may '
+                      'co-fire on noisy devices. That does not affect this '
+                      'bracket axis, because the two ids emit in parallel. '
+                      'See the class doc comment and '
+                      'doc/capture_procedure.md for the full protocol.',
                       style: TextStyle(fontSize: 13),
                     ),
                     const SizedBox(height: 16),
                     _CaptureButton(
-                      label:
-                          'Below ($_belowTargetJankPercent% target) — silent',
+                      label: 'Below ($_belowTargetJankPercent% target), silent',
                       subtitle:
                           'No spin; baseline frames; detector stays silent',
                       enabled: ready,
@@ -725,7 +726,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
                     ),
                     const SizedBox(height: 8),
                     _CaptureButton(
-                      label: 'At ($_atTargetJankPercent% target) — warning',
+                      label: 'At ($_atTargetJankPercent% target), warning',
                       subtitle:
                           '$_spinPerFrameMs ms spin every ~5th frame; '
                           'in [16, 24] at-band',
@@ -735,7 +736,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
                     const SizedBox(height: 8),
                     _CaptureButton(
                       label:
-                          'Above ($_aboveTargetJankPercent% target) — '
+                          'Above ($_aboveTargetJankPercent% target), '
                           'warning',
                       subtitle:
                           '$_spinPerFrameMs ms spin every ~4th frame; '

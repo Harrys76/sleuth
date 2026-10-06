@@ -96,12 +96,13 @@ class _TrackedResourceDemoState extends State<TrackedResourceDemo> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Allocates 1 chat_service + 1 data_repository per second '
-              'and registers each via Sleuth.trackResource. The detector '
+              'Allocates 1 chat_service and 1 data_repository per second '
+              'and registers each with Sleuth.trackResource. The detector '
               'fires tracked_resource_concurrent.warning once each '
               'bucket crosses the configured concurrent threshold '
-              '(default 5) — typically ~6 s after Start. Long-lived '
-              'fires after 5 minutes wall-clock per default.',
+              '(default 5), usually about 6 s after Start. By default, '
+              'tracked_resource_long_lived fires after 5 minutes of '
+              'wall-clock time.',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 16),
@@ -112,8 +113,8 @@ class _TrackedResourceDemoState extends State<TrackedResourceDemo> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
               child: Text(
-                '“Tracked Resource Concurrent: chat_service '
-                '(N live instances)” — warning, category: memory, '
+                '"Tracked Resource Concurrent: chat_service '
+                '(N live instances)". Severity: warning, category: memory, '
                 'confidence: confirmed.',
                 style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
               ),
