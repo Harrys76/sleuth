@@ -277,6 +277,15 @@
   in-band records the bracket needs (`minInBandSamples`) before reporting
   done, and stamp the real device (`--dart-define=SLEUTH_CAPTURE_DEVICE`), OS
   and Flutter version, refusing a leg when one is unknown or not approved.
+- Every capture screen checks provenance when a leg starts, before any
+  workload, and shows the reason on screen. The StreamResource,
+  TrackedResource and NetworkMonitor screens judge each leg's measurement
+  against its band and check the composed capture against the bracket
+  before offering an export (`checkCaptureRecords`: instant events only,
+  every in-span record stamped, the reduced value in band, enough in-band
+  records). A below leg with no measured value is refused instead of
+  exporting `observed` 0, and an export or rewrite failure shows its real
+  reason and stashes nothing.
 
 ### Detector fixes and schema docs
 
