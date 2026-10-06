@@ -2537,9 +2537,8 @@ class IssueExplanationBuilder {
           '(one-shot).',
       whyItMatters:
           'Mobile users expect apps to launch in under 2 seconds. A cold '
-          'start of 3 seconds or more is a retention risk. Studies show 25% '
-          'of users abandon apps that take more than 3 seconds to load. The '
-          'first frame is also when the system decides whether to show an '
+          'start of 3 seconds or more is a retention risk. The first frame '
+          'is also when the system decides whether to show an '
           'ANR dialog (Android) or terminate the app (iOS watchdog).',
       howToFix:
           'Optimize based on the dominant phase.\n\n'
