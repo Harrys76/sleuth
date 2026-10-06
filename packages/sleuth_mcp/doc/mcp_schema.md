@@ -252,10 +252,8 @@ That file is sidecar-only — the sleuth root carries no parallel
 `mcp_tool_schema.{json,md}` and the parity audit asserts the absence.
 
 Passthrough tools (`get_snapshot`, `get_issues`, `get_route_health`,
-`explain_issue`) preserve the wire envelopes above verbatim, with one
-documented shim: `get_route_health` normalizes the legacy v0.32 inline
-`RouteSession` shape into the v0.33 `{route: <session>}` wrapper when an
-`acceptedPriorLineages` app is connected.
+`explain_issue`) preserve the wire envelopes above verbatim; the sidecar
+stamps its own keys (such as `launchModeAdvisory`) beside them.
 
 ## Notes
 
