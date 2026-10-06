@@ -104,7 +104,7 @@ void main() {
 
     test('a cut Logging message is read in full and keeps its order', () async {
       final requests = <String>[];
-      final full = Completer<String?>();
+      final full = Completer<ResolvedLogMessage?>();
       decoder = VmLogEventDecoder(
         lines.add,
         resolveMessage: (isolateId, messageId) {
@@ -116,7 +116,7 @@ void main() {
       decoder.onWrite('stdout', _write('after\n'));
       // The stdout line waits behind the log line being read.
       expect(lines, isEmpty);
-      full.complete('first part and the rest');
+      full.complete((text: 'first part and the rest', complete: true));
       await pumpEventQueue();
       expect(requests, ['isolates/1 objects/7']);
       expect(lines.map((l) => l.text), ['first part and the rest', 'after']);
@@ -137,12 +137,76 @@ void main() {
     test('a slow read gives up after resolveTimeout', () async {
       decoder = VmLogEventDecoder(
         lines.add,
-        resolveMessage: (_, _) => Completer<String?>().future,
+        resolveMessage: (_, _) => Completer<ResolvedLogMessage?>().future,
         resolveTimeout: const Duration(milliseconds: 20),
       );
       decoder.onLogging(cutLog('shown text'));
       await Future<void>.delayed(const Duration(milliseconds: 60));
       expect(lines.single.truncated, isTrue);
+    });
+
+    test('a message read only in part stays marked truncated', () async {
+      final start = 'x' * maxAppLogLineLength;
+      decoder = VmLogEventDecoder(
+        lines.add,
+        resolveMessage: (_, _) async => (text: start, complete: false),
+      );
+      decoder.onLogging(cutLog('x' * 128));
+      await pumpEventQueue();
+      expect(lines.single.text, start);
+      expect(lines.single.truncated, isTrue);
+    });
+
+    test('at most maxConcurrentResolves cut messages are read at once; '
+        'the rest keep their prefix without a request', () async {
+      final requests = <Completer<ResolvedLogMessage?>>[];
+      decoder = VmLogEventDecoder(
+        lines.add,
+        maxConcurrentResolves: 2,
+        resolveTimeout: const Duration(milliseconds: 20),
+        resolveMessage: (_, _) {
+          final request = Completer<ResolvedLogMessage?>();
+          requests.add(request);
+          return request.future;
+        },
+      );
+      for (var i = 0; i < 4; i++) {
+        decoder.onLogging(cutLog('message $i'));
+      }
+      expect(requests, hasLength(2));
+      expect(decoder.resolvesInFlight, 2);
+      // The decoder stops waiting at resolveTimeout, but the requests
+      // still count until the app answers them.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(lines.map((l) => l.text), [
+        'message 0',
+        'message 1',
+        'message 2',
+        'message 3',
+      ]);
+      expect(lines.map((l) => l.truncated), everyElement(isTrue));
+      decoder.onLogging(cutLog('message 4'));
+      expect(requests, hasLength(2), reason: 'both slots are still taken');
+
+      requests.first.complete(null);
+      await pumpEventQueue();
+      expect(decoder.resolvesInFlight, 1);
+      decoder.onLogging(cutLog('message 5'));
+      expect(requests, hasLength(3), reason: 'an answered read frees a slot');
+    });
+
+    test('every line carries the decoder epoch', () async {
+      final epoch = AppLogEpoch();
+      decoder = VmLogEventDecoder(
+        lines.add,
+        epoch: epoch,
+        resolveMessage: (_, _) async => (text: 'whole message', complete: true),
+      );
+      decoder.onWrite('stdout', _write('printed\n'));
+      decoder.onLogging(cutLog('whole'));
+      await pumpEventQueue();
+      expect(lines, hasLength(2));
+      expect(lines.map((l) => l.epoch), everyElement(same(epoch)));
     });
   });
 
@@ -183,6 +247,59 @@ void main() {
       final result = buffer.query(maxLines: 1, filter: 'ERROR');
       expect(result.matched, 2);
       expect(result.lines.single.text, 'Error two');
+    });
+
+    test('drops the lines of an ended epoch and refuses its late lines', () {
+      final buffer = AppLogBuffer(capacity: 2);
+      final first = AppLogEpoch();
+      AppLogLine tagged(String text, AppLogEpoch epoch) => AppLogLine(
+        time: DateTime.utc(2026),
+        source: 'stdout',
+        text: text,
+        epoch: epoch,
+      );
+      for (final text in ['a1', 'a2', 'a3']) {
+        buffer.add(tagged(text, first));
+      }
+      expect(buffer.droppedCount, 1);
+      first.end();
+      expect(buffer.length, 0);
+      expect(buffer.droppedCount, 0);
+      buffer.add(tagged('late a', first));
+      expect(buffer.length, 0, reason: 'a line of an ended epoch is dropped');
+      final second = AppLogEpoch();
+      buffer.add(tagged('b1', second));
+      expect(buffer.query(maxLines: 10).lines.map((l) => l.text), ['b1']);
+    });
+
+    test('daemon lines carry no epoch and stay when an epoch ends', () {
+      final buffer = AppLogBuffer();
+      final epoch = AppLogEpoch();
+      buffer
+        ..add(line('from daemon'))
+        ..add(
+          AppLogLine(
+            time: DateTime.utc(2026),
+            source: 'stdout',
+            text: 'from vm',
+            epoch: epoch,
+          ),
+        );
+      epoch.end();
+      expect(buffer.query(maxLines: 10).lines.map((l) => l.text), [
+        'from daemon',
+      ]);
+    });
+
+    test('a cut line keeps its epoch', () {
+      final epoch = AppLogEpoch();
+      final cut = AppLogLine(
+        time: DateTime.utc(2026),
+        source: 'stdout',
+        text: 'abcdefgh',
+        epoch: epoch,
+      ).capped(4);
+      expect(cut.epoch, same(epoch));
     });
   });
 
