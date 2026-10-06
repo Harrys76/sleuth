@@ -973,6 +973,293 @@ same barrier as HeavyCompute and FrameTiming). It also passes
 in-span emission with a `debugPrint` message before any JSON reaches
 the clipboard.
 
+## StreamResource stream_resource_growth capture (v0.26.0)
+
+`StreamResourceDetector` reads the VM allocation profile rather than
+timeline events. It keeps the instance count of each watched class over
+a window of four samples and emits `stream_resource_growth.warning`
+only when three conditions hold together:
+
+1. At least two watched classes rose on all three steps of the window.
+2. The class that grew most (last sample minus first) grew by at least
+   50 instances. This top-class growth is the bracket axis.
+3. `heap_growing` fired within the last 30 s.
+
+The capture screen (`example/lib/demos/stream_resource_capture_screen.dart`)
+has to meet the third condition inside the scenario span.
+`markScenarioBegin` resets the MemoryPressure detector, so
+`heap_growing` must fire again after the span opens: its 3 s warmup has
+to pass and the heap slope has to stay above 512,000 bytes/s for 10 s.
+The screen holds that slope for the whole leg by retaining a 256 KiB
+buffer every 250 ms, about 1 MiB/s.
+
+The span runs about a minute, so the screen narrows the VM timeline
+streams to `Dart` with `Sleuth.suspendNonEssentialTimelineStreams()`
+for the span, as the MemoryPressure screen does. It drives the
+allocation-profile polls itself through
+`Sleuth.pollStreamResourceAllocationProfileNow()`, which writes any new
+emission into the capture trace as soon as the poll returns.
+
+### Launch and open the screen
+
+```bash
+cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+  --dart-define=SLEUTH_CAPTURE_MODE=true \
+  --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"
+```
+
+Without `--no-dds` Sleuth stays in FRAME mode; see the VM-service
+requirement above. Open Capture Helpers, then StreamResource. From a VM
+service client, `ext.sleuthDemo.open` with `demo=streamresource` opens
+the same screen. `ext.sleuthDemo.captureLeg` drives only the rebuild
+and repaint screens, so start each leg with its button. A leg runs
+longer than a 30 s Auto-Lock, so set Auto-Lock to Never, as for
+MemoryPressure.
+
+### Per-leg sequence (StreamResourceCaptureScreen)
+
+Tap below, at or above. Each button shows the leg's band. The leg then
+runs without further input:
+
+1. It drops the previous leg's subscriptions, starts the byte pressure
+   and runs it for 10 s with no span open.
+2. It narrows the streams and calls
+   `markScenarioBegin('stream_resource_growth_<leg>')`.
+3. It waits for `MemoryPressureDetector.isHeapGrowingActive()`,
+   checking every 500 ms, for up to 25 s.
+4. It runs the 50 s workload. The screen spreads N subscriptions of
+   each of two kinds over the 50 s, on broadcast `StreamController`s
+   and on `Stream.periodic` streams, and keeps every one alive (N is
+   20, 100 or 230 for below, at and above). Every 10 s it polls the
+   allocation profile and logs `Poll <n>: StreamResourcePollResult(...)`
+   with the matched count, the window's sample count and each class's
+   samples.
+5. It adds 1.5 s more subscriptions and polls once more, so the last
+   sample is higher than the one before it.
+6. It calls `Sleuth.flushTimelineNow(timeout: 1 s)` and
+   `markScenarioEnd`, waits 600 ms and restores the streams.
+7. It checks that the window filled and that a poll matched a watched
+   class, exports with `Sleuth.exportCaptureJson(...)` and keeps the
+   JSON. On success the log shows `[<leg>] export OK` and
+   the snackbar reports the detector's top-class growth as `Δ=N`.
+
+While the leg runs, the screen shows the phase, the elapsed seconds,
+whether `heap_growing` is active, the samples in the window out of 4
+and the top-class growth. Stay on the screen until the leg ends;
+leaving it stops the leg without an export. The checked-in spans run 66
+to 68 s, and the warmup adds 10 s before each.
+
+When the leg succeeds, tap the export button
+(`Export <leg> JSON to clipboard`), which copies the kept JSON. Paste it
+into Notes, Mail or AirDrop and send it to the Mac, or read it from a
+VM service client with `ext.sleuthDemo.clipboard`, which returns the
+clipboard as `text`. Save it as `below.json`, `at.json` or `above.json`
+under `test/validation/captures/stream_resource_growth/`.
+
+The export writes the leg's band as `expectedMagnitude.min` and `max`
+in `instances`. For the at and above legs the screen then sets
+`observed` to the largest `topGrowthDelta` among the in-span
+`sleuth.issue.stream_resource_growth.warning` records. The below leg
+has no record, so its `observed` is the detector's last top-class
+growth (`lastObservedTopGrowthDelta`), or 0 when no class grew.
+
+### Bands and the observed axis
+
+The metadata raises `stream_resource_growth` to runtimeVerified through
+`perStableIdTier` and covers `stream_resource_growth.warning` with
+threshold 50, `unit: 'instances'`, `atTolerance` 0.6,
+`aboveCeilingMultiplier` 3.0, arg key `topGrowthDelta`, the default
+`max` reduction and a unique `detectedAtMicros` per record.
+
+| Leg | Subscriptions per kind (N) | Screen band | Audit rule |
+|---|---|---|---|
+| Below | 20 | 1 to 49 | under 50, no in-span record |
+| At | 100 | 50 to 80 | 50 to 80 |
+| Above | 230 | 51 to 150 | above 50, at most 150, above the at leg |
+
+The schema rejects an `observed` of 0, so the below leg needs some
+measured growth. The audit compares `observed` with the largest
+in-span `topGrowthDelta` and accepts a difference of up to 25 %.
+
+The checked-in triad (iPhone 12, iOS 17.5, Flutter 3.41.4) carries 5,
+54 and 89. Its `captureCommand` is the older form without `--no-dds`
+and `SLEUTH_CAPTURE_DEVICE`. A new recording stamps the current build's
+Flutter version, and the audit requires one exact `flutterVersion`
+across a triad, so record all three legs again with one build.
+
+### Refused legs and exports
+
+The screen prints no IN-BAND or OUT-OF-BAND verdict and makes no second
+attempt. Read the log and run a failed leg again.
+
+| Log line | Meaning |
+|---|---|
+| `FAIL <leg>: Bad state: heap_growing did not re-activate within 25 s ...` | The heap slope did not stay above 512,000 bytes/s long enough after `markScenarioBegin`. |
+| `REFUSE EXPORT: samples=<n>/4 ...` | The window never reached four samples, or no poll matched a watched class. The `Poll <n>:` lines show whether a poll failed (`failed: <reason>`) or matched nothing (`matched=0`). |
+| `[<leg>] export FAILED: <reason>` | `exportCaptureJson` refused, and the reason says why: no matching scenario markers in the buffer, a below span that holds a `stream_resource_growth.warning` record, or an at or above span that holds none. A missing record means one of the three conditions failed at every poll in the span. |
+| `[<leg>] export FAILED: <unknown>` or an earlier export's reason, with `Sleuth capture: not exporting: ...` on the console | The build's device, OS or Flutter version is unknown or not approved, so the screen did not export. |
+| `FAIL: StreamResourceDetector not available ...` | Sleuth has not initialised. |
+
+The screen does not check the band. A growth outside it still exports
+and then fails the audit, so compare `expectedMagnitude.observed` in
+the saved file with the leg's band before you commit it.
+
+### Validate the triad
+
+```bash
+fvm flutter test test/validation/detector_metadata_audit_test.dart \
+  test/validation/profile_capture_schema_test.dart \
+  test/validation/stream_resource_reproducer_test.dart
+```
+
+## TrackedResource tracked_resource_concurrent and tracked_resource_long_lived capture (v0.29.0, v0.30.0)
+
+`TrackedResourceDetector` is pure Dart and reads no timeline events. It
+counts the live objects registered with
+`Sleuth.trackResource(name, resource)` and evaluates them on a 10 s
+sweep timer. One screen
+(`example/lib/demos/tracked_resource_capture_screen.dart`) records two
+brackets, each with its own triad:
+
+| Bracket | Declared through | Fires when | Arg key | Unit | Threshold | At band | Above ceiling |
+|---|---|---|---|---|---|---|---|
+| `tracked_resource_concurrent.warning` | `perStableIdTier` and the top-level bracket | more than 5 live instances share a name | `liveInstanceCount` | instances | 6 | 6 to 9 | 18 |
+| `tracked_resource_long_lived.warning` | `perStableIdTier` and `additionalBrackets[0]` | the oldest live instance is at least 300 s old | `oldestInstanceAgeSeconds` | seconds | 300 | 300 to 450 | 900 |
+
+Both brackets use `atTolerance` 0.5, `aboveCeilingMultiplier` 3.0, the
+default `max` reduction and a unique `detectedAtMicros` per record. The
+issues carry a stable id with the resource name
+(`tracked_resource_concurrent:<name>`), but the trace record uses the
+bare family through `PerformanceIssue.captureTraceStableId`, so it
+matches the bracket's event name, for example
+`sleuth.issue.tracked_resource_concurrent.warning`.
+
+The screen registers plain `Object`s under the name
+`capture_tracked_resource` and holds strong references to them, so
+garbage collection cannot change a count during a leg.
+
+### Launch and open the screen
+
+```bash
+cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+  --dart-define=SLEUTH_CAPTURE_MODE=true \
+  --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"
+```
+
+Without `--no-dds` Sleuth stays in FRAME mode. Open Capture Helpers,
+then TrackedResource (the screen's title is "Tracked resource capture
+helper"). From a VM service client, `ext.sleuthDemo.open` with
+`demo=trackedresource` opens it. As with StreamResource,
+`ext.sleuthDemo.captureLeg` does not drive this screen, so start each
+leg with its button. The three long-lived legs wait about 20 minutes in
+all, so set Auto-Lock to Never, as for MemoryPressure.
+
+### Per-leg sequence (TrackedResourceCaptureScreen)
+
+Every leg starts the same way. It calls
+`untrackAll('capture_tracked_resource')`, drops the screen's references
+and clears any per-name threshold override with
+`Sleuth.setResourceThreshold`, so the records use the default
+thresholds and carry `thresholdSource: global`. It then narrows the VM
+timeline streams to `Dart` before the first marker.
+
+The concurrent legs register 5, 8 or 16 instances:
+
+1. `markScenarioBegin('tracked_resource_concurrent_<leg>')`.
+2. The screen registers the instances. No `await` separates the
+   marker, the registrations and the flush in the next step, so the
+   sweep timer cannot evaluate a partial count.
+3. `flushConcurrentEvaluation()` runs one sweep. It emits for 8 and 16
+   and stays silent for 5. The screen reads
+   `peakObservedLiveCountFor('capture_tracked_resource')` at once.
+4. Three 32 ms yields give the controller a chance to record the
+   issue, and `Sleuth.flushTimelineNow(timeout: 2 s)` records it at
+   the latest. Then come `markScenarioEnd`, a 600 ms drain and the
+   stream restore.
+
+These spans last under 0.3 s in the checked-in captures.
+
+The long-lived legs register one instance and wait for a target age of
+250, 380 or 600 s:
+
+1. The screen registers the instance. One instance stays under the
+   concurrent limit, so only the long-lived bracket can fire.
+2. It waits the target age minus 10 s with no span open.
+3. `markScenarioBegin('tracked_resource_long_lived_<leg>')`. The reset
+   clears the detector's peaks and first-cross times but keeps the
+   registration, so the instance keeps its age.
+4. It waits 10 s inside the span. The sweep timer can fire during this
+   wait, and past 300 s every sweep emits a record with the current
+   age.
+5. `flushConcurrentEvaluation()` runs one more sweep. The screen reads
+   `peakObservedAgeSecondsFor('capture_tracked_resource')`, then
+   yields, flushes, closes the span and restores the streams as the
+   concurrent legs do.
+
+The span covers only the last 10 s of the wait. That is enough for the
+schema's observed-to-span ratio, which must stay at most 100: 600 s
+against a 10 s span is 60.
+
+Stay on the screen until the leg ends. Leaving it closes the span and
+untracks the instance, so the leg yields no capture. When a leg ends,
+the log shows `[<family>/<leg>] scenario.end (peak: <n> <unit>)` and
+the snackbar says `Tap Export now`. Tap **Export last leg**. This
+screen composes the capture at that tap: `exportCaptureJson` reads the
+VM timeline then, with every stream back on, so export soon after the
+leg ends. On success the JSON goes to the clipboard (paste it as for
+StreamResource, or read it with `ext.sleuthDemo.clipboard`), and the
+log names the destination: `<leg>.json` under
+`test/validation/captures/tracked_resource_concurrent/` or
+`test/validation/captures/tracked_resource_long_lived/`.
+
+The export writes `expectedMagnitude` with `min` one below `observed`
+and `max` one above it, not the bracket band. `observed` is the peak the
+screen read after the last sweep. The audit judges the bracket on
+`observed` and compares it with the largest in-span arg, accepting a
+difference of up to 25 %.
+
+### Bands and the observed axis
+
+| Leg | Concurrent instances | Long-lived age | Audit rule |
+|---|---|---|---|
+| Below | 5 | 250 s | under the threshold, no in-span record |
+| At | 8 | 380 s | 6 to 9 instances, or 300 to 450 s |
+| Above | 16 | 600 s | above the threshold, at most 18 instances or 900 s, above the at leg |
+
+The counts are fixed and the ages are real waits, so the observed
+values land on the targets. The checked-in triads (iPhone 12, iOS 17.5,
+Flutter 3.41.4) carry exactly these values. Like the stream triad, they
+predate `--no-dds` and `SLEUTH_CAPTURE_DEVICE`, so a new recording
+needs all three legs of a bracket from one build.
+
+The long-lived at and above captures each hold two in-span records
+(ages 376 and 380, then 593 and 600): one from the sweep timer during
+the 10 s wait and one from the flush. The `max` reduction picks the
+later one. The detector moves the long-lived first-cross time to the
+current sweep on every sweep, so each record carries its own
+`detectedAtMicros` and the pair passes the unique-identity check.
+
+### Refused legs and exports
+
+The screen prints no IN-BAND or OUT-OF-BAND verdict and makes no second
+attempt. Read the log and run a failed leg again.
+
+| Log line | Meaning |
+|---|---|
+| `[<leg>] FAILED: Sleuth.trackedResourceDetector is null. ...` | Sleuth has not initialised. Check the launch command. |
+| `[<leg>] FAILED: <error>` | The leg threw. The screen closes any open span and restores the streams it narrowed. |
+| `[<leg>] Export FAILED. initialized=... captureMode=... vmConnected=... Reason: <reason>` | `exportCaptureJson` refused. `vmConnected=false` means Sleuth has no VM connection (FRAME mode). "Scenario markers not found" usually means the markers left the buffer before the tap. The bracket check refuses a below span that holds a record and an at or above span that holds none. |
+| `[<leg>] Export FAILED: Bad state: capture provenance` | The build's device, OS or Flutter version is unknown or not approved. The console shows `Sleuth capture: not exporting: ...`, and no export runs. |
+| `Export: no completed leg yet. ...` | Export was tapped before a leg finished. |
+
+### Validate the triads
+
+```bash
+fvm flutter test test/validation/detector_metadata_audit_test.dart \
+  test/validation/profile_capture_schema_test.dart \
+  test/validation/tracked_resource_reproducer_test.dart
+```
+
 ## RebuildActivity and Repaint time-share captures (hands-free)
 
 `rebuild_activity` (warning and critical) and `excessive_repaint`
