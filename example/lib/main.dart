@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Completer, TimeoutException, unawaited;
 import 'dart:convert' show base64Encode, jsonEncode;
 import 'dart:ui' as ui;
 import 'dart:developer' as developer;
@@ -51,6 +51,7 @@ import 'demos/shader_jank_demo.dart';
 import 'demos/uncached_image_demo.dart';
 import 'fake_ai_adapter.dart';
 import 'file_state_store.dart';
+import 'harness_targeting.dart';
 
 void main() {
   Sleuth.init();
@@ -660,91 +661,112 @@ void _registerDemoExtensions() {
   });
   // Remote interaction for profile-build walks: synthetic pointer events
   // go through the real gesture arena, scrolls through the real
-  // ScrollPosition, so detectors see what a finger would produce.
+  // ScrollPosition, so detectors see what a finger would produce. Targets
+  // come from harness_targeting.dart: the foreground copy of a label (an
+  // open overlay page over the app, the current route over the ones
+  // below, the shown IndexedStack tab), and a tap that something painted
+  // over its target would take is refused as `obscured`.
   developer.registerExtension('ext.sleuthDemo.tap', (method, params) async {
     // `x` and `y` (logical px) tap a point, for controls that share a label.
-    final x = double.tryParse(params['x'] ?? '');
-    final y = double.tryParse(params['y'] ?? '');
-    if (x != null && y != null) {
+    if (params.containsKey('x') || params.containsKey('y')) {
+      final x = double.tryParse(params['x'] ?? '');
+      final y = double.tryParse(params['y'] ?? '');
+      if (x == null || y == null) {
+        return _demoError({'error': 'bad_args', 'reason': 'needs x and y'});
+      }
       await _tapAt(Offset(x, y));
       return developer.ServiceExtensionResponse.result(
         jsonEncode({'tapped': 'point', 'x': x, 'y': y}),
       );
     }
+    final label = params['label'] ?? '';
     final text = params['text'] ?? '';
-    final label = params['label'];
-    final element = label != null
-        ? _findSemanticsLabel(label)
-        : _findText(text);
-    if (element != null) {
-      // A control below the fold would miss the hit test.
-      try {
-        await Scrollable.ensureVisible(
-          element,
-          alignment: 0.5,
-          duration: const Duration(milliseconds: 150),
-        );
-        await WidgetsBinding.instance.endOfFrame;
-      } catch (_) {
-        // Not inside a scrollable, or already disposed.
-      }
+    if (label.isEmpty && text.isEmpty) {
+      return _demoError({
+        'error': 'bad_args',
+        'reason': 'needs text, label, or x and y',
+      });
     }
-    final center = element == null ? null : _centerOf(element);
-    if (center == null) {
-      return developer.ServiceExtensionResponse.error(
-        developer.ServiceExtensionResponse.extensionError,
-        jsonEncode({'error': 'not_found', 'text': text}),
-      );
+    final wanted = label.isNotEmpty ? label : text;
+    final element = label.isNotEmpty
+        ? findSemanticsLabel(label)
+        : findText(text);
+    if (element == null) {
+      return _demoError({'error': 'not_found', 'text': wanted});
     }
-    await _tapAt(center);
+    final target = await prepareTap(element);
+    final position = target.position;
+    if (position == null) {
+      return _demoError({'error': target.error, 'text': wanted});
+    }
+    await _tapAt(position, viewId: target.viewId);
     return developer.ServiceExtensionResponse.result(
-      jsonEncode({'tapped': text, 'x': center.dx, 'y': center.dy}),
+      jsonEncode({'tapped': wanted, 'x': position.dx, 'y': position.dy}),
     );
   });
+  // Writes to the focused field, else to the last foreground field a tap
+  // would reach, so an open AI chat page gets the text, not the demo's
+  // search field behind it.
   developer.registerExtension('ext.sleuthDemo.type', (method, params) async {
     final text = params['text'] ?? '';
-    final element = _findElement((e) => e.widget is EditableText);
-    if (element == null) {
-      return developer.ServiceExtensionResponse.error(
-        developer.ServiceExtensionResponse.extensionError,
-        jsonEncode({'error': 'no_text_field'}),
-      );
-    }
-    final field = element.widget as EditableText;
+    final state = findTypingTarget();
+    if (state == null) return _demoError({'error': 'no_text_field'});
+    final field = state.widget;
     field.controller.text = text;
     field.onChanged?.call(text);
     if (params['submit'] == 'true') field.onSubmitted?.call(text);
-    await WidgetsBinding.instance.endOfFrame;
+    await waitForFrame();
     return developer.ServiceExtensionResponse.result(
       jsonEncode({'typed': text, 'submitted': params['submit'] == 'true'}),
     );
   });
+  // `pixels` (default 600) over `ms` (default 600; 0 jumps).
   developer.registerExtension('ext.sleuthDemo.scroll', (method, params) async {
-    final pixels = double.tryParse(params['pixels'] ?? '') ?? 600;
-    final ms = int.tryParse(params['ms'] ?? '') ?? 600;
-    final horizontal = params['axis'] == 'horizontal';
-    final state = _findScrollable(horizontal);
-    if (state == null) {
-      return developer.ServiceExtensionResponse.error(
-        developer.ServiceExtensionResponse.extensionError,
-        jsonEncode({'error': 'no_scrollable'}),
-      );
+    final pixels = params.containsKey('pixels')
+        ? double.tryParse(params['pixels']!)
+        : 600.0;
+    final ms = params.containsKey('ms') ? int.tryParse(params['ms']!) : 600;
+    if (pixels == null || !pixels.isFinite || ms == null || ms < 0) {
+      return _demoError({
+        'error': 'bad_args',
+        'reason': 'pixels must be a number and ms an integer >= 0',
+      });
     }
+    final horizontal = params['axis'] == 'horizontal';
+    final state = findScrollable(horizontal: horizontal);
+    if (state == null) return _demoError({'error': 'no_scrollable'});
     final position = state.position;
-    final target = (position.pixels + pixels).clamp(
+    final from = position.pixels;
+    final target = (from + pixels).clamp(
       position.minScrollExtent,
       position.maxScrollExtent,
     );
-    await position.animateTo(
-      target,
-      duration: Duration(milliseconds: ms),
-      curve: Curves.easeOutCubic,
-    );
+    if (ms == 0) {
+      position.jumpTo(target);
+    } else {
+      // Frames stop in the background, and the animation with them.
+      final finished = await position
+          .animateTo(
+            target,
+            duration: Duration(milliseconds: ms),
+            curve: Curves.easeOutCubic,
+          )
+          .then((_) => true)
+          .timeout(
+            Duration(milliseconds: ms) + const Duration(seconds: 2),
+            onTimeout: () => false,
+          );
+      if (!finished) {
+        return _demoError({
+          'error': 'timeout',
+          'from': from,
+          'to': target,
+          'at': position.pixels,
+        });
+      }
+    }
     return developer.ServiceExtensionResponse.result(
-      jsonEncode({
-        'from': position.pixels - (target - position.pixels),
-        'to': target,
-      }),
+      jsonEncode({'from': from, 'to': target}),
     );
   });
   developer.registerExtension('ext.sleuthDemo.fling', (method, params) async {
@@ -752,16 +774,14 @@ void _registerDemoExtensions() {
     final dx = double.tryParse(params['dx'] ?? '') ?? 0;
     final ms = int.tryParse(params['ms'] ?? '') ?? 120;
     final horizontal = dx.abs() > dy.abs();
-    final state = _findScrollable(horizontal);
+    final state = findScrollable(horizontal: horizontal);
     final element = state?.context as Element?;
-    final center = element == null ? null : _centerOf(element);
-    if (center == null) {
-      return developer.ServiceExtensionResponse.error(
-        developer.ServiceExtensionResponse.extensionError,
-        jsonEncode({'error': 'no_scrollable'}),
-      );
+    final center = element == null ? null : centerOf(element);
+    final viewId = element == null ? null : viewIdOf(element);
+    if (center == null || viewId == null) {
+      return _demoError({'error': 'no_scrollable'});
     }
-    await _dragFrom(center, Offset(dx, dy), ms);
+    await _dragFrom(center, Offset(dx, dy), ms, viewId: viewId);
     return developer.ServiceExtensionResponse.result(
       jsonEncode({'flung': true, 'dx': dx, 'dy': dy}),
     );
@@ -811,7 +831,7 @@ void _registerDemoExtensions() {
     // message; calling it here reproduces a hardware back press.
     // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
     final handled = await WidgetsBinding.instance.handlePopRoute();
-    await WidgetsBinding.instance.endOfFrame;
+    await waitForFrame();
     return developer.ServiceExtensionResponse.result(
       jsonEncode({'handled': handled}),
     );
@@ -881,7 +901,7 @@ void _registerDemoExtensions() {
       default:
         return _demoError({'error': 'unknown_action', 'action': action});
     }
-    await WidgetsBinding.instance.endOfFrame;
+    await waitForFrame();
     return developer.ServiceExtensionResponse.result(
       jsonEncode({...result, ..._overlayStateJson(state)}),
     );
@@ -898,7 +918,7 @@ void _registerDemoExtensions() {
       return _demoError({'error': 'bad_mode', 'mode': params['mode']});
     }
     state.themeMode = mode;
-    await WidgetsBinding.instance.endOfFrame;
+    await waitForFrame();
     return developer.ServiceExtensionResponse.result(
       jsonEncode({'themeMode': state.themeMode.name}),
     );
@@ -909,11 +929,14 @@ void _registerDemoExtensions() {
   //
   // The semantics tree is built for the dump only and released after it,
   // so the dump does not leave semantics on (which changes what Sleuth's
-  // debug paint counts include).
+  // debug paint counts include). With frames stopped (the app in the
+  // background) no tree is built, and the call returns `unavailable`.
   developer.registerExtension('ext.sleuthDemo.a11y', (method, params) async {
     final handle = SemanticsBinding.instance.ensureSemantics();
     try {
-      await WidgetsBinding.instance.endOfFrame;
+      if (!await waitForFrame()) {
+        return _demoError({'error': 'unavailable', 'reason': 'no_frame'});
+      }
       final dispatcher = WidgetsBinding.instance.platformDispatcher;
       final features = dispatcher.accessibilityFeatures;
       return developer.ServiceExtensionResponse.result(
@@ -936,12 +959,16 @@ void _registerDemoExtensions() {
     }
   });
   // PNG of the whole screen (base64) for hands-free visual checks. Uses
-  // the root layer, so it includes the overlay.
+  // the root layer, so it includes the overlay. With frames stopped (the
+  // app in the background) the layer is stale, and the call returns
+  // `unavailable`.
   developer.registerExtension('ext.sleuthDemo.screenshot', (
     method,
     params,
   ) async {
-    await WidgetsBinding.instance.endOfFrame;
+    if (!await waitForFrame()) {
+      return _demoError({'error': 'unavailable', 'reason': 'no_frame'});
+    }
     final view = RendererBinding.instance.renderViews.first;
     // The root layer is the only whole-screen surface; `debugLayer` is
     // debug-only and this must work in profile too.
@@ -963,7 +990,10 @@ void _registerDemoExtensions() {
   });
   // Orientation for a hands-free rotation check: `value` = portrait |
   // landscape | all. iOS 16+ and Android rotate the app to a forced
-  // orientation even when the device is held the other way.
+  // orientation even when the device is held the other way. The size is
+  // read once the view has the requested shape (up to 3 s; `settled:
+  // false` when it had not), or for `all` after up to 1 s for a pending
+  // rotation to land.
   developer.registerExtension('ext.sleuthDemo.orientation', (
     method,
     params,
@@ -981,13 +1011,24 @@ void _registerDemoExtensions() {
     if (orientations == null) {
       return _demoError({'error': 'bad_value', 'value': value});
     }
-    await SystemChrome.setPreferredOrientations(orientations);
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final start = view.physicalSize;
+    await SystemChrome.setPreferredOrientations(orientations);
+    final settled = await _waitForMetrics(
+      () => switch (value) {
+        'portrait' => view.physicalSize.height >= view.physicalSize.width,
+        'landscape' => view.physicalSize.width > view.physicalSize.height,
+        _ => view.physicalSize != start,
+      },
+      timeout: Duration(seconds: value == 'all' ? 1 : 3),
+    );
     return developer.ServiceExtensionResponse.result(
       jsonEncode({
         'value': value,
         'width': view.physicalSize.width / view.devicePixelRatio,
         'height': view.physicalSize.height / view.devicePixelRatio,
+        // Any shape is what `all` asks for.
+        'settled': settled || value == 'all',
       }),
     );
   });
@@ -1245,97 +1286,60 @@ class _DemoTile extends StatelessWidget {
   }
 }
 
-/// First element whose [Semantics] widget carries [label] (exact, then
-/// prefix match), for icon-only controls that have no text.
-Element? _findSemanticsLabel(String label) {
-  String? of(Widget w) => w is Semantics ? w.properties.label : null;
-  return _findElement((e) => of(e.widget) == label) ??
-      _findElement((e) => of(e.widget)?.startsWith(label) ?? false);
-}
-
-Element? _findElement(bool Function(Element) test) {
-  Element? found;
-  void visit(Element element) {
-    if (found != null) return;
-    if (test(element)) {
-      found = element;
-      return;
-    }
-    element.visitChildren(visit);
-  }
-
-  WidgetsBinding.instance.rootElement?.visitChildren(visit);
-  return found;
-}
-
-/// Exact label first (a button), then any text containing it, so a
-/// description paragraph that quotes a button label does not win.
-Element? _findText(String text) {
-  String? label(Widget widget) {
-    if (widget is Text) {
-      return widget.data ?? widget.textSpan?.toPlainText();
-    }
-    if (widget is Tooltip) return widget.message;
-    return null;
-  }
-
-  return _findElement((e) => label(e.widget)?.trim() == text) ??
-      _findElement((e) => label(e.widget)?.contains(text) ?? false);
-}
-
-/// The largest scrollable on the [horizontal] or vertical axis that can
-/// scroll and whose tickers run. A route below the current one keeps its
-/// scrollables mounted with tickers off, where an animated scroll never
-/// finishes; a small header scroll view loses to the demo's own list.
-ScrollableState? _findScrollable(bool horizontal) {
-  ScrollableState? best;
-  var bestArea = 0.0;
-  _findElement((element) {
-    if (element is StatefulElement && element.state is ScrollableState) {
-      final state = element.state as ScrollableState;
-      final axis = state.widget.axis;
-      final matches = horizontal
-          ? axis == Axis.horizontal
-          : axis == Axis.vertical;
-      final box = element.renderObject;
-      if (matches &&
-          state.position.hasContentDimensions &&
-          state.position.maxScrollExtent > 0 &&
-          TickerMode.getValuesNotifier(element).value.enabled &&
-          box is RenderBox &&
-          box.hasSize &&
-          box.size.width * box.size.height > bestArea) {
-        best = state;
-        bestArea = box.size.width * box.size.height;
-      }
-    }
-    return false;
+/// Waits up to [timeout] for the view metrics to make [settled] true,
+/// checking after each metrics change. False when they did not in time.
+Future<bool> _waitForMetrics(
+  bool Function() settled, {
+  required Duration timeout,
+}) async {
+  if (settled()) return true;
+  final done = Completer<void>();
+  final observer = _MetricsObserver(() {
+    if (!done.isCompleted && settled()) done.complete();
   });
-  return best;
+  WidgetsBinding.instance.addObserver(observer);
+  try {
+    await done.future.timeout(timeout);
+    return true;
+  } on TimeoutException {
+    return false;
+  } finally {
+    WidgetsBinding.instance.removeObserver(observer);
+  }
 }
 
-Offset? _centerOf(Element element) {
-  final ro = element.renderObject;
-  if (ro is! RenderBox || !ro.hasSize || !ro.attached) return null;
-  return ro.localToGlobal(ro.size.center(Offset.zero));
+class _MetricsObserver with WidgetsBindingObserver {
+  _MetricsObserver(this.onChange);
+
+  final VoidCallback onChange;
+
+  @override
+  void didChangeMetrics() => onChange();
 }
 
 int _syntheticPointer = 900;
 
-Future<void> _tapAt(Offset position) async {
+/// Down, 60 ms, up at [position] in the view [viewId] (0, the implicit
+/// view, for a bare point).
+Future<void> _tapAt(Offset position, {int viewId = 0}) async {
   final binding = WidgetsBinding.instance;
   final pointer = _syntheticPointer++;
   binding.handlePointerEvent(
-    PointerDownEvent(pointer: pointer, position: position),
+    PointerDownEvent(pointer: pointer, position: position, viewId: viewId),
   );
   await Future<void>.delayed(const Duration(milliseconds: 60));
   binding.handlePointerEvent(
-    PointerUpEvent(pointer: pointer, position: position),
+    PointerUpEvent(pointer: pointer, position: position, viewId: viewId),
   );
-  await binding.endOfFrame;
+  await waitForFrame();
 }
 
-Future<void> _dragFrom(Offset start, Offset delta, int ms) async {
+Future<void> _dragFrom(
+  Offset start,
+  Offset delta,
+  int ms, {
+  int viewId = 0,
+}) async {
   final binding = WidgetsBinding.instance;
   final pointer = _syntheticPointer++;
   const stepMs = 16;
@@ -1343,7 +1347,12 @@ Future<void> _dragFrom(Offset start, Offset delta, int ms) async {
   var clock = Duration(milliseconds: DateTime.now().millisecondsSinceEpoch);
   var position = start;
   binding.handlePointerEvent(
-    PointerDownEvent(pointer: pointer, position: position, timeStamp: clock),
+    PointerDownEvent(
+      pointer: pointer,
+      position: position,
+      timeStamp: clock,
+      viewId: viewId,
+    ),
   );
   for (var i = 1; i <= steps; i++) {
     await Future<void>.delayed(const Duration(milliseconds: stepMs));
@@ -1355,14 +1364,20 @@ Future<void> _dragFrom(Offset start, Offset delta, int ms) async {
         position: next,
         delta: next - position,
         timeStamp: clock,
+        viewId: viewId,
       ),
     );
     position = next;
   }
   binding.handlePointerEvent(
-    PointerUpEvent(pointer: pointer, position: position, timeStamp: clock),
+    PointerUpEvent(
+      pointer: pointer,
+      position: position,
+      timeStamp: clock,
+      viewId: viewId,
+    ),
   );
-  await binding.endOfFrame;
+  await waitForFrame();
 }
 
 String? _startDemoRequest() {

@@ -53,6 +53,11 @@ class DemoScaffold extends StatefulWidget {
   /// Optional FAB.
   final Widget? floatingActionButton;
 
+  /// Key of the header region above the body (toggle, instructions,
+  /// metrics bar). The device harness's `scroll` and `fling` skip
+  /// scrollables inside it.
+  static const headerKey = ValueKey<String>('DemoScaffold.header');
+
   @override
   State<DemoScaffold> createState() => _DemoScaffoldState();
 }
@@ -117,6 +122,7 @@ class _DemoScaffoldState extends State<DemoScaffold> {
         builder: (context, constraints) => Column(
           children: [
             ConstrainedBox(
+              key: DemoScaffold.headerKey,
               constraints: BoxConstraints(maxHeight: constraints.maxHeight / 2),
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, children: header),

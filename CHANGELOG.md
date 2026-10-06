@@ -269,9 +269,16 @@
   `ext.sleuthDemo.orientation value=portrait|landscape|all` forces the
   orientation for a hands-free rotation check. The example opts into
   Android predictive back (`android:enableOnBackInvokedCallback`). `ext.sleuthDemo.scroll` and
-  `fling` drive the largest scrollable whose tickers run, so they no
-  longer pick a list on the route below (whose animated scroll never
-  finished) or the demo header.
+  `fling` drive the largest scrollable outside the demo header, a route
+  below the current one and a hidden `IndexedStack` tab, preferring one
+  a touch at its centre reaches, so a list on an open overlay page beats
+  the app list behind it; `scroll ms=0` jumps. `tap` and `type` pick the
+  foreground copy of a label or field (`type` takes the focused field
+  first); `tap` refuses a target drawn over by something else
+  (`obscured`), gives up on a reveal scroll after 2 s, and needs `text`,
+  `label`, or both `x` and `y`. Frame waits stop after 2 s while the app
+  is in the background, where `a11y` and `screenshot` return
+  `unavailable`; `orientation` reports the size once the rotation lands.
 
 ### Verdicts, polling and detector fixes
 
