@@ -31,12 +31,16 @@ class _Leg {
     required this.totalSubsPerClass,
     required this.topDeltaMin,
     required this.topDeltaMax,
+    required this.acceptedBand,
   });
 
   final String label;
   final int totalSubsPerClass;
   final int topDeltaMin;
   final int topDeltaMax;
+
+  /// The detector-axis band the screen accepts, shown on the leg button.
+  final String acceptedBand;
 }
 
 // `topDeltaMin` and `topDeltaMax` are only the `expectedMagnitude.min`
@@ -50,13 +54,26 @@ class _Leg {
 // what the screen accepts. `totalSubsPerClass` is tuned for the
 // iPhone 12 first-emission ratio (about 0.44); above=230 lands near 101.
 const _legs = <_Leg>[
-  _Leg(label: 'below', totalSubsPerClass: 20, topDeltaMin: 1, topDeltaMax: 49),
-  _Leg(label: 'at', totalSubsPerClass: 100, topDeltaMin: 50, topDeltaMax: 80),
+  _Leg(
+    label: 'below',
+    totalSubsPerClass: 20,
+    topDeltaMin: 1,
+    topDeltaMax: 49,
+    acceptedBand: '1-49',
+  ),
+  _Leg(
+    label: 'at',
+    totalSubsPerClass: 100,
+    topDeltaMin: 50,
+    topDeltaMax: 80,
+    acceptedBand: '50-80',
+  ),
   _Leg(
     label: 'above',
     totalSubsPerClass: 230,
     topDeltaMin: 51,
     topDeltaMax: 150,
+    acceptedBand: '81-150',
   ),
 ];
 
@@ -627,7 +644,7 @@ class _StreamResourceCaptureScreenState
                             onPressed: busy ? null : () => _runLeg(leg),
                             child: Text(
                               '${leg.label}\n'
-                              'Δ ${leg.topDeltaMin}-${leg.topDeltaMax}',
+                              'Δ ${leg.acceptedBand}',
                             ),
                           ),
                         ),
