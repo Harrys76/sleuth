@@ -47,6 +47,42 @@ apps are now refused (`version_skew_major`). The SDK floor is Dart `^3.8.0`
   `effectiveFrameRateHz`, `frameBudgetUs`, `frameRateSource` and the VM poll
   timings (`lastPoll*`, `maxPoll*`, `pollDuplicatesDropped`,
   `pollWindowFallbacks`).
+- `get_snapshot` with no `sections` returns a compact default of seven
+  sections and leaves out the per-frame, request, heap and event lists
+  (`capturedFrames`, `recentFrames`, `recentRequests`, `heapSamples`,
+  `phaseEvents`, `gcEvents`, `platformChannelEvents`), listed in
+  `_omittedSections`. On an iPhone 12 the default call returned 10 KB where
+  the full payload was 285 KB, which keeps it under a client's tool-output
+  cap. `full: true` returns every section; combining it with `sections` is
+  `arg_conflict`. `sections` items are an enum of the 14 section names and
+  are case-sensitive. With `diskHandoff` and no `sections`, the file holds
+  every section.
+- A tool call that runs past `--tool-timeout` keeps the connection to the
+  app. The bridge's own per-call timeout fires first, and after 8 calls the
+  app has not answered, new calls are refused with `app_busy` until a new
+  connect.
+- Errors say what to do next: `not_connected` names `attach_app` and
+  `connect`, and `session_changed` is reported once, after which the server
+  follows the restarted app.
+- `connect` and `attach_app(debugUrl:)` accept the `http://` URI that
+  `flutter run` prints, and a ws URI without `/ws`. The `connect`
+  description no longer says it must be called first.
+- `initialize` returns `instructions` describing the attach flow and the
+  main tools. A client that asks for an unknown protocol version gets the
+  newest supported one (`2025-06-18`), not the oldest.
+- `resources/templates/list` returns an empty list. A parse error or an
+  invalid request is answered with `id: null`, and a batch gets one
+  `-32600` error.
+- The server starts serving before the `--uri` connect finishes, and every
+  exit path, including the client closing stdin, detaches the daemon
+  session within a bound. SIGTERM is not watched on Windows.
+- `sleuth_check` exits with code `64` for a missing `--uri` and for invalid
+  threshold arguments.
+- Disk handoff removes its per-process temp directory and, at startup,
+  sweeps empty ones that earlier processes left behind.
+- The `triage_performance` prompt reads issues with `get_issues` and asks
+  `get_snapshot` only for the sections it needs.
+- README: the quickstart launches with `flutter run --profile --no-dds`.
 
 ## 0.7.2
 
