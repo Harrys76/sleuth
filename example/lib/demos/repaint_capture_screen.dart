@@ -26,9 +26,10 @@ import 'capture_driver.dart';
 // 0.5 t, at 1.25 t, above 2.0 t of the live threshold t =
 // `paintTimePercentThreshold`, default 10 %), stops, drains the
 // timeline, resets the detector, idles 1.5 s, and records a 6 s scenario;
-// a peak outside the band gets up to four rescaled retries. The above
-// target sits mid-band (15–27 %) so the peak window keeps headroom under
-// the ceiling.
+// a peak outside the band, or an export whose in-span records miss the
+// bracket, gets another span, up to five in all. The above target sits
+// mid-band (15–27 %) so the peak window keeps headroom under the ceiling.
+// The workload runs only while the screen is in front.
 // Legs are started from the buttons or from `ext.sleuthDemo.captureLeg`.
 
 /// Number of distinct widget runtime types (`_PT00`..`_PT31`) the
@@ -62,28 +63,33 @@ class RepaintCaptureScreen extends StatefulWidget {
   State<RepaintCaptureScreen> createState() => _RepaintCaptureScreenState();
 }
 
-class _RepaintCaptureScreenState extends State<RepaintCaptureScreen> {
+class _RepaintCaptureScreenState extends State<RepaintCaptureScreen>
+    with CaptureScreenStateMixin<RepaintCaptureScreen> {
   /// Current `ops`, or null while no workload runs.
   final ValueNotifier<int?> _ops = ValueNotifier<int?>(null);
 
   @override
-  void initState() {
-    super.initState();
-    CaptureDriver.instance.register(_detectorKey, _runLeg);
-  }
+  String get captureDetector => _detectorKey;
 
   @override
   void dispose() {
-    CaptureDriver.instance.unregister(_detectorKey, _runLeg);
     _ops.dispose();
     super.dispose();
   }
 
-  Future<void> _runLeg(String tier, String role) async {
+  @override
+  Future<void> runCaptureLeg(String tier, String role) async {
     final driver = CaptureDriver.instance;
     final detector = Sleuth.repaintDetector;
     final factor = _legFactors[role];
-    if (detector == null || tier != 'warning' || factor == null) {
+    final bracket = detector == null
+        ? null
+        : CaptureBracket.fromMetadata(
+            detector.validationMetadata,
+            stableId: 'excessive_repaint',
+            severityLabel: tier,
+          );
+    if (detector == null || bracket == null || factor == null) {
       driver.fail(
         detector == null
             ? 'Sleuth.repaintDetector is null (Sleuth.init() with '
@@ -97,7 +103,7 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen> {
     await runTimeShareLeg(
       leg: TimeShareLeg(
         detector: _detectorKey,
-        stableId: 'excessive_repaint',
+        bracket: bracket,
         tier: tier,
         role: role,
         scenario: 'excessive_repaint_$role',
@@ -117,13 +123,13 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen> {
       },
       readPeak: () => detector.peakObservedPaintPercent,
       resetDetector: detector.resetCaptureState,
-      isActive: () => mounted,
+      isActive: () => captureInFront,
     );
   }
 
   void _onRunLeg(String role) {
     if (!CaptureDriver.instance.begin('$_detectorKey/warning/$role')) return;
-    unawaited(CaptureDriver.instance.runLeg(_runLeg, 'warning', role));
+    unawaited(CaptureDriver.instance.runLeg(runCaptureLeg, 'warning', role));
   }
 
   @override
@@ -136,11 +142,11 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!capture.captureMode || !capture.vmConnected)
-              CapturePreflightBanner(
-                captureMode: capture.captureMode,
-                vmConnected: capture.vmConnected,
-              ),
+            CapturePreflightBanner(
+              captureMode: capture.captureMode,
+              vmConnected: capture.vmConnected,
+              provenanceProblem: currentCaptureProvenance().problem,
+            ),
             const Text(
               'Repaints 32 tiles every frame with a variable number of '
               'text layouts spread across them, so PAINT takes a chosen '

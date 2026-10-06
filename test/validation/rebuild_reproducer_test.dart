@@ -862,7 +862,9 @@ void main() {
       expect(driver, contains('Sleuth.flushTimelineNow('));
       expect(driver, contains("unit: 'percent'"));
       expect(driver, contains("magnitudeSourceEventName: ''"));
-      expect(driver, contains("kCaptureFlutterVersion = '3.47.6'"));
+      // Provenance is read from the build, not assumed.
+      expect(driver, contains('flutterVersion: FlutterVersion.version'));
+      expect(driver, contains('flutterVersion: provenance.flutterVersion'));
       expect(
         RegExp(r'magnitudeObserved:\s*observed').hasMatch(driver),
         isTrue,
@@ -872,8 +874,8 @@ void main() {
       // before markScenarioBegin, so pre-pass work never reaches an
       // in-span window.
       final reset = driver.lastIndexOf('resetDetector();');
-      final dwell = driver.indexOf('kBoundaryDwell);', reset);
-      final begin = driver.indexOf('Sleuth.markScenarioBegin(', reset);
+      final dwell = driver.indexOf('holdInFront(kBoundaryDwell', reset);
+      final begin = driver.indexOf('calls.markScenarioBegin(', reset);
       expect(reset, greaterThan(0));
       expect(dwell, greaterThan(reset));
       expect(begin, greaterThan(dwell));

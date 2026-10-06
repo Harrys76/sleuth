@@ -7,6 +7,8 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 /// Capture helper for `FrameTimingDetector.jank_detected.warning`
 /// (`jankPercent > 15` over the steady-state 240-frame buffer; runtimeVerified
 /// via `perStableIdTier`).
@@ -55,9 +57,13 @@ import 'package:sleuth/sleuth.dart';
 ///
 /// **Procedure per leg:**
 ///
-///   1. `cd example && fvm flutter run --profile -d "iPhone 12" \
-///         --dart-define=SLEUTH_CAPTURE_MODE=true`.
-///   2. Confirm the pre-flight banner shows `60 Hz` (top of screen).
+///   1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+///         --dart-define=SLEUTH_CAPTURE_MODE=true \
+///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
+///   2. Confirm the pre-flight banner shows `60 Hz` and the capture
+///      provenance (device, OS, Flutter version) the export stamps. Legs
+///      are refused while the provenance is unknown or not approved by
+///      `ProfileCaptureSchema`.
 ///   3. Tap a leg (Below / At / Above). The screen runs a 4 s scenario
 ///      span — `markScenarioBegin` resets the detector buffer, the
 ///      injector immediately starts spinning the UI thread per-frame
@@ -174,6 +180,10 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
 
   final List<String> _log = [];
 
+  /// Device, OS and Flutter version stamped on exports, or why they
+  /// cannot be stamped.
+  final CaptureProvenanceCheck _provenance = currentCaptureProvenance();
+
   bool get _captureModeOn => const bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
 
   @override
@@ -252,6 +262,16 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           'markScenarioBegin/End are no-ops AND '
           'FrameTimingDetector.captureMode stays false (the 3 s warmup '
           'gate suppresses every leg).',
+        );
+      });
+      return;
+    }
+    final provenance = _provenance.provenance;
+    if (provenance == null) {
+      setState(() {
+        _log.add(
+          '[${leg.label}] ABORT — capture provenance: '
+          '${_provenance.problem}.',
         );
       });
       return;
@@ -378,12 +398,10 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           magnitudeObserved: leg.targetJankPercent.toDouble(),
           magnitudeMax: leg.jankPercentMax.toDouble(),
           unit: 'percent',
-          device: 'iPhone 12',
-          deviceOsVersion: 'iOS 17.5',
-          flutterVersion: '3.41.4',
-          captureCommand:
-              'fvm flutter run --profile -d "iPhone 12" '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true',
+          device: provenance.device,
+          deviceOsVersion: provenance.deviceOsVersion,
+          flutterVersion: provenance.flutterVersion,
+          captureCommand: provenance.captureCommand,
           // jank_detected source event is the FrameTiming pipeline,
           // NOT a VM Timeline BUILD/PAINT event. Skip BUILD-derivation;
           // operator's measured jank count is authoritative.
@@ -648,7 +666,11 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
 
   @override
   Widget build(BuildContext context) {
-    final ready = _refreshRateOk && _captureModeOn && !_busy;
+    final ready =
+        _refreshRateOk &&
+        _captureModeOn &&
+        _provenance.provenance != null &&
+        !_busy;
     return Scaffold(
       appBar: AppBar(title: const Text('FrameTiming capture helper')),
       body: Padding(
@@ -656,53 +678,73 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _PreFlightBanner(
-              refreshRate: _detectedRefreshRate,
-              refreshRateOk: _refreshRateOk,
-              captureModeOn: _captureModeOn,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Records profile-mode captures for jank_detected WARNING-tier '
-              'bracketing on the denominator-independent jankPercent axis '
-              '(detector emits at rounded jankPercent > 15; first reachable '
-              'observed value is 16). Bracket bands: at [16, 24], '
-              'above (24, 29.6]. Sustained_jank.critical may co-fire on '
-              'noisy devices — that is benign for this bracket axis under '
-              'parallel-emission semantics. See class docstring + '
-              'doc/capture_procedure.md for full protocol.',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            _CaptureButton(
-              label: 'Below ($_belowTargetJankPercent% target) — silent',
-              subtitle: 'No spin; baseline frames; detector stays silent',
-              enabled: ready,
-              onTap: () => _runLeg(_JankLeg.below),
-            ),
-            const SizedBox(height: 8),
-            _CaptureButton(
-              label: 'At ($_atTargetJankPercent% target) — warning',
-              subtitle:
-                  '$_spinPerFrameMs ms spin every ~5th frame; '
-                  'in [16, 24] at-band',
-              enabled: ready,
-              onTap: () => _runLeg(_JankLeg.at),
-            ),
-            const SizedBox(height: 8),
-            _CaptureButton(
-              label: 'Above ($_aboveTargetJankPercent% target) — warning',
-              subtitle:
-                  '$_spinPerFrameMs ms spin every ~4th frame; '
-                  'in (24, 29.6] above-band',
-              enabled: ready,
-              onTap: () => _runLeg(_JankLeg.above),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _busy ? null : _exportLastLeg,
-              icon: const Icon(Icons.save_alt),
-              label: const Text('Export last leg'),
+            // Takes its natural height up to three quarters of the body
+            // and scrolls past that, so a long pre-flight reason or a
+            // large text scale cannot overflow the screen.
+            Flexible(
+              flex: 3,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _PreFlightBanner(
+                      refreshRate: _detectedRefreshRate,
+                      refreshRateOk: _refreshRateOk,
+                      captureModeOn: _captureModeOn,
+                      provenance: _provenance,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Records profile-mode captures for jank_detected '
+                      'WARNING-tier bracketing on the '
+                      'denominator-independent jankPercent axis (detector '
+                      'emits at rounded jankPercent > 15; first reachable '
+                      'observed value is 16). Bracket bands: at [16, 24], '
+                      'above (24, 29.6]. Sustained_jank.critical may '
+                      'co-fire on noisy devices — that is benign for this '
+                      'bracket axis under parallel-emission semantics. See '
+                      'class docstring + doc/capture_procedure.md for full '
+                      'protocol.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    _CaptureButton(
+                      label:
+                          'Below ($_belowTargetJankPercent% target) — silent',
+                      subtitle:
+                          'No spin; baseline frames; detector stays silent',
+                      enabled: ready,
+                      onTap: () => _runLeg(_JankLeg.below),
+                    ),
+                    const SizedBox(height: 8),
+                    _CaptureButton(
+                      label: 'At ($_atTargetJankPercent% target) — warning',
+                      subtitle:
+                          '$_spinPerFrameMs ms spin every ~5th frame; '
+                          'in [16, 24] at-band',
+                      enabled: ready,
+                      onTap: () => _runLeg(_JankLeg.at),
+                    ),
+                    const SizedBox(height: 8),
+                    _CaptureButton(
+                      label:
+                          'Above ($_aboveTargetJankPercent% target) — '
+                          'warning',
+                      subtitle:
+                          '$_spinPerFrameMs ms spin every ~4th frame; '
+                          'in (24, 29.6] above-band',
+                      enabled: ready,
+                      onTap: () => _runLeg(_JankLeg.above),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _busy ? null : _exportLastLeg,
+                      icon: const Icon(Icons.save_alt),
+                      label: const Text('Export last leg'),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             const Divider(),
@@ -739,15 +781,18 @@ class _PreFlightBanner extends StatelessWidget {
     required this.refreshRate,
     required this.refreshRateOk,
     required this.captureModeOn,
+    required this.provenance,
   });
 
   final double? refreshRate;
   final bool refreshRateOk;
   final bool captureModeOn;
+  final CaptureProvenanceCheck provenance;
 
   @override
   Widget build(BuildContext context) {
-    final allOk = refreshRateOk && captureModeOn;
+    final stamp = provenance.provenance;
+    final allOk = refreshRateOk && captureModeOn && stamp != null;
     final color = allOk ? Colors.green.shade100 : Colors.red.shade100;
     return Container(
       padding: const EdgeInsets.all(12),
@@ -766,11 +811,13 @@ class _PreFlightBanner extends StatelessWidget {
                 color: refreshRateOk ? Colors.green : Colors.red,
               ),
               const SizedBox(width: 8),
-              Text(
-                'Refresh rate: '
-                '${refreshRate?.toStringAsFixed(1) ?? "detecting..."} Hz '
-                '${refreshRateOk ? "(60 Hz OK)" : "(REQUIRES 60 Hz)"}',
-                style: const TextStyle(fontSize: 12),
+              Expanded(
+                child: Text(
+                  'Refresh rate: '
+                  '${refreshRate?.toStringAsFixed(1) ?? "detecting..."} Hz '
+                  '${refreshRateOk ? "(60 Hz OK)" : "(REQUIRES 60 Hz)"}',
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
             ],
           ),
@@ -783,11 +830,35 @@ class _PreFlightBanner extends StatelessWidget {
                 color: captureModeOn ? Colors.green : Colors.red,
               ),
               const SizedBox(width: 8),
-              Text(
-                'captureMode: ${captureModeOn ? "ON" : "OFF"}'
-                '${captureModeOn ? "" : " (restart with --dart-define="
-                          "SLEUTH_CAPTURE_MODE=true)"}',
-                style: const TextStyle(fontSize: 12),
+              Expanded(
+                child: Text(
+                  'captureMode: ${captureModeOn ? "ON" : "OFF"}'
+                  '${captureModeOn ? "" : " (restart with --dart-define="
+                            "SLEUTH_CAPTURE_MODE=true)"}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                stamp != null ? Icons.check : Icons.close,
+                size: 16,
+                color: stamp != null ? Colors.green : Colors.red,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  stamp != null
+                      ? 'Provenance: ${stamp.device} / '
+                            '${stamp.deviceOsVersion} / '
+                            'Flutter ${stamp.flutterVersion}'
+                      : 'Provenance: ${provenance.problem}',
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
             ],
           ),

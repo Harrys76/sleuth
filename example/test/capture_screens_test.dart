@@ -8,9 +8,19 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:example/demos/capture_driver.dart';
+import 'package:example/demos/frame_timing_capture_screen.dart';
 import 'package:example/demos/rebuild_activity_capture_screen.dart';
 import 'package:example/demos/repaint_capture_screen.dart';
 import 'package:example/main.dart' show readVmAxes, startCaptureLeg;
+
+/// Leg calls whose stream suspension never answers.
+class _StalledSuspend extends CaptureLegCalls {
+  @override
+  Future<void> suspendStreams() => Completer<void>().future;
+
+  @override
+  Future<void> resumeStreams() async {}
+}
 
 void main() {
   setUp(CaptureDriver.instance.resetForTest);
@@ -45,6 +55,180 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: RepaintCaptureScreen()));
       expect(CaptureDriver.instance.runnerFor('rebuild'), isNull);
       expect(CaptureDriver.instance.runnerFor('repaint'), isNotNull);
+    });
+
+    testWidgets('the banner names a provenance problem and is empty when '
+        'every check passes', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: RepaintCaptureScreen()));
+      expect(find.textContaining('Capture provenance:'), findsOneWidget);
+      expect(find.textContaining('SLEUTH_CAPTURE_DEVICE'), findsOneWidget);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: CapturePreflightBanner(captureMode: true, vmConnected: true),
+          ),
+        ),
+      );
+      expect(find.byType(Text), findsNothing);
+    });
+
+    testWidgets('the FrameTiming screen shows why it cannot stamp a '
+        'provenance', (tester) async {
+      // iPhone 12 logical size.
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        const MaterialApp(home: FrameTimingCaptureScreen()),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(
+        find.textContaining('Provenance: device model unknown'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('capture screen in front', () {
+    Future<NavigatorState> pushScreens(
+      WidgetTester tester,
+      List<Widget> screens,
+    ) async {
+      final key = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: key,
+          home: const Scaffold(body: Text('home')),
+        ),
+      );
+      for (final screen in screens) {
+        unawaited(
+          key.currentState!.push(
+            MaterialPageRoute<void>(builder: (_) => screen),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+      return key.currentState!;
+    }
+
+    /// Runs [bringCaptureScreenToFront] while pumping frames.
+    Future<({CaptureScreenHandle? screen, String? error})> bring(
+      WidgetTester tester,
+      NavigatorState navigator, {
+      required VoidCallback pushScreen,
+      Duration timeout = const Duration(seconds: 3),
+    }) async {
+      ({CaptureScreenHandle? screen, String? error})? result;
+      unawaited(
+        bringCaptureScreenToFront(
+          detector: 'rebuild',
+          navigator: navigator,
+          pushScreen: pushScreen,
+          timeout: timeout,
+        ).then((r) => result = r),
+      );
+      for (var i = 0; i < 100 && result == null; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      return result!;
+    }
+
+    testWidgets('a covered screen is not in front', (tester) async {
+      final navigator = await pushScreens(tester, const [
+        RebuildActivityCaptureScreen(),
+      ]);
+      final rebuild = CaptureDriver.instance.screenFor('rebuild')!;
+      expect(rebuild.inFront(), isTrue);
+
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(builder: (_) => const Text('cover')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(rebuild.inFront(), isFalse);
+      expect(rebuild.route()!.isCurrent, isFalse);
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+      expect(rebuild.inFront(), isTrue);
+    });
+
+    testWidgets('a covered screen is brought back by popping the routes '
+        'above it', (tester) async {
+      final navigator = await pushScreens(tester, const [
+        RebuildActivityCaptureScreen(),
+        RepaintCaptureScreen(),
+      ]);
+      final rebuild = CaptureDriver.instance.screenFor('rebuild')!;
+      expect(rebuild.inFront(), isFalse);
+      var pushes = 0;
+      final result = await bring(tester, navigator, pushScreen: () => pushes++);
+      expect(result.error, isNull);
+      expect(result.screen, same(rebuild));
+      expect(rebuild.inFront(), isTrue);
+      expect(pushes, 0);
+      await tester.pumpAndSettle();
+      expect(CaptureDriver.instance.screenFor('repaint'), isNull);
+      expect(find.text('RebuildActivity Capture'), findsOneWidget);
+    });
+
+    testWidgets('a screen in front is used without navigating', (tester) async {
+      final navigator = await pushScreens(tester, const [
+        RebuildActivityCaptureScreen(),
+      ]);
+      var pushes = 0;
+      final result = await bring(tester, navigator, pushScreen: () => pushes++);
+      expect(result.screen, same(CaptureDriver.instance.screenFor('rebuild')));
+      expect(pushes, 0);
+      expect(navigator.canPop(), isTrue);
+    });
+
+    testWidgets('with no screen one is pushed and awaited', (tester) async {
+      final navigator = await pushScreens(tester, const []);
+      final result = await bring(
+        tester,
+        navigator,
+        pushScreen: () => navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const RebuildActivityCaptureScreen(),
+          ),
+        ),
+      );
+      expect(result.error, isNull);
+      expect(result.screen!.inFront(), isTrue);
+    });
+
+    testWidgets('a screen that never registers times out', (tester) async {
+      final navigator = await pushScreens(tester, const []);
+      final result = await bring(
+        tester,
+        navigator,
+        pushScreen: () {},
+        timeout: const Duration(milliseconds: 200),
+      );
+      expect(result.screen, isNull);
+      expect(result.error, 'screen_not_ready');
+    });
+
+    test('no navigator and no screen is an error', () async {
+      final result = await bringCaptureScreenToFront(
+        detector: 'rebuild',
+        navigator: null,
+        pushScreen: null,
+      );
+      expect(result.error, 'no_navigator');
+    });
+
+    test('a route that is current with muted tickers is not in front', () {
+      expect(
+        isCaptureScreenInFront(route: null, tickersEnabled: false),
+        isFalse,
+      );
+      expect(isCaptureScreenInFront(route: null, tickersEnabled: true), isTrue);
     });
   });
 
@@ -160,7 +344,14 @@ void main() {
       await runTimeShareLeg(
         leg: const TimeShareLeg(
           detector: 'repaint',
-          stableId: 'excessive_repaint',
+          bracket: CaptureBracket(
+            stableId: 'excessive_repaint',
+            severityLabel: 'warning',
+            threshold: 10,
+            atTolerance: 0.5,
+            aboveCeilingMultiplier: 2.7,
+            argKey: 'observedPaintPercent',
+          ),
           tier: 'warning',
           role: 'at',
           scenario: 'excessive_repaint_at',
@@ -177,7 +368,15 @@ void main() {
         readPeak: () => 0,
         resetDetector: () {},
         isActive: () => true,
-        suspendStreams: () => Completer<void>().future,
+        provenance: () => (
+          provenance: const CaptureProvenance(
+            device: 'iPhone 12',
+            deviceOsVersion: 'iOS 17.5',
+            flutterVersion: '3.47.6',
+          ),
+          problem: null,
+        ),
+        calls: _StalledSuspend(),
         callTimeout: const Duration(milliseconds: 20),
       );
       expect(driver.state, CaptureLegState.failed);

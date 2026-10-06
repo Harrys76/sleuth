@@ -19,8 +19,10 @@
 //     below 0.8 · at 1.23 · above 2.0 × 3 t
 //
 // The leg then stops, drains the timeline, resets the detector, idles
-// 1.5 s, and records a 6 s scenario; a peak outside the band gets up to four
-// rescaled retries. Bands come from `timeShareBand`.
+// 1.5 s, and records a 6 s scenario; a peak outside the band, or an export
+// with fewer in-band records than the bracket requires (two for
+// critical), gets another span, up to five in all. Bands come from
+// `timeShareBand`. The workload runs only while the screen is in front.
 // Legs are started from the buttons or from `ext.sleuthDemo.captureLeg`.
 
 import 'dart:async';
@@ -76,25 +78,23 @@ class RebuildActivityCaptureScreen extends StatefulWidget {
 }
 
 class _RebuildActivityCaptureScreenState
-    extends State<RebuildActivityCaptureScreen> {
+    extends State<RebuildActivityCaptureScreen>
+    with CaptureScreenStateMixin<RebuildActivityCaptureScreen> {
   /// Current `work`, or null while no workload runs.
   final ValueNotifier<int?> _work = ValueNotifier<int?>(null);
   String _tier = 'warning';
 
   @override
-  void initState() {
-    super.initState();
-    CaptureDriver.instance.register(_detectorKey, _runLeg);
-  }
+  String get captureDetector => _detectorKey;
 
   @override
   void dispose() {
-    CaptureDriver.instance.unregister(_detectorKey, _runLeg);
     _work.dispose();
     super.dispose();
   }
 
-  Future<void> _runLeg(String tier, String role) async {
+  @override
+  Future<void> runCaptureLeg(String tier, String role) async {
     final driver = CaptureDriver.instance;
     final detector = Sleuth.rebuildDetector;
     final legs = tier == 'critical' ? _criticalLegs : _warningLegs;
@@ -108,6 +108,15 @@ class _RebuildActivityCaptureScreenState
       );
       return;
     }
+    final bracket = CaptureBracket.fromMetadata(
+      detector.validationMetadata,
+      stableId: 'rebuild_activity',
+      severityLabel: tier,
+    );
+    if (bracket == null) {
+      driver.fail('no rebuild_activity.$tier bracket is declared');
+      return;
+    }
     if (mounted && _tier != tier) setState(() => _tier = tier);
     final warning = detector.buildTimePercentThreshold;
     final tierThreshold = tier == 'critical' ? warning * 3 : warning;
@@ -115,7 +124,7 @@ class _RebuildActivityCaptureScreenState
     await runTimeShareLeg(
       leg: TimeShareLeg(
         detector: _detectorKey,
-        stableId: 'rebuild_activity',
+        bracket: bracket,
         tier: tier,
         role: role,
         scenario: 'rebuild_activity_$basename',
@@ -135,13 +144,13 @@ class _RebuildActivityCaptureScreenState
       },
       readPeak: () => detector.peakObservedBuildPercent,
       resetDetector: detector.resetCaptureState,
-      isActive: () => mounted,
+      isActive: () => captureInFront,
     );
   }
 
   void _onRunLeg(String role) {
     if (!CaptureDriver.instance.begin('$_detectorKey/$_tier/$role')) return;
-    unawaited(CaptureDriver.instance.runLeg(_runLeg, _tier, role));
+    unawaited(CaptureDriver.instance.runLeg(runCaptureLeg, _tier, role));
   }
 
   @override
@@ -154,11 +163,11 @@ class _RebuildActivityCaptureScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!capture.captureMode || !capture.vmConnected)
-              CapturePreflightBanner(
-                captureMode: capture.captureMode,
-                vmConnected: capture.vmConnected,
-              ),
+            CapturePreflightBanner(
+              captureMode: capture.captureMode,
+              vmConnected: capture.vmConnected,
+              provenanceProblem: currentCaptureProvenance().problem,
+            ),
             const Text(
               'Rebuilds 64 leaf widgets every frame, each running a '
               'variable amount of integer work inside build(), so BUILD '

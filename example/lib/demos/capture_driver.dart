@@ -1,14 +1,19 @@
 // Shared state and leg sequence for the time-share capture screens
-// (`RebuildActivityCaptureScreen`, `RepaintCaptureScreen`).
+// (`RebuildActivityCaptureScreen`, `RepaintCaptureScreen`), and the
+// provenance every capture screen stamps on its exports.
 //
-// The screens register a leg runner with [CaptureDriver.instance] while
-// mounted and publish each leg's progress, observed magnitude and wrapped
-// capture JSON through it, so the `ext.sleuthDemo.captureLeg` /
-// `captureResult` service extensions in `main.dart` drive and read legs
-// without reaching into `State` objects.
+// The screens register with [CaptureDriver.instance] while mounted and
+// publish each leg's progress, observed magnitude and wrapped capture
+// JSON through it, so the `ext.sleuthDemo.captureLeg` / `captureResult`
+// service extensions in `main.dart` drive and read legs without reaching
+// into `State` objects.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io' show Platform;
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
@@ -20,6 +25,25 @@ enum CaptureLegState { idle, running, done, failed }
 /// `critical`, [role] is `below`, `at` or `above`.
 typedef CaptureLegRunner = Future<void> Function(String tier, String role);
 
+/// A mounted capture screen as the driver sees it.
+class CaptureScreenHandle {
+  CaptureScreenHandle({
+    required this.runner,
+    required this.route,
+    required this.inFront,
+  });
+
+  /// Runs one leg on the screen.
+  final CaptureLegRunner runner;
+
+  /// The route the screen sits on, if any.
+  final ModalRoute<Object?>? Function() route;
+
+  /// Whether the screen is mounted, on the current route and has its
+  /// tickers enabled, so a workload it starts actually runs.
+  final bool Function() inFront;
+}
+
 /// Process-wide capture-leg state shared by the capture screens and the
 /// demo service extensions. Notifies listeners on every state or log
 /// change.
@@ -29,7 +53,7 @@ class CaptureDriver extends ChangeNotifier {
   /// The single driver instance.
   static final CaptureDriver instance = CaptureDriver._();
 
-  final Map<String, CaptureLegRunner> _runners = {};
+  final Map<String, CaptureScreenHandle> _screens = {};
 
   CaptureLegState _state = CaptureLegState.idle;
   String? _leg;
@@ -54,25 +78,29 @@ class CaptureDriver extends ChangeNotifier {
   String? get json => _json;
 
   /// Measured scenario spans the current or last leg has run (0 before
-  /// the first, one more per rescaled retry).
+  /// the first, one more per retry).
   int get attempts => _attempts;
 
   /// Log lines of the current or last leg, oldest first.
   List<String> get log => List.unmodifiable(_log);
 
-  /// Registers the leg runner of the mounted screen for [detector]
-  /// (`rebuild` or `repaint`).
-  void register(String detector, CaptureLegRunner runner) {
-    _runners[detector] = runner;
+  /// Registers the mounted capture [screen] for [detector] (`rebuild` or
+  /// `repaint`). The latest registration wins.
+  void register(String detector, CaptureScreenHandle screen) {
+    _screens[detector] = screen;
   }
 
-  /// Removes [runner] for [detector] if it is still the registered one.
-  void unregister(String detector, CaptureLegRunner runner) {
-    if (_runners[detector] == runner) _runners.remove(detector);
+  /// Removes [screen] for [detector] if it is still the registered one.
+  void unregister(String detector, CaptureScreenHandle screen) {
+    if (identical(_screens[detector], screen)) _screens.remove(detector);
   }
 
-  /// The runner registered for [detector], if its screen is mounted.
-  CaptureLegRunner? runnerFor(String detector) => _runners[detector];
+  /// The capture screen registered for [detector], if one is mounted. It
+  /// may be covered by another route; check [CaptureScreenHandle.inFront].
+  CaptureScreenHandle? screenFor(String detector) => _screens[detector];
+
+  /// The leg runner of the screen registered for [detector].
+  CaptureLegRunner? runnerFor(String detector) => _screens[detector]?.runner;
 
   /// Marks a leg as started. Returns false (and changes nothing) while
   /// another leg is running. Clears the previous result and log.
@@ -159,7 +187,7 @@ class CaptureDriver extends ChangeNotifier {
   /// Restores the initial state. Tests only.
   @visibleForTesting
   void resetForTest() {
-    _runners.clear();
+    _screens.clear();
     _state = CaptureLegState.idle;
     _leg = null;
     _observed = null;
@@ -169,40 +197,517 @@ class CaptureDriver extends ChangeNotifier {
   }
 }
 
+/// Whether a capture screen on [route] runs a workload it starts: its
+/// tickers are enabled and its route (if it has one) is the current one.
+/// A route covered by another keeps its `State` while the overlay mutes
+/// its tickers, so a workload started there would not run.
+bool isCaptureScreenInFront({
+  required Route<Object?>? route,
+  required bool tickersEnabled,
+}) => tickersEnabled && (route?.isCurrent ?? true);
+
+/// Registers a time-share capture screen with [CaptureDriver.instance]
+/// while it is mounted, and reports whether it is in front.
+mixin CaptureScreenStateMixin<T extends StatefulWidget> on State<T> {
+  /// Driver key of the screen (`rebuild`, `repaint`).
+  String get captureDetector;
+
+  /// Runs one leg on this screen.
+  Future<void> runCaptureLeg(String tier, String role);
+
+  ModalRoute<Object?>? _captureRoute;
+
+  late final CaptureScreenHandle _captureHandle = CaptureScreenHandle(
+    runner: runCaptureLeg,
+    route: () => mounted ? _captureRoute : null,
+    inFront: () => captureInFront,
+  );
+
+  /// True while the screen is mounted, on the current route and has its
+  /// tickers enabled.
+  bool get captureInFront =>
+      mounted &&
+      isCaptureScreenInFront(
+        route: _captureRoute,
+        tickersEnabled: TickerMode.getValuesNotifier(context).value.enabled,
+      );
+
+  @override
+  void initState() {
+    super.initState();
+    CaptureDriver.instance.register(captureDetector, _captureHandle);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _captureRoute = ModalRoute.of(context);
+  }
+
+  @override
+  void dispose() {
+    CaptureDriver.instance.unregister(captureDetector, _captureHandle);
+    super.dispose();
+  }
+}
+
+/// Brings the capture screen registered for [detector] to the front of
+/// [navigator] for `ext.sleuthDemo.captureLeg`. A screen already in
+/// front is returned at once. A covered one has the routes above it
+/// popped; with none registered (or one outside [navigator])
+/// [pushScreen] pushes a fresh screen. Waits up to [timeout] for the
+/// screen to be in front. Returns the screen, or an error: `no_navigator`,
+/// `screen_not_ready` (nothing registered in time) or `not_in_front` (a
+/// screen is registered but its route is not current or its tickers stay
+/// muted).
+Future<({CaptureScreenHandle? screen, String? error})>
+bringCaptureScreenToFront({
+  required String detector,
+  required NavigatorState? navigator,
+  required VoidCallback? pushScreen,
+  Duration timeout = const Duration(seconds: 3),
+  Duration pollInterval = const Duration(milliseconds: 50),
+}) async {
+  final driver = CaptureDriver.instance;
+  final existing = driver.screenFor(detector);
+  if (existing != null && existing.inFront()) {
+    return (screen: existing, error: null);
+  }
+  if (navigator == null || pushScreen == null) {
+    return (screen: null, error: 'no_navigator');
+  }
+  final route = existing?.route();
+  if (route != null && route.isActive && route.navigator == navigator) {
+    navigator.popUntil((r) => r == route);
+  } else {
+    pushScreen();
+  }
+  for (var waited = Duration.zero; ; waited += pollInterval) {
+    final screen = driver.screenFor(detector);
+    if (screen != null && screen.inFront()) {
+      return (screen: screen, error: null);
+    }
+    if (waited >= timeout) {
+      return (
+        screen: null,
+        error: screen == null ? 'screen_not_ready' : 'not_in_front',
+      );
+    }
+    await Future<void>.delayed(pollInterval);
+  }
+}
+
+// ── Provenance ──
+
+/// `--dart-define` naming the device model a capture is recorded on. The
+/// example has no device-info plugin, so the operator supplies it.
+const String kCaptureDeviceDefine = 'SLEUTH_CAPTURE_DEVICE';
+
+const String _definedCaptureDevice = String.fromEnvironment(
+  kCaptureDeviceDefine,
+);
+
+/// Where a capture was recorded, stamped into its `sleuthMetadata`.
+@immutable
+class CaptureProvenance {
+  const CaptureProvenance({
+    required this.device,
+    required this.deviceOsVersion,
+    required this.flutterVersion,
+  });
+
+  /// Device model, e.g. `iPhone 12`.
+  final String device;
+
+  /// OS in the schema's form, e.g. `iOS 17.5`.
+  final String deviceOsVersion;
+
+  /// Flutter version the app was built with, e.g. `3.47.6`.
+  final String flutterVersion;
+
+  /// The launch command recorded as `captureCommand`.
+  String get captureCommand =>
+      'fvm flutter run --profile --no-dds -d "$device" '
+      '--dart-define=SLEUTH_CAPTURE_MODE=true '
+      '--dart-define=$kCaptureDeviceDefine="$device"';
+}
+
+/// This build's capture provenance, or why it cannot stamp one.
+typedef CaptureProvenanceCheck = ({
+  CaptureProvenance? provenance,
+  String? problem,
+});
+
+/// `deviceOsVersion` in the schema's form from `dart:io`'s
+/// [operatingSystem] and [operatingSystemVersion]. iOS reports
+/// `Version 17.5 (Build 21F79)`, which becomes `iOS 17.5`. Returns null on
+/// another platform or when the string carries no version.
+String? captureOsVersion({
+  required String operatingSystem,
+  required String operatingSystemVersion,
+}) {
+  if (operatingSystem != 'ios') return null;
+  final version = RegExp(r'\d+(?:\.\d+)+').firstMatch(operatingSystemVersion);
+  return version == null ? null : 'iOS ${version[0]}';
+}
+
+/// `<major>.<minor>.<patch>` with an optional pre-release or build
+/// suffix, as the capture schema reads `flutterVersion`.
+final RegExp _flutterVersionPattern = RegExp(
+  r'^(\d+\.\d+)\.\d+(?:[-+][0-9A-Za-z.\-]+)?$',
+);
+
+/// Checks [device], the OS and [flutterVersion] against what
+/// [ProfileCaptureSchema] approves (`approvedDevicePairs`,
+/// `approvedFlutterMajorMinors`). Returns the provenance when every value
+/// is known and approved, else every problem found.
+CaptureProvenanceCheck checkCaptureProvenance({
+  required String? device,
+  required String operatingSystem,
+  required String operatingSystemVersion,
+  required String? flutterVersion,
+}) {
+  String list(Iterable<String> values) => (values.toList()..sort()).join(', ');
+  final pairs = ProfileCaptureSchema.approvedDevicePairs;
+  final problems = <String>[];
+
+  final model = device?.trim() ?? '';
+  Set<String>? approvedOs;
+  if (model.isEmpty) {
+    problems.add(
+      'device model unknown: relaunch with '
+      '--dart-define=$kCaptureDeviceDefine=<model> '
+      '(approved: ${list(pairs.keys)})',
+    );
+  } else {
+    approvedOs = pairs[model];
+    if (approvedOs == null) {
+      problems.add(
+        'device "$model" is not an approved reference device '
+        '(approved: ${list(pairs.keys)})',
+      );
+    }
+  }
+
+  final os = captureOsVersion(
+    operatingSystem: operatingSystem,
+    operatingSystemVersion: operatingSystemVersion,
+  );
+  if (os == null) {
+    problems.add(
+      'OS version unknown: none readable from $operatingSystem '
+      '"$operatingSystemVersion"',
+    );
+  } else if (approvedOs != null && !approvedOs.contains(os)) {
+    problems.add(
+      '$os is not approved for "$model" (approved: ${list(approvedOs)})',
+    );
+  }
+
+  final sdk = flutterVersion?.trim() ?? '';
+  final majorMinor = _flutterVersionPattern.firstMatch(sdk)?[1];
+  final approvedSdks = ProfileCaptureSchema.approvedFlutterMajorMinors.map(
+    (v) => '$v.x',
+  );
+  if (sdk.isEmpty) {
+    problems.add(
+      'Flutter version unknown (FlutterVersion.version is not set; build '
+      'with the flutter tool)',
+    );
+  } else if (majorMinor == null ||
+      !ProfileCaptureSchema.approvedFlutterMajorMinors.contains(majorMinor)) {
+    problems.add(
+      'Flutter $sdk is not an approved capture SDK '
+      '(approved: ${list(approvedSdks)})',
+    );
+  }
+
+  if (problems.isNotEmpty) {
+    return (provenance: null, problem: problems.join('; '));
+  }
+  return (
+    provenance: CaptureProvenance(
+      device: model,
+      deviceOsVersion: os!,
+      flutterVersion: sdk,
+    ),
+    problem: null,
+  );
+}
+
+/// Provenance of this build on this device: the model from
+/// `--dart-define=SLEUTH_CAPTURE_DEVICE`, the OS from
+/// `Platform.operatingSystemVersion` and the SDK from
+/// [FlutterVersion.version].
+CaptureProvenanceCheck currentCaptureProvenance() => checkCaptureProvenance(
+  device: _definedCaptureDevice,
+  operatingSystem: kIsWeb ? 'web' : Platform.operatingSystem,
+  operatingSystemVersion: kIsWeb ? '' : Platform.operatingSystemVersion,
+  flutterVersion: FlutterVersion.version,
+);
+
+// ── Bracket and bands ──
+
+/// The bracket a capture leg records evidence for, read from the
+/// detector's [DetectorMetadata] with the capture audit's defaults filled
+/// in.
+@immutable
+class CaptureBracket {
+  const CaptureBracket({
+    required this.stableId,
+    required this.severityLabel,
+    required this.threshold,
+    required this.atTolerance,
+    required this.aboveCeilingMultiplier,
+    required this.argKey,
+    this.reduction = 'max',
+    this.observedAxisTolerance = 0.25,
+    this.minInBandSamples,
+  });
+
+  /// The bracket on [metadata] for [stableId] at [severityLabel]: the
+  /// canonical bracket or an `additionalBrackets` entry with an observed
+  /// axis. Null when the detector declares none.
+  static CaptureBracket? fromMetadata(
+    DetectorMetadata metadata, {
+    required String stableId,
+    required String severityLabel,
+  }) {
+    final threshold = metadata.bracketThreshold;
+    final argKey = metadata.observedAxisArgKey;
+    if (metadata.bracketStableId == stableId &&
+        metadata.bracketSeverityLabel == severityLabel &&
+        threshold != null &&
+        argKey != null) {
+      return CaptureBracket(
+        stableId: stableId,
+        severityLabel: severityLabel,
+        threshold: threshold.toDouble(),
+        atTolerance:
+            metadata.bracketAtTolerance ??
+            ProfileCaptureSchema.defaultAtTolerance,
+        aboveCeilingMultiplier:
+            metadata.aboveCeilingMultiplier ??
+            ProfileCaptureSchema.defaultAboveCeilingMultiplier,
+        argKey: argKey,
+        reduction: metadata.observedAxisReduction,
+        observedAxisTolerance: metadata.observedAxisTolerance,
+      );
+    }
+    for (final spec in metadata.additionalBrackets ?? const <BracketSpec>[]) {
+      final specArgKey = spec.observedAxisArgKey;
+      if (spec.stableId != stableId ||
+          spec.severityLabel != severityLabel ||
+          specArgKey == null) {
+        continue;
+      }
+      return CaptureBracket(
+        stableId: stableId,
+        severityLabel: severityLabel,
+        threshold: spec.threshold.toDouble(),
+        atTolerance:
+            spec.atTolerance ?? ProfileCaptureSchema.defaultAtTolerance,
+        aboveCeilingMultiplier:
+            spec.aboveCeilingMultiplier ??
+            ProfileCaptureSchema.defaultAboveCeilingMultiplier,
+        argKey: specArgKey,
+        reduction: spec.observedAxisReduction,
+        observedAxisTolerance: spec.observedAxisTolerance,
+        minInBandSamples: spec.minInBandSamples,
+      );
+    }
+    return null;
+  }
+
+  /// Bracketed stable id.
+  final String stableId;
+
+  /// `warning` or `critical`.
+  final String severityLabel;
+
+  /// Bracket threshold.
+  final double threshold;
+
+  /// At band upper edge as a fraction above [threshold].
+  final double atTolerance;
+
+  /// Above band ceiling as a multiple of [threshold].
+  final double aboveCeilingMultiplier;
+
+  /// Trace arg carrying the detector's observed value.
+  final String argKey;
+
+  /// `max` or `last`: how the audit reduces several in-span records.
+  final String reduction;
+
+  /// Largest relative gap the audit allows between a capture's observed
+  /// magnitude and the reduced detector value.
+  final double observedAxisTolerance;
+
+  /// In-band records each at and above leg must carry, when set.
+  final int? minInBandSamples;
+
+  /// `sleuth.issue.<stableId>.<severityLabel>`.
+  String get eventName => 'sleuth.issue.$stableId.$severityLabel';
+
+  /// At band upper edge, `threshold × (1 + atTolerance)`.
+  double get atUpper => threshold * (1 + atTolerance);
+
+  /// Above band ceiling, `threshold × aboveCeilingMultiplier`.
+  double get aboveCeiling => threshold * aboveCeilingMultiplier;
+
+  /// In-band records an at or above leg needs: [minInBandSamples], and
+  /// at least one.
+  int get requiredInBand => math.max(1, minInBandSamples ?? 1);
+
+  /// Whether a detector [value] lies in [role]'s band as the capture
+  /// audit draws it: at `[threshold, atUpper]`, above
+  /// `(atUpper, aboveCeiling]`. Below has no detector band.
+  bool inRoleBand(num value, String role) => switch (role) {
+    'at' => value >= threshold && value <= atUpper,
+    'above' => value > atUpper && value <= aboveCeiling,
+    _ => false,
+  };
+}
+
 /// `expectedMagnitude` band for a time-share capture leg against the
 /// tier threshold [threshold] (the warning threshold for the warning
 /// tier, 3× it for the critical tier):
 ///
 /// - warning below `[0.5, t)`, critical below `[0.65 t, t)`
-/// - at `[t, 1.5 t]`
-/// - above `(1.5 t, 2.7 t]`
+/// - at `[t, t × (1 + atTolerance)]`
+/// - above `(t × (1 + atTolerance), t × aboveCeilingMultiplier]`
 ///
-/// The schema rejects a band or an observed value at or below zero, so
-/// every lower bound is positive. Exclusive bounds are enforced by the
-/// audit's role-band check, not by these numbers.
+/// The defaults (0.5, 2.7) are the time-share brackets' values. The
+/// schema rejects a band or an observed value at or below zero, so every
+/// lower bound is positive. Exclusive bounds are enforced by [inLegBand]
+/// and the audit's role-band check, not by these numbers.
 ({double min, double max}) timeShareBand({
   required String tier,
   required String role,
   required double threshold,
+  double atTolerance = 0.5,
+  double aboveCeilingMultiplier = 2.7,
 }) {
   assert(threshold > 0, 'threshold must be > 0');
+  final atUpper = threshold * (1 + atTolerance);
   switch (role) {
     case 'below':
       final min = tier == 'critical' ? 0.65 * threshold : 0.5;
       return (min: min < threshold ? min : threshold / 2, max: threshold);
     case 'at':
-      return (min: threshold, max: 1.5 * threshold);
+      return (min: threshold, max: atUpper);
     case 'above':
-      return (min: 1.5 * threshold, max: 2.7 * threshold);
+      return (min: atUpper, max: threshold * aboveCeilingMultiplier);
   }
   throw ArgumentError.value(role, 'role', 'expected below, at or above');
 }
+
+/// Whether [value] lies in [role]'s [band] with the audit's edges: below
+/// stops short of the threshold, at is closed on both ends, above starts
+/// past the at band's upper edge.
+bool inLegBand(double value, String role, ({double min, double max}) band) =>
+    switch (role) {
+      'below' => value >= band.min && value < band.max,
+      'above' => value > band.min && value <= band.max,
+      _ => value >= band.min && value <= band.max,
+    };
+
+/// [percent] rounded to one decimal, the precision the detectors' trace
+/// args carry.
+double roundPercent(double percent) => double.parse(percent.toStringAsFixed(1));
+
+/// In-span detector records of an exported capture, read the way the
+/// capture audit reads them.
+@immutable
+class CaptureRecordCount {
+  const CaptureRecordCount({
+    required this.inSpan,
+    required this.stamped,
+    required this.inBand,
+    required this.reduced,
+  });
+
+  /// Records of the bracketed event inside the scenario span.
+  final int inSpan;
+
+  /// In-span records carrying a parseable observed value.
+  final int stamped;
+
+  /// Stamped records inside the leg's role band.
+  final int inBand;
+
+  /// The bracket's reduction (`max` or `last`) over the stamped records.
+  final num? reduced;
+}
+
+/// Counts the in-span [CaptureBracket.eventName] records of the wrapped
+/// capture [json] for a [role] leg. The span comes from
+/// [ProfileCaptureSchema.findScenarioSpan]; values are read from the
+/// record's args (or its `Dart Arguments`) under
+/// [CaptureBracket.argKey]. Throws [FormatException] when the JSON or its
+/// scenario markers are malformed.
+CaptureRecordCount countCaptureRecords(
+  String json, {
+  required CaptureBracket bracket,
+  required String role,
+}) {
+  final root = jsonDecode(json);
+  final events = root is Map ? root['traceEvents'] : null;
+  if (events is! List) {
+    throw const FormatException('capture has no traceEvents array');
+  }
+  final (begin, end) = ProfileCaptureSchema.findScenarioSpan(
+    events,
+    'exported capture',
+  );
+  var inSpan = 0;
+  var stamped = 0;
+  var inBand = 0;
+  num? reduced;
+  num? reducedTs;
+  for (final event in events) {
+    if (event is! Map || event['name'] != bracket.eventName) continue;
+    final ts = event['ts'];
+    if (ts is! num || ts < begin || ts > end) continue;
+    inSpan++;
+    final args = event['args'];
+    if (args is! Map) continue;
+    var raw = args[bracket.argKey];
+    final dartArgs = args['Dart Arguments'];
+    if (raw == null && dartArgs is Map) raw = dartArgs[bracket.argKey];
+    final value = switch (raw) {
+      final num n => n,
+      final String s => num.tryParse(s.trim()),
+      _ => null,
+    };
+    if (value == null) continue;
+    stamped++;
+    if (bracket.inRoleBand(value, role)) inBand++;
+    final take = bracket.reduction == 'last'
+        // Latest record; a tie goes to the later one in file order.
+        ? reducedTs == null || ts >= reducedTs
+        : reduced == null || value > reduced;
+    if (take) {
+      reduced = value;
+      reducedTs = ts;
+    }
+  }
+  return CaptureRecordCount(
+    inSpan: inSpan,
+    stamped: stamped,
+    inBand: inBand,
+    reduced: reduced,
+  );
+}
+
+// ── Leg sequence ──
 
 /// Fixed inputs of one time-share capture leg.
 class TimeShareLeg {
   const TimeShareLeg({
     required this.detector,
-    required this.stableId,
+    required this.bracket,
     required this.tier,
     required this.role,
     required this.scenario,
@@ -218,8 +723,8 @@ class TimeShareLeg {
   /// `rebuild` or `repaint`.
   final String detector;
 
-  /// Bracketed stable id (`rebuild_activity`, `excessive_repaint`).
-  final String stableId;
+  /// Bracket the leg records evidence for.
+  final CaptureBracket bracket;
 
   /// `warning` or `critical`.
   final String tier;
@@ -230,7 +735,7 @@ class TimeShareLeg {
   /// Scenario name; must equal the capture file's basename-derived name.
   final String scenario;
 
-  /// Threshold of [tier] in percent.
+  /// Live threshold of [tier] in percent; must equal the bracket's.
   final double tierThreshold;
 
   /// Share of UI-thread time the leg aims for, in percent.
@@ -250,6 +755,9 @@ class TimeShareLeg {
 
   /// Length of the measured workload.
   final Duration workloadDuration;
+
+  /// `<tier>/<role>`, the prefix of the leg's log lines.
+  String get label => '$tier/$role';
 }
 
 /// Calibration pre-pass length.
@@ -259,11 +767,15 @@ const Duration kCalibrationPrePass = Duration(seconds: 3);
 /// for the 1 s idle timeline heartbeat to close an empty window.
 const Duration kBoundaryDwell = Duration(milliseconds: 1500);
 
-/// Attempts a leg may take (the first run plus rescaled retries).
+/// Measured spans a leg may run (the first plus retries).
 const int kMaxLegAttempts = 5;
 
 /// Dwell after `markScenarioEnd` before the trace is exported.
 const Duration kPostScenarioEndDwell = Duration(milliseconds: 800);
+
+/// How often a leg checks that its screen is still in front while it
+/// waits.
+const Duration kFrontCheckInterval = Duration(milliseconds: 100);
 
 /// Longest wait for a Sleuth call that talks to the VM service
 /// (stream flags, the capture export) before the leg fails.
@@ -295,13 +807,18 @@ Future<T> withCallTimeout<T>(
   onTimeout: () => throw CaptureCallTimeout(call, timeout),
 );
 
-/// Reference device and toolchain the time-share captures are recorded on.
-const String kCaptureDevice = 'iPhone 12';
-const String kCaptureDeviceOs = 'iOS 17.5';
-const String kCaptureFlutterVersion = '3.47.6';
-const String kCaptureCommand =
-    'fvm flutter run --profile --no-dds -d "iPhone 12" '
-    '--dart-define=SLEUTH_CAPTURE_MODE=true';
+/// The capture screen was not in front while a leg needed its workload.
+class CaptureScreenLeftFront implements Exception {
+  const CaptureScreenLeftFront(this.when);
+
+  /// Phase of the leg, e.g. `during the scenario`.
+  final String when;
+
+  @override
+  String toString() =>
+      'capture screen not in front $when; a covered screen does not run '
+      'its workload';
+}
 
 /// Scales [calibrationKnob] so a workload that measured [measured] percent
 /// at that knob lands on [target] percent. Returns null when the
@@ -336,22 +853,238 @@ int? retryKnob({
   return (knob * target / observed).round().clamp(minKnob, maxKnob);
 }
 
+/// What a leg does after a measured span or its export.
+sealed class LegDecision {
+  const LegDecision();
+}
+
+/// The peak is in its band: export the span.
+final class LegExport extends LegDecision {
+  const LegExport();
+}
+
+/// The export satisfies the bracket: the leg is done.
+final class LegComplete extends LegDecision {
+  const LegComplete();
+}
+
+/// Run another measured span at [knob].
+final class LegRetry extends LegDecision {
+  const LegRetry(this.knob, this.reason);
+
+  final int knob;
+
+  /// What the last span missed.
+  final String reason;
+}
+
+/// The leg fails with [reason].
+final class LegFail extends LegDecision {
+  const LegFail(this.reason);
+
+  final String reason;
+}
+
+/// Decision after a measured span of [leg] at [knob] whose detector peak,
+/// rounded to one decimal, is [observed]; [attempts] spans have run.
+/// In band → export. Out of band → a retry at the knob rescaled by
+/// target / observed while attempts remain, else a failure.
+LegDecision decideAfterPeak({
+  required TimeShareLeg leg,
+  required ({double min, double max}) band,
+  required int knob,
+  required double observed,
+  required int attempts,
+}) {
+  if (inLegBand(observed, leg.role, band)) return const LegExport();
+  if (attempts >= kMaxLegAttempts) {
+    return LegFail(
+      observed <= 0
+          ? 'observed peak is 0 %'
+          : 'observed $observed % outside the ${leg.label} band after '
+                '$attempts attempts',
+    );
+  }
+  final retry = retryKnob(
+    knob: knob,
+    observed: observed,
+    target: leg.targetPercent,
+    minKnob: leg.minKnob,
+    maxKnob: leg.maxKnob,
+  );
+  if (retry == null) {
+    return LegFail('observed peak is 0 % at ${leg.knobName} $knob');
+  }
+  if (retry == knob) {
+    return LegFail(
+      'observed $observed % outside the ${leg.label} band and the '
+      '${leg.knobName} clamp binds at $knob',
+    );
+  }
+  return LegRetry(retry, 'outside the band');
+}
+
+/// Decision after the export of an in-band span of [leg] at [knob]
+/// (peak [observed], [attempts] spans run). A below leg is done: the
+/// export already refuses one with an in-span record. An at or above leg
+/// is done when its in-span [records] pass what the capture audit checks:
+/// every record stamped, the reduced value in the role band and within
+/// the observed-axis tolerance of [observed], and at least
+/// [CaptureBracket.requiredInBand] records in the band. Otherwise it
+/// retries while attempts remain (at the knob rescaled toward the target
+/// when the peak fell short of it, else at the same knob), or fails.
+LegDecision decideAfterExport({
+  required TimeShareLeg leg,
+  required int knob,
+  required double observed,
+  required int attempts,
+  required CaptureRecordCount? records,
+}) {
+  if (leg.role == 'below') return const LegComplete();
+  final bracket = leg.bracket;
+  final event = bracket.eventName;
+  if (records == null || records.inSpan == 0) {
+    return _retryOrFail(leg, knob, observed, attempts, 'no in-span $event');
+  }
+  if (records.stamped < records.inSpan) {
+    return LegFail(
+      '${records.inSpan - records.stamped} of ${records.inSpan} in-span '
+      '$event records carry no ${bracket.argKey}',
+    );
+  }
+  final reduced = records.reduced!;
+  final String? shortfall;
+  if (!bracket.inRoleBand(reduced, leg.role)) {
+    shortfall =
+        'in-span ${bracket.reduction} ${bracket.argKey} $reduced lies '
+        'outside the ${leg.role} band';
+  } else if (reduced < observed * (1 - bracket.observedAxisTolerance) ||
+      reduced > observed * (1 + bracket.observedAxisTolerance)) {
+    shortfall =
+        'in-span ${bracket.reduction} ${bracket.argKey} $reduced is more '
+        'than ±${(bracket.observedAxisTolerance * 100).round()} % from the '
+        'observed $observed %';
+  } else if (records.inBand < bracket.requiredInBand) {
+    shortfall =
+        '${records.inBand} in-band $event record(s); the bracket requires '
+        '${bracket.requiredInBand}';
+  } else {
+    shortfall = null;
+  }
+  if (shortfall == null) return const LegComplete();
+  return _retryOrFail(leg, knob, observed, attempts, shortfall);
+}
+
+LegDecision _retryOrFail(
+  TimeShareLeg leg,
+  int knob,
+  double observed,
+  int attempts,
+  String shortfall,
+) {
+  if (attempts >= kMaxLegAttempts) {
+    return LegFail('$shortfall after $attempts attempts');
+  }
+  final next = observed < leg.targetPercent
+      ? retryKnob(
+              knob: knob,
+              observed: observed,
+              target: leg.targetPercent,
+              minKnob: leg.minKnob,
+              maxKnob: leg.maxKnob,
+            ) ??
+            knob
+      : knob;
+  return LegRetry(next, shortfall);
+}
+
+/// The Sleuth calls and waits a time-share leg makes. Tests pass a
+/// subclass that scripts them.
+class CaptureLegCalls {
+  const CaptureLegCalls();
+
+  Future<void> suspendStreams() => Sleuth.suspendNonEssentialTimelineStreams();
+
+  Future<void> resumeStreams() => Sleuth.resumeAllTimelineStreams();
+
+  Future<void> flushTimeline() =>
+      Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
+
+  void markScenarioBegin(String scenario) => Sleuth.markScenarioBegin(scenario);
+
+  void markScenarioEnd(String scenario) => Sleuth.markScenarioEnd(scenario);
+
+  /// Exports the latest span of [leg]'s scenario with the observed peak
+  /// [observed], its [band] and [provenance].
+  Future<String?> exportCapture({
+    required TimeShareLeg leg,
+    required ({double min, double max}) band,
+    required double observed,
+    required CaptureProvenance provenance,
+  }) => Sleuth.exportCaptureJson(
+    scenario: leg.scenario,
+    role: leg.role,
+    magnitudeMin: band.min,
+    magnitudeObserved: observed,
+    magnitudeMax: band.max,
+    unit: 'percent',
+    device: provenance.device,
+    deviceOsVersion: provenance.deviceOsVersion,
+    flutterVersion: provenance.flutterVersion,
+    captureCommand: provenance.captureCommand,
+    // Detector-measured magnitude; no timeline event to derive it from.
+    magnitudeSourceEventName: '',
+    bracketStableId: leg.bracket.stableId,
+    bracketSeverityLabel: leg.bracket.severityLabel,
+  );
+
+  /// Why the last export returned null.
+  String? get lastExportFailure => Sleuth.lastCaptureExportFailure;
+
+  Future<void> wait(Duration duration) => Future<void>.delayed(duration);
+}
+
+/// Waits [duration] through [calls] in steps of at most
+/// [kFrontCheckInterval]. Returns false as soon as [isActive] reports
+/// false.
+Future<bool> holdInFront(
+  Duration duration,
+  bool Function() isActive, {
+  CaptureLegCalls calls = const CaptureLegCalls(),
+}) async {
+  var left = duration;
+  while (left > Duration.zero) {
+    final step = left < kFrontCheckInterval ? left : kFrontCheckInterval;
+    await calls.wait(step);
+    left -= step;
+    if (!isActive()) return false;
+  }
+  return isActive();
+}
+
 /// Runs one time-share capture leg end to end and publishes the result
 /// through [CaptureDriver.instance]. The caller has already called
 /// [CaptureDriver.begin].
 ///
-/// Sequence: calibration pre-pass → `flushTimelineNow` → read the last
-/// window → scale the knob → measured span (stop → `flushTimelineNow` →
-/// reset the detector → idle dwell → `markScenarioBegin` → workload →
-/// `flushTimelineNow` → read the peak → `markScenarioEnd` → dwell) →
-/// `exportCaptureJson`. The stop/flush/reset/dwell boundary keeps
-/// pre-pass work out of every in-span window. A peak outside the band
-/// gets further measured spans at knobs rescaled by [retryKnob]; the
-/// export reads the latest span of the scenario.
+/// Refuses to start when [provenance] reports a problem, when the live
+/// tier threshold differs from the bracket's, or when the screen is not
+/// in front ([isActive]).
+///
+/// Sequence: calibration pre-pass → `flushTimelineNow` → read the peak →
+/// scale the knob → measured span (stop → `flushTimelineNow` → reset the
+/// detector → idle dwell → `markScenarioBegin` → workload →
+/// `flushTimelineNow` → read the peak → `markScenarioEnd` → dwell). The
+/// stop/flush/reset/dwell boundary keeps pre-pass work out of every
+/// in-span window. A peak outside the band gets another span at the knob
+/// rescaled by [retryKnob] ([decideAfterPeak]); an in-band span is
+/// exported (the export reads the latest span of the scenario) and its
+/// in-span records checked against the bracket ([decideAfterExport]),
+/// which can also ask for another span. At most [kMaxLegAttempts] spans
+/// run. The screen must stay in front through the pre-pass, the dwell
+/// and the workload; if it leaves, the leg fails and exports nothing.
 ///
 /// Stream suspension, resumption and the export each fail the leg when
-/// they take longer than [callTimeout]. [suspendStreams] stands in for
-/// `Sleuth.suspendNonEssentialTimelineStreams` in tests.
+/// they take longer than [callTimeout].
 Future<void> runTimeShareLeg({
   required TimeShareLeg leg,
   required void Function(int knob) startWorkload,
@@ -359,20 +1092,35 @@ Future<void> runTimeShareLeg({
   required double Function() readPeak,
   required void Function() resetDetector,
   required bool Function() isActive,
-  Future<void> Function() suspendStreams =
-      Sleuth.suspendNonEssentialTimelineStreams,
+  CaptureProvenanceCheck Function() provenance = currentCaptureProvenance,
+  CaptureLegCalls calls = const CaptureLegCalls(),
   Duration callTimeout = kVmCallTimeout,
 }) async {
   final driver = CaptureDriver.instance;
-  final label = '${leg.tier}/${leg.role}';
+  final label = leg.label;
   final knob = leg.knobName;
+  final source = provenance();
+  final stamp = source.provenance;
+  if (stamp == null) {
+    return driver.fail('capture provenance: ${source.problem}');
+  }
+  if (leg.tierThreshold != leg.bracket.threshold) {
+    return driver.fail(
+      'live ${leg.tier} threshold ${leg.tierThreshold} % differs from the '
+      '${leg.bracket.eventName} bracket threshold '
+      '${leg.bracket.threshold} %',
+    );
+  }
+  if (!isActive()) {
+    return driver.fail(const CaptureScreenLeftFront('at the start').toString());
+  }
   var streamsSuspended = false;
   var scenarioOpen = false;
   try {
     // Marked first: a suspend that times out may still land later.
     streamsSuspended = true;
     await withCallTimeout(
-      suspendStreams(),
+      calls.suspendStreams(),
       'suspendNonEssentialTimelineStreams',
       timeout: callTimeout,
     );
@@ -384,9 +1132,10 @@ Future<void> runTimeShareLeg({
       '[$label] calibration pre-pass at $knob ${leg.calibrationKnob} '
       '(${kCalibrationPrePass.inSeconds} s)',
     );
-    await Future<void>.delayed(kCalibrationPrePass);
-    if (!isActive()) return driver.fail('screen closed during pre-pass');
-    await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
+    if (!await holdInFront(kCalibrationPrePass, isActive, calls: calls)) {
+      throw const CaptureScreenLeftFront('during the pre-pass');
+    }
+    await calls.flushTimeline();
     // The peak over the pre-pass is the best full window of steady
     // workload; the last closed window can be one that mostly covered
     // the ramp or a poll stall.
@@ -419,39 +1168,42 @@ Future<void> runTimeShareLeg({
       tier: leg.tier,
       role: leg.role,
       threshold: leg.tierThreshold,
+      atTolerance: leg.bracket.atTolerance,
+      aboveCeilingMultiplier: leg.bracket.aboveCeilingMultiplier,
     );
     final bandText =
         '${band.min.toStringAsFixed(1)}–${band.max.toStringAsFixed(1)}';
-    // Edges follow the audit: below stops short of the threshold, at is
-    // closed on both ends, above starts past the at-band upper edge.
-    bool inBand(double v) => switch (leg.role) {
-      'below' => v >= band.min && v < band.max,
-      'above' => v > band.min && v <= band.max,
-      _ => v >= band.min && v <= band.max,
-    };
 
-    // One measured span at knob [value]. Returns the detector peak rounded to
-    // one decimal (the precision the emission arg carries), or null when
-    // the screen closed before the scenario.
-    Future<double?> measure(int value) async {
+    // One measured span at knob [value]. Returns the detector peak
+    // rounded to one decimal (the precision the emission arg carries).
+    Future<double> measure(int value) async {
       // Clean boundary between earlier work and the measured span.
       stopWorkload();
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
+      await calls.flushTimeline();
       resetDetector();
-      await Future<void>.delayed(kBoundaryDwell);
-      if (!isActive()) return null;
+      if (!await holdInFront(kBoundaryDwell, isActive, calls: calls)) {
+        throw const CaptureScreenLeftFront('before the scenario');
+      }
 
-      Sleuth.markScenarioBegin(leg.scenario);
+      calls.markScenarioBegin(leg.scenario);
       scenarioOpen = true;
       driver.recordAttempt();
       startWorkload(value);
-      await Future<void>.delayed(leg.workloadDuration);
+      final ranInFront = await holdInFront(
+        leg.workloadDuration,
+        isActive,
+        calls: calls,
+      );
       stopWorkload();
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
-      final peak = double.parse(readPeak().toStringAsFixed(1));
-      Sleuth.markScenarioEnd(leg.scenario);
+      // The open scenario is closed by the cleanup; nothing is exported.
+      if (!ranInFront) {
+        throw const CaptureScreenLeftFront('during the scenario');
+      }
+      await calls.flushTimeline();
+      final peak = roundPercent(readPeak());
+      calls.markScenarioEnd(leg.scenario);
       scenarioOpen = false;
-      await Future<void>.delayed(kPostScenarioEndDwell);
+      await calls.wait(kPostScenarioEndDwell);
       driver.addLog(
         '[$label] attempt ${driver.attempts} at $knob $value: observed peak '
         '$peak % (band $bandText)',
@@ -459,92 +1211,92 @@ Future<void> runTimeShareLeg({
       return peak;
     }
 
-    var current = scaled;
-    var observed = await measure(current);
-    if (observed == null) return driver.fail('screen closed before scenario');
     // The share does not scale linearly with the knob once builds or
-    // paints approach the frame budget, so rescale by target / observed
-    // up to kMaxLegAttempts times; the share is concave in the knob, so each
-    // step closes only part of the gap.
-    while (!inBand(observed!) && driver.attempts < kMaxLegAttempts) {
-      final retry = retryKnob(
+    // paints approach the frame budget, so a miss rescales by target /
+    // observed; the share is concave in the knob, so each step closes
+    // only part of the gap.
+    var current = scaled;
+    while (true) {
+      final observed = await measure(current);
+      final afterPeak = decideAfterPeak(
+        leg: leg,
+        band: band,
         knob: current,
         observed: observed,
-        target: leg.targetPercent,
-        minKnob: leg.minKnob,
-        maxKnob: leg.maxKnob,
+        attempts: driver.attempts,
       );
-      if (retry == null) {
-        return driver.fail(
-          'observed peak is 0 % at $knob $current',
-          observed: observed,
+      if (afterPeak is LegFail) {
+        return driver.fail(afterPeak.reason, observed: observed);
+      }
+      if (afterPeak is LegRetry) {
+        driver.addLog(
+          '[$label] ${afterPeak.reason}, retrying at $knob ${afterPeak.knob}',
         );
+        current = afterPeak.knob;
+        continue;
       }
-      if (retry == current) {
-        return driver.fail(
-          'observed $observed % outside the $label band and the $knob '
-          'clamp binds at $current',
-          observed: observed,
-        );
-      }
-      driver.addLog('[$label] outside the band, retrying at $knob $retry');
-      current = retry;
-      observed = await measure(current);
-      if (observed == null) {
-        return driver.fail('screen closed before the retry scenario');
-      }
-    }
-    await withCallTimeout(
-      Sleuth.resumeAllTimelineStreams(),
-      'resumeAllTimelineStreams',
-      timeout: callTimeout,
-    );
-    streamsSuspended = false;
 
-    if (observed <= 0) {
-      return driver.fail('observed peak is 0 %', observed: observed);
-    }
-    if (!inBand(observed)) {
-      return driver.fail(
-        'observed $observed % outside the $label band after '
-        '${driver.attempts} attempts',
-        observed: observed,
+      final json = await withCallTimeout(
+        calls.exportCapture(
+          leg: leg,
+          band: band,
+          observed: observed,
+          provenance: stamp,
+        ),
+        'exportCaptureJson',
+        timeout: callTimeout,
       );
-    }
-    final json = await withCallTimeout(
-      Sleuth.exportCaptureJson(
-        scenario: leg.scenario,
-        role: leg.role,
-        magnitudeMin: band.min,
-        magnitudeObserved: observed,
-        magnitudeMax: band.max,
-        unit: 'percent',
-        device: kCaptureDevice,
-        deviceOsVersion: kCaptureDeviceOs,
-        flutterVersion: kCaptureFlutterVersion,
-        captureCommand: kCaptureCommand,
-        // Detector-measured magnitude; no timeline event to derive it from.
-        magnitudeSourceEventName: '',
-        bracketStableId: leg.stableId,
-        bracketSeverityLabel: leg.tier,
-      ),
-      'exportCaptureJson',
-      timeout: callTimeout,
-    );
-    if (json == null) {
-      return driver.fail(
-        'export refused: ${Sleuth.lastCaptureExportFailure ?? 'no reason'}',
+      if (json == null) {
+        return driver.fail(
+          'export refused: ${calls.lastExportFailure ?? 'no reason'}',
+          observed: observed,
+        );
+      }
+      final records = leg.role == 'below'
+          ? null
+          : countCaptureRecords(json, bracket: leg.bracket, role: leg.role);
+      final afterExport = decideAfterExport(
+        leg: leg,
+        knob: current,
         observed: observed,
+        attempts: driver.attempts,
+        records: records,
       );
+      if (afterExport is LegFail) {
+        return driver.fail(afterExport.reason, observed: observed);
+      }
+      if (afterExport is LegRetry) {
+        driver.addLog(
+          '[$label] ${afterExport.reason}, retrying at $knob '
+          '${afterExport.knob}',
+        );
+        current = afterExport.knob;
+        continue;
+      }
+
+      await withCallTimeout(
+        calls.resumeStreams(),
+        'resumeAllTimelineStreams',
+        timeout: callTimeout,
+      );
+      streamsSuspended = false;
+      driver.addLog(
+        '[$label] export OK (${json.length} chars'
+        '${records == null ? '' : ', ${records.inBand} in-band records'})',
+      );
+      driver.complete(observed: observed, json: json);
+      return;
     }
-    driver.addLog('[$label] export OK (${json.length} chars)');
-    driver.complete(observed: observed, json: json);
   } catch (e) {
     driver.fail('$e');
   } finally {
     stopWorkload();
-    if (scenarioOpen) endScenarioInCleanup(leg.scenario, label);
-    if (streamsSuspended) unawaited(Sleuth.resumeAllTimelineStreams());
+    if (scenarioOpen) {
+      endScenarioInCleanup(leg.scenario, label, markEnd: calls.markScenarioEnd);
+    }
+    if (streamsSuspended) {
+      unawaited(calls.resumeStreams().catchError((Object _) {}));
+    }
   }
 }
 
@@ -564,31 +1316,45 @@ void endScenarioInCleanup(
   }
 }
 
-/// Banner shown on a capture screen while capture mode is off or the VM
-/// service is not connected; legs started in that state fail.
+// ── Widgets ──
+
+/// Banner shown on a capture screen while capture mode is off, the VM
+/// service is not connected or the build cannot stamp an approved
+/// provenance; legs started in that state fail. Renders nothing when
+/// every check passes.
 class CapturePreflightBanner extends StatelessWidget {
   const CapturePreflightBanner({
     super.key,
     required this.captureMode,
     required this.vmConnected,
+    this.provenanceProblem,
   });
 
   final bool captureMode;
   final bool vmConnected;
 
+  /// Why the build cannot stamp an approved provenance, if it cannot.
+  final String? provenanceProblem;
+
   @override
   Widget build(BuildContext context) {
+    final lines = [
+      if (!captureMode)
+        'Capture mode is off. Relaunch with '
+            '--dart-define=SLEUTH_CAPTURE_MODE=true.'
+      else if (!vmConnected)
+        'VM service not connected. Run a profile build with '
+            '--no-dds so Sleuth can attach.',
+      if (provenanceProblem != null) 'Capture provenance: $provenanceProblem.',
+    ];
+    if (lines.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(8),
       color: scheme.errorContainer,
       child: Text(
-        !captureMode
-            ? 'Capture mode is off. Relaunch with '
-                  '--dart-define=SLEUTH_CAPTURE_MODE=true.'
-            : 'VM service not connected. Run a profile build with '
-                  '--no-dds so Sleuth can attach.',
+        lines.join('\n'),
         style: TextStyle(color: scheme.onErrorContainer, fontSize: 12),
       ),
     );

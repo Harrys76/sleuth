@@ -1179,12 +1179,14 @@ const Map<String, String> _captureScreenSlugs = {
 const Set<String> _captureTiers = {'warning', 'critical'};
 const Set<String> _captureRoles = {'below', 'at', 'above'};
 
-/// Starts a capture leg for `ext.sleuthDemo.captureLeg`: opens the
-/// detector's capture screen when it is not mounted, waits up to 3 s for
-/// it to register, and starts the same leg its buttons run. Returns
+/// Starts a capture leg for `ext.sleuthDemo.captureLeg`: brings the
+/// detector's capture screen to the front (pops the routes above a
+/// covered one, opens one when none is mounted), waits up to 3 s for it
+/// to be in front, and starts the same leg its buttons run. Returns
 /// `{started: true}` without waiting for the leg, or `{error: ...}`
 /// (`busy`, `not_capture_mode`, `vm_disconnected`, `bad_args`,
-/// `no_navigator`, `screen_not_ready`).
+/// `bad_provenance` with a `detail`, `no_navigator`, `screen_not_ready`,
+/// `not_in_front`).
 @visibleForTesting
 Future<Map<String, Object?>> startCaptureLeg({
   required String detector,
@@ -1204,22 +1206,25 @@ Future<Map<String, Object?>> startCaptureLeg({
   final capture = Sleuth.diagnoseCaptureState();
   if (!capture.captureMode) return {'error': 'not_capture_mode'};
   if (!capture.vmConnected) return {'error': 'vm_disconnected'};
-
-  var runner = driver.runnerFor(detector);
-  if (runner == null) {
-    final navigator = _navigatorKey.currentState;
-    final demo = _demoForSlug(slug);
-    if (navigator == null || demo == null) return {'error': 'no_navigator'};
-    _pushDemo(navigator, demo);
-    final deadline = DateTime.now().add(readyTimeout);
-    while ((runner = driver.runnerFor(detector)) == null &&
-        DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    }
-    if (runner == null) return {'error': 'screen_not_ready'};
+  final provenanceProblem = currentCaptureProvenance().problem;
+  if (provenanceProblem != null) {
+    return {'error': 'bad_provenance', 'detail': provenanceProblem};
   }
+
+  final navigator = _navigatorKey.currentState;
+  final demo = _demoForSlug(slug);
+  final front = await bringCaptureScreenToFront(
+    detector: detector,
+    navigator: navigator,
+    pushScreen: navigator == null || demo == null
+        ? null
+        : () => _pushDemo(navigator, demo),
+    timeout: readyTimeout,
+  );
+  final screen = front.screen;
+  if (screen == null) return {'error': front.error};
   if (!driver.begin('$detector/$tier/$role')) return {'error': 'busy'};
-  unawaited(driver.runLeg(runner, tier, role));
+  unawaited(driver.runLeg(screen.runner, tier, role));
   return {'started': true, 'leg': '$detector/$tier/$role'};
 }
 

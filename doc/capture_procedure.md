@@ -804,6 +804,11 @@ which produces a different jank/percentile distribution at the same
 spin-loop calibration. The screen rejects non-60 Hz devices in pre-flight
 so the captures stay comparable across runs.
 
+The screen stamps its exports with the provenance described under
+"RebuildActivity + Repaint time-share captures" below (launch with
+`--dart-define=SLEUTH_CAPTURE_DEVICE=<model>`), and its leg buttons stay
+disabled while that provenance is unknown or not approved.
+
 ## NetworkMonitor large_response + request_frequency capture (v0.19.9)
 
 Two more families raise to runtimeVerified through `additionalBrackets`,
@@ -874,14 +879,18 @@ bracket the share of UI-thread time spent inside BUILD / PAINT scopes
 (`unit: 'percent'`, arg keys `observedBuildPercent` /
 `observedPaintPercent`). Their capture screens vary cost per frame, not
 event count, so the legs are driven by service extensions instead of
-taps. Record on the iPhone 12 / iOS 17.5 / Flutter 3.47.6.
+taps. Record on a device and SDK the schema approves (today iPhone 12 /
+iOS 17.5 with Flutter 3.41.x or 3.47.x), and record the three legs of a
+bracket with one build: the audit requires one exact `flutterVersion`
+across a triad.
 
 ### Launch
 
 ```bash
 cd example
 fvm flutter run --profile --no-dds -d <udid> \
-  --dart-define=SLEUTH_CAPTURE_MODE=true
+  --dart-define=SLEUTH_CAPTURE_MODE=true \
+  --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"
 ```
 
 `--no-dds` keeps the VM service shareable so Sleuth's own VM client stays
@@ -890,19 +899,43 @@ to Basic. Connect any `package:vm_service` client to the printed
 `ws://.../ws` URI. Leave the phone idle for two minutes before the first
 leg; build and paint durations drift with temperature.
 
+### Provenance
+
+Each export stamps the environment it was recorded in, read from the
+build rather than assumed:
+
+- `device`: the `SLEUTH_CAPTURE_DEVICE` dart-define (the example has no
+  device-info plugin, so name the model the phone actually is);
+- `deviceOsVersion`: `Platform.operatingSystemVersion`, which iOS reports
+  as `Version 17.5 (Build 21F79)`, stamped as `iOS 17.5`;
+- `flutterVersion`: `FlutterVersion.version`, set by the flutter tool at
+  build time;
+- `captureCommand`: the launch command above with that device.
+
+A leg refuses to start while any of these is unknown or not in
+`ProfileCaptureSchema.approvedDevicePairs` /
+`approvedFlutterMajorMinors` (a phone on iOS 17.5.1 is refused, not
+stamped 17.5). The capture screens show the reason in their pre-flight
+banner. The FrameTiming capture screen stamps and checks its exports the
+same way.
+
 ### Per leg
 
 1. `ext.sleuthDemo.captureLeg` with `detector=rebuild|repaint`,
    `tier=warning|critical` (repaint: `warning` only),
-   `leg=below|at|above`. Opens the capture screen if needed and returns
-   `{started: true}` at once, or `{error: busy | not_capture_mode |
-   vm_disconnected | bad_args | screen_not_ready}`.
+   `leg=below|at|above`. Brings the capture screen to the front (pops the
+   routes above a covered one, opens one when none is mounted) and
+   returns `{started: true}` at once, or `{error: busy |
+   not_capture_mode | vm_disconnected | bad_args | bad_provenance |
+   no_navigator | screen_not_ready | not_in_front}`; `bad_provenance`
+   carries the reason in `detail`.
 2. Poll `ext.sleuthDemo.captureResult` every 2 s until `state` is `done`
-   or `failed` (a leg takes about 12 s for rebuild, 14 s for repaint,
-   up to five times that with retries). The payload carries `leg`,
-   `observed`, `attempts` (measured spans run, 1 to 5), `log`, and on
-   success the wrapped capture in `json`. Pass `consume=true` on the final read to
-   release the stash.
+   or `failed`. Both detectors run a 6 s workload per measured span; with
+   the 3 s pre-pass and the dwells a one-span leg takes about 12 s, and
+   each further span adds about 9 s (five spans at most). The payload
+   carries `leg`, `observed`, `attempts` (measured spans run, 1 to 5),
+   `log`, and on success the wrapped capture in `json`. Pass
+   `consume=true` on the final read to release the stash.
 3. Write `json` to the capture file (same names as before):
    `rebuild_detector/{below,at,above}.json`,
    `rebuild_detector/critical_{below,at,above}.json`,
@@ -922,21 +955,46 @@ fresh `TextPainter` (default font, size 12) whose text carries the
 current tick, so every layout is new PAINT work rather than raster work.
 
 Each leg runs a 3 s calibration pre-pass at a known knob (`work` 4000
-for rebuild, `ops` 32 for repaint), reads the detector's
-`lastObserved*Percent`, and scales the knob to the leg target (warning
-0.5 / 1.25 / 2.1 × the threshold for rebuild, 0.5 / 1.25 / 2.0 × for
-repaint; rebuild critical 0.8 / 1.23 / 2.0 × 3× the threshold). It then
-stops, flushes the timeline, resets the detector, idles 1.5 s so the
-idle heartbeat closes an empty window, and records a 6 s scenario. `observed` is the
-detector peak rounded to one decimal; `expectedMagnitude` bands are
-warning below [0.5, t], critical below [0.65 t, t], at [t, 1.5 t], above
-[1.5 t, 2.7 t]. When the peak lands outside its band the leg runs once
-more, with the same boundary and scenario name, at the knob scaled by
-target / observed and clamped to the workload range; the export reads
-the latest span. A leg fails (and exports nothing) when the pre-pass
+for rebuild, `ops` 32 for repaint), reads the detector's peak over the
+pre-pass (`peakObserved*Percent`, the best full window of steady
+workload), and scales the knob to the leg target (warning 0.5 / 1.25 /
+2.1 × the threshold for rebuild, 0.5 / 1.25 / 2.0 × for repaint; rebuild
+critical 0.8 / 1.23 / 2.0 × 3× the threshold). It then stops, flushes
+the timeline, resets the detector, idles 1.5 s so the idle heartbeat
+closes an empty window, and records a 6 s scenario. `observed` is the
+detector peak over the scenario rounded to one decimal, the precision of
+the trace arg; `expectedMagnitude` bands are warning below [0.5, t),
+critical below [0.65 t, t), at [t, 1.5 t], above (1.5 t, 2.7 t], the
+same edges the audit draws.
+
+When the peak lands outside its band the leg runs another measured
+span, with the same boundary and scenario name, at the knob scaled by
+target / observed and clamped to the workload range, up to four more
+spans (five in all). An in-band span is exported (the export reads the
+latest span of the scenario) and, for at and above legs, its in-span
+`sleuth.issue.<id>.<severity>` records are checked the way the audit
+checks them: every record carries the observed arg, the max lies in the
+role band and within ±25 % of `observed`, and at least the bracket's
+`minInBandSamples` records (2 for `rebuild_activity.critical`, otherwise
+1) lie in the role band. A shortfall runs another span, rescaled toward
+the target when the peak fell short of it and at the same knob
+otherwise, within the same five-span limit.
+
+The capture screen has to stay in front for the whole leg. A route
+covered by another keeps its state while its tickers are muted, so its
+workload would not run; the leg checks every 100 ms through the
+pre-pass, the dwell and the workload that the screen's route is current
+and its tickers are enabled, and fails (closing the scenario and
+exporting nothing) when it is not. Do not open another screen or a
+dialog over a running leg.
+
+A leg fails (and exports nothing) when the provenance is unknown or not
+approved, the live threshold differs from the bracket's, the pre-pass
 reads 0 %, the scaled knob falls outside the workload range, a peak
-reads 0 %, or every retry misses its band. Re-record a failed leg on its own; after three failed
-attempts stop and look at `log` instead of widening tolerances.
+reads 0 %, the export is refused, the screen leaves the front, or five
+spans pass without a span that clears both checks. Re-record a failed
+leg on its own; after three failed legs stop and look at `log` instead
+of widening tolerances.
 
 `ext.sleuthDemo.vmAxes` (`reset=true|false`) returns `buildLast`,
 `buildPeak`, `paintLast`, `paintPeak` and `vmConnected` for calibration
