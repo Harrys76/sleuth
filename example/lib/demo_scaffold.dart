@@ -31,8 +31,8 @@ class DemoScaffold extends StatefulWidget {
   /// AppBar title text.
   final String title;
 
-  /// Instruction text shown in the collapsible banner.
-  /// Typically includes ❌ BAD / ✅ FIX markers and a ▶ action line.
+  /// Instruction text shown in the collapsible banner. It usually has a
+  /// `Bad:` line, a `Fix:` line and a sentence saying what to try.
   final String description;
 
   /// Main content area (the anti-pattern). Controls its own scrolling.
