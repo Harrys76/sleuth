@@ -103,7 +103,7 @@ Both modes run the full overlay, all 20 detectors and the AI chat. They differ i
 | Overlay and all detectors | Yes | Yes | Disabled |
 | Frame timing accuracy | Inflated by debug overhead | Production-accurate | n/a |
 | VM timeline (build, layout and paint durations) | Yes | Yes | n/a |
-| Source location in issues (`file.dart:42`) | Yes | No | n/a |
+| Source location in issues (`file.dart:42`) | Yes | Yes, except iOS builds from `flutter build ios` or `ipa` | n/a |
 | Per-widget rebuild and paint issues (`enableDebugCallbacks`) | Yes (opt-in) | No | n/a |
 | Rebuild Stats panel with per-widget rebuild counts (`enableDeepDebugInstrumentation`) | No | Yes (opt-in) | n/a |
 | Widget dirty-state arguments on timeline events (`DebugInstrumentationConfig.timelineEnrichment`) | Yes (opt-in) | No | n/a |
@@ -112,11 +112,11 @@ Both modes run the full overlay, all 20 detectors and the AI chat. They differ i
 ### When to use which
 
 - **Profile mode** is for performance investigation. Timing is real, with no debug overhead inflating the numbers, so trust these results.
-- **Debug mode** is for finding the root cause. Source locations point at the exact file and line, and opt-in debug callbacks give per-widget rebuild and paint counts. Verify timing fixes in profile mode afterwards.
+- **Debug mode** is for finding the root cause. Opt-in debug callbacks give per-widget rebuild and paint counts. Verify timing fixes in profile mode afterwards.
 
 ### Opt-in deep instrumentation
 
-These options add overhead and are off by default. Turn them on when you need per-widget attribution. Source locations (`file.dart:42`) are debug-only, but `enableDeepDebugInstrumentation` also works in profile mode, where it feeds the Rebuild Stats panel:
+These options add overhead and are off by default. Turn them on when you need per-widget attribution. `enableDebugCallbacks` works only in debug mode. `enableDeepDebugInstrumentation` also works in profile mode, where it feeds the Rebuild Stats panel:
 
 ```dart
 SleuthConfig(
@@ -522,14 +522,14 @@ The per-detector ledger at [`doc/validation_ledger.md`](https://github.com/Harry
 To set expectations:
 
 - Sleuth **does not replace** DevTools heap snapshots or interactive flame charts. It covers breadth (20 detectors, encyclopedia, AI chat), not object-level inspection or zoomable timelines.
-- **Widget attribution depends on the mode.** Debug mode gives exact per-widget rebuild and paint counts and source file and line locations. Profile mode gives per-widget rebuild counts only in the Rebuild Stats panel (with `enableDeepDebugInstrumentation`), and those counts include first builds. Its rebuild and repaint issues measure the share of UI-thread time spent in BUILD and PAINT, not single widgets. See [Debug vs profile mode](#debug-vs-profile-mode) for the full matrix.
+- **Widget attribution depends on the mode.** Debug mode gives exact per-widget rebuild and paint counts. Profile mode gives per-widget rebuild counts only in the Rebuild Stats panel (with `enableDeepDebugInstrumentation`), and those counts include first builds. Its rebuild and repaint issues measure the share of UI-thread time spent in BUILD and PAINT, not single widgets. See [Debug vs profile mode](#debug-vs-profile-mode) for the full matrix.
 - **VM full mode** depends on the runtime environment and is not guaranteed on every platform.
 - **Memory pressure detection** watches GC frequency, heap growth trends (linear regression) and, when you set a budget, process memory (RSS) against it. When it detects growth, it adds per-class allocation deltas to the issue, but it does not track individual object leaks or retention paths.
 - **CPU attribution** is statistical (about 1 kHz sampling), so functions that run for less than 1 ms may not appear. Use the DevTools CPU profiler for complete call trees.
 
 ## Tips and troubleshooting
 
-iOS profile builds archived with `fastlane gym` can lose `file.dart:42` source locations, because a stale `TRACK_WIDGET_CREATION=false` in `Generated.xcconfig` strips them. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#ios-profile-builds-via-fastlane-lose-source-locations) has the cause and the Fastfile patch.
+iOS profile builds made with `flutter build ios` or `flutter build ipa` (and Xcode or `fastlane gym` archives that follow them) show issues without `file.dart:42` source locations, because those commands write `TRACK_WIDGET_CREATION=false` into `Generated.xcconfig`. `flutter run --profile` keeps them. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#ios-builds-from-flutter-build-ios-lose-source-locations) has the build steps and a Fastfile patch that keep them.
 
 ## Example app
 

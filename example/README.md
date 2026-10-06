@@ -10,7 +10,7 @@ brackets.
 # Profile mode (recommended, accurate timing)
 cd example && flutter run --profile
 
-# Debug mode (source locations visible, timing less representative)
+# Debug mode (per-widget rebuild and paint counts, timing less representative)
 cd example && flutter run
 ```
 

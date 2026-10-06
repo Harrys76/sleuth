@@ -195,30 +195,25 @@ Use `ttffMs` to catch Dart regressions, such as heavy work in `main()`, the firs
 
 The in-app Startup Metrics page shows the full method and a per-phase breakdown.
 
-## iOS profile builds via Fastlane lose source locations
+## iOS builds from `flutter build ios` lose source locations
 
-A profile-mode IPA archived with `fastlane gym` shows issues without `file.dart:42` ancestor chains, while a local `flutter run --profile` shows them.
+Sleuth reads `file.dart:42` locations from Flutter's widget-creation tracking. Flutter compiles that tracking into debug and profile builds when the build asks for it, and never into release builds. `flutter run --profile` and `flutter build apk --profile` ask for it by default, so their issues show locations.
 
-`gym` re-runs `flutter assemble` through `xcode_backend.sh` during the archive, and that step reads `ios/Flutter/Generated.xcconfig`. A stale `TRACK_WIDGET_CREATION=false` left by an earlier release build strips Sleuth's widget-creation locations from the archived binary.
+`flutter build ios` and `flutter build ipa` have no tracking option and write `TRACK_WIDGET_CREATION=false` into `ios/Flutter/Generated.xcconfig`. Xcode reads that file when it compiles the Dart code. A profile build from these commands has no locations, and so does an Xcode or `fastlane gym` archive that runs after them. Everything else in Sleuth works the same.
 
-Patch the xcconfig before `gym` in your Fastfile. `flutter build ios --profile` sets the flag correctly, but an archive that runs against cached values can still read the stale one.
+To keep locations in an iOS profile build, set the value to `true` after the Flutter step and before Xcode compiles:
+
+```bash
+flutter build ios --profile --config-only
+sed -i '' 's/TRACK_WIDGET_CREATION=false/TRACK_WIDGET_CREATION=true/' ios/Flutter/Generated.xcconfig
+xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Profile -destination generic/platform=iOS build
+```
+
+In a Fastfile, make the same replacement before `gym`:
 
 ```ruby
-if target_platform == :ios && (mode == "profile" || mode == "debug")
-  xcconfig = File.expand_path('../ios/Flutter/Generated.xcconfig', __dir__)
-  if File.exist?(xcconfig)
-    text = File.read(xcconfig)
-    if text.include?('TRACK_WIDGET_CREATION=false')
-      File.write(xcconfig, text.sub('TRACK_WIDGET_CREATION=false', 'TRACK_WIDGET_CREATION=true'))
-    end
-  end
-
-  gym(
-    scheme: flavor == "PROD" ? "Runner" : "dev",
-    configuration: flavor == "PROD" ? "Profile" : "Profile-dev",
-    export_method: @export_method,
-    silent: true,
-    suppress_xcode_output: true,
-  )
-end
+xcconfig = File.expand_path('../ios/Flutter/Generated.xcconfig', __dir__)
+text = File.read(xcconfig)
+File.write(xcconfig, text.sub('TRACK_WIDGET_CREATION=false', 'TRACK_WIDGET_CREATION=true'))
+gym(scheme: 'Runner', configuration: 'Profile')
 ```
