@@ -973,6 +973,15 @@ same barrier as HeavyCompute and FrameTiming). It also passes
 in-span emission with a `debugPrint` message before any JSON reaches
 the clipboard.
 
+The screen checks provenance and the detector's bracket before any leg
+runs. When a leg ends it judges the measured duration, response size or
+detector peak count against the leg's band and logs
+`[<label>] UNMEASURED: ...` or `[<label>] OUT-OF-BAND: ... Nothing to
+export; re-run the leg.` instead of marking the leg complete. At the
+Export tap the composed JSON must pass the same record check as the
+other screens (`checkCaptureRecords`), or the screen logs
+`[<leg>] OUT-OF-BAND: <reason>. Nothing copied; re-run the leg.`
+
 ## StreamResource stream_resource_growth capture (v0.26.0)
 
 `StreamResourceDetector` reads the VM allocation profile rather than
@@ -1018,8 +1027,10 @@ MemoryPressure.
 
 ### Per-leg sequence (StreamResourceCaptureScreen)
 
-Tap below, at or above. Each button shows the leg's band. The leg then
-runs without further input:
+Tap below, at or above. Each button shows the leg's band. The screen
+first checks the build's capture provenance and refuses the leg before
+any workload when it is missing or not approved. The leg then runs
+without further input:
 
 1. It drops the previous leg's subscriptions, starts the byte pressure
    and runs it for 10 s with no span open.
@@ -1039,9 +1050,11 @@ runs without further input:
 6. It calls `Sleuth.flushTimelineNow(timeout: 1 s)` and
    `markScenarioEnd`, waits 600 ms and restores the streams.
 7. It checks that the window filled and that a poll matched a watched
-   class, exports with `Sleuth.exportCaptureJson(...)` and keeps the
-   JSON. On success the log shows `[<leg>] export OK` and
-   the snackbar reports the detector's top-class growth as `Δ=N`.
+   class. A below leg also needs a measured top-class growth under 50.
+   It then exports with `Sleuth.exportCaptureJson(...)`, sets
+   `observed`, and checks the composed JSON against the bracket before
+   keeping it. On success the log shows `[<leg>] export OK (observed Δ
+   <n>)` and the snackbar shows `<leg> OK (Δ=<n>). Tap Export.`
 
 While the leg runs, the screen shows the phase, the elapsed seconds,
 whether `heap_growing` is active, the samples in the window out of 4
@@ -1061,7 +1074,9 @@ in `instances`. For the at and above legs the screen then sets
 `observed` to the largest `topGrowthDelta` among the in-span
 `sleuth.issue.stream_resource_growth.warning` records. The below leg
 has no record, so its `observed` is the detector's last top-class
-growth (`lastObservedTopGrowthDelta`), or 0 when no class grew.
+growth (`lastObservedTopGrowthDelta`). The screen refuses a below leg
+whose growth was never measured, so it never exports an `observed` of
+0.
 
 ### Bands and the observed axis
 
@@ -1071,15 +1086,18 @@ threshold 50, `unit: 'instances'`, `atTolerance` 0.6,
 `aboveCeilingMultiplier` 3.0, arg key `topGrowthDelta`, the default
 `max` reduction and a unique `detectedAtMicros` per record.
 
-| Leg | Subscriptions per kind (N) | Screen band | Audit rule |
+| Leg | Subscriptions per kind (N) | `expectedMagnitude` band | Screen accepts (detector axis) |
 |---|---|---|---|
-| Below | 20 | 1 to 49 | under 50, no in-span record |
-| At | 100 | 50 to 80 | 50 to 80 |
-| Above | 230 | 51 to 150 | above 50, at most 150, above the at leg |
+| Below | 20 | 1 to 49 | measured growth 1 to 49, no in-span record |
+| At | 100 | 50 to 80 | largest in-span growth 50 to 80 |
+| Above | 230 | 51 to 150 | largest in-span growth above 80, at most 150 |
 
-The schema rejects an `observed` of 0, so the below leg needs some
-measured growth. The audit compares `observed` with the largest
-in-span `topGrowthDelta` and accepts a difference of up to 25 %.
+The screen accepts the same bands as the audit's detector-axis check
+(`CaptureBracket.inRoleBand`). The above leg's `expectedMagnitude.min`
+stays 51, which the schema accepts, but a growth of 51 to 80 is refused
+as OUT-OF-BAND. Every in-span record must carry `topGrowthDelta`, and
+the audit compares `observed` with the largest in-span value and
+accepts a difference of up to 25 %.
 
 The checked-in triad (iPhone 12, iOS 17.5, Flutter 3.41.4) carries 5,
 54 and 89. Its `captureCommand` is the older form without `--no-dds`
@@ -1089,20 +1107,21 @@ across a triad, so record all three legs again with one build.
 
 ### Refused legs and exports
 
-The screen prints no IN-BAND or OUT-OF-BAND verdict and makes no second
-attempt. Read the log and run a failed leg again.
+The screen makes no second attempt. A refused leg stashes nothing, so
+run it again.
 
 | Log line | Meaning |
 |---|---|
+| `[<leg>] ABORT: capture provenance: <problem>` | The build's device, OS or Flutter version is unknown or not approved. The screen refuses the leg before any workload. Rebuild with the dart-defines from the launch command. |
 | `FAIL <leg>: Bad state: heap_growing did not re-activate within 25 s ...` | The heap slope did not stay above 512,000 bytes/s long enough after `markScenarioBegin`. |
 | `REFUSE EXPORT: samples=<n>/4 ...` | The window never reached four samples, or no poll matched a watched class. The `Poll <n>:` lines show whether a poll failed (`failed: <reason>`) or matched nothing (`matched=0`). |
 | `[<leg>] export FAILED: <reason>` | `exportCaptureJson` refused, and the reason says why: no matching scenario markers in the buffer, a below span that holds a `stream_resource_growth.warning` record, or an at or above span that holds none. A missing record means one of the three conditions failed at every poll in the span. |
-| `[<leg>] export FAILED: <unknown>` or an earlier export's reason, with `Sleuth capture: not exporting: ...` on the console | The build's device, OS or Flutter version is unknown or not approved, so the screen did not export. |
+| `[below] UNMEASURED: no top-class growth was measured. Nothing stashed; re-run the leg.` | No watched class grew across the window, so the leg has no measurement to export. |
+| `[below] OUT-OF-BAND: top-class growth <n> instances lies outside the below band (0, 50) instances. ...` | The growth reached the threshold without an emission. |
+| `[<leg>] OUT-OF-BAND: <reason>. Nothing stashed; re-run the leg.` | The composed capture failed the record check: an in-span record without `topGrowthDelta`, a largest value outside the leg's band, or too few in-band records. |
+| `[<leg>] post-process FAILED: <error>. Nothing stashed; re-run the leg.` | Setting `observed` in the composed JSON failed. |
 | `FAIL: StreamResourceDetector not available ...` | Sleuth has not initialised. |
-
-The screen does not check the band. A growth outside it still exports
-and then fails the audit, so compare `expectedMagnitude.observed` in
-the saved file with the leg's band before you commit it.
+| `FAIL: StreamResourceDetector declares no stream_resource_growth.warning bracket.` | The detector metadata lost its bracket; the build does not match this procedure. |
 
 ### Validate the triad
 
@@ -1212,11 +1231,15 @@ log names the destination: `<leg>.json` under
 `test/validation/captures/tracked_resource_concurrent/` or
 `test/validation/captures/tracked_resource_long_lived/`.
 
-The export writes `expectedMagnitude` with `min` one below `observed`
-and `max` one above it, not the bracket band. `observed` is the peak the
-screen read after the last sweep. The audit judges the bracket on
-`observed` and compares it with the largest in-span arg, accepting a
-difference of up to 25 %.
+When the leg ends, the screen judges the peak against the leg's band
+and refuses a peak that was never measured, is not positive, or lies
+outside the band, so no export is offered. At the Export tap it checks
+the composed JSON against the bracket, with the peak as `observed`,
+before copying it. The export writes `expectedMagnitude` with `min` one
+below `observed` (at least 1) and `max` one above it, not the bracket
+band. `observed` is the peak the screen read after the last sweep. The
+audit judges the bracket on `observed` and compares it with the largest
+in-span arg, accepting a difference of up to 25 %.
 
 ### Bands and the observed axis
 
@@ -1241,15 +1264,19 @@ current sweep on every sweep, so each record carries its own
 
 ### Refused legs and exports
 
-The screen prints no IN-BAND or OUT-OF-BAND verdict and makes no second
-attempt. Read the log and run a failed leg again.
+The screen makes no second attempt. Read the log and run a refused leg
+again.
 
 | Log line | Meaning |
 |---|---|
+| `[<leg>] ABORT: capture provenance: <problem>` | The build's device, OS or Flutter version is unknown or not approved. The screen refuses the leg before registering anything. Rebuild with the dart-defines from the launch command. |
 | `[<leg>] FAILED: Sleuth.trackedResourceDetector is null. ...` | Sleuth has not initialised. Check the launch command. |
+| `[<leg>] FAILED: the detector declares no <family>.warning bracket.` | The detector metadata lost its bracket; the build does not match this procedure. |
+| `[<family>/<leg>] UNMEASURED: ...` or `[<family>/<leg>] OUT-OF-BAND: ... Nothing to export; re-run the leg.` | The peak live count or peak age was never measured, was not positive, or fell outside the leg's band. |
+| `[<leg>] OUT-OF-BAND: <reason>. Nothing copied; re-run the leg.` | At the Export tap the composed capture failed the record check: an in-span record without the arg key, a largest value outside the band or too far from `observed`, or too few in-band records. |
 | `[<leg>] FAILED: <error>` | The leg threw. The screen closes any open span and restores the streams it narrowed. |
 | `[<leg>] Export FAILED. initialized=... captureMode=... vmConnected=... Reason: <reason>` | `exportCaptureJson` refused. `vmConnected=false` means Sleuth has no VM connection (FRAME mode). "Scenario markers not found" usually means the markers left the buffer before the tap. The bracket check refuses a below span that holds a record and an at or above span that holds none. |
-| `[<leg>] Export FAILED: Bad state: capture provenance` | The build's device, OS or Flutter version is unknown or not approved. The console shows `Sleuth capture: not exporting: ...`, and no export runs. |
+| `[<leg>] Export FAILED: capture provenance: <problem>` | The provenance check failed again at the Export tap. No export runs. |
 | `Export: no completed leg yet. ...` | Export was tapped before a leg finished. |
 
 ### Validate the triads
@@ -1324,8 +1351,8 @@ instead of stamping it 17.5. The capture screens show the reason in
 their pre-flight banner. Every other capture screen in the example
 stamps its exports the same way. The FrameTiming screen keeps its leg
 buttons disabled without approved provenance, and the other tap-driven
-screens refuse at export and print the reason
-(`Sleuth capture: not exporting: ...`).
+screens refuse the leg when it starts, before any workload, and log
+`[<leg>] ABORT: capture provenance: <problem>`.
 
 ### Per leg
 
