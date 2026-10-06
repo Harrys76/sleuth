@@ -296,13 +296,13 @@
   layer's repaints instead of every widget painted with it. Sleuth reads
   `debugNeedsPaint` in the paint hook, credits the deepest marked render
   object in each layer to the nearest widget the app creates, and rates
-  each type by its busiest instance instead of summing instances. Widgets
-  that share the layer, clean `RepaintBoundary` visits, slivers, viewports,
-  framework control painters, Material ink splashes and scrolling are not
-  credited, so following
-  the fix hint no longer raises a `repaint_debug_RepaintBoundary` card. The
-  cards are titled "Likely Repaint Origin", are `likely`, and highlight the
-  busiest origin instances. `frequent_repaint_painter` and the lift of
+  each type by its busiest instance instead of summing instances. Sleuth
+  does not credit widgets that only share the layer, clean
+  `RepaintBoundary` visits, slivers, viewports, framework control painters,
+  Material ink splashes or scrolling. Following the fix hint therefore no
+  longer raises a `repaint_debug_RepaintBoundary` card. The cards are
+  titled "Likely Repaint Origin", are `likely`, and highlight the busiest
+  origin instances. `frequent_repaint_painter` and the lift of
   `always_repaint_painter` read the same origin rate and hold it across
   scans like the repaint cards, so a slow window no longer drops them. A
   nested boundary repainted earlier in the frame no longer makes the
