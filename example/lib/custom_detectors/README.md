@@ -1,15 +1,15 @@
-# Custom Detector Cookbook
+# Custom detector cookbook
 
-Three reference custom detectors covering the shapes you're most likely
-to need. Each file is a complete, runnable detector with explanatory
-comments. Pick the simplest shape that fits your use case — escalate
-only when you actually need the extra machinery.
+These three reference custom detectors cover the shapes you are most
+likely to need. Each file is a complete, runnable detector with comments
+that explain it. Pick the simplest shape that fits your use case, and
+move to a larger one only when you need what it adds.
 
 | File | Shape | Use when... |
 |------|-------|-------------|
-| [`01_simple_structural_detector.dart`](01_simple_structural_detector.dart) | `SimpleStructuralDetector` | You only need to inspect widgets and emit one issue per match. Includes a framework-tooltip filter to skip standard Material tooltips (Back, Close, etc.) |
+| [`01_simple_structural_detector.dart`](01_simple_structural_detector.dart) | `SimpleStructuralDetector` | You only need to inspect widgets and emit one issue per match. It includes a filter that skips the standard Material tooltips (Back, Close, etc.) |
 | [`02_runtime_callback_detector.dart`](02_runtime_callback_detector.dart) | `BaseDetector` with `DetectorLifecycle.runtime` | You need to observe app events (frames, routes, lifecycle) without walking the tree |
-| [`03_hybrid_vm_structural_detector.dart`](03_hybrid_vm_structural_detector.dart) | `BaseDetector` with `DetectorLifecycle.hybrid` | You're combining VM timeline data with tree scanning |
+| [`03_hybrid_vm_structural_detector.dart`](03_hybrid_vm_structural_detector.dart) | `BaseDetector` with `DetectorLifecycle.hybrid` | You are combining VM timeline data with tree scanning |
 
 ## Wiring a custom detector
 
@@ -30,7 +30,7 @@ Sleuth.track(
 
 ## Disabling a custom detector
 
-Set the `key` parameter when constructing the detector (all three
+Set the `key` parameter when you construct the detector (all three
 cookbook detectors already do this), then list the key in
 `disabledCustomDetectorKeys`:
 
@@ -41,29 +41,30 @@ SleuthConfig(
 )
 ```
 
-The gate applies once at controller initialisation. Runtime flips of
-`detector.isEnabled = true` after init still win — the disabled set is
-only consulted during `_initializeDetectors()`.
+The controller applies the set once, when it initialises its detectors
+(`_initializeDetectors()`). Setting `detector.isEnabled = true` after
+that still turns the detector on, because the set is not read again.
 
 ## Which shape should I pick?
 
-Start at the top of this decision tree and stop at the first "yes":
+Start at the top of this list and stop at the first "yes":
 
 1. **"I only need to look at widgets in the build tree."**
-   → `SimpleStructuralDetector`. File 01.
+   Use `SimpleStructuralDetector` (file 01).
 2. **"I need to observe something Flutter tells me about (frames,
    routes, lifecycle) but I don't need the tree."**
-   → `BaseDetector` with `DetectorLifecycle.runtime`. File 02.
+   Use `BaseDetector` with `DetectorLifecycle.runtime` (file 02).
 3. **"I need VM timeline data (raster, GC, build times)."**
-   → `BaseDetector` with `DetectorLifecycle.hybrid` (if you also walk
-   the tree) or `DetectorLifecycle.vmOnly` (if you don't). File 03.
+   Use `BaseDetector` with `DetectorLifecycle.hybrid` if you also walk
+   the tree, or `DetectorLifecycle.vmOnly` if you don't (file 03).
 
 ## Reading more
 
-- [`BaseDetector`](../../../lib/src/models/base_detector.dart) — full
-  lifecycle contract (`prepareScan` / `checkElement` / `afterElement` /
-  `finalizeScan` plus `processTimelineData` and `vmConnected`).
+- [`BaseDetector`](../../../lib/src/models/base_detector.dart) has the
+  full lifecycle contract: `prepareScan`, `checkElement`, `afterElement`
+  and `finalizeScan`, plus `processTimelineData`, `processFrame` and the
+  `vmConnected` setter.
 - [`SimpleStructuralDetector`](../../../lib/src/models/simple_structural_detector.dart)
-  — the helper used by file 01.
-- [`lib/src/detectors/`](../../../lib/src/detectors/) — the 18 built-in
-  detectors, each a production-quality reference implementation.
+  is the helper that file 01 uses.
+- [`lib/src/detectors/`](../../../lib/src/detectors/) holds the 20
+  built-in detectors, each a production reference implementation.

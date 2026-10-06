@@ -1,23 +1,24 @@
-# Sleuth Example
+# Sleuth example
 
-Demo app organized by category. 24 demo screens trigger specific detectors;
-9 capture-helper screens drive `runtimeVerified` capture brackets.
+A demo app organized by category. 24 demo screens trigger specific
+detectors, and 9 capture-helper screens drive `runtimeVerified` capture
+brackets.
 
 ## Running
 
 ```bash
-# Profile mode (recommended — accurate timing)
+# Profile mode (recommended, accurate timing)
 cd example && flutter run --profile
 
 # Debug mode (source locations visible, timing less representative)
 cd example && flutter run
 ```
 
-## Demo Screens
+## Demo screens
 
-| # | Screen | Detectors Triggered | Category |
+| # | Screen | Detectors triggered | Category |
 |---|--------|--------------------|----------|
-| 1 | High-Level setState | SetStateScope (a rebuild card past 10 taps/s) | Build |
+| 1 | High-Level setState | SetStateScope; Rebuild in debug builds at 10 or more taps a second | Build |
 | 2 | Rebuild Hotspot (Dashboard) | Rebuild Stats banner (profile); Rebuild (debug) | Build |
 | 3 | Non-Lazy ListView | ListView | Build |
 | 4 | Shrink-wrapped Sections | ListView (two cards, one per list) | Build |
@@ -38,13 +39,13 @@ cd example && flutter run
 | 19 | Platform Channel Traffic | PlatformChannel | Network & I/O |
 | 20 | Font Loading Stress | FontLoading | Network & I/O |
 | 21 | Tabbed Shell | ListView, ImageMemory, LayoutBottleneck (visible tab only) | Navigation |
-| 22 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom |
+| 22 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom Detectors |
 | 23 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
 | 24 | Combined: Chat App | SetState, KeepAlive, Channel | Combined |
 
-### Capture Helpers (`runtimeVerified` brackets)
+### Capture helpers (`runtimeVerified` brackets)
 
-Drive on-device capture brackets for the audit gate.
+These screens record on-device capture brackets for the audit gate.
 
 | Screen | Bracket |
 |--------|---------|
@@ -60,17 +61,17 @@ Drive on-device capture brackets for the audit gate.
 
 The RebuildActivity and Repaint screens calibrate their workload before
 each leg, record a 6 s scenario, and publish results through
-`ext.sleuthDemo.captureResult`; see
-`doc/capture_procedure.md` ("RebuildActivity + Repaint time-share
-captures").
+`ext.sleuthDemo.captureResult`. See the "RebuildActivity + Repaint
+time-share captures" section of `doc/capture_procedure.md`.
 
-Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
+Most demos explain the anti-pattern and its fix in `BAD:` and `FIX:`
+lines.
 
 ## AI chat
 
 Ask AI talks to a local [Ollama](https://ollama.com) server through its
-OpenAI-compatible API (`llama3.2`). On a device, `localhost` is the device,
-so point the app at the machine running Ollama:
+OpenAI-compatible API (`llama3.2`). On a device, `localhost` is the device
+itself, so point the app at the machine that runs Ollama:
 
 ```bash
 cd example && flutter run --dart-define=SLEUTH_AI_BASE_URL=http://192.168.1.20:11434
@@ -95,10 +96,11 @@ The app passes `FileSleuthStateStore` (`lib/file_state_store.dart`) as
 issues and severity filter survive restarts. The file lives in the system
 temp directory, which the OS may clear.
 
-Service extensions for driving the app from a VM service client (debug
-and profile builds). Each returns JSON; a failure returns `{error, ...}`.
-Lookups by text or label only consider what is on screen: the current
-route, the selected tab, and an overlay page in front of the app.
+The app registers service extensions for driving it from a VM service
+client in debug and profile builds. Each one returns JSON, and a failure
+returns `{error, ...}`. Lookups by text or label consider only what is on
+screen: the current route, the selected tab, and an overlay page in front
+of the app.
 
 | Extension | Effect |
 |-----------|--------|
@@ -107,7 +109,7 @@ route, the selected tab, and an overlay page in front of the app.
 | `ext.sleuthDemo.back` | Sends a system back (as the Android back button does) and returns `{handled}`; with nothing open in the overlay or the app, Android leaves the app |
 | `ext.sleuthDemo.tap` | `text` (substring of a Text), `label` (semantics label) or both `x` and `y` (logical px); scrolls the target into view (gives up after 2 s with `reveal_timeout`) and taps its centre, or returns `obscured` when something else is on top of it |
 | `ext.sleuthDemo.type` | `text`, optional `submit=true`; types into the focused field, else the last field on screen |
-| `ext.sleuthDemo.scroll` | Scrolls by `pixels` (default 600) over `ms` (default 600; `0` jumps), `axis=horizontal` for a horizontal list; picks the largest on-screen scrollable outside the demo's instructions; returns `{from, to, at}` |
+| `ext.sleuthDemo.scroll` | Scrolls by `pixels` (default 600) over `ms` (default 600; `0` jumps), `axis=horizontal` for a horizontal list; picks the largest on-screen scrollable outside the demo's instructions; returns `{from, to}`, or `{error: timeout}` with `at` when the scroll does not finish |
 | `ext.sleuthDemo.fling` | `dx`, `dy` (logical px), optional `ms`; drags and releases on that scrollable |
 | `ext.sleuthDemo.orientation` | `value` = `portrait` \| `landscape` \| `all`; waits for the view to change and returns its size with `settled` |
 | `ext.sleuthDemo.theme` | `mode` = `system` \| `light` \| `dark`; sets the overlay's theme mode |
@@ -119,38 +121,50 @@ route, the selected tab, and an overlay page in front of the app.
 | `ext.sleuthDemo.captureLeg`, `captureResult`, `vmAxes` | Hands-free capture legs for the time-share brackets; see `doc/capture_procedure.md` |
 
 The overlay extensions return `{error: no_controller}` before Sleuth is
-initialised. With the app in the background no frame is drawn:
+initialised. While the app is in the background no frame is drawn, so
 `screenshot` and `a11y` return `{error: unavailable}`, and the others stop
 waiting for a frame after 2 s.
 
-## Before/After Toggle
+## Before/After toggle
 
-Most demos are wrapped in the shared `DemoScaffold` with a **Before/After toggle** + **live metrics bar** (Tabbed Shell, the resource-leak screens and the Custom Detector Cookbook have their own layouts). Flip between anti-pattern and fix in-place; watch Sleuth's detection appear and disappear.
+Most demos use the shared `DemoScaffold`, which has a **Before/After
+toggle** and a **live metrics bar**. Tabbed Shell, the resource-leak
+screens and the Custom Detector Cookbook have their own layouts. Flip
+between the anti-pattern and the fix in place, and watch Sleuth's issue
+appear and disappear.
 
-**Working "Fixed Pattern" bodies** (not descriptions) so the segmented toggle shows real comparison:
+The fixed side of the toggle is a working screen, not a description, so
+the comparison is real. Some examples:
 
-- Top-level `setState` → `ValueNotifier` + `ValueListenableBuilder`
-- `ListView(children: List.generate(...))` → `ListView.builder` with `itemExtent`
-- `IntrinsicHeight` row → `CrossAxisAlignment.stretch` (needs a bounded cross-axis, e.g. a fixed-height parent)
-- `Image.network` without caching → `cacheWidth` / `cacheHeight`
-- `Fibonacci` on main thread → `Isolate.run()`
-- 40 concurrent HTTP gets → in-memory cache + pagination
+- Top-level `setState`, fixed with `ValueNotifier` and `ValueListenableBuilder`.
+- `ListView(children: List.generate(...))`, fixed with `ListView.builder` and `itemExtent`.
+- An `IntrinsicHeight` row, fixed with `CrossAxisAlignment.stretch` (this needs a bounded cross axis, such as a fixed-height parent).
+- `Image.network` without `cacheWidth`, fixed with `cacheWidth` and `cacheHeight`.
+- CSV parsing on the main isolate, fixed with `Isolate.run()`.
+- A search request on every keystroke and 1.1 MiB gallery pages, fixed with a 300 ms debounce and 200 KB pages loaded from a button.
 
-**Live metric chips:** high-level setState (bad/fixed rebuilds), non-lazy list (widgets built), heavy compute (ms per call), FPS stress test (live FPS via `addTimingsCallback`), repaint stress (paints/sec), network stress (request count), memory pressure (retained MB).
+The live metric chips show these values: High-Level setState (bad and
+fixed rebuild counts), Non-Lazy ListView (widgets built), CSV Import
+(parse time on the main isolate and in an isolate), FPS Stress Test
+(live FPS from `addTimingsCallback`), Live Waveform (paint count),
+Search + Gallery (request count) and Memory Pressure (retained Dart and
+native MB).
 
-## Combined Multi-Detector Demos
+## Combined multi-detector demos
 
-Stack 4–5 anti-patterns in one realistic screen + show every fix applied together:
+Each of these demos stacks several anti-patterns in one realistic
+screen, and its fixed side applies every fix together:
 
-- **Chat App** — tabbed conversations with `AutomaticKeepAliveClientMixin`, uncached avatars, 40ms platform-channel typing poll, top-level `setState` on message arrival
-- **Social Feed** — cards with uncached post images, `IntrinsicHeight` header row, top-level `setState` on Like
+- **Chat App** has tabbed conversations with `AutomaticKeepAliveClientMixin`, uncached avatars, a 40 ms platform-channel typing poll and a top-level `setState` when a message arrives.
+- **Social Feed** has cards with uncached post images, an `IntrinsicHeight` header row and a top-level `setState` on Like.
 
-Each demo description follows `❌ BAD / ✅ FIX / ▶ action` format with explicit reproduction step.
+Both descriptions use the same format: a BAD line, a FIX line and a
+step that reproduces the issue.
 
-## What to Look For
+## What to look for
 
-1. Tap the dog button to open the dashboard
-2. Navigate to a demo screen and interact with it
-3. Return to the dashboard — issues should appear in the Issues tab
-4. In debug mode with `enableDebugCallbacks: true`, rebuild/repaint widget highlights are visible
-5. In profile mode, frame timing data is most accurate
+1. Tap the dog button to open the dashboard.
+2. Open a demo screen and interact with it.
+3. Open the dashboard again; the demo's issue cards appear in the list.
+4. In debug mode the example sets `enableDebugCallbacks: true`, so rebuild and repaint widget highlights are visible.
+5. Frame timing data is most accurate in profile mode.
