@@ -1041,7 +1041,7 @@ without further input:
 4. It runs the 50 s workload. The screen spreads N subscriptions of
    each of two kinds over the 50 s, on broadcast `StreamController`s
    and on `Stream.periodic` streams, and keeps every one alive (N is
-   20, 100 or 230 for below, at and above). Every 10 s it polls the
+   20, 150 or 230 for below, at and above). Every 10 s it polls the
    allocation profile and logs `Poll <n>: StreamResourcePollResult(...)`
    with the matched count, the window's sample count and each class's
    samples.
@@ -1089,8 +1089,13 @@ threshold 50, `unit: 'instances'`, `atTolerance` 0.6,
 | Leg | Subscriptions per kind (N) | `expectedMagnitude` band | Screen accepts (detector axis) |
 |---|---|---|---|
 | Below | 20 | 1 to 49 | measured growth 1 to 49, no in-span record |
-| At | 100 | 50 to 80 | largest in-span growth 50 to 80 |
+| At | 150 | 50 to 80 | largest in-span growth 50 to 80 |
 | Above | 230 | 51 to 150 | largest in-span growth above 80, at most 150 |
+
+The top-class growth comes out near 0.43 times N, because the window
+spans two 10 s polls and the 1.5 s top-up (on an iPhone 12 with
+Flutter 3.47, 20 gave 8 and 100 gave 43), so 150 aims at the middle of
+the at band.
 
 The screen accepts the same bands as the audit's detector-axis check
 (`CaptureBracket.inRoleBand`). The above leg's `expectedMagnitude.min`

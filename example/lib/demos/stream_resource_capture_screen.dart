@@ -51,8 +51,11 @@ class _Leg {
 // `CaptureBracket`, which draws below as under 50, at as [50, 80] and
 // above as (80, 150], the band the audit requires of the above leg's
 // detector value. The above leg's min of 51 is therefore looser than
-// what the screen accepts. `totalSubsPerClass` is tuned for the
-// iPhone 12 first-emission ratio (about 0.44); above=230 lands near 101.
+// what the screen accepts. The K=4 window spans two 10 s poll
+// intervals and the 1.5 s top-up, so the top-class growth is about
+// 0.43 times `totalSubsPerClass` (measured on an iPhone 12 with Flutter
+// 3.47: 20 gave 8, 100 gave 43). 150 lands near 65, mid-band for at, and
+// 230 near 99 for above.
 const _legs = <_Leg>[
   _Leg(
     label: 'below',
@@ -63,7 +66,7 @@ const _legs = <_Leg>[
   ),
   _Leg(
     label: 'at',
-    totalSubsPerClass: 100,
+    totalSubsPerClass: 150,
     topDeltaMin: 50,
     topDeltaMax: 80,
     acceptedBand: '50-80',
