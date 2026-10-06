@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 
+import '../util/owned_process.dart' show ProcessStarter, killAndReap;
+
 /// Result of [runAttachIosCommand]. Pure data — caller (the bin entry)
 /// is responsible for `exit`.
 class AttachIosResult {
@@ -100,35 +102,74 @@ Future<bool> _defaultHasTool(String name) async {
   }
 }
 
-Stream<String> _defaultBonjourLines(String bundleId, String service) async* {
-  // dns-sd block-buffers on a pipe — output never reaches us until the
-  // process exits and flushes. Spawn it, set a kill timer that fires
-  // before the collector's timeout, then drain stdout via `.join()` —
-  // which completes only once the process exits + the buffer drains.
-  // This is the same pattern `timeout 8 dns-sd | grep ...` uses in
-  // shells, just hand-rolled because Dart's Process doesn't expose
-  // POSIX timeout semantics directly.
-  final proc = await _defaultStart('dns-sd', [
-    '-L',
-    bundleId,
-    service,
-    'local.',
-  ]);
-  // Kill BEFORE the collector's timeout — once dns-sd exits, its buffer
-  // flushes and `join()` resolves with the full batch. The collector's
-  // own timeout is the safety net for the case where the kill fails.
-  final killTimer = Timer(const Duration(seconds: 7), () {
-    proc.kill();
-  });
-  try {
-    final output = await proc.stdout.transform(systemEncoding.decoder).join();
-    for (final line in const LineSplitter().convert(output)) {
-      yield line;
+Stream<String> _defaultBonjourLines(String bundleId, String service) =>
+    ownedBonjourLines(bundleId, service);
+
+/// Lines of `dns-sd -L <bundleId> <service> local.`, from a child that the
+/// stream owns.
+///
+/// dns-sd block-buffers on a pipe, so its output reaches us only when it
+/// exits. The stream ends the child after [browseFor], which is shorter
+/// than the collector's own budget, then emits every line and closes; this
+/// is what `timeout 8 dns-sd | grep ...` does in a shell. Cancelling the
+/// subscription ends the child at once and waits, bounded, for it to exit,
+/// so a browse that the caller stopped listening to never keeps running.
+///
+/// [start] replaces `Process.start` in tests.
+Stream<String> ownedBonjourLines(
+  String bundleId,
+  String service, {
+  ProcessStarter? start,
+  Duration browseFor = const Duration(seconds: 7),
+}) {
+  final starter = start ?? _defaultStart;
+  Process? process;
+  Timer? stopTimer;
+  var cancelled = false;
+  late final StreamController<String> controller;
+  Future<void> browse() async {
+    final Process proc;
+    try {
+      proc = await starter('dns-sd', ['-L', bundleId, service, 'local.']);
+    } catch (e, st) {
+      if (!cancelled) {
+        controller.addError(e, st);
+        await controller.close();
+      }
+      return;
     }
-  } finally {
-    killTimer.cancel();
+    if (cancelled) {
+      await killAndReap(proc);
+      return;
+    }
+    process = proc;
+    stopTimer = Timer(browseFor, proc.kill);
+    unawaited(proc.stderr.drain<void>().catchError((Object _) {}));
+    final output = StringBuffer();
+    try {
+      await proc.stdout.transform(systemEncoding.decoder).forEach(output.write);
+    } catch (_) {
+      // A read error ends the output; emit what arrived.
+    }
+    stopTimer?.cancel();
+    if (cancelled) return;
     proc.kill();
+    for (final line in const LineSplitter().convert('$output')) {
+      controller.add(line);
+    }
+    await controller.close();
   }
+
+  controller = StreamController<String>(
+    onListen: () => unawaited(browse()),
+    onCancel: () async {
+      cancelled = true;
+      stopTimer?.cancel();
+      final proc = process;
+      if (proc != null) await killAndReap(proc);
+    },
+  );
+  return controller.stream;
 }
 
 /// Parse a single dns-sd reached-at line.
@@ -169,11 +210,16 @@ String? parseAuthCodeLine(String line) {
 /// Effect: fast-launch cases exit ~siblingWindow after first sighting;
 /// slow-launch cases get up to [collectFor] for the first sighting
 /// without padding the post-sighting wait.
+///
+/// When [stop] completes, collection ends early with what arrived so far
+/// and the subscription to [lines] is cancelled, which ends an owned
+/// dns-sd child.
 Future<List<BonjourAnnouncement>> collectBonjourAnnouncements({
   required Stream<String> lines,
   Duration collectFor = const Duration(seconds: 8),
   Duration siblingWindow = const Duration(milliseconds: 1500),
   int maxAnnouncements = 2,
+  Future<void>? stop,
 }) async {
   final out = <BonjourAnnouncement>[];
   ({String host, int port, int interfaceIndex})? pending;
@@ -212,6 +258,14 @@ Future<List<BonjourAnnouncement>> collectBonjourAnnouncements({
       if (!completer.isCompleted) completer.complete();
     },
     onError: (_) {
+      if (!completer.isCompleted) completer.complete();
+    },
+  );
+  stop?.then<void>(
+    (_) {
+      if (!completer.isCompleted) completer.complete();
+    },
+    onError: (Object _) {
       if (!completer.isCompleted) completer.complete();
     },
   );

@@ -14,6 +14,14 @@ import '../cli/ios_attach_pipeline.dart'
         IosAttachProgress;
 import '../mcp/mcp_server.dart';
 import '../util/device_filter.dart';
+import '../util/owned_process.dart'
+    show
+        CommandCancelledException,
+        CommandRunner,
+        CommandTimeoutException,
+        OwnedProcessRunner,
+        killProcessTree,
+        waitAtMost;
 import 'app_log_buffer.dart';
 import 'app_status.dart';
 import 'daemon_events.dart';
@@ -30,7 +38,9 @@ typedef ProcessFactory =
     });
 
 /// Default [ProcessFactory]. On Windows `flutter` is the `flutter.bat`
-/// script, which `Process.start` finds only through the shell.
+/// script, which `Process.start` finds only through the shell. The child is
+/// then `cmd.exe`, so the session ends it with [killProcessTree], which
+/// also ends flutter's `dart.exe` under it.
 Future<Process> _startProcess(
   String executable,
   List<String> arguments, {
@@ -61,12 +71,14 @@ class DetachBudget {
     this.childKill = const Duration(seconds: 1),
     this.bridgeDisconnect = const Duration(seconds: 2),
     this.iosTeardown = const Duration(seconds: 3),
+    this.attachUnwind = const Duration(seconds: 2),
   });
 
   /// Wait for the daemon to answer `app.detach`.
   final Duration appDetach;
 
-  /// Wait for the flutter child to exit after SIGTERM.
+  /// Wait for the flutter child to exit after SIGTERM, or on Windows after
+  /// `taskkill /T /F`, including the taskkill run itself.
   final Duration childTerm;
 
   /// Wait for the flutter child to exit after SIGKILL.
@@ -78,12 +90,21 @@ class DetachBudget {
   /// Wait for the iOS tunnel teardown (iproxy and its pidfile).
   final Duration iosTeardown;
 
-  /// Longest a detach can take. A session holds either a flutter child or
-  /// an iOS tunnel, never both, so the slower of the two paths bounds it.
+  /// Wait for an attach that the detach cancelled to end the external
+  /// commands it runs: the `flutter devices` probe, or the iOS pipeline's
+  /// devicectl, dns-sd and iproxy children.
+  final Duration attachUnwind;
+
+  /// Longest a detach can take. A session holds a flutter child, an iOS
+  /// tunnel, or an attach still running its probe or pipeline, never two
+  /// of them, so the slowest of the three paths bounds it.
   Duration get worstCase {
     final daemon = appDetach + childTerm + childKill + bridgeDisconnect;
     final ios = bridgeDisconnect + iosTeardown;
-    return daemon > ios ? daemon : ios;
+    final unwinding = bridgeDisconnect + attachUnwind;
+    var longest = daemon > ios ? daemon : ios;
+    if (unwinding > longest) longest = unwinding;
+    return longest;
   }
 }
 
@@ -101,13 +122,15 @@ class _AttachStopped implements Exception {
   String toString() => 'the attach was stopped before it finished';
 }
 
-/// Watches a caller's cancel signal for the length of one attach.
+/// The cancel signal of one attach. It fires when the client cancels the
+/// request ([signal]), or when the session fires it itself with [fire],
+/// which a detach does, and so does the sidecar's shutdown through it.
 class _CancelWatch {
-  _CancelWatch(Stream<void>? signal, void Function() onCancel) {
+  _CancelWatch(Stream<void>? signal, void Function() onClientCancel) {
     _subscription = signal?.listen((_) {
       if (_stopped || _fired.isCompleted) return;
       _fired.complete();
-      onCancel();
+      onClientCancel();
     });
   }
 
@@ -116,6 +139,15 @@ class _CancelWatch {
   bool _stopped = false;
 
   bool get fired => _fired.isCompleted;
+
+  /// Completes when the signal fires.
+  Future<void> get future => _fired.future;
+
+  /// Fires the signal from inside the session. The client callback does
+  /// not run, because the caller is already detaching.
+  void fire() {
+    if (!_fired.isCompleted) _fired.complete();
+  }
 
   /// A new stream that emits once when the signal fires, even when it fired
   /// before the listen. The iOS pipeline listens again on every attempt.
@@ -145,6 +177,8 @@ class DaemonSession implements DaemonSessionLifecycle {
     Duration hotRestartTimeout = const Duration(seconds: 45),
     String flutterExecutable = 'flutter',
     bool? hostIsMacOS,
+    bool? hostIsWindows,
+    CommandRunner? runCommand,
     IosAttacher? iosAttacher,
     AppLogBuffer? appLogs,
     this.detachBudget = const DetachBudget(),
@@ -155,6 +189,8 @@ class DaemonSession implements DaemonSessionLifecycle {
        _hotRestartTimeout = hotRestartTimeout,
        _flutterExecutable = flutterExecutable,
        _hostIsMacOS = hostIsMacOS ?? Platform.isMacOS,
+       _hostIsWindows = hostIsWindows ?? Platform.isWindows,
+       _runCommand = runCommand,
        _iosAttacher = iosAttacher,
        appLogs = appLogs ?? AppLogBuffer() {
     final Object source = bridge;
@@ -179,6 +215,13 @@ class DaemonSession implements DaemonSessionLifecycle {
   /// macOS.
   final bool _hostIsMacOS;
 
+  /// On Windows the flutter child runs under `cmd.exe`, so ending it takes
+  /// `taskkill /T /F` ([killProcessTree]).
+  final bool _hostIsWindows;
+
+  /// Runs taskkill on Windows. Null means `Process.run`.
+  final CommandRunner? _runCommand;
+
   /// Pipeline used by [attachViaIos] when the call passes none. Null means
   /// a real [IosAttacher].
   final IosAttacher? _iosAttacher;
@@ -186,6 +229,21 @@ class DaemonSession implements DaemonSessionLifecycle {
   /// Fails the daemon waiters of the attach in progress, so a detach does
   /// not leave that attach waiting for its full timeout.
   void Function()? _abortAttachWait;
+
+  /// Cancel signal of the attach in progress. A detach fires it, so the
+  /// attach stops its probe or pipeline and kills the commands it runs.
+  _CancelWatch? _attachCancel;
+
+  /// Cancel signal of the iOS attach that holds [_iosAttachInFlight].
+  _CancelWatch? _iosAttachCancel;
+
+  /// The external work the attach in progress waits for: the `flutter
+  /// devices` probe, the iOS pipeline, or the teardown of a tunnel that a
+  /// detach left without an owner. A detach waits for it, at most
+  /// [DetachBudget.attachUnwind], so the commands it ran are gone when the
+  /// detach returns. The work never waits for the session, so the wait
+  /// cannot deadlock. Never completes with an error.
+  Future<void>? _attachWork;
 
   /// The detach that is running, if any. A second [detach] joins it, and an
   /// attach that a detach took over waits for it before it returns.
@@ -279,6 +337,16 @@ class DaemonSession implements DaemonSessionLifecycle {
       _eventSub != null ||
       _iosTeardown != null;
 
+  /// True while an `attach_app` session owns the bridge connection: an
+  /// attach is running, attached, reloading or detaching, or a session that
+  /// ended in error still holds its flutter child, daemon channel or iOS
+  /// tunnel. The `connect` tool refuses then, because pointing the bridge
+  /// at another app would leave `hot_reload` reloading the attached app
+  /// while every diagnostic reads the other one.
+  bool get ownsConnection =>
+      (_state != AppSessionState.idle && _state != AppSessionState.error) ||
+      _holdsResources;
+
   AppStatusPayload get status {
     final connected = bridge.isConnected;
     return AppStatusPayload(
@@ -305,28 +373,51 @@ class DaemonSession implements DaemonSessionLifecycle {
 
   /// Returns devices reported by `flutter devices --machine`. Each entry
   /// is the raw map from flutter — caller filters by `category`/`platform`.
+  ///
+  /// The child is owned: when [timeout] passes or [cancel] completes first,
+  /// it is killed (with `taskkill /T /F` on Windows, where it runs under
+  /// `cmd.exe`) and the call throws [DaemonSessionException]. Reading its
+  /// output waits at most [outputWait] once it exited or was killed, so a
+  /// grandchild that holds the pipe cannot hold the caller. [isWindows] and
+  /// [runCommand] replace the platform check and taskkill's runner in tests.
   static Future<List<Map<String, Object?>>> listDevices({
     ProcessFactory? processFactory,
     String flutterExecutable = 'flutter',
     Duration timeout = const Duration(seconds: 15),
+    Future<void>? cancel,
+    bool? isWindows,
+    CommandRunner? runCommand,
+    Duration outputWait = const Duration(seconds: 2),
   }) async {
     final factory = processFactory ?? _startProcess;
-    final proc = await factory(flutterExecutable, ['devices', '--machine']);
-    final out = StringBuffer();
-    final outDone = proc.stdout.transform(utf8.decoder).forEach(out.write);
-    proc.stderr.drain<void>();
-    final exit = await proc.exitCode.timeout(
-      timeout,
-      onTimeout: () {
-        proc.kill();
-        return -1;
-      },
+    final runner = OwnedProcessRunner(
+      start: (executable, arguments) => factory(executable, arguments),
+      outputWait: outputWait,
+      encoding: utf8,
+      isWindows: isWindows,
+      runCommand: runCommand,
     );
-    await outDone;
+    final ProcessResult result;
+    try {
+      result = await runner.run(
+        flutterExecutable,
+        const ['devices', '--machine'],
+        timeout: timeout,
+        cancel: cancel,
+      );
+    } on CommandTimeoutException {
+      throw DaemonSessionException(
+        'flutter devices --machine did not finish within '
+        '${timeout.inSeconds}s',
+      );
+    } on CommandCancelledException {
+      throw DaemonSessionException('flutter devices --machine was cancelled');
+    }
+    final exit = result.exitCode;
     if (exit != 0) {
       throw DaemonSessionException('flutter devices --machine exited $exit');
     }
-    final decoded = jsonDecode(out.toString());
+    final decoded = jsonDecode(result.stdout as String);
     if (decoded is! List) {
       throw DaemonSessionException(
         'flutter devices --machine did not return an array',
@@ -341,7 +432,9 @@ class DaemonSession implements DaemonSessionLifecycle {
   /// [onProgress] receives a short message at each stage. When
   /// [cancelSignal] emits while the attach runs, the session detaches,
   /// which stops the flutter child and disconnects the bridge, and the
-  /// attach returns the idle status.
+  /// attach returns the idle status. A [detach] that runs meanwhile, also
+  /// the one the sidecar's shutdown runs, stops the attach the same way and
+  /// kills its `flutter devices` probe.
   Future<AppStatusPayload> attach({
     String? device,
     String? debugUrl,
@@ -365,7 +458,7 @@ class DaemonSession implements DaemonSessionLifecycle {
     }
     final gen = ++_sessionGeneration;
     appLogs.clear();
-    final cancel = _CancelWatch(
+    final cancel = _attachCancel = _CancelWatch(
       cancelSignal,
       () => unawaited(detachIfCurrent(gen)),
     );
@@ -373,9 +466,40 @@ class DaemonSession implements DaemonSessionLifecycle {
       if (debugUrl != null) {
         return await _attachToUrl(gen, debugUrl, onProgress);
       }
-      return await _attachThroughDaemon(gen, device, onProgress);
+      return await _attachThroughDaemon(gen, device, onProgress, cancel);
     } finally {
       await cancel.stop();
+      if (identical(_attachCancel, cancel)) _attachCancel = null;
+    }
+  }
+
+  /// Runs [body] as the attach work that a detach waits for (see
+  /// [_attachWork]). [body] must never wait for a detach.
+  Future<T> _asAttachWork<T>(Future<T> Function() body) async {
+    final work = Completer<void>();
+    final future = work.future;
+    _attachWork = future;
+    try {
+      return await body();
+    } finally {
+      work.complete();
+      if (identical(_attachWork, future)) _attachWork = null;
+    }
+  }
+
+  /// Waits for the attach work in flight, at most
+  /// [DetachBudget.attachUnwind] in all. Between two pieces of work, for
+  /// example a pipeline and then the teardown of the tunnel it returned
+  /// after the detach, the attach gets a turn to start the next one.
+  Future<void> _awaitAttachWork() async {
+    final waited = Stopwatch()..start();
+    while (true) {
+      final work = _attachWork;
+      final left = detachBudget.attachUnwind - waited.elapsed;
+      if (work == null || left <= Duration.zero) return;
+      await waitAtMost(work, left);
+      await Future<void>.delayed(Duration.zero);
+      if (identical(_attachWork, work)) return;
     }
   }
 
@@ -407,14 +531,20 @@ class DaemonSession implements DaemonSessionLifecycle {
     int gen,
     String? device,
     void Function(String message)? onProgress,
+    _CancelWatch cancel,
   ) async {
     // Mobile-only scope check (Android + iOS). Pre-flight via flutter devices.
     if (device != null) {
       onProgress?.call('Checking that $device is an Android or iOS device');
       try {
-        final devices = await listDevices(
-          processFactory: _processFactory,
-          flutterExecutable: _flutterExecutable,
+        final devices = await _asAttachWork(
+          () => listDevices(
+            processFactory: _processFactory,
+            flutterExecutable: _flutterExecutable,
+            cancel: cancel.future,
+            isWindows: _hostIsWindows,
+            runCommand: _runCommand,
+          ),
         );
         if (_superseded(gen)) return await _supersededStatus();
         final match = devices.firstWhere(
@@ -447,7 +577,7 @@ class DaemonSession implements DaemonSessionLifecycle {
     if (_superseded(gen)) {
       // A detach ran while flutter was starting, so no session owns this
       // child.
-      child.kill();
+      unawaited(_killTree(child));
       return await _supersededStatus();
     }
     _child = child;
@@ -715,11 +845,15 @@ class DaemonSession implements DaemonSessionLifecycle {
   /// before rethrow so `app_status` reflects the failure. Any other
   /// failure sets the error state and returns the status.
   ///
-  /// When [cancelSignal] emits, the pipeline stops at its next step and the
-  /// session detaches.
+  /// When [cancelSignal] emits, the pipeline stops at once, kills the
+  /// external commands it runs, and the session detaches. A [detach] that
+  /// runs meanwhile, also the one the sidecar's shutdown runs, stops the
+  /// pipeline the same way and waits, bounded, for it to end.
   ///
   /// Concurrent calls serialise via [_iosAttachInFlight]; second call
-  /// waits or rejects via [StateError] when `failFastOnConcurrent`.
+  /// waits or rejects via [StateError] when `failFastOnConcurrent`. An
+  /// attach that a detach cancelled is only ending, so a new call waits for
+  /// it, at most [DetachBudget.attachUnwind], instead of being refused.
   Future<AppStatusPayload> attachViaIos({
     required String udid,
     required String bundle,
@@ -756,10 +890,22 @@ class DaemonSession implements DaemonSessionLifecycle {
     }
     final inFlight = _iosAttachInFlight;
     if (inFlight != null && !inFlight.isCompleted) {
+      if (_iosAttachCancel?.fired ?? false) {
+        await waitAtMost(inFlight.future, detachBudget.attachUnwind);
+      }
+    }
+    if (inFlight != null && !inFlight.isCompleted) {
       if (failFastOnConcurrent) {
         throw StateError('attach_in_progress: another iOS attach is running');
       }
       await inFlight.future;
+    }
+    // A detach or another attach may have run while this call waited.
+    if (_state != AppSessionState.idle && _state != AppSessionState.error) {
+      throw StateError(
+        'already attached or attaching (state=${_state.name}); '
+        'call detach_app first',
+      );
     }
     final completer = Completer<void>();
     _iosAttachInFlight = completer;
@@ -778,7 +924,7 @@ class DaemonSession implements DaemonSessionLifecycle {
       }
       final gen = started = ++_sessionGeneration;
       appLogs.clear();
-      final watch = cancel = _CancelWatch(
+      final watch = cancel = _attachCancel = _iosAttachCancel = _CancelWatch(
         cancelSignal,
         () => unawaited(detachIfCurrent(gen)),
       );
@@ -790,7 +936,7 @@ class DaemonSession implements DaemonSessionLifecycle {
         transportOverride: transportOverride,
         attacher: pipeline ?? IosAttacher(),
         onProgress: onProgress,
-        cancel: cancelSignal == null ? null : watch,
+        cancel: watch,
         forceRelaunch: forceRelaunch,
         bridgeConnectTimeout: bridgeConnectTimeout,
         attachBudget: attachBudget,
@@ -814,6 +960,12 @@ class DaemonSession implements DaemonSessionLifecycle {
       return status;
     } finally {
       await cancel?.stop();
+      if (cancel != null && identical(_attachCancel, cancel)) {
+        _attachCancel = null;
+      }
+      if (cancel != null && identical(_iosAttachCancel, cancel)) {
+        _iosAttachCancel = null;
+      }
       if (!completer.isCompleted) completer.complete();
     }
   }
@@ -826,7 +978,7 @@ class DaemonSession implements DaemonSessionLifecycle {
     required IosTransport? transportOverride,
     required IosAttacher attacher,
     required IosAttachProgress? onProgress,
-    required _CancelWatch? cancel,
+    required _CancelWatch cancel,
     required bool forceRelaunch,
     required Duration bridgeConnectTimeout,
     required Duration attachBudget,
@@ -849,7 +1001,7 @@ class DaemonSession implements DaemonSessionLifecycle {
       final attachStopwatch = Stopwatch()..start();
       while (true) {
         attempt++;
-        if (cancel != null && cancel.fired) {
+        if (cancel.fired) {
           throw IosAttachException(
             IosAttachErrorKind.cancelled,
             'attach cancelled by caller',
@@ -857,15 +1009,20 @@ class DaemonSession implements DaemonSessionLifecycle {
         }
         final IosAttachResult result;
         try {
-          result = await attacher.attach(
-            udid: udid,
-            bundle: bundle,
-            authOverride: candidateAuth ?? authOverride,
-            transportOverride: transportOverride,
-            onProgress: onProgress,
-            cancelSignal: cancel?.stream(),
-            forceRelaunch: useForceRelaunch,
-            excludePorts: retryExcludePorts,
+          final auth = candidateAuth ?? authOverride;
+          final excluded = retryExcludePorts;
+          final relaunch = useForceRelaunch;
+          result = await _asAttachWork(
+            () => attacher.attach(
+              udid: udid,
+              bundle: bundle,
+              authOverride: auth,
+              transportOverride: transportOverride,
+              onProgress: onProgress,
+              cancelSignal: cancel.stream(),
+              forceRelaunch: relaunch,
+              excludePorts: excluded,
+            ),
           );
         } on IosAttachException catch (e) {
           final detached = _superseded(gen);
@@ -902,8 +1059,9 @@ class DaemonSession implements DaemonSessionLifecycle {
           rethrow;
         }
         if (_superseded(gen)) {
-          // Detach raced us — release the teardown immediately.
-          await result.teardown();
+          // A detach raced this attempt, so release its tunnel now. The
+          // detach waits for this teardown too.
+          await _asAttachWork(result.teardown);
           return await _supersededStatus();
         }
         _iosTeardown = result.teardown;
@@ -1184,10 +1342,14 @@ class DaemonSession implements DaemonSessionLifecycle {
   }
 
   Future<void> _detach() async {
+    // Stop an attach in progress at once: its probe or iOS pipeline kills
+    // the commands it runs instead of running on to its own timeouts.
+    _attachCancel?.fire();
     if (_state == AppSessionState.idle) {
       _attachRoute = null;
       appLogs.clear();
       await _disconnectBridge();
+      await _awaitAttachWork();
       return;
     }
     _detachRequested = true;
@@ -1216,7 +1378,40 @@ class DaemonSession implements DaemonSessionLifecycle {
       _mode = null;
       _lastWsUri = null;
       appLogs.clear();
+      await _awaitAttachWork();
     }
+  }
+
+  /// Sends SIGTERM to the flutter child, or on Windows ends its whole tree
+  /// with `taskkill /T /F`, within [DetachBudget.childTerm].
+  Future<void> _killTree(Process child) => killProcessTree(
+    child,
+    isWindows: _hostIsWindows,
+    runCommand: _runCommand,
+    taskkillTimeout: detachBudget.childTerm,
+  );
+
+  /// Ends the flutter child and waits for it: [_killTree], then SIGKILL
+  /// when it still runs after [DetachBudget.childTerm] (which includes the
+  /// taskkill run on Windows), then at most [DetachBudget.childKill] more.
+  Future<void> _stopChild(Process child) async {
+    final exited = child.exitCode;
+    final term = Stopwatch()..start();
+    await _killTree(child);
+    final left = detachBudget.childTerm - term.elapsed;
+    try {
+      await exited.timeout(left > Duration.zero ? left : Duration.zero);
+    } on TimeoutException {
+      child.kill(ProcessSignal.sigkill);
+      try {
+        await exited.timeout(detachBudget.childKill);
+      } on TimeoutException {
+        _logger?.add('flutter child ${child.pid} did not exit after SIGKILL');
+      }
+    }
+    // Orphan reaping beyond that is best-effort: Process.start doesn't
+    // setpgid(), so on POSIX we rely on the flutter daemon's own SIGTERM
+    // teardown of its subprocesses.
   }
 
   /// Disconnects the bridge within [DetachBudget.bridgeDisconnect]. A
@@ -1262,21 +1457,7 @@ class DaemonSession implements DaemonSessionLifecycle {
     _mode = null;
     final child = _child;
     _child = null;
-    if (child != null) {
-      child.kill(ProcessSignal.sigterm);
-      try {
-        await child.exitCode.timeout(detachBudget.childTerm);
-      } on TimeoutException {
-        child.kill(ProcessSignal.sigkill);
-        try {
-          await child.exitCode.timeout(detachBudget.childKill);
-        } on TimeoutException {
-          _logger?.add('flutter child ${child.pid} did not exit after SIGKILL');
-        }
-      }
-      // Orphan reaping is best-effort: Process.start doesn't setpgid(),
-      // so we rely on flutter daemon's own SIGTERM teardown of subprocesses.
-    }
+    if (child != null) await _stopChild(child);
     // Bridge disconnect can hang if the device-side VM service has
     // crashed or the iproxy tunnel is half-open. Bound the wait so the
     // iOS teardown below still gets a chance to release the iproxy child

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:sleuth_mcp/sleuth_mcp.dart';
 import 'package:test/test.dart';
 
+import '../helpers/stubborn_process.dart';
+
 /// Long-lived fake iproxy process: stdout/stderr stay OPEN so the
 /// readiness window sees no early exit and the attach proceeds.
 class _FakeLiveProcess implements Process {
@@ -182,5 +184,170 @@ void main() {
         }
       },
     );
+  });
+
+  group('IosAttacher.attach cancellation and owned children', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('sleuth_attach_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('a cancel interrupts a wedged devicectl launch at once instead of '
+        'waiting for its timeout', () async {
+      final cancel = StreamController<void>();
+      final launching = Completer<void>();
+      final attacher = IosAttacher(
+        hasTool: (_) async => true,
+        run: (_, args) {
+          if (args.contains('launch') && !launching.isCompleted) {
+            launching.complete();
+          }
+          return Completer<ProcessResult>().future;
+        },
+        iproxyStart: (_, _) async => _FakeLiveProcess(),
+        bonjourLines: (bundle, service) async* {},
+      );
+      final attach = attacher.attach(
+        udid: 'U',
+        bundle: 'b',
+        transportOverride: IosTransport.wired,
+        pidfileDirectory: tmp.path,
+        cancelSignal: cancel.stream,
+      );
+      final outcome = expectLater(
+        attach.timeout(const Duration(seconds: 2)),
+        throwsA(
+          isA<IosAttachException>().having(
+            (e) => e.kind,
+            'kind',
+            IosAttachErrorKind.cancelled,
+          ),
+        ),
+      );
+      await launching.future;
+      cancel.add(null);
+      await outcome;
+      await cancel.close();
+    });
+
+    group('owned children', () {
+      IosAttacher ownedAttacher(Future<Process> Function(String exe) start) =>
+          IosAttacher(
+            hasTool: (_) async => true,
+            start: (exe, _) => start(exe),
+            iproxyStart: (_, _) async => _FakeLiveProcess(),
+          );
+
+      test('a cancel during devicectl launch kills the child before the '
+          'attach ends', () async {
+        final devicectl = StubbornProcess();
+        final cancel = StreamController<void>();
+        final attach =
+            ownedAttacher((exe) async {
+              if (exe == 'dns-sd') return StubbornProcess();
+              return devicectl;
+            }).attach(
+              udid: 'U',
+              bundle: 'b',
+              transportOverride: IosTransport.wired,
+              forceRelaunch: true,
+              pidfileDirectory: tmp.path,
+              cancelSignal: cancel.stream,
+            );
+        final outcome = expectLater(
+          attach.timeout(const Duration(seconds: 3)),
+          throwsA(
+            isA<IosAttachException>().having(
+              (e) => e.kind,
+              'kind',
+              IosAttachErrorKind.cancelled,
+            ),
+          ),
+        );
+        await devicectl.started;
+        cancel.add(null);
+        await outcome;
+        expect(devicectl.signals, [ProcessSignal.sigterm]);
+        expect(devicectl.exited, isTrue);
+        await cancel.close();
+      });
+
+      test('a devicectl launch that times out is killed, and the error says '
+          'it timed out', () async {
+        final devicectl = StubbornProcess(
+          exitsOn: const {ProcessSignal.sigkill},
+        );
+        await expectLater(
+          ownedAttacher((_) async => devicectl).attach(
+            udid: 'U',
+            bundle: 'b',
+            transportOverride: IosTransport.wired,
+            forceRelaunch: true,
+            pidfileDirectory: tmp.path,
+            devicectlTimeout: const Duration(milliseconds: 80),
+          ),
+          throwsA(
+            isA<IosAttachException>()
+                .having((e) => e.kind, 'kind', IosAttachErrorKind.launchFailed)
+                .having((e) => e.message, 'message', contains('timed out')),
+          ),
+        );
+        expect(devicectl.signals, [
+          ProcessSignal.sigterm,
+          ProcessSignal.sigkill,
+        ]);
+      });
+
+      test('a devicectl device list that times out is killed and reported '
+          'as launchFailed', () async {
+        final devicectl = StubbornProcess();
+        await expectLater(
+          ownedAttacher((_) async => devicectl).attach(
+            udid: 'U',
+            bundle: 'b',
+            pidfileDirectory: tmp.path,
+            devicectlTimeout: const Duration(milliseconds: 80),
+          ),
+          throwsA(
+            isA<IosAttachException>()
+                .having((e) => e.kind, 'kind', IosAttachErrorKind.launchFailed)
+                .having((e) => e.message, 'message', contains('list devices')),
+          ),
+        );
+        expect(devicectl.signals, [ProcessSignal.sigterm]);
+      });
+
+      test('a cancel during the Bonjour browse kills dns-sd before the attach '
+          'ends', () async {
+        final dnsSd = StubbornProcess();
+        final cancel = StreamController<void>();
+        final attach =
+            ownedAttacher((exe) async {
+              if (exe == 'dns-sd') return dnsSd;
+              throw StateError('$exe must not start after the cancel');
+            }).attach(
+              udid: 'U',
+              bundle: 'b',
+              transportOverride: IosTransport.wired,
+              pidfileDirectory: tmp.path,
+              cancelSignal: cancel.stream,
+            );
+        final outcome = expectLater(
+          attach.timeout(const Duration(seconds: 4)),
+          throwsA(
+            isA<IosAttachException>().having(
+              (e) => e.kind,
+              'kind',
+              IosAttachErrorKind.cancelled,
+            ),
+          ),
+        );
+        await dnsSd.started;
+        cancel.add(null);
+        await outcome;
+        expect(dnsSd.signals, [ProcessSignal.sigterm]);
+        expect(dnsSd.exited, isTrue);
+        await cancel.close();
+      });
+    });
   });
 }

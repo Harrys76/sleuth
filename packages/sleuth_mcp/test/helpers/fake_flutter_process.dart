@@ -5,11 +5,14 @@ import 'dart:io';
 /// Minimum `Process` impl for driving `DaemonSession` against scripted
 /// daemon NDJSON output and capturing what was written to stdin.
 class FakeFlutterProcess implements Process {
-  FakeFlutterProcess({this.pid = 9999});
+  /// With [stallStdin], flutter stops reading its stdin: every flush of a
+  /// write to it never completes.
+  FakeFlutterProcess({this.pid = 9999, bool stallStdin = false})
+    : _stdinSink = _CapturingIOSink(stallFlush: stallStdin);
 
   final _stdoutCtrl = StreamController<List<int>>();
   final _stderrCtrl = StreamController<List<int>>();
-  final _stdinSink = _CapturingIOSink();
+  final _CapturingIOSink _stdinSink;
   final _exitCompleter = Completer<int>();
 
   @override
@@ -109,6 +112,9 @@ class FakeFlutterProcess implements Process {
 }
 
 class _CapturingIOSink implements IOSink {
+  _CapturingIOSink({this.stallFlush = false});
+
+  final bool stallFlush;
   final List<int> _bytes = [];
 
   @override
@@ -137,7 +143,8 @@ class _CapturingIOSink implements IOSink {
   }
 
   @override
-  Future<void> flush() async {}
+  Future<void> flush() =>
+      stallFlush ? Completer<void>().future : Future<void>.value();
   @override
   Future<void> close() async {}
   @override

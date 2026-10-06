@@ -59,6 +59,39 @@ class _CapturingSink implements IOSink {
   Future<void> get done => Future.value();
 }
 
+/// A stdin that flutter stopped reading: writes are buffered and a flush
+/// never completes.
+class _StalledSink implements IOSink {
+  int flushes = 0;
+
+  @override
+  Encoding encoding = utf8;
+  @override
+  void add(List<int> data) {}
+  @override
+  void write(Object? obj) {}
+  @override
+  void writeln([Object? obj = '']) {}
+  @override
+  void writeAll(Iterable<dynamic> objs, [String sep = '']) {}
+  @override
+  void writeCharCode(int charCode) {}
+  @override
+  void addError(Object error, [StackTrace? st]) {}
+  @override
+  Future<void> addStream(Stream<List<int>> stream) => stream.drain<void>();
+  @override
+  Future<void> flush() {
+    flushes++;
+    return Completer<void>().future;
+  }
+
+  @override
+  Future<void> close() async {}
+  @override
+  Future<void> get done => Future.value();
+}
+
 class _ListLogSink implements Sink<String> {
   final List<String> lines = [];
   bool _closed = false;
@@ -193,6 +226,64 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await rpc.close();
       expect(pending, throwsA(isA<DaemonRpcException>()));
+      await responses.close();
+    });
+
+    // An unhandled error fails a test, so these also check that close
+    // raises none while a write is still pending.
+    test('close while the stdin write stalls fails the call at once and '
+        'raises no unhandled error', () async {
+      final responses = StreamController<DaemonRpcResponse>();
+      final rpc = DaemonRpc(
+        stdin: _StalledSink(),
+        responses: responses.stream,
+        writeTimeout: const Duration(seconds: 30),
+      );
+
+      final failed = expectLater(
+        rpc
+            .call('app.detach', const {'appId': 'A'})
+            .timeout(const Duration(seconds: 1)),
+        throwsA(isA<DaemonRpcException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await rpc.close();
+      await failed;
+      await responses.close();
+    });
+
+    test('a caller that stopped waiting on a stalled write, then close, as a '
+        'detach timeout does: no unhandled error', () async {
+      final responses = StreamController<DaemonRpcResponse>();
+      final rpc = DaemonRpc(
+        stdin: _StalledSink(),
+        responses: responses.stream,
+        writeTimeout: const Duration(seconds: 30),
+      );
+
+      await expectLater(
+        rpc
+            .call('app.detach', const {
+              'appId': 'A',
+            }, timeout: const Duration(seconds: 1))
+            .timeout(const Duration(milliseconds: 50)),
+        throwsA(isA<TimeoutException>()),
+      );
+      await rpc.close();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await responses.close();
+    });
+
+    test('a call after close fails without writing', () async {
+      final stdin = _StalledSink();
+      final responses = StreamController<DaemonRpcResponse>();
+      final rpc = DaemonRpc(stdin: stdin, responses: responses.stream);
+      await rpc.close();
+      await expectLater(
+        rpc.call('app.restart', const {}),
+        throwsA(isA<DaemonRpcException>()),
+      );
+      expect(stdin.flushes, 0);
       await responses.close();
     });
   });
