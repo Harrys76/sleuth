@@ -6,9 +6,10 @@ apps are now refused (`version_skew_major`). The SDK floor is Dart `^3.8.0`
 
 - `compare_snapshots` refuses snapshots from different sleuth lineages, or
   with a missing or non-semver `packageVersion` (`arg_lineage_mismatch`),
-  because detector ids and defaults change between lineages. It refuses
-  snapshots whose VM coverage differs or is unknown (`arg_coverage_mismatch`,
-  read from `isVmConnected` and `launchModeAdvisory`) and adds
+  because detector ids and defaults change between lineages. It refuses a
+  snapshot taken while Sleuth was still warming up (`arg_snapshot_in_warmup`)
+  and snapshots whose VM coverage differs or is unknown
+  (`arg_coverage_mismatch`, read from `isVmConnected` only), and adds
   `coverageWarning` when neither had a VM link.
 - `compare_snapshots` aggregates issues per stableId (highest severity and
   occurrence count), so a new critical occurrence beside a warning shows in
@@ -35,6 +36,13 @@ apps are now refused (`version_skew_major`). The SDK floor is Dart `^3.8.0`
   checks that every error prefix in the source is documented.
 - `launchModeAdvisory` names the VM-only stableIds, including
   `shader_compilation` and `platform_channel_traffic`.
+- `get_issues` no longer reports a connected `basic` session as degraded.
+  It reads `vmConnected` from the `ext.sleuth.issues` payload (sleuth 0.37),
+  or for 0.36 apps from a `diagnose` read made first. A failed or slow read
+  adds no advisory, and a session change between the two reads still
+  returns `session_changed`. The basic advisory names DDS as one possible
+  cause instead of the diagnosis, and the warm-up advisory no longer asks
+  for full mode. `connect` returns `vmConnected`.
 - `diagnose` documents the passthrough keys that sleuth 0.37.0 adds:
   `effectiveFrameRateHz`, `frameBudgetUs`, `frameRateSource` and the VM poll
   timings (`lastPoll*`, `maxPoll*`, `pollDuplicatesDropped`,

@@ -61,12 +61,12 @@ sleuth_mcp 0.8.0 is built against sleuth 0.37.0
 | --- | --- | --- |
 | `list_devices` | `mobileOnly?` | Runs `flutter devices --machine` and lists Android and iOS devices by default. |
 | `attach_app` | `device?`, `debugUrl?`, `udid?`, `bundle?`, `transport?`, `authOverride?`, `forceRelaunch?` | Attaches to a running app. See [Attaching](#attaching) for the three modes. |
-| `connect` | `uri` | Connects to a known VM service URI. Returns `connectionMode`, `sessionUuid`, and a `warning` on version skew. `attach_app` returns the same `warning`. |
+| `connect` | `uri` | Connects to a known VM service URI. Returns `connectionMode`, `vmConnected`, `sessionUuid`, and a `warning` on version skew. `attach_app` returns the same `warning`. |
 | `get_snapshot` | `sections?`, `maxIssueCount?`, `maxRouteCount?`, `diskHandoff?`, `verbose?` | Returns the performance snapshot: issues, frame stats and route history. Issues are compact unless you pass `verbose: true`. |
 | `get_issues` | `route?`, `severityAtLeast?`, `maxIssueCount?`, `verbose?` | Returns the current issues. `route` filters by route. `severityAtLeast` takes `ok`, `warning` or `critical` in lower case; the server rejects other values. Issues are compact and capped at 50 by default. `verbose: true` returns every field, and `maxIssueCount` changes the cap (`0` removes it). |
 | `get_route_health` | `route?` | Returns the health score, FPS and issue counts for each route. |
 | `explain_issue` | `stableId` | Returns the encyclopedia entry. Parametric stableIds resolve to their canonical form. On sleuth 0.37 apps the route, widget and count text comes from the live issue with that exact stableId. A canonical id with no exact match uses the first live issue of its family, and any other id gets neutral wording. Sleuth 0.36 apps return raw placeholders such as `{widgetName}` and `{routeName}`. |
-| `compare_snapshots` | `before`, `after` | Diffs two snapshots on the client: added, removed and elevated issues, occurrence-count changes and the FPS delta. Issues aggregate per stableId. Refuses snapshots from different sleuth lineages (`arg_lineage_mismatch`) or with different VM coverage (`arg_coverage_mismatch`), and adds `coverageWarning` when neither snapshot had a VM link. |
+| `compare_snapshots` | `before`, `after` | Diffs two snapshots on the client: added, removed and elevated issues, occurrence-count changes and the FPS delta. Issues aggregate per stableId. Refuses snapshots from different sleuth lineages (`arg_lineage_mismatch`), a snapshot taken while Sleuth was still warming up (`arg_snapshot_in_warmup`), or snapshots with different VM coverage (`arg_coverage_mismatch`, read from `isVmConnected`), and adds `coverageWarning` when neither snapshot had a VM link. |
 | `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Checks the live snapshot against the thresholds. Refuses with `coverage_degraded` when the app has no VM service link. Use `sleuth_check` for CI exit codes. |
 | `diagnose` | none | Reports operational health: package version, VM connection and unbound extensions, plus the frame budget and VM poll timings on sleuth 0.37 apps. Call it when other tools return nothing. |
 | `app_status` | none | Returns `{attached, state, device, appId, sessionUuid, launchMode, mode, lastError}`, plus `transportMode` and `wsUri` on iOS-direct sessions. |
@@ -185,16 +185,19 @@ run `diagnose` again shortly. For `basic` it suggests reopening the app,
 then relaunching with `--no-dds` if the app was started with
 `flutter run`. For `disconnected` it suggests
 `flutter run --profile --no-dds`. Because the data tools add it too, a
-client never reads a degraded issue list without the warning. A `basic`
-session whose VM is connected gets no advisory from `connect`,
-`attach_app`, `diagnose` or `get_snapshot`. The `ext.sleuth.issues`
-payload has no VM flag, so `get_issues` adds the advisory on every `basic`
-session. `app_status` never carries it.
+client never reads a degraded issue list without the warning. `basic` means
+Sleuth has no VM-tier frame verdict yet. A smooth session whose VM is
+connected stays `basic` until a frame janks, so every tool reads the
+app's VM flag before adding the advisory, and a connected `basic` session
+gets none. `get_issues` reads `vmConnected` from the `ext.sleuth.issues`
+payload; for apps before sleuth 0.37 it reads it from `ext.sleuth.diagnose`
+first and adds no advisory when that read fails. `app_status` never
+carries it.
 
 `flutter run` starts DDS (Dart Development Service) by default. DDS
 becomes the only client of the device's VM service, so Sleuth cannot
-connect and the session stays `basic`. Pass `--no-dds` to reach `full` on
-the first run:
+connect and `vmConnected` stays false. Pass `--no-dds` so Sleuth connects
+on the first run:
 
 ```bash
 flutter run --profile --no-dds

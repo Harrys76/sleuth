@@ -280,6 +280,10 @@
 
 ### Detector fixes and schema docs
 
+- `ext.sleuth.issues` carries `vmConnected`, so MCP clients can tell a
+  connected session from one without a VM link. `ConnectionMode.basic` is
+  documented as "no VM-tier frame verdict yet": a connected session that has
+  not janked since connect stays basic.
 - A scroll that starts during layout (a page view re-fitting its pages after a
   rotation or resize) no longer publishes issues mid-frame. The
   interaction-context refresh runs after the frame, so debug builds no longer
