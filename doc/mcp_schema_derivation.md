@@ -51,11 +51,18 @@ per-detector axes captured under separate scenarios.
 
 `sessionSummary` (Map):
 
-- `topIssues` — List<Map>, required. Item shape:
+- `topIssues` — List<Map>, present in all six captures. Item shape seen:
   `{stableId, title, severity, confidence, confidenceReason, rankingScore}`
-- `frameHistogram` — Map<String, int>, required. Fixed bucket keys:
-  `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`, `>100ms`
-- `detectorHitRates` — Map<String, int>, required
+- `frameHistogram` — Map<String, int>, present in all six captures. Fixed
+  bucket keys: `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`, `>100ms`
+- `detectorHitRates` — Map<String, int>, present in all six captures
+
+Every capture had ranked issues and recorded frames, so these three looked
+required. The live summary omits `topIssues` and `detectorHitRates` when no
+issue is ranked and `frameHistogram` before any frame, and a top issue can
+carry `widgetName` or a null `stableId`; `doc/mcp_schema.json` states the
+conditions, and the schema audit validates live output as well as the
+captures.
 - `memoryTrendSummary` — Map, optional. Shape:
   `{startBytes, endBytes, peakBytes, growthRatePerSec, sampleCount}`
 - `causalEdges` — List<Map>, optional. Present in repaint + recurrence;
