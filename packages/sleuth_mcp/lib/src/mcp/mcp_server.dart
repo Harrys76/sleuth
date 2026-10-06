@@ -636,7 +636,7 @@ class McpServer {
   /// write failed, later lines are dropped.
   Future<void> _write(IOSink out, String line) {
     if (_firstWriteError != null) return _writeChain;
-    final next = _writeChain.then((_) async {
+    final Future<void> next = _writeChain.then<void>((_) async {
       if (_firstWriteError != null) return;
       out.write(line);
       await out.flush();
