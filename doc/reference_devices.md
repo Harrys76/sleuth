@@ -1,21 +1,19 @@
-# Pinned reference devices & rotation policy
+# Pinned reference devices and rotation policy
 
-Sleuth's `runtimeVerified` and `externallyCited` tier claims are backed
-by profile-mode captures recorded on pinned hardware, with pinned OS and
-Flutter versions. Pinning the reference environment is the mechanism
-that makes the reliability ledger auditable: a future reader can clone
-the repo, boot the same hardware and Flutter version, and re-record a
-capture that satisfies the same schema. Anything more permissive than
-that is aspirational.
+Sleuth's `runtimeVerified` and `externallyCited` tier claims rest on
+profile-mode captures recorded on pinned hardware, with pinned OS and
+Flutter versions. The pins make the reliability ledger auditable. A
+later reader can clone the repo, boot the same hardware and Flutter
+version, and record a capture that passes the same schema. A looser
+policy would let a claim stand that nobody can reproduce.
 
-## Current matrix (v0.30.0)
+## Current matrix (v0.37.0)
 
 | Role | Device | SoC | OS | Flutter stable |
 |---|---|---|---|---|
 | Primary iOS | iPhone 12 | A14 | iOS 17.5 | 3.41.x or 3.47.x |
 
-Enforced programmatically in
-`lib/src/validation/profile_capture_schema.dart`:
+`lib/src/validation/profile_capture_schema.dart` enforces the matrix:
 
 ```dart
 static const Map<String, Set<String>> approvedDevicePairs = {
@@ -28,17 +26,18 @@ static const Set<String> approvedFlutterMajorMinors = {
 };
 ```
 
-A capture may be recorded on any member of `approvedFlutterMajorMinors`;
-the three legs of one bracket must share one exact `flutterVersion`
-(enforced by the bracket provenance check), so triads recorded on 3.41
-stay valid next to triads re-recorded on 3.47. The `rebuild_activity` and
-`excessive_repaint` triads are recorded on 3.47.6; the others on 3.41.4.
+A capture may use any member of `approvedFlutterMajorMinors`. The three
+legs of one bracket must share one exact `flutterVersion` (the bracket
+provenance check enforces this), so triads recorded on 3.41 stay valid
+next to triads recorded on 3.47. The `rebuild_activity` and
+`excessive_repaint` triads were recorded on 3.47.6, the others on
+3.41.4.
 
 ## Android coverage gap
 
-**The current matrix is iOS-only.** Sleuth requires a real Android
-reference device to validate `runtimeVerified` tier raises that depend
-on Android-specific signal sources:
+The current matrix covers iOS only. Sleuth needs a real Android
+reference device to validate `runtimeVerified` raises that depend on
+Android-specific signal sources:
 
 - Shader compilation timing (Skia warmup behaviour differs from iOS Metal)
 - Platform-channel threading + main-isolate scheduling
@@ -46,86 +45,85 @@ on Android-specific signal sources:
 - 90 Hz / 120 Hz dynamic refresh frame pacing
 - Zygote + ContentProvider startup overhead
 
-Detectors with platform-divergent behaviour at these signal sources
-**cannot raise to `runtimeVerified` until an Android reference device is
-pinned**. The reproducerOnly tier on Android-sensitive detectors stays
-in place until the matrix expands.
+A detector whose behaviour differs between platforms at these sources
+cannot reach `runtimeVerified` until an Android reference device is
+pinned. Android-sensitive detectors stay at `reproducerOnly` until the
+matrix grows.
 
-Tracking: when an Android reference device is sourced, add a row above
-plus the device pair to `approvedDevicePairs` in the schema.
+When an Android reference device is available, add a row to the table
+above and add the device pair to `approvedDevicePairs` in the schema.
 
 ## Why pin a single device today
 
-Sourcing reference hardware has a real cost — devices age out, OS
-versions drift, Flutter ships new minors quarterly. The matrix
-deliberately stays small enough that one operator can re-record every
-capture in an afternoon when a rotation lands. Adding devices the
-operator does not personally maintain risks tier raises pinned to
-hardware nobody can reach, which is worse than a smaller matrix.
+Reference hardware has a real cost. Devices age out, OS versions drift,
+and Flutter ships new minors every quarter. The matrix stays small
+enough that one operator can record every capture again in an
+afternoon when a rotation lands. Adding devices the operator does not
+maintain would pin tier raises to hardware nobody can reach, which is
+worse than a smaller matrix.
 
-The single-device matrix is honest about coverage limits. Tier raises
-that pass on iPhone 12 / iOS 17.5 / Flutter 3.41.x are valid for that
-environment. Detectors with iOS-only signal sources (e.g. Skia shader
-warmup on Metal) raise without requiring Android coverage. Detectors
-with Android-divergent behaviour must wait.
+The single-device matrix states its coverage limits. A tier raise that
+passes on iPhone 12 / iOS 17.5 / Flutter 3.41.x or 3.47.x is valid for
+that environment. Detectors with iOS-only signal sources (e.g. Skia
+shader warmup on Metal) can raise without Android coverage. Detectors
+with behaviour that diverges on Android must wait.
 
 ## Why Flutter 3.41 and 3.47
 
-3.41 was the stable minor when most triads were recorded; the example
-app's iOS bootstrap uses `FlutterImplicitEngineDelegate` /
+3.41 was the stable minor when most triads were recorded. The example
+app's iOS bootstrap uses the `FlutterImplicitEngineDelegate` /
 `FlutterSceneDelegate` bindings introduced in 3.41, and the
-`vm_service` patch level required by the validation harness ships on
-3.41+. 3.47 is the development pin; the `rebuild_activity` and
-`excessive_repaint` triads were recorded on 3.47.6. A triad must use one
-exact version, and both minors stay accepted until every triad has been
-re-recorded on the newer one.
+`vm_service` patch level the validation tooling requires ships on
+3.41+. 3.47 is the development pin, and the `rebuild_activity` and
+`excessive_repaint` triads were recorded on 3.47.6. A triad must use
+one exact version. Both minors stay accepted until every triad has been
+recorded again on the newer one.
 
-The schema pins the full major.minor to surface a silent channel
-bump: a tier raise PR that captures on 3.42 will fail the gate until
-the matrix rotates.
+The schema pins the full major.minor so a silent channel bump shows up.
+A tier raise PR that captures on 3.42 fails the gate until the matrix
+rotates.
 
 ## Rotation policy
 
-The matrix rotates **once per calendar year**, in a dedicated release.
-Rotation releases update:
+The matrix rotates once per calendar year, in a dedicated release. A
+rotation release updates:
 
 1. `ProfileCaptureSchema.approvedDevicePairs`.
-2. `ProfileCaptureSchema.approvedFlutterMajorMinors` (and the
+2. `ProfileCaptureSchema.approvedFlutterMajorMinors`, and the
    `approvedFlutterMajorMinor` baseline member when the oldest pin
-   retires). The version validator checks set membership, so no regex
+   retires. The version validator checks set membership, so no regex
    edit is needed.
-3. This document's Current matrix table.
-4. `test/validation/captures/README.md` recording instructions if the
-   tooling changed (DevTools UI revision, export format migration).
-5. `_fixtures/anchor_devtools_export.json` re-recorded on the new
-   environment plus its SHA-256 fingerprint in
-   `test/validation/profile_capture_schema_anchor_test.dart`. The schema
-   drift-guard stays grounded in reality rather than the prior year's
-   pins.
+3. The current matrix table in this document.
+4. The recording instructions in `test/validation/captures/README.md`,
+   if the tooling changed (a DevTools UI revision, an export format
+   migration).
+5. `_fixtures/anchor_devtools_export.json`, recorded again on the new
+   environment, and its SHA-256 fingerprint in
+   `test/validation/profile_capture_schema_anchor_test.dart`. This keeps
+   the schema drift guard tied to the current pins rather than last
+   year's.
 
-Adding the Android reference device is also rotation-class work.
+Adding the Android reference device is also rotation work.
 
 ## Why not allow "any supported device"
 
-A single device is a small matrix — but the alternative isn't "all
-devices," it's "devices we never actually reviewed the capture on."
-Unpinned captures read `runtimeVerified` but can't be reproduced. The
-audit gate's value is precisely that a captured claim corresponds to a
-specific, reboot-able environment; permissive pins would dilute that to
-nothing.
+A single device is a small matrix. The alternative is not "all
+devices" but "devices nobody reviewed a capture on." An unpinned
+capture reads as `runtimeVerified` but cannot be reproduced. The audit
+gate is useful because each captured claim maps to one specific
+environment that someone can boot again. Loose pins would remove that.
 
 ## Why rotations are deliberate, not silent
 
-A rotation changes the *meaning* of every prior `runtimeVerified` claim:
-"holds on Flutter 3.41.x or 3.47.x / iPhone 12 iOS 17.5" is a specific statement.
-If we silently advanced the matrix to 3.34.x mid-year, every unexpired
-tier raise would start claiming something it was never validated
-against. Rotating in a dedicated release is the only way to say "we
-accept the responsibility to re-validate the ledger against the new
-pins."
+A rotation changes what every earlier `runtimeVerified` claim means.
+"Holds on Flutter 3.41.x or 3.47.x / iPhone 12 iOS 17.5" is a specific
+statement. If the matrix moved to a newer Flutter minor mid-year
+without notice, every standing tier raise would claim something it was
+never validated against. A dedicated rotation release is how the
+project commits to validating the ledger again against the new pins.
 
-Requests for ad-hoc pair additions (new device, same year) are
-rejected in favour of waiting for the next rotation window. If a
-detector's behaviour is specific to hardware not currently in the
-matrix, that detector's tier raise waits for the matrix to rotate —
-not bend the schema to accommodate.
+The project turns down requests for ad-hoc pair additions (a new
+device in the same year) and waits for the next rotation window
+instead. If a detector's behaviour depends on hardware outside the
+matrix, its tier raise waits for the matrix to rotate; the schema does
+not bend to fit it.
