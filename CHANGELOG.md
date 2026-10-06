@@ -295,7 +295,8 @@
   object in each layer to the nearest widget the app creates, and rates
   each type by its busiest instance instead of summing instances. Widgets
   that share the layer, clean `RepaintBoundary` visits, slivers, viewports,
-  framework control painters and scrolling are not credited, so following
+  framework control painters, Material ink splashes and scrolling are not
+  credited, so following
   the fix hint no longer raises a `repaint_debug_RepaintBoundary` card. The
   cards are titled "Likely Repaint Origin", are `likely`, and highlight the
   busiest origin instances. `frequent_repaint_painter` and the lift of

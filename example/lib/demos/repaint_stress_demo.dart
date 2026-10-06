@@ -6,13 +6,15 @@ import '../demo_scaffold.dart';
 
 // Live audio-style waveform visualizer. A 60 Hz CustomPaint scrolls a
 // 256-sample sine + noise trace, while header labels (BPM, Peak)
-// rebuild every frame. Without a `RepaintBoundary` the painter's
-// repaints propagate up through the Column and drag the labels and
-// sibling chrome into the same repaint, tripping the debug paint-count
-// families (`excessive_repaint_debug`, `repaint_debug_<TypeName>`).
-// Profile-mode `excessive_repaint` measures paint time, not paint count,
-// and fires only if this paint work passes its share of UI-thread time.
-// Wrapping the painter in a `RepaintBoundary` quiets all paths.
+// rebuild every frame. Without a `RepaintBoundary` the painter shares a
+// layer with the labels and sibling chrome, so every repaint redraws
+// them too. In debug mode Sleuth names the CustomPaint as the likely
+// repaint origin (`repaint_debug_CustomPaint`) and the structural scan
+// flags the missing boundary. Profile-mode `excessive_repaint` measures
+// paint time, and fires only if this paint work passes its share of
+// UI-thread time. Wrapping the painter in a `RepaintBoundary` keeps its
+// repaint in its own layer: the missing-boundary card clears, and the
+// origin card stays because the waveform still repaints every frame.
 
 class RepaintStressDemo extends StatefulWidget {
   const RepaintStressDemo({super.key});
@@ -68,16 +70,16 @@ class _RepaintStressDemoState extends State<RepaintStressDemo>
       title: 'Live Waveform',
       description:
           '❌ BAD: A 60 Hz CustomPaint scrolling oscilloscope plus per-frame '
-          'header labels (BPM, Peak) — no RepaintBoundary. Every frame\'s '
-          'repaint propagates through the Column and drags the labels into '
-          'the repaint. In debug mode the paint counters flag '
-          '`excessive_repaint_debug` and per-widget '
-          '`repaint_debug_<TypeName>`; profile-mode `excessive_repaint` '
-          'fires only when paint takes over 10% of UI-thread time.\n'
-          '✅ FIX: Wrap the painter in a RepaintBoundary so the repaint '
-          'isolates to its own layer.\n\n'
+          'header labels (BPM, Peak), with no RepaintBoundary, so every '
+          'repaint also redraws the labels around it. In debug mode Sleuth '
+          'names the CustomPaint as the likely repaint origin and flags the '
+          'missing boundary; profile-mode `excessive_repaint` fires only '
+          'when paint takes over 10% of UI-thread time.\n'
+          '✅ FIX: Wrap the painter in a RepaintBoundary so its repaint '
+          'stays in its own layer.\n\n'
           '▶ Open Bad path → wait 1–2 s for the issue cards. Toggle Fixed '
-          '→ cards disappear within 2–3 s.',
+          '→ the missing-boundary card clears within 2–3 s. The origin '
+          'card stays, because the waveform still repaints every frame.',
       metricsBar: MetricsBar(
         chips: [
           // The Paints notifier ticks once per frame. Without an own

@@ -407,6 +407,36 @@ void main() {
     expect(snap.paintOrigins, isEmpty);
   }, semanticsEnabled: false);
 
+  testWidgets('an ink splash is not credited to the widget around it', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: Material(
+            child: InkWell(
+              onTap: () {},
+              child: const SizedBox(width: 200, height: 200),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+    var now = DateTime(2026);
+    final coord = DebugInstrumentationCoordinator(clock: () => now);
+    coord.install();
+    await tester.tap(find.byType(InkWell));
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    now = now.add(const Duration(seconds: 1));
+    final snap = coord.snapshot();
+    coord.dispose();
+    expect(snap.paintOrigins, isNot(contains('Material')));
+    expect(snap.paintOrigins, isNot(contains('InkWell')));
+  });
+
   testWidgets(
     'a nested boundary repainted first does not make the ancestors it '
     'relaid out into origins',

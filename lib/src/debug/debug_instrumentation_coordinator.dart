@@ -1140,8 +1140,11 @@ class DebugInstrumentationCoordinator {
       // scrollbar thumb, a toggle, a tab indicator). Neither is a change
       // the app made, and both would otherwise be credited to the app
       // widget around them.
+      // Material's ink layer repaints on every tick of a tap's splash or
+      // highlight, which is the framework answering a touch.
       if (renderObject is RenderSliver ||
           renderObject is RenderAbstractViewport ||
+          renderObject.runtimeType.toString() == '_RenderInkFeatures' ||
           isFrameworkPainterPaint(element)) {
         return;
       }
