@@ -394,6 +394,22 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
+      testWidgets('a single slow window keeps frequent_repaint_painter, a '
+          'quiet window clears it', (tester) async {
+        await pumpPainter(tester, _NeverRepaintPainter());
+        List<String?> scan(int raw) {
+          detector.updateDebugSnapshot(snapshot(raw: raw, owned: 0));
+          detector.scanTree(tester.element(find.byType(Directionality)));
+          return [for (final i in detector.issues) i.stableId];
+        }
+
+        expect(scan(40), ['frequent_repaint_painter']);
+        // 25/sec alone is under 30, but 40 and 25 average 32.5/sec, above
+        // three quarters of the threshold, so the card stays.
+        expect(scan(25), ['frequent_repaint_painter']);
+        expect(scan(0), isEmpty);
+      });
+
       testWidgets('raw 40/sec with 0 owned fires frequent_repaint_painter', (
         tester,
       ) async {

@@ -299,7 +299,10 @@
   the fix hint no longer raises a `repaint_debug_RepaintBoundary` card. The
   cards are titled "Likely Repaint Origin", are `likely`, and highlight the
   busiest origin instances. `frequent_repaint_painter` and the lift of
-  `always_repaint_painter` read the same origin rate. `DebugSnapshot` adds
+  `always_repaint_painter` read the same origin rate and hold it across
+  scans like the repaint cards, so a slow window no longer drops them. A
+  nested boundary repainted earlier in the frame no longer makes the
+  ancestors its resize relaid out look like origins. `DebugSnapshot` adds
   `paintOrigins` (`PaintOriginStats`, `PaintOriginInstance`) and
   `paintOriginTypesCapped`; the participation counts are unchanged.
 - `ext.sleuth.issues` carries `vmConnected`, so MCP clients can tell a

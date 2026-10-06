@@ -8,6 +8,7 @@ import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/framework_painters.dart';
+import '../utils/rate_hysteresis.dart';
 import '../utils/widget_location.dart';
 
 /// Detects CustomPainter where shouldRepaint always returns true.
@@ -30,11 +31,43 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
   /// type-aggregated paint-rate heuristic needs at least one.
   int _userPaintCount = 0;
   bool _isEnabled = true;
-  DebugSnapshot? _lastDebugSnapshot;
+
+  /// Repaints per second above which a painter is flagged as frequent.
+  static const double _frequentRate = 30;
+
+  /// Repaints per second above which `always_repaint_painter` is `likely`.
+  static const double _observedRate = 10;
+
+  // The busiest CustomPaint's likely-origin rate swings with frame drops
+  // (debug builds drop frames under load), so both gates hold their
+  // verdict across scans the way the per-widget repaint cards do: enter
+  // on one window at the rate, leave when two windows average under
+  // three quarters of it or on a window with no such repaint.
+  final RateHysteresis _frequent = RateHysteresis();
+  final RateHysteresis _observed = RateHysteresis();
 
   @override
   void updateDebugSnapshot(DebugSnapshot snapshot) {
-    _lastDebugSnapshot = snapshot;
+    final origins = snapshot.paintOrigins['CustomPaint'];
+    final counts = {
+      if (origins != null && origins.maxCount > 0)
+        'CustomPaint': origins.maxCount,
+    };
+    final us = snapshot.elapsed.inMicroseconds;
+    for (final (gate, threshold) in [
+      (_frequent, _frequentRate),
+      (_observed, _observedRate),
+    ]) {
+      gate.update(
+        counts: counts,
+        elapsedUs: us,
+        capped: snapshot.paintOriginTypesCapped,
+        // Both gates are strictly above their rate, so exactly 30/sec
+        // (or 10/sec) stays silent, as the reproducer pins.
+        thresholdFor: (_) => threshold + 1e-9,
+        criticalMultiplier: double.infinity,
+      );
+    }
   }
 
   @override
@@ -114,8 +147,7 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
       // Check debug snapshot for CustomPaint repaint activity.
       IssueConfidence confidence = IssueConfidence.possible;
       ObservationSource? source;
-      final ds = _lastDebugSnapshot;
-      if (ds != null && _customPaintOriginRate(ds) > 10) {
+      if (_observed.held.containsKey('CustomPaint')) {
         confidence = IssueConfidence.likely;
         source = ObservationSource.debugCallbackAndStructural;
       }
@@ -147,45 +179,32 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     // repaints often may have problematic shouldRepaint logic that only
     // manifests with different old/new instances.
     if (_found.isEmpty && _userPaintCount > 0) {
-      final ds = _lastDebugSnapshot;
-      if (ds != null) {
-        final cpRate = _customPaintOriginRate(ds);
-        if (cpRate > 30) {
-          final (hint2, effort2) = FixHintBuilder.frequentRepaintPainter();
-
-          _issues.add(
-            PerformanceIssue(
-              stableId: 'frequent_repaint_painter',
-              severity: IssueSeverity.warning,
-              category: IssueCategory.paint,
-              confidence: IssueConfidence.possible,
-              title: 'Frequent CustomPainter Repaints: ${cpRate.round()}/sec',
-              detail:
-                  'A CustomPaint was the likely origin of '
-                  '${cpRate.round()} repaints/sec. Verify shouldRepaint() '
-                  "returns false when visual state hasn't changed.",
-              fixHint: hint2,
-              fixEffort: effort2,
-              observationSource: ObservationSource.debugCallbackAndStructural,
-              confidenceReason:
-                  'Debug callback likely-origin rate + structural scan',
-              detectedAt: DateTime.now(),
-            ),
-          );
-        }
+      final held = _frequent.held['CustomPaint'];
+      if (held != null) {
+        final cpRate = held.rate;
+        final (hint2, effort2) = FixHintBuilder.frequentRepaintPainter();
+        _issues.add(
+          PerformanceIssue(
+            stableId: 'frequent_repaint_painter',
+            severity: IssueSeverity.warning,
+            category: IssueCategory.paint,
+            confidence: IssueConfidence.possible,
+            title: 'Frequent CustomPainter Repaints: ${cpRate.round()}/sec',
+            detail:
+                'A CustomPaint was the likely origin of '
+                '${cpRate.round()} repaints/sec. Verify shouldRepaint() '
+                "returns false when visual state hasn't changed.",
+            fixHint: hint2,
+            fixEffort: effort2,
+            observationSource: ObservationSource.debugCallbackAndStructural,
+            confidenceReason:
+                'Debug callback likely-origin rate + structural scan',
+            detectedAt: DateTime.now(),
+          ),
+        );
       }
     }
   }
-
-  /// Repaints per second the busiest CustomPaint was the likely origin
-  /// of, leaving out frames an animation owner drove
-  /// ([DebugSnapshot.paintOrigins]). A CustomPaint that only repaints
-  /// because something else in its layer did never reaches its painter's
-  /// shouldRepaint, so those paints are not counted; animation-driven
-  /// repaints (progress indicators, transitions) are expected every frame
-  /// and say nothing about shouldRepaint either.
-  static double _customPaintOriginRate(DebugSnapshot snapshot) =>
-      snapshot.paintOriginsPerSecondForType('CustomPaint');
 
   @override
   void dispose() {
@@ -193,7 +212,8 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     _highlights.clear();
     _found.clear();
     _userPaintCount = 0;
-    _lastDebugSnapshot = null;
+    _frequent.reset();
+    _observed.reset();
   }
 
   @override
