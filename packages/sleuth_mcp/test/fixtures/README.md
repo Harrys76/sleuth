@@ -25,14 +25,14 @@ fvm flutter attach --machine -d <device> 2>/dev/null \
 
 # 5. Add a header comment to the captured file with version + platform.
 
-# 6. Update _minDaemonProtocolVersion in daemon_parser.dart if the
+# 6. Update minDaemonProtocolVersion in daemon_parser.dart if the
 #    daemon.connected event reports a newer version we want to require.
 ```
 
 ## Fixture file naming
 
-`daemon_<command>_flutter_<sem.ver.>_<platform>.ndjson` —
-e.g. `daemon_attach_flutter_3_41_4_ios.ndjson`.
+`daemon_<command>_flutter_<major>_<minor>_<patch>_<platform>.ndjson`, for
+example `daemon_attach_flutter_3_41_4_ios.ndjson`.
 
 ## What the parser tests assert
 
