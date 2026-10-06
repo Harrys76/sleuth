@@ -460,8 +460,9 @@ class RealVmBridge implements VmBridge, AppLogSource {
         final vmInfo = await _service!.getVM().timeout(
           const Duration(seconds: 3),
           onTimeout: () => throw VmBridgeException(
-            'getVM bootstrap RPC timed out after 3s — VM service may '
-            'be half-open (WS accepted but RPC never returns)',
+            'the getVM bootstrap call timed out after 3s. The VM service '
+            'may be half-open. Such a service accepts the WebSocket but '
+            'never answers a call',
           ),
         );
         isolates = vmInfo.isolates ?? <vm.IsolateRef>[];
@@ -470,7 +471,7 @@ class RealVmBridge implements VmBridge, AppLogSource {
       }
       if (isolates.isEmpty) {
         throw VmBridgeException(
-          'no isolates on target VM service after 20s wait',
+          'the VM service had no isolates after a 20s wait',
         );
       }
       final override = _targetIsolateIdOverride;
@@ -573,7 +574,7 @@ class RealVmBridge implements VmBridge, AppLogSource {
     final uuid = diag['sessionUuid'];
     if (uuid is! String) {
       throw VmBridgeException(
-        'ext.sleuth.diagnose returned no sessionUuid — is sleuth attached?',
+        'ext.sleuth.diagnose returned no sessionUuid. Is sleuth attached?',
       );
     }
     final priorBaseline = _baselineSessionUuid;
@@ -759,7 +760,7 @@ class RealVmBridge implements VmBridge, AppLogSource {
       } catch (e) {
         throw VmBridgeException(
           'the app\'s isolate $goneId exited, as it does on a hot restart, '
-          'and the bridge could not look for its new isolate ($e); call '
+          'and the bridge could not look for its new isolate ($e). Call '
           'connect or attach_app to connect again',
         );
       }
@@ -775,14 +776,14 @@ class RealVmBridge implements VmBridge, AppLogSource {
       } on VmBridgeException catch (e) {
         throw VmBridgeException(
           'the app restarted into isolate $newId, but reading its session '
-          'failed: ${e.message}; call the tool again',
+          'failed: ${e.message}. Call the tool again',
           kind: e.kind,
           timeout: e.timeout,
         );
       } on _TransportClosed catch (e) {
         throw VmBridgeException(
           'the app restarted into isolate $newId, and the connection failed '
-          'while the bridge read its session ($e); call connect or '
+          'while the bridge read its session ($e). Call connect or '
           'attach_app to connect again',
         );
       }
@@ -791,7 +792,7 @@ class RealVmBridge implements VmBridge, AppLogSource {
       if (uuid is! String) {
         throw VmBridgeException(
           'the app restarted into isolate $newId, but its '
-          'ext.sleuth.diagnose returned no sessionUuid; call connect or '
+          'ext.sleuth.diagnose returned no sessionUuid. Call connect or '
           'attach_app to connect again',
         );
       }
@@ -855,7 +856,7 @@ class RealVmBridge implements VmBridge, AppLogSource {
             'the app\'s isolate $goneId exited, as it does on a hot restart, '
             'and no new isolate registered $_diagnoseMethod within '
             '${isolateFollowTimeout.inMilliseconds} ms. If the app is still '
-            'restarting, call the tool again; if it exited or no longer '
+            'restarting, call the tool again. If it exited or no longer '
             'calls Sleuth.track(), call connect or attach_app',
           );
         }
@@ -973,7 +974,7 @@ class RealVmBridge implements VmBridge, AppLogSource {
         )
       : VmBridgeException(
           'a new connect replaced the connection to the app while $what '
-          'ran; call the tool again',
+          'ran. Call the tool again',
         );
 
   /// Test-only handle on the same reconnect path `callExtension` takes
@@ -1058,8 +1059,8 @@ class RealVmBridge implements VmBridge, AppLogSource {
     // the envelope the validator consumes.
     if (!bypassValidatedGate && !_validated) {
       throw VmBridgeException(
-        'the connection to the app is not yet validated: a connect is '
-        'still running, or it was refused',
+        'the connection to the app is not yet validated, because a '
+        'connect is still running or was refused',
         kind: VmBridgeErrorKind.notConnected,
       );
     }
@@ -1104,8 +1105,8 @@ class RealVmBridge implements VmBridge, AppLogSource {
       if (e.code == vm.RPCErrorKind.kMethodNotFound.code &&
           method == _diagnoseMethod) {
         throw VmBridgeException(
-          'Sleuth package not initialized in target app — '
-          'ensure Sleuth.track() is called in main()',
+          'the Sleuth package is not initialized in the target app. Call '
+          'Sleuth.track() in main()',
         );
       }
       throw VmBridgeException('$method rejected: $msg (code ${e.code})');

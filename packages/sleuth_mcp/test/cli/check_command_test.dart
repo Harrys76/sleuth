@@ -80,7 +80,7 @@ void main() {
   test('--help exits 0 and lists the exit codes', () async {
     final run = await _check(['--help']);
     expect(run.code, checkExitPass);
-    expect(run.out, contains('64 bad command line'));
+    expect(run.out, contains('64 on a bad command line'));
   });
 
   test('a passing budget exits 0', () async {

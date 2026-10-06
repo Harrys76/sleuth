@@ -134,13 +134,15 @@ String _skewRefusalMessage(Map<String, Object?>? diag, String reason) {
   switch (reason) {
     case 'version_skew_unknown':
       final got = appVersion == null ? '' : ' (got "$appVersion")';
-      return 'version_skew_unknown: diagnose envelope missing or malformed '
-          'packageVersion stamp$got — cannot verify wire contract. Bridge '
-          'disconnected.';
+      return 'version_skew_unknown: the diagnose envelope has a missing or '
+          'malformed packageVersion$got, so the sidecar cannot verify the '
+          'wire contract. The sidecar disconnected the bridge.';
     default:
       return 'version_skew_major: app=${appVersion ?? '<missing>'} '
-          'sidecar-pin=$sleuthPackageVersionPin — refusing to serve; align '
-          'sleuth dep with sidecar version. Bridge disconnected.';
+          'sidecar-pin=$sleuthPackageVersionPin. The app\'s sleuth version '
+          'is outside the lineages this sidecar accepts, so the sidecar '
+          'refuses to serve it and disconnected the bridge. Align the '
+          'app\'s sleuth dependency with the sidecar version.';
   }
 }
 
@@ -298,9 +300,9 @@ final snapshotDiskHandoff = SnapshotDiskHandoff();
 
 /// `data._omittedSectionsHint` on a default `get_snapshot` result.
 const String _omittedSectionsHint =
-    'These sections are left out by default to keep the response small: '
-    'per-frame data and raw sample buffers. Pass full: true for every '
-    'section, or name the ones you need in sections.';
+    'The default call leaves out these per-frame and raw sample sections '
+    'to keep the response small. Pass full: true for every section, or '
+    'name the ones you need in sections.';
 
 Future<Object> _getSnapshotHandler(
   VmBridge bridge,
@@ -368,10 +370,11 @@ Future<Object> _getSnapshotHandler(
     // payload; inline it would overflow the response cap projection
     // exists to avoid. Refuse with guidance instead.
     return ToolCallResult.text(
-      'projection_unsupported_by_app: the attached app predates snapshot '
-      'projection (sleuth < 0.35), so projection args were ignored and the '
-      'full payload would overflow the response. Re-request with '
-      'diskHandoff: true, or upgrade the app to sleuth 0.35+.',
+      'projection_unsupported_by_app: the attached app runs a sleuth '
+      'version older than 0.35, which has no snapshot projection. The app '
+      'ignored the projection args, and its full payload would overflow '
+      'the response. Request again with diskHandoff: true, or upgrade the '
+      'app to sleuth 0.35 or later.',
       isError: true,
     );
   }
@@ -470,7 +473,7 @@ Future<Object> writeSnapshotHandoff(
     );
   } on FileSystemException catch (e) {
     return ToolCallResult.text(
-      'disk_handoff_failed: the snapshot file could not be written: '
+      'disk_handoff_failed: the sidecar could not write the snapshot file: '
       '${e.message}${e.path == null ? '' : ' (${e.path})'}',
       isError: true,
     );
@@ -508,8 +511,8 @@ Future<Object> _getIssuesHandler(
     final parsed = _asInt(rawMaxCount);
     if (parsed == null || parsed < 0) {
       return ToolCallResult.text(
-        'arg_invalid_int: maxIssueCount must be a non-negative integer '
-        '(0 = unbounded)',
+        'arg_invalid_int: maxIssueCount must be a non-negative integer. '
+        '0 means no cap.',
         isError: true,
       );
     }
@@ -747,9 +750,9 @@ final Map<String, BuiltInTool> builtInTools = {
           'uri': {
             'type': 'string',
             'description':
-                'VM service URI from flutter run or flutter attach output, '
-                'e.g. http://127.0.0.1:55555/<token>=/ or '
-                'ws://127.0.0.1:55555/<token>=/ws',
+                'The VM service URI that flutter run or flutter attach '
+                'prints, such as http://127.0.0.1:55555/<token>=/ or '
+                'ws://127.0.0.1:55555/<token>=/ws.',
           },
         },
         'required': ['uri'],
@@ -762,16 +765,17 @@ final Map<String, BuiltInTool> builtInTools = {
       name: 'get_snapshot',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
       description:
-          'Performance snapshot: issues, frame stats summary, route history, '
-          'session summary and recurrence trends. By default the per-frame '
-          'and raw sample sections (capturedFrames, recentFrames, '
-          'recentRequests, heapSamples, phaseEvents, gcEvents, '
-          'platformChannelEvents) are left out to keep the response small, '
-          'and data._omittedSections lists them. Pass full: true for every '
-          'section, or sections to pick exactly the ones you need. '
-          'maxIssueCount and maxRouteCount cap those lists. diskHandoff '
-          'writes the snapshot (every section unless sections is set) to a '
-          'temp file and returns {path, sizeBytes, sha256} instead.',
+          'Returns a performance snapshot with the issues, a frame stats '
+          'summary, the route history, a session summary and recurrence '
+          'trends. To keep the response small, the default call leaves out '
+          'the per-frame and raw sample sections (capturedFrames, '
+          'recentFrames, recentRequests, heapSamples, phaseEvents, gcEvents, '
+          'platformChannelEvents) and lists them in data._omittedSections. '
+          'Pass full: true for every section, or sections to pick exactly '
+          'the ones you need. maxIssueCount and maxRouteCount cap the issue '
+          'and route lists. diskHandoff writes the snapshot to a temp file, '
+          'with every section unless sections is set, and returns {path, '
+          'sizeBytes, sha256} instead.',
       inputSchema: <String, Object?>{
         'type': 'object',
         'properties': <String, Object?>{
@@ -782,9 +786,9 @@ final Map<String, BuiltInTool> builtInTools = {
               'enum': snapshotSectionKeys,
             },
             'description':
-                'Sections to include; metadata always returns. Omit for '
-                'the default set, which leaves out the per-frame and raw '
-                'sample sections.',
+                'Sections to include. The metadata keys always come back. '
+                'Omit it for the default set, which leaves out the '
+                'per-frame and raw sample sections.',
           },
           'full': <String, Object?>{
             'type': 'boolean',
@@ -792,30 +796,32 @@ final Map<String, BuiltInTool> builtInTools = {
             'description':
                 'Return every section, including per-frame and raw sample '
                 'data. On a long session this can exceed a client\'s '
-                'response budget; prefer sections, or diskHandoff. Cannot '
-                'be combined with sections.',
+                'response budget, so prefer sections or diskHandoff. Do not '
+                'combine it with sections.',
           },
           'maxIssueCount': <String, Object?>{
             'type': 'integer',
-            'description': 'Keep top-N already-ranked issues.',
+            'description':
+                'Keep the first N issues in the app\'s ranked order.',
           },
           'maxRouteCount': <String, Object?>{
             'type': 'integer',
-            'description': 'Keep N most-recent routes by startedAt.',
+            'description': 'Keep the N routes with the latest startedAt.',
           },
           'diskHandoff': <String, Object?>{
             'type': 'boolean',
             'description':
                 'Write the envelope to a temp file, with every section '
-                'unless sections is set; the response becomes {path, '
-                'sizeBytes, sha256, _projectedSections?}.',
+                'unless sections is set. The response is then {path, '
+                'sizeBytes, sha256}, plus _projectedSections when the '
+                'snapshot was projected.',
           },
           'verbose': <String, Object?>{
             'type': 'boolean',
             'default': false,
             'description':
-                'Return full issue fields. Default false trims each '
-                'currentIssue to the actionable subset.',
+                'Return every issue field. The default, false, trims each '
+                'currentIssues entry to the actionable subset.',
           },
         },
         'required': <String>[],
@@ -828,9 +834,11 @@ final Map<String, BuiltInTool> builtInTools = {
       name: 'get_issues',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
       description:
-          'Currently-aggregated performance issues. Optional route + severity '
-          'filter. Compact by default (actionable fields only, capped at 50); '
-          'pass verbose for full fields, maxIssueCount to change the cap.',
+          'Returns the performance issues the app currently reports. '
+          'route and severityAtLeast filter the list. By default each issue '
+          'keeps only its actionable fields, and the list stops at 50 '
+          'issues. Pass verbose for every field, or maxIssueCount to change '
+          'the cap.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -843,16 +851,17 @@ final Map<String, BuiltInTool> builtInTools = {
             'type': 'integer',
             'default': 50,
             'description':
-                'Keep top-N already-ranked issues. Default 50; '
-                '0 means unbounded. Applies whether or not verbose is set.',
+                'Keep the first N issues in the app\'s ranked order. '
+                'Default 50, and 0 means no cap. The cap applies whether '
+                'or not verbose is set.',
           },
           'verbose': {
             'type': 'boolean',
             'default': false,
             'description':
-                'Return full issue fields instead of the compact '
-                'actionable subset. Field shape only — the maxIssueCount cap '
-                'still applies.',
+                'Return every issue field instead of the compact '
+                'actionable subset. It changes the fields only, so the '
+                'maxIssueCount cap still applies.',
           },
         },
         'required': <String>[],
@@ -864,7 +873,9 @@ final Map<String, BuiltInTool> builtInTools = {
     descriptor: const Tool(
       name: 'get_route_health',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
-      description: 'Per-route health score + FPS + issue counts.',
+      description:
+          'Returns the health score, FPS and issue counts of each route. '
+          'Pass route for one route.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -880,11 +891,11 @@ final Map<String, BuiltInTool> builtInTools = {
       name: 'explain_issue',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
       description:
-          'Encyclopedia entry for a stableId (parametric variants resolve). '
-          'On sleuth 0.37+ apps the route, widget and count text is filled '
-          'from the matching live issue (neutral wording when none is '
-          'live); sleuth 0.36 apps return raw placeholders such as '
-          '{widgetName} and {routeName}.',
+          'Returns the encyclopedia entry for a stableId. Parametric '
+          'stableIds also resolve. On sleuth 0.37 and later, the app fills '
+          'the route, widget and count text from the matching live issue, '
+          'or uses neutral wording when none is live. Sleuth 0.36 apps '
+          'return raw placeholders such as {widgetName} and {routeName}.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -900,21 +911,26 @@ final Map<String, BuiltInTool> builtInTools = {
       name: 'compare_snapshots',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: false),
       description:
-          'Pure client-side diff of two snapshots. No app call. Use for AI '
-          'conversation context: did this code change regress performance? '
-          'Issues aggregate per stableId (highest severity + count). Refuses '
-          'snapshots from different sleuth lineages, with different VM '
-          'coverage, or taken during warmup.',
+          'Diffs two snapshots in the sidecar without calling the app. Use '
+          'it to check whether a code change made performance worse. It '
+          'groups issues per stableId and keeps the highest severity and '
+          'the occurrence count. It refuses snapshots from different sleuth '
+          'lineages, snapshots with different VM coverage, and snapshots '
+          'taken during warmup.',
       inputSchema: {
         'type': 'object',
         'properties': {
           'before': {
             'type': 'object',
-            'description': 'Snapshot envelope `data` (not the full envelope).',
+            'description':
+                'The `data` object of a snapshot envelope, not the whole '
+                'envelope.',
           },
           'after': {
             'type': 'object',
-            'description': 'Snapshot envelope `data` (not the full envelope).',
+            'description':
+                'The `data` object of a snapshot envelope, not the whole '
+                'envelope.',
           },
         },
         'required': ['before', 'after'],
@@ -927,13 +943,14 @@ final Map<String, BuiltInTool> builtInTools = {
       name: 'check_budgets',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
       description:
-          'Compare live snapshot against FPS / issue-count budgets. Returns '
-          '{passed, violations}; refuses with coverage_degraded when the app '
-          'has no VM service link (VM-only detectors never ran). Every '
-          'threshold is optional and defaults to the sleuth_check default: '
-          'minFps 55, maxIssues 999999 (no practical limit), '
-          'maxCriticalIssues 0. For CI exit-code gating, use the '
-          '`sleuth_check` one-shot binary instead.',
+          'Checks a live snapshot against FPS and issue-count budgets and '
+          'returns {passed, violations}. It refuses with coverage_degraded '
+          'when the app has no VM service link, because the VM-only '
+          'detectors never ran. Every threshold is optional and defaults to '
+          'the sleuth_check default: minFps 55, maxIssues 999999 (no '
+          'practical limit) and maxCriticalIssues 0. For a CI gate that '
+          'sets the exit code, use the one-shot `sleuth_check` binary '
+          'instead.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -965,8 +982,10 @@ final Map<String, BuiltInTool> builtInTools = {
       name: 'diagnose',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
       description:
-          'Operational health — package version, VM connection state, '
-          'unbound extension names. Adds sidecar version + pin.',
+          'Reports the app\'s operational health: the sleuth package '
+          'version, the VM connection state and the names of unbound '
+          'extensions. The sidecar adds its own version and the sleuth '
+          'version it pins.',
       inputSchema: _emptyObjectSchema,
     ),
     handler: _diagnoseHandler,
@@ -1010,7 +1029,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
             'running, so hot_reload would reload one app while the other '
             'tools read another. Call detach_app first, then connect.',
         data: <String, Object?>{
-          'remedy': 'detach_app, then connect(uri)',
+          'remedy': 'Call detach_app, then connect(uri).',
           'status': status.toJson(),
         },
       );
@@ -1053,7 +1072,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
       if (bundle == null || bundle.isEmpty) {
         return _typedErrorEnvelope(
           'ios_missing_bundle',
-          '`udid` requires `bundle` (iOS bundle identifier). Example: '
+          '`udid` requires `bundle`, the iOS bundle identifier, such as '
               '`com.example.app`.',
         );
       }
@@ -1190,8 +1209,8 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
             'using `attach_app(device: <name>)` to enable hot reload.',
         data: const <String, Object?>{
           'remedy':
-              'detach_app then attach_app(device: <device-name>); the '
-              'daemon path supports hot_reload',
+              'Call detach_app, then attach_app(device: <device-name>). '
+              'The daemon path supports hot_reload.',
         },
       );
     }
@@ -1282,18 +1301,19 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           openWorldHint: true,
         ),
         description:
-            'Attach to a running Flutter app. Three routing modes:\n'
-            '  • `udid` (iOS UDID) — drives devicectl launch + Bonjour '
-            'resolve + iproxy tunnel internally; one round-trip replaces '
-            'the standalone `sleuth_mcp attach-ios` CLI. Requires `bundle`.\n'
-            '  • `debugUrl` — direct WebSocket URI; bypasses both daemon '
-            'and the iOS pipeline.\n'
-            '  • `device` (name or id from list_devices) — routes via '
-            '`flutter attach --machine` daemon (Android + iOS daemon path).\n'
-            'Connects bridge to the app\'s VM service. Call before any '
-            'diagnostic tools. A failed attach returns isError with code '
+            'Attach to a running Flutter app and connect the bridge to its '
+            'VM service. Call it before the diagnostic tools. The arguments '
+            'pick one of three routing modes. `udid`, an iOS device UDID, '
+            'needs `bundle`. With it, the sidecar runs the devicectl launch, '
+            'the Bonjour lookup and the iproxy tunnel itself, so one call '
+            'does the work of the standalone `sleuth_mcp attach-ios` CLI. '
+            '`debugUrl` is a VM service WebSocket URI. The sidecar connects '
+            'to it directly and skips both the flutter daemon and the iOS '
+            'pipeline. `device`, a name or id from list_devices, attaches '
+            'through the flutter daemon with `flutter attach --machine`, on '
+            'Android and iOS. A failed attach returns isError with code '
             'attach_failed. When the request carries a progressToken, each '
-            'stage sends notifications/progress; notifications/cancelled '
+            'stage sends notifications/progress, and notifications/cancelled '
             'stops the attach and releases what it started.',
         inputSchema: {
           'type': 'object',
@@ -1301,55 +1321,57 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
             'device': {
               'type': 'string',
               'description':
-                  'Device id or name from list_devices. Routes via flutter '
-                  'daemon. Required when more than one device is connected '
-                  'AND neither `udid` nor `debugUrl` is set.',
+                  'A device id or name from list_devices. The attach goes '
+                  'through the flutter daemon. Required when more than one '
+                  'device is connected and neither `udid` nor `debugUrl` is '
+                  'set.',
             },
             'debugUrl': {
               'type': 'string',
               'description':
-                  'Escape hatch: connect directly to a known VM service '
-                  'WebSocket URI, bypassing flutter daemon discovery.',
+                  'A VM service WebSocket URI you already know. The '
+                  'sidecar connects to it directly and skips flutter '
+                  'daemon discovery.',
             },
             'udid': {
               'type': 'string',
               'description':
-                  'iOS device UDID. When set, drives the iOS attach '
-                  'pipeline directly (no flutter daemon). Requires `bundle`. '
-                  'Mutually exclusive with `device` / `debugUrl`. macOS '
-                  'only.',
+                  'An iOS device UDID. When it is set, the sidecar runs the '
+                  'iOS attach pipeline itself, without the flutter daemon. '
+                  'It requires `bundle` and cannot be combined with '
+                  '`device` or `debugUrl`. It works on macOS only.',
             },
             'bundle': {
               'type': 'string',
               'description':
-                  'iOS bundle identifier (required with `udid`). Example: '
-                  '`com.example.app`.',
+                  'The iOS bundle identifier, such as `com.example.app`. '
+                  'Required with `udid`.',
             },
             'transport': {
               'type': 'string',
               'enum': ['auto', 'usb', 'wireless'],
               'description':
-                  'Override iOS transport auto-detection. `usb` forces '
-                  'iproxy tunnel; `wireless` connects directly to '
-                  '`.local` host; `auto` (default) inspects `xcrun '
+                  'Overrides iOS transport detection. `usb` forces the '
+                  'iproxy tunnel. `wireless` connects straight to the '
+                  '`.local` host. `auto`, the default, reads `xcrun '
                   'devicectl list devices`.',
             },
             'authOverride': {
               'type': 'string',
               'description':
-                  'iOS only: pin the Bonjour authCode (used when more '
-                  'than one pairing is announced — see error '
-                  '`ios_ambiguous_pairings`).',
+                  'iOS only. Pins the Bonjour authCode when more than one '
+                  'pairing is announced. See the `ios_ambiguous_pairings` '
+                  'error.',
             },
             'forceRelaunch': {
               'type': 'boolean',
               'default': false,
               'description':
-                  'iOS only: skip the Bonjour probe and drive a fresh '
-                  '`xcrun devicectl process launch`. Recovers from a '
-                  'stale mDNS cache pinning a dead VM service port '
-                  '(`ios_vmservice_busy` / `ios_vmservice_unreachable`) '
-                  'without a sidecar restart.',
+                  'iOS only. Skips the Bonjour probe and runs a fresh '
+                  '`xcrun devicectl process launch`. Use it when a stale '
+                  'mDNS cache points at a dead VM service port '
+                  '(`ios_vmservice_busy` or `ios_vmservice_unreachable`). '
+                  'It recovers without a sidecar restart.',
             },
           },
           'required': <String>[],
@@ -1368,10 +1390,11 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           openWorldHint: true,
         ),
         description:
-            'End the session: stop the flutter attach child or the iproxy '
-            'tunnel, disconnect the bridge (also one opened with connect), '
-            'clear the get_logs buffer and delete disk-handoff files. '
-            'Idempotent, so it is safe to call when nothing is attached.',
+            'Ends the session. It stops the flutter attach child or the '
+            'iproxy tunnel, disconnects the bridge (including one opened '
+            'with connect), clears the get_logs buffer and deletes '
+            'disk-handoff files. It is idempotent, so calling it when '
+            'nothing is attached is safe.',
         inputSchema: _emptyObjectSchema,
       ),
       handler: detachHandler,
@@ -1382,8 +1405,9 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
         name: 'app_status',
         annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: false),
         description:
-            'Current attach and connection state. Returns {attached, state, '
-            'connected, connectedVia, device, appId, sessionUuid, '
+            'Reports the current attach and connection state. It returns '
+            '{attached, state, connected, connectedVia, device, appId, '
+            'sessionUuid, '
             'launchMode, mode, lastError}, plus transportMode and wsUri on '
             'iOS-direct sessions. attached is true only for an attach_app '
             'session in state ready whose bridge is still connected. '
@@ -1398,9 +1422,10 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
         name: 'list_devices',
         annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
         description:
-            'List connected devices via `flutter devices --machine`. '
-            'Defaults to mobile-category only (android + ios). Pass '
-            '`mobileOnly: false` to include desktop/web/embedded.',
+            'Lists connected devices from `flutter devices --machine`. By '
+            'default it returns only mobile devices (Android and iOS). Pass '
+            '`mobileOnly: false` to include desktop, web and embedded '
+            'devices.',
         inputSchema: {
           'type': 'object',
           'properties': {
@@ -1408,7 +1433,8 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
               'type': 'boolean',
               'default': true,
               'description':
-                  'Filter to category=="mobile" (Android + iOS). Default true.',
+                  'Keep only devices whose category is "mobile" (Android '
+                  'and iOS). Default true.',
             },
           },
           'required': <String>[],
@@ -1428,7 +1454,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
         ),
         description:
             'Trigger flutter hot reload (`r`) on a session attached with '
-            'attach_app(device:). Preserves app state and sessionUuid. '
+            'attach_app(device:). It keeps the app state and sessionUuid. '
             'debugUrl, iOS-direct and connect sessions have no flutter '
             'daemon and return hot_reload_unsupported. A rejected or '
             'failed reload returns isError with code hot_reload_failed.',
@@ -1445,13 +1471,13 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
         name: 'get_logs',
         annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: false),
         description:
-            'Recent output of the connected app: print and stderr lines and '
-            'dart:developer log records from the VM service, or flutter '
-            'daemon app.log lines while those streams are not available. '
-            'Returns the newest maxLines lines (default 100), oldest first. '
-            'filter keeps lines containing the text, ignoring case. The '
-            'sidecar keeps the last 500 lines; droppedCount says how many '
-            'older lines it evicted.',
+            'Returns recent output of the connected app: print and stderr '
+            'lines and dart:developer log records from the VM service, or '
+            'flutter daemon app.log lines while those streams are not '
+            'available. It gives the newest maxLines lines (default 100), '
+            'oldest first. filter keeps lines containing the text, ignoring '
+            'case. The sidecar keeps the last 500 lines, and droppedCount '
+            'says how many older lines it evicted.',
         inputSchema: {
           'type': 'object',
           'properties': {
@@ -1506,8 +1532,8 @@ Future<Object> _finishAttach(
         lastError,
         data: const <String, Object?>{
           'remedy':
-              'swipe the app off the device home screen and '
-              'rerun attach_app; or rebuild the profile binary',
+              'Swipe the app off the device home screen and rerun '
+              'attach_app, or rebuild the profile binary.',
         },
       );
     }
@@ -1517,8 +1543,8 @@ Future<Object> _finishAttach(
         lastError,
         data: const <String, Object?>{
           'remedy':
-              'wait ~30s for mDNS cache to clear, or swipe '
-              'the app off the device and rerun attach_app',
+              'Wait about 30 s for the mDNS cache to clear, or swipe the '
+              'app off the device and rerun attach_app.',
         },
       );
     }
@@ -1566,8 +1592,8 @@ ToolCallResult _hotReloadUnsupported(String openedWith) => _typedErrorEnvelope(
       'flutter daemon; its connection still works.',
   data: const <String, Object?>{
     'remedy':
-        'detach_app, then attach_app(device: <device id or name>) to get a '
-        'session that supports hot_reload',
+        'Call detach_app, then attach_app(device: <device id or name>) to '
+        'get a session that supports hot_reload.',
   },
 );
 

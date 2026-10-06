@@ -115,7 +115,8 @@ class ConfigWriter {
     final decoded = jsonDecode(raw);
     if (decoded is! Map<String, Object?>) {
       throw ConfigWriteException(
-        'config at ${configFile.path} is not a JSON object (got ${decoded.runtimeType}) — refusing to overwrite',
+        'config at ${configFile.path} is not a JSON object (got '
+        '${decoded.runtimeType}), so the installer will not overwrite it',
       );
     }
     return Map<String, Object?>.from(decoded);
@@ -185,7 +186,8 @@ class ConfigWriter {
         if (DateTime.now().isAfter(deadline)) {
           await raf.close();
           throw ConfigWriteException(
-            'could not acquire lock on ${_lockFile.path} within ${lockTimeout.inSeconds}s — another install in progress?',
+            'could not acquire the lock on ${_lockFile.path} within '
+            '${lockTimeout.inSeconds}s. Is another install running?',
           );
         }
         await Future<void>.delayed(const Duration(milliseconds: 100));

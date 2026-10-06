@@ -36,14 +36,14 @@ Future<void> main(List<String> argv) async {
     )
     ..addOption(
       'tool-timeout',
-      help: 'Per-tool timeout in whole seconds, 1 or more.',
+      help: 'Timeout for each tool call in whole seconds, 1 or more.',
       defaultsTo: '10',
     )
     ..addFlag(
       'verbose',
       abbr: 'v',
       negatable: false,
-      help: 'Verbose logging to stderr.',
+      help: 'Log details to stderr.',
     )
     ..addFlag('version', negatable: false, help: 'Print version and exit.')
     ..addFlag(
@@ -65,14 +65,16 @@ Future<void> main(List<String> argv) async {
 
   if (parsed['help'] as bool) {
     stdout.writeln(
-      'sleuth_mcp — MCP stdio sidecar for the sleuth Flutter package.\n',
+      'sleuth_mcp is the MCP stdio sidecar for the sleuth Flutter '
+      'package.\n',
     );
     stdout.writeln(parser.usage);
     return;
   }
   if (parsed['version'] as bool) {
     stdout.writeln(
-      'sleuth_mcp $sleuthMcpVersion (against sleuth $sleuthPackageVersionPin)',
+      'sleuth_mcp $sleuthMcpVersion, built against sleuth '
+      '$sleuthPackageVersionPin',
     );
     return;
   }
@@ -84,7 +86,7 @@ Future<void> main(List<String> argv) async {
   final toolTimeout = parseToolTimeout(rawToolTimeout);
   if (toolTimeout == null) {
     stderr.writeln(
-      '--tool-timeout must be a whole number of seconds, 1 or more; got '
+      '--tool-timeout must be a whole number of seconds, 1 or more. Got '
       '"$rawToolTimeout".\n',
     );
     stderr.writeln(parser.usage);
@@ -109,9 +111,10 @@ Future<void> main(List<String> argv) async {
       startupUri = Uri.parse(uri.trim());
       logger?.add('connecting to ${_redactUri(uri)} in the background');
     } on FormatException catch (e) {
-      stderr.writeln('ignoring --uri: ${e.message}');
+      stderr.writeln('Ignoring --uri: ${e.message}');
       stderr.writeln(
-        'continuing; the MCP client can call attach_app or connect instead.',
+        'Continuing without it. The MCP client can call attach_app or '
+        'connect instead.',
       );
     }
   }

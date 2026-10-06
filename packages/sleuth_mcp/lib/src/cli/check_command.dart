@@ -45,20 +45,24 @@ Future<int> runCheckCommand(
     )
     ..addOption(
       'min-fps',
-      help: 'Minimum acceptable averageFps.',
+      help: 'Lowest acceptable averageFps.',
       defaultsTo: '55',
     )
     ..addOption(
       'max-issues',
-      help: 'Maximum acceptable total issue count.',
+      help: 'Most issues allowed in total.',
       defaultsTo: '999999',
     )
     ..addOption(
       'max-critical-issues',
-      help: 'Maximum acceptable critical issue count.',
+      help: 'Most critical issues allowed.',
       defaultsTo: '0',
     )
-    ..addFlag('json', negatable: false, help: 'Emit report as JSON to stdout.')
+    ..addFlag(
+      'json',
+      negatable: false,
+      help: 'Print the report to stdout as JSON.',
+    )
     ..addFlag(
       'help',
       abbr: 'h',
@@ -80,14 +84,15 @@ Future<int> runCheckCommand(
   }
   if (parsed['help'] as bool) {
     stdoutSink.writeln(
-      'sleuth_check: one-shot CI gate for sleuth performance budgets.\n',
+      'sleuth_check is a one-shot CI gate for sleuth performance budgets.\n',
     );
     stdoutSink.writeln(parser.usage);
     stdoutSink.writeln(
-      '\nExit codes: 0 pass, 1 budget violation, 2 check could not run '
-      '(connect failure, version refusal, malformed snapshot, or '
-      'coverage_degraded: no VM service link, so VM-only detectors never '
-      'ran), 64 bad command line.',
+      '\nExit codes: 0 when the budgets pass, 1 on a budget violation, 2 '
+      'when the check could not run, and 64 on a bad command line. The '
+      'check cannot run after a connect failure, a version refusal, a '
+      'malformed snapshot, or coverage_degraded, which means the app has '
+      'no VM service link and the VM-only detectors never ran.',
     );
     return checkExitPass;
   }

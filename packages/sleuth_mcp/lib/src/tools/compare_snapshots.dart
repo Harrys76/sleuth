@@ -130,9 +130,9 @@ Future<Object> compareSnapshotsHandler(
 /// VM service link.
 const String noVmCoverageWarning =
     'vm_detectors_not_observed: neither snapshot had a VM service link, so '
-    'VM-only detectors ($vmOnlyStableIds) did not run in either session; '
-    'added, removed, elevatedSeverity and countChanged cover frame-timing '
-    'and structural detectors only.';
+    'the VM-only detectors ($vmOnlyStableIds) did not run in either '
+    'session. The added, removed, elevatedSeverity and countChanged lists '
+    'cover only the frame-timing and structural detectors.';
 
 /// Returns an error envelope when either snapshot capped its issue list
 /// (`_projectionLimits.maxIssueCount`), else null. A truncated top-N
@@ -150,9 +150,8 @@ ToolCallResult? _cappedIssuesReject(
   if (capped(before) || capped(after)) {
     return ToolCallResult.text(
       'arg_capped_issues_uncomparable: one or both snapshots were projected '
-      'with maxIssueCount, so an issue leaving the top-N window is '
-      'indistinguishable from one that resolved. Re-capture both without '
-      'maxIssueCount.',
+      'with maxIssueCount, so an issue that left the top-N window looks the '
+      'same as one that resolved. Re-capture both without maxIssueCount.',
       isError: true,
     );
   }
@@ -184,18 +183,18 @@ ToolCallResult? _projectionMismatch(
   final aSec = sections(after);
   if (!_setEquals(bSec, aSec)) {
     return ToolCallResult.text(
-      'arg_section_mismatch: snapshots were projected to different '
+      'arg_section_mismatch: the two snapshots were projected to different '
       'sections (before=${(bSec.toList()..sort())}, '
-      'after=${(aSec.toList()..sort())}); cannot diff — re-capture both '
-      'with the same `sections`',
+      'after=${(aSec.toList()..sort())}), so the sidecar cannot diff them. '
+      'Re-capture both with the same `sections`.',
       isError: true,
     );
   }
   if (limits(before) != limits(after)) {
     return ToolCallResult.text(
-      'arg_section_mismatch: snapshots were projected with different '
-      'pagination limits; cannot diff — re-capture both with the same '
-      '`maxIssueCount`/`maxRouteCount`',
+      'arg_section_mismatch: the two snapshots were projected with '
+      'different pagination limits, so the sidecar cannot diff them. '
+      'Re-capture both with the same `maxIssueCount` and `maxRouteCount`.',
       isError: true,
     );
   }
@@ -227,8 +226,8 @@ ToolCallResult? _lineageMismatch(
         : (raw == null ? 'nothing' : '${raw.runtimeType}');
     return ToolCallResult.text(
       'arg_lineage_mismatch: snapshot "$label" has no valid packageVersion '
-      '(got $got), so the two snapshots cannot be shown to come from the '
-      'same sleuth lineage. Re-capture both with get_snapshot.',
+      '(got $got), so the sidecar cannot show that the two snapshots come '
+      'from the same sleuth lineage. Re-capture both with get_snapshot.',
       isError: true,
     );
   }
@@ -302,8 +301,8 @@ ToolCallResult? _coverageMismatch(
     final label = beforeCoverage == null ? 'before' : 'after';
     return ToolCallResult.text(
       'arg_coverage_mismatch: snapshot "$label" has no boolean '
-      'isVmConnected, so whether VM-only detectors ($vmOnlyStableIds) ran '
-      'is unknown. Re-capture both with get_snapshot.',
+      'isVmConnected, so the sidecar cannot tell whether the VM-only '
+      'detectors ($vmOnlyStableIds) ran. Re-capture both with get_snapshot.',
       isError: true,
     );
   }
@@ -311,7 +310,7 @@ ToolCallResult? _coverageMismatch(
     final covered = beforeCoverage ? 'before' : 'after';
     return ToolCallResult.text(
       'arg_coverage_mismatch: only the "$covered" snapshot had a VM service '
-      'link; the other reports isVmConnected=false. VM-only detectors '
+      'link. The other reports isVmConnected=false. The VM-only detectors '
       '($vmOnlyStableIds) report nothing without one, so their issues would '
       'read as resolved or new. Re-capture both runs with a VM link '
       '(`flutter run --profile --no-dds`).',
@@ -336,13 +335,14 @@ Object _issueMap(Map<String, Object?> snapshot, String label) {
   final list = snapshot['currentIssues'];
   if (list == null) {
     return ToolCallResult.text(
-      'snapshot "$label" missing required currentIssues',
+      'snapshot "$label" has no currentIssues',
       isError: true,
     );
   }
   if (list is! List) {
     return ToolCallResult.text(
-      'snapshot "$label" currentIssues must be List, got ${list.runtimeType}',
+      'snapshot "$label" currentIssues must be a List, got '
+      '${list.runtimeType}',
       isError: true,
     );
   }
@@ -351,7 +351,7 @@ Object _issueMap(Map<String, Object?> snapshot, String label) {
     final entry = list[i];
     if (entry is! Map<String, Object?>) {
       return ToolCallResult.text(
-        'snapshot "$label" currentIssues[$i] must be Map, '
+        'snapshot "$label" currentIssues[$i] must be a Map, '
         'got ${entry.runtimeType}',
         isError: true,
       );
@@ -360,15 +360,15 @@ Object _issueMap(Map<String, Object?> snapshot, String label) {
     final sev = entry['severity'];
     if (id is! String) {
       return ToolCallResult.text(
-        'snapshot "$label" currentIssues[$i] missing required '
-        'stableId (got ${id.runtimeType})',
+        'snapshot "$label" currentIssues[$i] has no string stableId '
+        '(got ${id.runtimeType})',
         isError: true,
       );
     }
     if (sev is! String) {
       return ToolCallResult.text(
-        'snapshot "$label" currentIssues[$i] (stableId=$id) missing '
-        'required severity (got ${sev.runtimeType})',
+        'snapshot "$label" currentIssues[$i] (stableId=$id) has no string '
+        'severity (got ${sev.runtimeType})',
         isError: true,
       );
     }
@@ -409,13 +409,13 @@ Object _avgFps(Map<String, Object?> snapshot, String label) {
   final summary = snapshot['frameStatsSummary'];
   if (summary == null) {
     return ToolCallResult.text(
-      'snapshot "$label" missing required frameStatsSummary',
+      'snapshot "$label" has no frameStatsSummary',
       isError: true,
     );
   }
   if (summary is! Map<String, Object?>) {
     return ToolCallResult.text(
-      'snapshot "$label" frameStatsSummary must be Map, '
+      'snapshot "$label" frameStatsSummary must be a Map, '
       'got ${summary.runtimeType}',
       isError: true,
     );
@@ -424,16 +424,16 @@ Object _avgFps(Map<String, Object?> snapshot, String label) {
   final actual = summary['actualFps'];
   if (avg == null && actual == null) {
     return ToolCallResult.text(
-      'snapshot "$label" frameStatsSummary missing both averageFps '
-      'and actualFps — schema drift',
+      'snapshot "$label" frameStatsSummary has neither averageFps nor '
+      'actualFps. The snapshot schema has drifted.',
       isError: true,
     );
   }
   final fps = avg ?? actual;
   if (fps is num) return fps.toDouble();
   return ToolCallResult.text(
-    'snapshot "$label" frameStatsSummary.averageFps/actualFps must be '
-    'num, got ${fps.runtimeType}',
+    'snapshot "$label" frameStatsSummary averageFps or actualFps must be '
+    'a number, got ${fps.runtimeType}',
     isError: true,
   );
 }

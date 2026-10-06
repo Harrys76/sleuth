@@ -293,8 +293,9 @@ class SnapshotDiskHandoff {
     final mode = _sessionDir.statSync().mode & 0x1FF;
     if (mode != 0x1C0) {
       throw StateError(
-        'snapshot temp dir is not 0700 (mode=${mode.toRadixString(8)}); '
-        'refusing to write potentially-sensitive snapshot data',
+        'the snapshot temp dir is not 0700 (mode=${mode.toRadixString(8)}), '
+        'so the sidecar does not write the snapshot, which may hold '
+        'sensitive data',
       );
     }
   }
@@ -309,8 +310,9 @@ class SnapshotDiskHandoff {
     if (mode != 0x180) {
       _deleteQuietly(file);
       throw StateError(
-        'snapshot temp file is not 0600 (mode=${mode.toRadixString(8)}); '
-        'deleted and refusing the handoff',
+        'the snapshot temp file is not 0600 '
+        '(mode=${mode.toRadixString(8)}), so the sidecar deleted it and '
+        'refuses the handoff',
       );
     }
   }

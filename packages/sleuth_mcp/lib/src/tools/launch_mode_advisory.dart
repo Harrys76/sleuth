@@ -21,12 +21,13 @@ const String vmOnlyStableIds =
 /// Advisory for `connectionMode == 'basic'` when the app reports no VM
 /// service link after the warmup window, so VM-only detectors stay silent.
 const String launchAdvisoryBasic =
-    'Degraded session: Sleuth has no VM service link, so its VM-backed '
-    'detectors are off ($vmOnlyStableIds) and memory, CPU and repaint '
-    'issues are not reported. Kill and reopen the app; a profile build '
-    'connects again at launch. If the app was started with `flutter run` '
-    'and this advisory stays, one possible cause is DDS holding the VM '
-    'service: relaunch with `flutter run --profile --no-dds`.';
+    'The session is degraded. Sleuth has no VM service link, so its '
+    'VM-backed detectors ($vmOnlyStableIds) are off and it reports no '
+    'memory, CPU or repaint issues. Kill and reopen the app, because a '
+    'profile build connects again at launch. If the app was started with '
+    '`flutter run` and this advisory stays, one possible cause is DDS '
+    'holding the VM service. Relaunch with `flutter run --profile '
+    '--no-dds`.';
 
 /// Opening words of [launchAdvisoryWarmup], kept stable so a snapshot that
 /// carries the warmup advisory can be recognised.
@@ -35,15 +36,16 @@ const String launchAdvisoryWarmupLead = 'Sleuth is still warming up';
 /// Advisory for `connectionMode == 'warmup'`: the mode is not yet final, so
 /// the issue list may be incomplete even on a healthy session.
 const String launchAdvisoryWarmup =
-    '$launchAdvisoryWarmupLead (first few seconds), so the issue list may '
-    'be incomplete. Run `diagnose` again in a few seconds; when it returns '
-    'no launchModeAdvisory, the session is ready.';
+    '$launchAdvisoryWarmupLead during its first few seconds, so the issue '
+    'list may be incomplete. Run `diagnose` again in a few seconds. When it '
+    'returns no launchModeAdvisory, the session is ready.';
 
 /// Advisory for `connectionMode == 'disconnected'`: no live VM connection.
 const String launchAdvisoryDisconnected =
-    'Degraded session: no live VM connection, so only FrameTiming and '
-    'structural detectors run; memory, CPU and repaint issues are not '
-    'reported. Reach full coverage with `flutter run --profile --no-dds`.';
+    'The session is degraded. Sleuth has no live VM connection, so only '
+    'the FrameTiming and structural detectors run, and it reports no '
+    'memory, CPU or repaint issues. For full coverage, run the app with '
+    '`flutter run --profile --no-dds`.';
 
 /// Whether [advisory] is the warmup advisory, by its opening words.
 bool isWarmupAdvisory(Object? advisory) =>

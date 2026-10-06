@@ -53,19 +53,20 @@ const _auditMemory = DiagnosticPrompt(
     name: 'audit_memory',
     description:
         'Investigate memory growth and leaks in a Flutter app and recommend '
-        'remediations.',
+        'fixes.',
   ),
   usesTools: {'get_issues', 'explain_issue'},
   text:
       'You are auditing a Flutter app for memory growth and leaks using the '
       'Sleuth MCP tools. Work through these steps:\n'
-      '1. Call `get_issues` and focus only on the memory class — heap growth, '
-      'retained streams, and long-lived or over-concurrent tracked '
-      'resources.\n'
+      '1. Call `get_issues` and keep only the memory issues: heap growth, '
+      'retained streams, and tracked resources that live too long or have '
+      'too many live instances.\n'
       '2. For each memory issue, call `explain_issue` with its stableId for '
       'the cause and fix.\n'
-      'Then recommend concrete remediations (dispose controllers and streams, '
-      'bound caches, untrack resources). Ignore frame and jank issues.',
+      'Then recommend concrete fixes, such as disposing controllers and '
+      'streams, bounding caches and untracking resources. Ignore frame and '
+      'jank issues.',
 );
 
 const _releaseCheck = DiagnosticPrompt(
@@ -79,17 +80,17 @@ const _releaseCheck = DiagnosticPrompt(
   text:
       'You are running a pre-release performance gate on a Flutter app using '
       'the Sleuth MCP tools. Work through these steps:\n'
-      '1. Determine the team\'s budget thresholds (minimum FPS, max issues, '
-      'max critical issues). If you do not already know them, ask the user '
-      'for them — never guess.\n'
+      '1. Find out the team\'s budget thresholds: the minimum FPS, the most '
+      'issues and the most critical issues allowed. If you do not already '
+      'know them, ask the user. Never guess them.\n'
       '2. Call `check_budgets` with those thresholds. If it returns an error '
-      'instead of a result (for example `coverage_degraded`: the app has no '
-      'VM service link, so memory, CPU and repaint detectors never ran), the '
-      'gate did NOT RUN — report that with the error\'s remedy and stop; '
-      'never report PASS.\n'
+      'instead of a result, the gate did NOT RUN. For example, '
+      '`coverage_degraded` means the app has no VM service link, so the '
+      'memory, CPU and repaint detectors never ran. Report NOT RUN with the '
+      'error\'s remedy and stop. Never report PASS in that case.\n'
       '3. Call `get_issues` and list any critical-severity issues.\n'
-      'Then report a clear PASS or FAIL verdict, naming the specific budget '
-      'violations and critical issues that must be resolved before release.',
+      'Then report a clear PASS or FAIL verdict. Name the budget violations '
+      'and the critical issues to resolve before release.',
 );
 
 /// The locked set of guided-diagnostic prompts, keyed by name.

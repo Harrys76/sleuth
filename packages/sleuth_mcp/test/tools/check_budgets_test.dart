@@ -168,7 +168,7 @@ void main() {
       maxIssues: 10,
       maxCriticalIssues: 0,
     );
-    expect(_errorText(result), 'snapshot missing required frameStatsSummary');
+    expect(_errorText(result), 'snapshot has no frameStatsSummary');
   });
 
   test('evaluateBudgets rejects a maxIssueCount-capped snapshot', () {

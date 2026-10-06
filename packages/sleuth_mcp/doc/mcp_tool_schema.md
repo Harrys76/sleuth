@@ -51,8 +51,8 @@ Kind `direct`. Args: `uri` (String, required). It takes the http URI that `flutt
 
 - `missing_required_arg: uri`
 - `invalid_uri: <reason>. Pass the VM service URI that flutter run prints, …`: the URI does not parse, its scheme is not `http`, `https`, `ws` or `wss`, or it has no host.
-- `version_skew_major: app=<v> sidecar-pin=<v> — refusing to serve; align sleuth dep with sidecar version. Bridge disconnected.`: the app's lineage is neither the pin's nor the accepted prior lineage.
-- `version_skew_unknown: diagnose envelope missing or malformed packageVersion stamp (got "<v>") — cannot verify wire contract. Bridge disconnected.`: `packageVersion` is absent, not a String, or not a semver `major.minor.patch`. An optional `-prerelease` or `+build` suffix keeps the version's lineage, so `0.37.0-dev.1` is in the 0.37 lineage. `(got "<v>")` appears only when the value is a String.
+- `version_skew_major: app=<v> sidecar-pin=<v>. The app's sleuth version is outside the lineages this sidecar accepts, so the sidecar refuses to serve it and disconnected the bridge. Align the app's sleuth dependency with the sidecar version.`: the app's lineage is neither the pin's nor the accepted prior lineage.
+- `version_skew_unknown: the diagnose envelope has a missing or malformed packageVersion (got "<v>"), so the sidecar cannot verify the wire contract. The sidecar disconnected the bridge.`: `packageVersion` is absent, not a String, or not a semver `major.minor.patch`. An optional `-prerelease` or `+build` suffix keeps the version's lineage, so `0.37.0-dev.1` is in the 0.37 lineage. `(got "<v>")` appears only when the value is a String.
 - `attached_session: an attach_app session owns the connection (state=<state>, connectedVia=<route>). …`: an `attach_app` session is attaching, `ready`, reloading or detaching, or it ended in `error` but still holds its flutter child, daemon channel or iOS tunnel. `connect` would point the bridge at another app while `hot_reload` still reloads the attached one, so it refuses and leaves the session as it was. A typed envelope like the `attach_app` iOS errors; the JSON block is `{error, message, remedy, status}`, where `status` is the `AppStatusPayload`. Call `detach_app`, then `connect`. A session opened with `connect` does not own the connection, so `connect` to another URI replaces it.
 
 ## attach_app
@@ -110,7 +110,7 @@ The success result is this payload. An attach that ends without a session return
 
 - `internal: daemon session not initialized`: the server is misconfigured.
 - `version_skew_major: …` / `version_skew_unknown: …`: the attach reached `ready`, then the bridge's version check refused the app. The sidecar detaches before it returns the error.
-- `already attached or attaching (state=<state>); call detach_app first`: a session is already attached or attaching.
+- `already attached or attaching (state=<state>). Call detach_app first.`: a session is already attached or attaching.
 - `<DaemonSessionException.message>`: a daemon RPC failed.
 - `attach_failed`: the attach ended without a session. Typed envelope like the iOS errors below; its JSON block is `{error, message, status}`, where `status` is the `AppStatusPayload` (usually `state: error` with the same `lastError`). Causes include: flutter could not start; flutter exited before the app reported its VM service (the message quotes the last lines flutter printed, for example the device list when more than one device is connected and `device` is not set); no `daemon.connected` or `app.debugPort` within 30 seconds; `app.stop` during the attach; a daemon protocol older than `0.6.0`; a non-mobile `device`; a refused `debugUrl`; a bridge connect failure, including errors other than `VmBridgeException`; an iOS bridge failure that is neither busy nor unreachable; or a `detach_app` or client cancel that stopped the attach (`state: idle`).
 
@@ -290,7 +290,7 @@ An app error envelope (one with a top-level `error`) comes back inline and is ne
 | `_omittedSections` | List\<String\> | no | on a default call; the seven per-frame and raw sample sections left out |
 | `_omittedSectionsHint` | String | no | with `_omittedSections`; says to pass `full: true` or name the sections |
 
-**Errors:** `arg_conflict` means `full: true` was combined with `sections`. `arg_invalid_section`, `arg_invalid_int` and `arg_pagination_unused` come back as the app's `ext.sleuth.snapshot` error envelope; through `tools/call` the server's item enum check rejects an unknown section first with `arg_enum_violation: sections[<i>]=<value> not in [...]`. `projection_unsupported_by_app` is an inline projection request (`sections` or a cap) to an app older than sleuth 0.35. `disk_handoff_failed` means the sidecar could not lock the temp directory or file to owner-only permissions, could not pick an unused file name, could not write the file, or is shutting down and already deleted its handoff files, and wrote nothing. `cancelled` means the client cancelled a `diskHandoff` call before the snapshot was written, so nothing was written; the server sends no response for a cancelled request, so only direct callers of the handler see it.
+**Errors:** `arg_conflict` means `full: true` was combined with `sections`. `arg_invalid_section`, `arg_invalid_int` and `arg_pagination_unused` come back as the app's `ext.sleuth.snapshot` error envelope; through `tools/call` the server's item enum check rejects an unknown section first with `arg_enum_violation: sections[<i>]=<value> is not one of [...].`. `projection_unsupported_by_app` is an inline projection request (`sections` or a cap) to an app older than sleuth 0.35. `disk_handoff_failed` means the sidecar could not lock the temp directory or file to owner-only permissions, could not pick an unused file name, could not write the file, or is shutting down and already deleted its handoff files, and wrote nothing. `cancelled` means the client cancelled a `diskHandoff` call before the snapshot was written, so nothing was written; the server sends no response for a cancelled request, so only direct callers of the handler see it.
 
 The underlying shape is in the `ext.sleuth.snapshot` section of `mcp_schema.md`.
 
@@ -333,11 +333,11 @@ The underlying shape is in the `ext.sleuth.explain` section of `mcp_schema.md`.
 
 `McpServer` checks every `tools/call` against the tool's `inputSchema` before the handler runs, and it wraps dispatch failures. These errors use the same envelope as the per-tool errors (`isError: true`, with the code as the message prefix). `serverErrors` in `mcp_tool_schema.json` lists them.
 
-- `missing_required_arg: <name>`: an arg in `inputSchema.required` is absent, or null (the message then ends in `(null)`).
-- `arg_unknown: <name> (allowed: …)`: an arg that `inputSchema.properties` does not declare.
-- `arg_type_mismatch: <name> expected <type> got <type>`: the JSON type differs from the declared type. An integer satisfies `number`. For an array item the name is `<name>[<index>]`.
-- `arg_enum_violation: <name>=<value> not in [...]`: a value outside the declared `enum`, or an array item outside the declared `items.enum` (named `<name>[<index>]`).
-- `arg_min_length_violation: <name> must be at least <n> chars`: a string shorter than `minLength`.
+- `missing_required_arg: <name>`: an arg in `inputSchema.required` is absent, or null (the message then ends in `is null`).
+- `arg_unknown: <name> is not an argument of this tool. Allowed: …`: an arg that `inputSchema.properties` does not declare.
+- `arg_type_mismatch: <name> must have JSON type <type>, not <type>.`: the JSON type differs from the declared type. An integer satisfies `number`. For an array item the name is `<name>[<index>]`.
+- `arg_enum_violation: <name>=<value> is not one of [...].`: a value outside the declared `enum`, or an array item outside the declared `items.enum` (named `<name>[<index>]`).
+- `arg_min_length_violation: <name> must be at least <n> characters long.`: a string shorter than `minLength`.
 - `unknown_tool: <name>`: no tool is registered under that name.
 - `missing "name" arg` / `arguments must be a JSON object`: the `tools/call` params are malformed.
 - `timeout_after_<ms>ms: …`: a call took too long. Either one app call exceeded the bridge's per-call timeout, and the message names the extension, or a tool without its own deadlines exceeded the generic tool timeout (10 seconds by default, set with `--tool-timeout`). The bridge's per-call timeout is shorter than the tool timeout (8 seconds for the default), so it usually fires first. The connection to the app is kept, so the next call works once the app answers: retry, or call `diagnose` to check the session.

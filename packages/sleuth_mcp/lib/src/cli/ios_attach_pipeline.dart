@@ -303,8 +303,8 @@ class IosAttacher {
           throw IosAttachException(
             IosAttachErrorKind.launchFailed,
             'devicectl list devices timed out after '
-            '${devicectlTimeout.inSeconds}s — the device may have '
-            'disconnected or device services stalled.',
+            '${devicectlTimeout.inSeconds}s. The device may have '
+            'disconnected, or its device services stalled.',
           );
         }
         transport = detected == IosTransport.unknown
@@ -333,9 +333,11 @@ class IosAttacher {
             data: <String, Object?>{
               'tool': tool,
               if (tool == 'iproxy')
-                'remedy': 'install via: brew install libimobiledevice'
+                'remedy': 'Install it with brew install libimobiledevice.'
               else if (tool == 'xcrun' || tool == 'dns-sd')
-                'remedy': 'attach-ios is macOS-only (requires Xcode CLI tools)',
+                'remedy':
+                    'attach-ios is macOS-only and needs the Xcode command '
+                    'line tools.',
             },
           );
         }
@@ -410,8 +412,8 @@ class IosAttacher {
           throw IosAttachException(
             IosAttachErrorKind.launchFailed,
             'devicectl process launch timed out after '
-            '${devicectlTimeout.inSeconds}s — the device may have '
-            'disconnected or device services stalled.',
+            '${devicectlTimeout.inSeconds}s. The device may have '
+            'disconnected, or its device services stalled.',
           );
         }
         throwIfCancelled();
@@ -450,9 +452,9 @@ class IosAttacher {
         } on CommandTimeoutException {
           throw IosAttachException(
             IosAttachErrorKind.bonjourTimeout,
-            'timeout waiting for Bonjour announcement after '
-            '${bonjourTimeout.inSeconds}s — is the app actually running '
-            'with --enable-vm-service (profile/debug build)?',
+            'no Bonjour announcement arrived within '
+            '${bonjourTimeout.inSeconds}s. Is the app running with '
+            '--enable-vm-service, in a profile or debug build?',
           );
         }
         if (excludePorts.isNotEmpty) {
@@ -465,11 +467,11 @@ class IosAttacher {
       if (announcements.isEmpty) {
         throw IosAttachException(
           IosAttachErrorKind.bonjourTimeout,
-          'no Bonjour announcement seen — the app launched but did not '
+          'no Bonjour announcement seen. The app launched but did not '
           'register a VM service within '
           '${effectiveBonjourCollect.inSeconds}s. Check that the build '
-          'is profile or debug (release strips the service) and the '
-          'app is actually running with --enable-vm-service.',
+          'is profile or debug, because a release build strips the '
+          'service, and that the app runs with --enable-vm-service.',
         );
       }
       onProgress?.call(
@@ -501,10 +503,10 @@ class IosAttacher {
           probe == null) {
         throw IosAttachException(
           IosAttachErrorKind.ambiguousPairings,
-          'ambiguous Bonjour pairings: ${distinctAuthCodes.length} '
-          'distinct authCodes were announced. The iproxy tunnel only '
-          'accepts the USB-bridged token. Re-run with --auth <code> '
-          'using one of: ${sortedAuthCodes.join(", ")}',
+          'ambiguous Bonjour pairings: the device announced '
+          '${distinctAuthCodes.length} distinct authCodes. The iproxy '
+          'tunnel accepts only the USB-bridged token. Re-run with --auth '
+          '<code>, using one of these codes: ${sortedAuthCodes.join(", ")}',
           data: <String, Object?>{'distinctAuthCodes': sortedAuthCodes},
         );
       }
@@ -520,7 +522,7 @@ class IosAttacher {
           throw IosAttachException(
             IosAttachErrorKind.noMatchingAuth,
             'no announcement matched --auth $authOverride. '
-            'Bonjour returned ${announcements.length} pairing(s); pick '
+            'Bonjour returned ${announcements.length} pairing(s). Pick '
             'one of these authCodes: '
             '${announcements.map((a) => a.authCode).join(", ")}',
             data: <String, Object?>{
@@ -625,7 +627,8 @@ class IosAttacher {
         // started.
         throw IosAttachException(
           IosAttachErrorKind.iproxyFailedSpawn,
-          'iproxy setup did not finish: ${e.message ?? 'pidfile lock timed out'}',
+          'iproxy setup did not finish: '
+          '${e.message ?? 'the pidfile lock timed out'}',
         );
       }
 
@@ -690,8 +693,8 @@ class IosAttacher {
         );
         throw IosAttachException(
           IosAttachErrorKind.iproxyReadinessFailed,
-          'iproxy exited inside readiness window — tunnel never came '
-          'up; wsUri not printed.'
+          'iproxy exited inside the readiness window. The tunnel never '
+          'came up, so no wsUri was printed.'
           '${captured.trim().isEmpty ? "" : "\niproxy stderr:\n$captured"}'
           '${stderrTruncated ? "\n  (...stderr truncated at $stderrCap bytes)" : ""}',
           data: <String, Object?>{
@@ -732,7 +735,7 @@ class IosAttacher {
 
 IosAttachException _cancelledError() => IosAttachException(
   IosAttachErrorKind.cancelled,
-  'attach cancelled by caller',
+  'the caller cancelled the attach',
 );
 
 /// Waits for [work], but throws [CommandTimeoutException] once [timeout]

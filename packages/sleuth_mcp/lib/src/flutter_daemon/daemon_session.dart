@@ -443,8 +443,8 @@ class DaemonSession implements DaemonSessionLifecycle {
   }) async {
     if (_state != AppSessionState.idle && _state != AppSessionState.error) {
       throw StateError(
-        'already attached or attaching (state=${_state.name}); '
-        'call detach_app first',
+        'already attached or attaching (state=${_state.name}). '
+        'Call detach_app first.',
       );
     }
     _state = AppSessionState.attaching;
@@ -555,8 +555,8 @@ class DaemonSession implements DaemonSessionLifecycle {
           final target = match['targetPlatform'] ?? match['category'];
           return await _failAttach(
             gen,
-            'device $device (platform=$target) is not mobile; attach_app '
-            'supports Android and iOS devices only',
+            'device $device (platform=$target) is not a mobile device. '
+            'attach_app supports only Android and iOS devices.',
           );
         }
       } catch (_) {
@@ -734,8 +734,8 @@ class DaemonSession implements DaemonSessionLifecycle {
       if (!isAtLeastVersion(connectedEvent.version, minDaemonProtocolVersion)) {
         return await _failAttach(
           gen,
-          'unsupported flutter daemon ${connectedEvent.version} '
-          '(min: $minDaemonProtocolVersion)',
+          'unsupported flutter daemon ${connectedEvent.version}. The '
+          'minimum version is $minDaemonProtocolVersion.',
         );
       }
       _logger?.add('daemon connected: version=${connectedEvent.version}');
@@ -750,8 +750,9 @@ class DaemonSession implements DaemonSessionLifecycle {
       if (outcome is AppStopEvent) {
         return await _failAttach(
           gen,
-          'flutter daemon emitted app.stop during attach: a release-mode '
-          'build, or the app exited before its VM service was available',
+          'the flutter daemon sent app.stop during the attach. Either the '
+          'app is a release-mode build, or it exited before its VM service '
+          'was available.',
         );
       }
       final debugPort = outcome as AppDebugPortEvent;
@@ -772,8 +773,8 @@ class DaemonSession implements DaemonSessionLifecycle {
     } on TimeoutException {
       return await _failAttach(
         gen,
-        'no daemon.connected / app.debugPort within '
-        '${_attachTimeout.inSeconds}s; is the Flutter app running on the '
+        'no daemon.connected or app.debugPort event arrived within '
+        '${_attachTimeout.inSeconds}s. Is the Flutter app running on the '
         'device?',
       );
     } on VmBridgeException catch (e) {
@@ -877,15 +878,15 @@ class DaemonSession implements DaemonSessionLifecycle {
         data: const <String, Object?>{
           'tool': 'xcrun',
           'remedy':
-              'run the sidecar on a Mac, or attach with attach_app(device:) '
-              'or attach_app(debugUrl:)',
+              'Run the sidecar on a Mac, or attach with attach_app(device:) '
+              'or attach_app(debugUrl:).',
         },
       );
     }
     if (_state != AppSessionState.idle && _state != AppSessionState.error) {
       throw StateError(
-        'already attached or attaching (state=${_state.name}); '
-        'call detach_app first',
+        'already attached or attaching (state=${_state.name}). '
+        'Call detach_app first.',
       );
     }
     final inFlight = _iosAttachInFlight;
@@ -903,8 +904,8 @@ class DaemonSession implements DaemonSessionLifecycle {
     // A detach or another attach may have run while this call waited.
     if (_state != AppSessionState.idle && _state != AppSessionState.error) {
       throw StateError(
-        'already attached or attaching (state=${_state.name}); '
-        'call detach_app first',
+        'already attached or attaching (state=${_state.name}). '
+        'Call detach_app first.',
       );
     }
     final completer = Completer<void>();
@@ -1004,7 +1005,7 @@ class DaemonSession implements DaemonSessionLifecycle {
         if (cancel.fired) {
           throw IosAttachException(
             IosAttachErrorKind.cancelled,
-            'attach cancelled by caller',
+            'the caller cancelled the attach',
           );
         }
         final IosAttachResult result;
@@ -1094,10 +1095,10 @@ class DaemonSession implements DaemonSessionLifecycle {
           }
           _state = AppSessionState.error;
           _lastError =
-              'ios_vmservice_unreachable: bridge connect timed '
-              'out after ${bridgeConnectTimeout.inSeconds}s. Common cause: '
-              'half-open VM service that accepts the WS handshake but '
-              'never returns `getVM`. Swipe the app off the device and '
+              'ios_vmservice_unreachable: bridge connect timed out after '
+              '${bridgeConnectTimeout.inSeconds}s. A common cause is a '
+              'half-open VM service that accepts the WebSocket handshake '
+              'but never answers `getVM`. Swipe the app off the device and '
               're-run, or rebuild the profile binary.';
           return status;
         } catch (e) {
@@ -1198,7 +1199,7 @@ class DaemonSession implements DaemonSessionLifecycle {
     final verb = fullRestart ? 'restart' : 'reload';
     if (_state != AppSessionState.ready) {
       throw StateError(
-        'not attached (state=${_state.name}); call attach_app first',
+        'not attached (state=${_state.name}). Call attach_app first.',
       );
     }
     final rpc = _rpc;
@@ -1209,8 +1210,8 @@ class DaemonSession implements DaemonSessionLifecycle {
       // stays as it is.
       throw StateError(
         'hot_reload_unsupported: hot $verb needs a session attached with '
-        'attach_app(device:), which runs flutter attach; this session has '
-        'no flutter daemon',
+        'attach_app(device:), which runs flutter attach. This session has '
+        'no flutter daemon.',
       );
     }
     _state = AppSessionState.restarting;
@@ -1290,7 +1291,7 @@ class DaemonSession implements DaemonSessionLifecycle {
         }
       } on VmBridgeException catch (e) {
         _state = AppSessionState.error;
-        _lastError = 'bridge refresh failed post-restart: ${e.message}';
+        _lastError = 'bridge refresh failed after the restart: ${e.message}';
         return status;
       }
 
@@ -1507,20 +1508,21 @@ class DaemonSession implements DaemonSessionLifecycle {
   static String mapBridgeConnectErrorToLastError(String exceptionMessage) {
     switch (_classifyBridgeConnectError(exceptionMessage)) {
       case _BridgeConnectFailure.busy:
-        return 'ios_vmservice_busy: $exceptionMessage — swipe the app off '
-            'the device and re-run, or rebuild the profile binary';
+        return 'ios_vmservice_busy: $exceptionMessage. Swipe the app off '
+            'the device and re-run, or rebuild the profile binary.';
       case _BridgeConnectFailure.devicePortDead:
-        return 'ios_vmservice_unreachable: $exceptionMessage — the iproxy '
-            'tunnel is open but nothing is listening on the device side. '
-            'Common cause: stale Bonjour cache pinned a dead port. Wait '
-            "~30s for mDNS to clear or swipe the app and re-run.";
+        return 'ios_vmservice_unreachable: $exceptionMessage. The iproxy '
+            'tunnel is open, but nothing is listening on the device side. '
+            'A common cause is a stale Bonjour cache that pinned a dead '
+            'port. Wait about 30 s for mDNS to clear, or swipe the app off '
+            'the device and re-run.';
       case _BridgeConnectFailure.wirelessUnreachable:
-        return 'ios_vmservice_unreachable: $exceptionMessage — wireless '
-            "attach can't reach the device. Common causes: iOS Local "
-            'Network permission denied for the launching app, the host '
-            'and device are on different Wi-Fi networks, or the device '
-            'left the network. Switch to USB (transport: wired) or '
-            'grant Local Network permission and retry.';
+        return 'ios_vmservice_unreachable: $exceptionMessage. The wireless '
+            'attach cannot reach the device. Common causes are a denied '
+            'iOS Local Network permission for the launching app, a host '
+            'and device on different Wi-Fi networks, or a device that left '
+            'the network. Switch to USB (transport: usb), or grant Local '
+            'Network permission and retry.';
       case _BridgeConnectFailure.unknown:
         return 'bridge connect failed: $exceptionMessage';
     }

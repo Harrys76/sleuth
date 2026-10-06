@@ -55,15 +55,16 @@ const Set<String> _methodsHeldWhilePaused = {
 /// model should follow.
 const String mcpServerInstructions =
     'Sleuth reports runtime performance issues from a running Flutter app. '
-    'Start the app with `flutter run --profile --no-dds`; without --no-dds '
+    'Start the app with `flutter run --profile --no-dds`. Without --no-dds, '
     'Sleuth cannot reach the VM service, and its memory, CPU and repaint '
     'detectors stay off. Attach with attach_app (pass device, or debugUrl, '
     'or udid and bundle for a physical iOS device) or with connect(uri), '
     'using the VM service URI that flutter run prints. Then call get_issues '
     'for the ranked issues, explain_issue with a stableId for the cause and '
-    'the fix, get_snapshot for frame stats and route history (per-frame '
-    'sections are left out unless you pass full: true or name them in '
-    'sections), and check_budgets for a pass or fail gate.';
+    'the fix, get_snapshot for frame stats and route history, and '
+    'check_budgets for a pass or fail gate. get_snapshot leaves out the '
+    'per-frame sections unless you pass full: true or name them in '
+    'sections.';
 
 /// How long the exit path waits for the daemon session to detach.
 const Duration defaultExitDetachTimeout = Duration(seconds: 10);
@@ -246,8 +247,9 @@ class McpServer {
     _resources['sleuth://encyclopedia'] = _RegisteredResource(
       descriptor: const Resource(
         uri: 'sleuth://encyclopedia',
-        name: 'Sleuth Encyclopedia',
-        description: 'Per-issue explanations keyed by canonical stableId.',
+        name: 'Sleuth encyclopedia',
+        description:
+            'The explanation of every issue, keyed by canonical stableId.',
         mimeType: 'application/json',
       ),
       read: (b) => _encyclopedia.read(),
@@ -255,9 +257,10 @@ class McpServer {
     _resources['sleuth://causal-graph'] = _RegisteredResource(
       descriptor: const Resource(
         uri: 'sleuth://causal-graph',
-        name: 'Sleuth Causal Graph',
+        name: 'Sleuth causal graph',
         description:
-            'Static rule set linking trigger stableIds to downstream effects.',
+            'The static rules that link a trigger stableId to its downstream '
+            'effects.',
         mimeType: 'application/json',
       ),
       read: (b) => _causalGraph.read(),
@@ -458,9 +461,9 @@ class McpServer {
         error: JsonRpcError(
           code: JsonRpcError.invalidRequest,
           message:
-              'Batch requests are not supported: $session, and only '
-              'protocol $_batchProtocolVersion has JSON-RPC batches. Send '
-              'each request as its own line',
+              'Batch requests are not supported, because only protocol '
+              '$_batchProtocolVersion has JSON-RPC batches and $session. '
+              'Send each request as its own line.',
         ),
       );
       unawaited(_write(out, codec.encode(response)));
@@ -498,8 +501,8 @@ class McpServer {
                 error: const JsonRpcError(
                   code: JsonRpcError.invalidRequest,
                   message:
-                      'initialize must not be part of a batch; send it as '
-                      'its own line',
+                      'initialize must not be part of a batch. Send it as '
+                      'its own line.',
                 ),
               ),
       );
@@ -685,7 +688,8 @@ class McpServer {
               id: msg.id,
               error: const JsonRpcError(
                 code: JsonRpcError.serverNotInitialized,
-                message: 'server not initialized — send initialize first',
+                message:
+                    'The server is not initialized. Send initialize first.',
               ),
             );
     }
@@ -1131,7 +1135,7 @@ class McpServer {
           return 'missing_required_arg: $r';
         }
         if (args[r] == null) {
-          return 'missing_required_arg: $r (null)';
+          return 'missing_required_arg: $r is null';
         }
       }
     }
@@ -1141,7 +1145,8 @@ class McpServer {
       // for `device`) otherwise route to defaults with no signal.
       for (final key in args.keys) {
         if (!props.containsKey(key)) {
-          return 'arg_unknown: $key (allowed: ${props.keys.join(", ")})';
+          return 'arg_unknown: $key is not an argument of this tool. '
+              'Allowed: ${props.keys.join(", ")}.';
         }
       }
       for (final entry in args.entries) {
@@ -1154,16 +1159,19 @@ class McpServer {
         if (expectedType is String && actualType != expectedType) {
           // JSON Schema `number` accepts integers.
           if (!(expectedType == 'number' && actualType == 'integer')) {
-            return 'arg_type_mismatch: ${entry.key} expected $expectedType got $actualType';
+            return 'arg_type_mismatch: ${entry.key} must have JSON type '
+                '$expectedType, not $actualType.';
           }
         }
         final enumValues = spec['enum'];
         if (enumValues is List && !enumValues.contains(actual)) {
-          return 'arg_enum_violation: ${entry.key}=$actual not in $enumValues';
+          return 'arg_enum_violation: ${entry.key}=$actual is not one of '
+              '$enumValues.';
         }
         final minLength = spec['minLength'];
         if (minLength is int && actual is String && actual.length < minLength) {
-          return 'arg_min_length_violation: ${entry.key} must be at least $minLength chars';
+          return 'arg_min_length_violation: ${entry.key} must be at least '
+              '$minLength characters long.';
         }
         final items = spec['items'];
         if (actual is List && items is Map<String, Object?>) {
@@ -1176,10 +1184,12 @@ class McpServer {
             if (itemType is String &&
                 itemActualType != itemType &&
                 !(itemType == 'number' && itemActualType == 'integer')) {
-              return 'arg_type_mismatch: $where expected $itemType got $itemActualType';
+              return 'arg_type_mismatch: $where must have JSON type '
+                  '$itemType, not $itemActualType.';
             }
             if (itemEnum is List && !itemEnum.contains(item)) {
-              return 'arg_enum_violation: $where=$item not in $itemEnum';
+              return 'arg_enum_violation: $where=$item is not one of '
+                  '$itemEnum.';
             }
           }
         }

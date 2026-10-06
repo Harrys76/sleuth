@@ -15,7 +15,7 @@ void main() {
         'http://127.0.0.1:55958/abc=/ws',
       );
       expect(mapped, startsWith('ios_vmservice_busy:'));
-      expect(mapped, contains('swipe the app'));
+      expect(mapped, contains('Swipe the app'));
     });
 
     test('"Connection closed before full header was received" → '

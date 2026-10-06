@@ -1,5 +1,5 @@
 {
-  "_doc": "Wire schema for ext.sleuth.* VM service extensions. Load-bearing source for test/validation/mcp_schema_audit_test.dart. Markdown render at doc/mcp_schema.md.",
+  "_doc": "Wire schema for the ext.sleuth.* VM service extensions. test/validation/mcp_schema_audit_test.dart parses this file. doc/mcp_schema.md is the readable copy.",
   "schemaVersion": 1,
   "envelope": {
     "ok": {
@@ -63,15 +63,15 @@
     },
     "ext.sleuth.snapshot": {
       "args": {
-        "sections": {"type": "String", "required": false, "nullable": false, "doc": "comma-separated SnapshotSection keys (case-insensitive, whitespace-tolerant); only listed payload sections serialize, metadata always does; omit for full payload. Unknown name → arg_invalid_section"},
-        "maxIssueCount": {"type": "String (int)", "required": false, "nullable": false, "doc": "keep top-N already-ranked currentIssues; non-negative integer; non-numeric → arg_invalid_int; set without currentIssues in sections → arg_pagination_unused"},
-        "maxRouteCount": {"type": "String (int)", "required": false, "nullable": false, "doc": "keep N most-recent routeSessions by startedAt; non-negative integer; non-numeric → arg_invalid_int; set without routeSessions in sections → arg_pagination_unused"}
+        "sections": {"type": "String", "required": false, "nullable": false, "doc": "Comma-separated SnapshotSection keys, matched without regard to case or surrounding whitespace. Only the listed payload sections serialize. Metadata keys always serialize. Omit it for the full payload. An unknown name returns arg_invalid_section."},
+        "maxIssueCount": {"type": "String (int)", "required": false, "nullable": false, "doc": "Keeps the top N already-ranked currentIssues. It takes a non-negative integer. A negative or non-numeric value returns arg_invalid_int. Setting it while sections leaves out currentIssues returns arg_pagination_unused."},
+        "maxRouteCount": {"type": "String (int)", "required": false, "nullable": false, "doc": "Keeps the N most recent routeSessions by startedAt. It takes a non-negative integer. A negative or non-numeric value returns arg_invalid_int. Setting it while sections leaves out routeSessions returns arg_pagination_unused."}
       },
       "errors": ["arg_invalid_section", "arg_invalid_int", "arg_pagination_unused"],
       "data": {
-        "_shape_source": "SessionSnapshot.toJson() — lib/src/models/session_snapshot.dart",
-        "_projection_note": "When any projection arg is set, payload-bearing fields are present only if their SnapshotSection is in _projectedSections. Metadata keys (schemaVersion, exportedAt, packageVersion, isVmConnected, isDebugMode, suppressedCount) always serialize.",
-        "_projectedSections": {"type": "List<String>", "required": false, "nullable": false, "presence": "when any projection arg (sections/maxIssueCount/maxRouteCount) was set; alphabetically sorted SnapshotSection keys included in this payload"},
+        "_shape_source": "SessionSnapshot.toJson() in lib/src/models/session_snapshot.dart",
+        "_projection_note": "When any projection arg is set, a payload field is present only if its SnapshotSection is in _projectedSections. Metadata keys (schemaVersion, exportedAt, packageVersion, isVmConnected, isDebugMode, suppressedCount) always serialize.",
+        "_projectedSections": {"type": "List<String>", "required": false, "nullable": false, "presence": "when any projection arg (sections, maxIssueCount or maxRouteCount) was set; holds the SnapshotSection keys in this payload, sorted alphabetically"},
         "_projectionLimits": {"type": "Map", "required": false, "nullable": false, "presence": "when maxIssueCount or maxRouteCount was set", "shape": {"maxIssueCount": {"type": "int", "required": false, "nullable": false}, "maxRouteCount": {"type": "int", "required": false, "nullable": false}}},
         "_projectionApplied": {"type": "String", "required": false, "nullable": false, "presence": "when any projection arg was set", "values": ["by_app", "by_sidecar_fallback"]},
         "schemaVersion": {"type": "int", "required": true, "nullable": false},
@@ -79,22 +79,22 @@
         "packageVersion": {"type": "String", "required": true, "nullable": false},
         "isVmConnected": {"type": "bool", "required": true, "nullable": false},
         "isDebugMode": {"type": "bool", "required": true, "nullable": false},
-        "frameStatsSummary": {"type": "Map<String, Object?>", "required": true, "nullable": false, "presence": "always, unless projected out via sections"},
-        "capturedFrames": {"type": "List<Map>", "required": true, "nullable": false, "presence": "always, unless projected out via sections"},
-        "currentIssues": {"type": "List<Map>", "required": true, "nullable": false, "presence": "always, unless projected out via sections"},
-        "suppressedCount": {"type": "int", "required": false, "nullable": false, "presence": "only when > 0"},
+        "frameStatsSummary": {"type": "Map<String, Object?>", "required": true, "nullable": false, "presence": "always, unless sections leaves it out"},
+        "capturedFrames": {"type": "List<Map>", "required": true, "nullable": false, "presence": "always, unless sections leaves it out"},
+        "currentIssues": {"type": "List<Map>", "required": true, "nullable": false, "presence": "always, unless sections leaves it out"},
+        "suppressedCount": {"type": "int", "required": false, "nullable": false, "presence": "only when above 0"},
         "recentRequests": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when NetworkMonitorDetector is enabled and the request ring buffer is non-empty"},
         "heapSamples": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when MemoryPressureDetector has at least one sample buffered"},
         "phaseEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when the controller's rolling timeline-event buffer is non-empty"},
-        "gcEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when GC events have been observed on the timeline stream"},
-        "platformChannelEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when platform-channel events have been observed on the timeline stream"},
+        "gcEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when Sleuth has seen GC events on the timeline stream"},
+        "platformChannelEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when Sleuth has seen platform-channel events on the timeline stream"},
         "recentFrames": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when the frame-stats buffer is non-empty"},
-        "widgetHeatMap": {"type": "List<Map>", "required": false, "nullable": false, "opaque": true, "presence": "when at least one issue has been ranked (heat-map is derived from ranked issues)", "_opaque_reason": "item-shape intentionally left undocumented pending a sidecar consumer that relies on its keys"},
+        "widgetHeatMap": {"type": "List<Map>", "required": false, "nullable": false, "opaque": true, "presence": "when at least one issue is ranked (Sleuth builds the heat map from ranked issues)", "_opaque_reason": "The item shape stays undocumented until a sidecar consumer relies on its keys."},
         "recurrenceTrends": {
           "type": "Map<String, Map>",
           "required": false,
           "nullable": false,
-          "presence": "when populated",
+          "presence": "when not empty",
           "value_shape": {
             "trend": {"type": "String", "required": true, "nullable": false, "values": ["stable", "worsening", "improving", "intermittent"]},
             "totalOccurrences": {"type": "int", "required": true, "nullable": false},
@@ -128,7 +128,7 @@
                 "title": {"type": "String", "required": true, "nullable": false},
                 "severity": {"type": "String", "required": true, "nullable": false, "values": ["ok", "warning", "critical"]},
                 "confidence": {"type": "String", "required": true, "nullable": false, "values": ["confirmed", "likely", "possible"]},
-                "confidenceReason": {"type": "String", "required": false, "nullable": false, "presence": "when the issue carries a confidence reason"},
+                "confidenceReason": {"type": "String", "required": false, "nullable": false, "presence": "when the issue has a confidence reason"},
                 "rankingScore": {"type": "int", "required": true, "nullable": false},
                 "widgetName": {"type": "String", "required": false, "nullable": false, "presence": "when the issue names a widget"}
               }
@@ -137,7 +137,7 @@
               "type": "Map<String, int>",
               "required": false,
               "nullable": false,
-              "presence": "when the frame-stats buffer is non-empty (same condition as recentFrames); all five buckets always present",
+              "presence": "when the frame-stats buffer is non-empty (same condition as recentFrames); all five buckets are always present",
               "buckets": ["<16ms", "16-33ms", "33-50ms", "50-100ms", ">100ms"]
             },
             "detectorHitRates": {"type": "Map<String, int>", "required": false, "nullable": false, "presence": "when at least one issue is ranked (same condition as topIssues); counts every ranked issue by detector name"},
@@ -171,14 +171,14 @@
           "type": "List<Map>",
           "required": false,
           "nullable": false,
-          "presence": "when route history non-empty",
+          "presence": "when the route history is not empty",
           "item_shape": {
             "routeName": {"type": "String", "required": true, "nullable": false},
-            "scaffoldHashKey": {"type": "int", "required": false, "nullable": false, "presence": "when the session was created from an Element subtree carrying a visible Scaffold (always true for real-device captures; absent for scaffold-free overlay sessions)"},
+            "scaffoldHashKey": {"type": "int", "required": false, "nullable": false, "presence": "when Sleuth created the session from an Element subtree with a visible Scaffold; real-device captures always have it, and overlay sessions without a Scaffold do not"},
             "tabVisitIndex": {"type": "int", "required": true, "nullable": false},
-            "hotReloadGeneration": {"type": "int", "required": false, "nullable": false, "presence": "only when > 0 (i.e. session created after at least one hot reload)"},
+            "hotReloadGeneration": {"type": "int", "required": false, "nullable": false, "presence": "only when above 0, that is, when Sleuth created the session after at least one hot reload"},
             "startedAt": {"type": "String (ISO-8601)", "required": true, "nullable": false},
-            "endedAt": {"type": "String (ISO-8601)", "required": false, "nullable": false, "presence": "once the session has been closed"},
+            "endedAt": {"type": "String (ISO-8601)", "required": false, "nullable": false, "presence": "once the session is closed"},
             "healthScore": {"type": "num", "required": true, "nullable": false},
             "durationSeconds": {"type": "num", "required": true, "nullable": false},
             "scanCycles": {"type": "int", "required": true, "nullable": false},
@@ -195,37 +195,37 @@
                 "p99": {"type": "num", "required": false, "nullable": false, "presence": "when frameStats.length >= 2"}
               }
             },
-            "issueCount": {"type": "int", "required": true, "nullable": false, "doc": "distinct issue keys retained for the session; at most 256, the oldest-inserted key evicted first, so a longer session undercounts"},
-            "criticalCount": {"type": "int", "required": true, "nullable": false, "doc": "critical issues among the retained keys (see issueCount)"},
-            "warningCount": {"type": "int", "required": true, "nullable": false, "doc": "warning issues among the retained keys (see issueCount)"},
-            "issues": {"type": "List<String>", "required": true, "nullable": false, "item_shape": "stableId", "doc": "the retained keys (stableId, else the issue title) in first-seen order; at most 256"},
-            "rebuildCountsByType": {"type": "Map<String, int>", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session", "doc": "at most 256 widget types, the oldest-inserted type evicted first"},
-            "totalRebuilds": {"type": "int", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session", "doc": "sum over the retained rebuildCountsByType entries only; rebuilds of evicted types are not counted"}
+            "issueCount": {"type": "int", "required": true, "nullable": false, "doc": "Distinct issue keys the session retains, at most 256. The session evicts the oldest-inserted key first, so a longer session undercounts."},
+            "criticalCount": {"type": "int", "required": true, "nullable": false, "doc": "Critical issues among the retained keys (see issueCount)."},
+            "warningCount": {"type": "int", "required": true, "nullable": false, "doc": "Warning issues among the retained keys (see issueCount)."},
+            "issues": {"type": "List<String>", "required": true, "nullable": false, "item_shape": "stableId", "doc": "The retained keys (stableId, else the issue title) in first-seen order, at most 256."},
+            "rebuildCountsByType": {"type": "Map<String, int>", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session", "doc": "At most 256 widget types. The session evicts the oldest-inserted type first."},
+            "totalRebuilds": {"type": "int", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session", "doc": "Sums the retained rebuildCountsByType entries only. It does not count rebuilds of evicted types."}
           }
         }
       }
     },
     "ext.sleuth.issues": {
       "args": {
-        "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"}
+        "route": {"type": "String", "required": false, "nullable": false, "doc": "An empty string counts as absent."}
       },
       "data": {
         "issues": {"type": "List<Map>", "required": true, "nullable": false, "item_shape": "PerformanceIssue.toJson()"},
-        "route": {"type": "String", "required": false, "nullable": false, "presence": "only when route arg was non-empty"},
-        "vmConnected": {"type": "bool", "required": true, "nullable": false, "doc": "the same flag as ext.sleuth.diagnose data.vmConnected; tells a VM-connected basic session from one without a VM link"}
+        "route": {"type": "String", "required": false, "nullable": false, "presence": "only when the route arg was non-empty"},
+        "vmConnected": {"type": "bool", "required": true, "nullable": false, "doc": "The same flag as ext.sleuth.diagnose data.vmConnected. It tells a VM-connected basic session from one without a VM link."}
       }
     },
     "ext.sleuth.routeHealth": {
       "args": {
-        "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"}
+        "route": {"type": "String", "required": false, "nullable": false, "doc": "An empty string counts as absent."}
       },
       "data": {
-        "_shape_source": "RouteSession.toJson() — lib/src/models/route_session.dart. Item shape mirrors snapshot.routeSessions[] documented above.",
-        "routes": {"type": "List<Map>", "required": false, "nullable": false, "presence": "only when route arg absent", "item_shape": "see ext.sleuth.snapshot.data.routeSessions item_shape"},
-        "route": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "only when route arg matches a session", "value_shape": "see ext.sleuth.snapshot.data.routeSessions item_shape"}
+        "_shape_source": "RouteSession.toJson() in lib/src/models/route_session.dart. The item shape matches snapshot.routeSessions[] above.",
+        "routes": {"type": "List<Map>", "required": false, "nullable": false, "presence": "only when the route arg is absent", "item_shape": "see ext.sleuth.snapshot.data.routeSessions item_shape"},
+        "route": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "only when the route arg matches a session", "value_shape": "see ext.sleuth.snapshot.data.routeSessions item_shape"}
       },
       "errors": [
-        {"error": "unknown_route", "extra": {"route": "String — echoes the arg"}}
+        {"error": "unknown_route", "extra": {"route": "String, the route arg as passed"}}
       ]
     },
     "ext.sleuth.explain": {
@@ -286,8 +286,8 @@
     }
   },
   "notes": [
-    "Envelope schemaVersion bumps only on breaking change (rename, removal, type change). New optional fields or handlers do NOT bump.",
-    "Snapshot nested shapes (recurrenceTrends, sessionSummary, routeSessions) derived from on-device captures in test/validation/captures/. See doc/mcp_schema_derivation.md for the procedure and device-context limitations.",
-    "MCP tool-layer schema lives at packages/sleuth_mcp/doc/mcp_tool_schema.{json,md} (sidecar-only). The corresponding audit is packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart."
+    "The envelope schemaVersion changes only on a breaking change: a rename, a removal or a type change. New optional fields and new handlers do not change it.",
+    "The nested snapshot shapes (recurrenceTrends, sessionSummary, routeSessions) come from on-device captures in test/validation/captures/. doc/mcp_schema_derivation.md describes the procedure and the limits of the device context.",
+    "The MCP tool-layer schema is in packages/sleuth_mcp/doc/mcp_tool_schema.{json,md} and ships only with the sidecar. packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart audits it."
   ]
 }

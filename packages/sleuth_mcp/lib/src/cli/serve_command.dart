@@ -97,16 +97,17 @@ Future<void> _connectAtStartup(
     final shortUuid = uuid == null
         ? '<none>'
         : uuid.substring(0, uuid.length < 8 ? uuid.length : 8);
-    logger?.add('connected; sessionUuid=$shortUuid…');
+    logger?.add('connected; sessionUuid starts with $shortUuid');
   } on TimeoutException {
     err.writeln(
-      'initial --uri connect did not finish within ${wait.inSeconds} s; '
-      'tool calls run now and the connect continues in the background.',
+      'The initial --uri connect did not finish within ${wait.inSeconds} '
+      's. Tool calls run now, and the connect continues in the background.',
     );
   } catch (e) {
-    err.writeln('initial --uri connect failed: $e');
+    err.writeln('The initial --uri connect failed: $e');
     err.writeln(
-      'continuing; the MCP client can call attach_app or connect instead.',
+      'Continuing without it. The MCP client can call attach_app or '
+      'connect instead.',
     );
   }
 }

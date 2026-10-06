@@ -129,7 +129,7 @@ Object evaluateBudgets({
   }
   if (issues is! List) {
     return ToolCallResult.text(
-      'snapshot currentIssues must be List, got ${issues.runtimeType}',
+      'snapshot currentIssues must be a List, got ${issues.runtimeType}',
       isError: true,
     );
   }
@@ -139,14 +139,15 @@ Object evaluateBudgets({
     final entry = issues[i];
     if (entry is! Map<String, Object?>) {
       return ToolCallResult.text(
-        'snapshot currentIssues[$i] must be Map, got ${entry.runtimeType}',
+        'snapshot currentIssues[$i] must be a Map, got '
+        '${entry.runtimeType}',
         isError: true,
       );
     }
     final sev = entry['severity'];
     if (sev is! String) {
       return ToolCallResult.text(
-        'snapshot currentIssues[$i] missing required severity '
+        'snapshot currentIssues[$i] has no string severity '
         '(got ${sev.runtimeType})',
         isError: true,
       );
@@ -162,7 +163,7 @@ Object evaluateBudgets({
   }
   if (summary is! Map<String, Object?>) {
     return ToolCallResult.text(
-      'snapshot frameStatsSummary must be Map, got ${summary.runtimeType}',
+      'snapshot frameStatsSummary must be a Map, got ${summary.runtimeType}',
       isError: true,
     );
   }
@@ -170,16 +171,16 @@ Object evaluateBudgets({
   final actual = summary['actualFps'];
   if (avg == null && actual == null) {
     return ToolCallResult.text(
-      'snapshot frameStatsSummary missing both averageFps and actualFps '
-      '— schema drift',
+      'snapshot frameStatsSummary has neither averageFps nor actualFps. '
+      'The snapshot schema has drifted.',
       isError: true,
     );
   }
   final fpsRaw = avg ?? actual;
   if (fpsRaw is! num) {
     return ToolCallResult.text(
-      'snapshot frameStatsSummary.averageFps/actualFps must be num, '
-      'got ${fpsRaw.runtimeType}',
+      'snapshot frameStatsSummary averageFps or actualFps must be a '
+      'number, got ${fpsRaw.runtimeType}',
       isError: true,
     );
   }
@@ -225,14 +226,12 @@ ToolCallResult _missingSection(Map<String, Object?> snapshot, String section) {
   final projected = snapshot.containsKey('_projectedSections');
   if (projected) {
     return ToolCallResult.text(
-      'arg_missing_required_section: budgets need "$section" but the '
-      'snapshot was projected without it — re-capture get_snapshot '
-      'including "$section" (or omit `sections` for the full payload)',
+      'arg_missing_required_section: budgets need "$section", but the '
+      'snapshot was projected without it. Re-capture get_snapshot with '
+      '"$section" in sections, or omit `sections` to get the default set, '
+      'which includes it.',
       isError: true,
     );
   }
-  return ToolCallResult.text(
-    'snapshot missing required $section',
-    isError: true,
-  );
+  return ToolCallResult.text('snapshot has no $section', isError: true);
 }

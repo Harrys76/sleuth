@@ -20,7 +20,8 @@ File defaultConfigFile() {
       Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
   if (home == null || home.isEmpty) {
     throw StateError(
-      'cannot resolve home directory — set HOME (or USERPROFILE on Windows)',
+      'cannot resolve the home directory. Set HOME, or USERPROFILE on '
+      'Windows.',
     );
   }
   return File('$home/.claude.json');
@@ -73,7 +74,7 @@ Future<InstallCommandResult> runInstallCommand({
           return InstallCommandResult(
             exitCode: 0,
             message:
-                'mcpServers.$name not present in ${r.configPath} — '
+                'mcpServers.$name is not in ${r.configPath}, so there is '
                 'nothing to remove',
           );
         default:
@@ -106,7 +107,7 @@ Future<InstallCommandResult> runInstallCommand({
       case ConfigWriteOutcome.alreadyPresent:
         return InstallCommandResult(
           exitCode: 0,
-          message: 'mcpServers.$name already up to date in ${r.configPath}',
+          message: 'mcpServers.$name is already up to date in ${r.configPath}',
         );
       default:
         return InstallCommandResult(

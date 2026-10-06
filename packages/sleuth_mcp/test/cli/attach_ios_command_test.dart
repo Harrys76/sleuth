@@ -423,7 +423,7 @@ void main() {
           isFalse,
           reason: 'wireless mode must not spawn iproxy',
         );
-        expect(out.toString(), contains('Wireless attach'));
+        expect(out.toString(), contains('wireless attach needs no iproxy'));
       },
     );
 

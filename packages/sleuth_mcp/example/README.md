@@ -14,8 +14,8 @@ Reload your MCP client.
 
 ## 2. Attach to a running app
 
-Start your app with `flutter run --profile --no-dds` (without `--no-dds`
-Sleuth cannot reach the VM service), then ask the assistant:
+Start your app with `flutter run --profile --no-dds`. Without `--no-dds`,
+Sleuth cannot reach the VM service. Then ask the assistant:
 
 > attach to my Flutter app and explore
 
@@ -33,7 +33,7 @@ attach_app(udid: "<udid>", bundle: "com.example.example")
 > what's causing jank on the checkout route?
 
 The assistant calls `get_issues`, `get_route_health` and `explain_issue`
-against the live session. Each issue carries a fix hint.
+against the live session. Each issue has a fix hint.
 
 The [package README](../README.md) covers the full tool list, the
 `connect` and `attach_app` routing modes, the connection modes (`basic`,

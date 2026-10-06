@@ -1,5 +1,5 @@
 {
-  "_doc": "Wire schema for sleuth_mcp tool-call return shapes. Sidecar-only — the root sleuth package does not ship a parallel copy. Audit source: packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart. Human-readable render at mcp_tool_schema.md.",
+  "_doc": "Wire schema for the return shapes of sleuth_mcp tool calls. It exists only in the sidecar, and the root sleuth package ships no copy. The audit test is packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart. mcp_tool_schema.md is the readable version.",
   "schemaVersion": 2,
   "readOnlyTools": ["app_status", "check_budgets", "compare_snapshots", "diagnose", "explain_issue", "get_issues", "get_logs", "get_route_health", "get_snapshot", "list_devices"],
   "toolAnnotations": {
@@ -19,16 +19,16 @@
     "get_logs": {"openWorldHint": false}
   },
   "notes": [
-    "Error envelopes describe current sidecar handler behavior — each handler returns ToolCallResult.text(...) with `isError: true` and a single text content carrying the message string. Codes listed in `errors[].code` appear verbatim as the prefix of that text. A centralized typed error class is acknowledged debt.",
-    "Passthrough tools delegate to bridge.callExtension and return the ext.sleuth.* envelope unmodified. Documented shims (get_issues severityAtLeast filter, compact-issue projection on get_issues + get_snapshot, get_snapshot default projection and disk handoff, launchModeAdvisory stamping) are spelled out explicitly so the audit can assert the shim's behavior.",
-    "Snapshot / route-session nested shapes live in mcp_schema.{json,md}. This file documents only the tool-layer wrapping.",
-    "schemaVersion 2 adds the compact-issue projection: get_issues and get_snapshot trim each issue to the actionable subset by default (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds). Pass verbose:true for the full ~22-field shape. Compaction is field-only and lossless for the diff key (stableId + severity), so compare_snapshots and check_budgets work on compact snapshots.",
-    "Transport (cross-cutting, not a per-tool shape): for clients that negotiate MCP protocol >= 2025-06-18, every SUCCESS tools/call result also carries a top-level `structuredContent` field — the same JSON the text content block carries, as an object. Clients on older protocol versions see the text content only. structuredContent is never set on error results (isError:true). This is additive and does not change any per-tool data/args/errors shape below, so schemaVersion stays 2.",
-    "toolAnnotations locks the three non-readOnly MCP annotation hints (destructiveHint, idempotentHint, openWorldHint) per tool; readOnlyHint stays sourced from readOnlyTools (not duplicated here). Only non-default hints are listed. openWorldHint:true for tools whose output reflects external/runtime state (the live-app readers get_snapshot/get_issues/get_route_health/explain_issue/diagnose/check_budgets and the host enumerator list_devices); false for self-contained tools (compare_snapshots local diff, app_status server-internal status). destructiveHint:true for detach_app (it terminates the session and deletes disk-handoff files); destructive/idempotent are omitted on read-only tools (the spec ignores those unless readOnlyHint is false). Annotations are advisory descriptor metadata, not a tool return/args shape, so schemaVersion stays 2.",
+    "The error envelopes describe how the sidecar handlers behave today. Each handler returns ToolCallResult.text(...) with `isError: true` and one text content that carries the message string. The codes in `errors[].code` appear verbatim as the prefix of that text. There is no central typed error class yet, which is known debt.",
+    "Passthrough tools call bridge.callExtension and return the ext.sleuth.* envelope unchanged. Each shim is documented on its own so the audit can check its behavior: the get_issues severityAtLeast filter, the compact-issue projection on get_issues and get_snapshot, the get_snapshot default projection and disk handoff, and the launchModeAdvisory stamp.",
+    "The nested snapshot and route-session shapes are in mcp_schema.{json,md}. This file documents only how the tools wrap them.",
+    "schemaVersion 2 adds the compact-issue projection. By default get_issues and get_snapshot trim each issue to the actionable subset (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds). Pass verbose:true for the full shape of about 22 fields. Compaction removes fields only and keeps the diff key (stableId and severity), so compare_snapshots and check_budgets work on compact snapshots.",
+    "Structured content applies to every tool rather than to one tool's shape. A client that negotiates MCP protocol 2025-06-18 or later also gets a top-level `structuredContent` field on every successful tools/call result. It holds the same JSON as the text content block, as an object. Clients on older protocol versions get the text content only. Error results (isError:true) never carry structuredContent. The field is additive and changes no per-tool data, args or errors shape below, so schemaVersion stays 2.",
+    "toolAnnotations locks three MCP annotation hints per tool: destructiveHint, idempotentHint and openWorldHint. readOnlyHint comes from readOnlyTools and is not repeated here. Only non-default hints are listed. openWorldHint is true for tools whose output reflects external or runtime state: the live-app readers get_snapshot, get_issues, get_route_health, explain_issue, diagnose and check_budgets, and list_devices, which lists the host's devices. It is false for self-contained tools: compare_snapshots diffs its input locally, and app_status reports the server's own status. destructiveHint is true for detach_app, because it ends the session and deletes disk-handoff files. Read-only tools omit destructiveHint and idempotentHint, which the spec ignores unless readOnlyHint is false. Annotations are advisory descriptor metadata, not a return or args shape, so schemaVersion stays 2.",
     "serverErrors lists the errors McpServer returns for any tools/call before or around the handler: argument validation against the tool's inputSchema (missing_required_arg, arg_unknown, arg_type_mismatch, arg_enum_violation, arg_min_length_violation) and dispatch failures. They share the per-tool error envelope (isError:true, code as the message prefix) and apply to every tool, so per-tool `errors` lists only handler-level codes. The audit checks every literal error prefix in the handler and server source against these lists.",
-    "Transport (cross-cutting, not a per-tool shape): JSON-RPC batches run only in a session that negotiated protocol 2025-03-26, the one version that defines them; the server answers with one array holding a response per request and none for notifications, refuses an initialize inside a batch with -32600, and on any other version, or before initialize, answers a batch with one -32600 error with id null. While hot_reload runs, the server holds tools/call, resources/read, prompts/get and initialize requests until the reload ends and answers ping, notifications/cancelled and the list methods at once. On shutdown (stdin closed, SIGINT, SIGTERM or a failed stdout write) a held request does not run and gets a -32603 error whose message starts with The server is shutting down; the server waits at most 10 s for the requests still running, alongside the detach, which is also bounded by 10 s.",
-    "Progress and cancellation (cross-cutting, not a per-tool shape): when a tools/call request carries params._meta.progressToken, a tool that reports progress (attach_app) sends notifications/progress frames {progressToken, progress, message} before its response. progress starts at 1 and goes up by one per stage, there is no total, and message is sent only to clients on protocol 2025-03-26 or later. A notifications/cancelled whose requestId names an in-flight tools/call cancels it, and the server sends no response for that request: attach_app stops and releases what it started, and other tools finish with their response dropped. An unknown or finished requestId is ignored.",
-    "The audit enforces descriptor<->toolAnnotations CONSISTENCY, not value-vs-behavior CORRECTNESS — a hint that disagrees with what a handler actually does (e.g. a destructive tool marked non-destructive) passes as long as the descriptor and this doc agree. Hint values are a spec/behavior judgment, reviewed against the MCP ToolAnnotations spec + the handlers, not machine-verified."
+    "Batches, reloads and shutdown apply to every tool rather than to one tool's shape. JSON-RPC batches run only in a session that negotiated protocol 2025-03-26, the one version that defines them. The server answers a batch with one array that holds a response per request and none for notifications, and it refuses an initialize inside a batch with -32600. On any other version, or before initialize, it answers a batch with one -32600 error with id null. While hot_reload runs, the server holds tools/call, resources/read, prompts/get and initialize requests until the reload ends, and it answers ping, notifications/cancelled and the list methods at once. On shutdown (stdin closed, SIGINT, SIGTERM or a failed stdout write), a held request does not run and gets a -32603 error whose message starts with The server is shutting down. The server waits at most 10 s for the requests still running, alongside the detach, which is also bounded by 10 s.",
+    "Progress and cancellation apply to every tool rather than to one tool's shape. When a tools/call request carries params._meta.progressToken, a tool that reports progress (attach_app) sends notifications/progress frames {progressToken, progress, message} before its response. progress starts at 1 and goes up by one per stage, there is no total, and message is sent only to clients on protocol 2025-03-26 or later. A notifications/cancelled whose requestId names an in-flight tools/call cancels it, and the server sends no response for that request. attach_app stops and releases what it started, and other tools finish with their response dropped. An unknown or finished requestId is ignored.",
+    "The audit checks that the descriptors and toolAnnotations agree. It does not check that a hint matches what the handler does. For example, a destructive tool marked non-destructive passes as long as the descriptor and this doc agree. Hint values are a judgment that a person reviews against the MCP ToolAnnotations spec and the handlers; no test verifies them."
   ],
   "serverErrors": [
     {"code": "missing_required_arg", "doc": "an arg listed in the tool's inputSchema.required is absent or null", "messagePrefix": "missing_required_arg:"},
@@ -69,26 +69,26 @@
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup or disconnected, or basic with vmConnected false, which means the VM-only detectors are off; the basic text suggests reopening the app and names DDS as one possible cause. A basic session with vmConnected true gets none."}
       },
       "errors": [
-        {"code": "missing_required_arg", "doc": "uri arg missing or empty", "messagePrefix": "missing_required_arg: uri"},
+        {"code": "missing_required_arg", "doc": "the uri arg is missing or empty", "messagePrefix": "missing_required_arg: uri"},
         {"code": "invalid_uri", "doc": "the uri does not parse, its scheme is not http, https, ws or wss, or it has no host", "messagePrefix": "invalid_uri:"},
-        {"code": "version_skew_major", "doc": "app packageVersion lineage outside acceptedPriorLineages — bridge disconnected", "messagePrefix": "version_skew_major:"},
-        {"code": "version_skew_unknown", "doc": "diagnose envelope packageVersion missing, non-String, or not a semver major.minor.patch (optional -prerelease / +build) — fail closed", "messagePrefix": "version_skew_unknown:"},
+        {"code": "version_skew_major", "doc": "the app's packageVersion lineage is outside acceptedPriorLineages; the sidecar disconnects the bridge", "messagePrefix": "version_skew_major:"},
+        {"code": "version_skew_unknown", "doc": "the diagnose envelope's packageVersion is missing, not a String, or not a semver major.minor.patch with an optional -prerelease or +build suffix; the sidecar fails closed", "messagePrefix": "version_skew_unknown:"},
         {"code": "attached_session", "doc": "an attach_app session owns the connection: it is attaching, ready, reloading or detaching, or it ended in error but still holds its flutter child, daemon channel or iOS tunnel. connect refuses rather than pointing the bridge at another app while hot_reload would still reload the attached one. Typed envelope; the JSON block carries {error, message, remedy, status} with the AppStatusPayload. Call detach_app, then connect", "messagePrefix": "attached_session:"}
       ]
     },
     "attach_app": {
       "kind": "direct",
       "args": {
-        "device": {"type": "String", "required": false, "nullable": false, "doc": "flutter daemon route; mutually exclusive with udid"},
-        "debugUrl": {"type": "String", "required": false, "nullable": false, "doc": "direct WebSocket route; mutually exclusive with udid"},
-        "udid": {"type": "String", "required": false, "nullable": false, "doc": "iOS device UDID; triggers ios-direct path; requires bundle"},
-        "bundle": {"type": "String", "required": false, "nullable": false, "doc": "iOS bundle identifier; required when udid is set"},
-        "transport": {"type": "String", "required": false, "nullable": false, "values": ["auto", "usb", "wireless"], "doc": "Override iOS transport auto-detection; default auto"},
-        "authOverride": {"type": "String", "required": false, "nullable": false, "doc": "iOS-only; pins the Bonjour authCode on ambiguous pairings"},
-        "forceRelaunch": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "iOS-only; skip the Bonjour probe and go straight to xcrun devicectl process launch; recovers from a stale mDNS cache without sidecar restart"}
+        "device": {"type": "String", "required": false, "nullable": false, "doc": "the flutter daemon route. Cannot be combined with udid."},
+        "debugUrl": {"type": "String", "required": false, "nullable": false, "doc": "the direct WebSocket route. Cannot be combined with udid."},
+        "udid": {"type": "String", "required": false, "nullable": false, "doc": "an iOS device UDID. Selects the iOS-direct path and requires bundle."},
+        "bundle": {"type": "String", "required": false, "nullable": false, "doc": "the iOS bundle identifier. Required when udid is set."},
+        "transport": {"type": "String", "required": false, "nullable": false, "values": ["auto", "usb", "wireless"], "doc": "Overrides iOS transport detection. The default is auto."},
+        "authOverride": {"type": "String", "required": false, "nullable": false, "doc": "iOS only. Pins the Bonjour authCode when more than one pairing is announced."},
+        "forceRelaunch": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "iOS only. Skips the Bonjour probe and runs xcrun devicectl process launch at once. It recovers from a stale mDNS cache without a sidecar restart."}
       },
       "data": {
-        "_shape_source": "AppStatusPayload.toJson() — packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
+        "_shape_source": "AppStatusPayload.toJson() in packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
         "attached": {"type": "bool", "required": true, "nullable": false, "doc": "true only when an attach_app session is in state ready and the bridge is still connected; false for a connection opened with connect"},
         "state": {"type": "String", "required": true, "nullable": false, "values": ["idle", "attaching", "ready", "restarting", "detaching", "error"]},
         "connected": {"type": "bool", "required": true, "nullable": false, "doc": "the bridge holds a VM service connection, whichever tool opened it"},
@@ -106,23 +106,23 @@
       },
       "errors": [
         {"code": "session_missing", "doc": "DaemonSession not initialized on this server", "messagePrefix": "internal: daemon session not initialized"},
-        {"code": "version_skew_major", "doc": "attach reached `ready` but app packageVersion lineage outside acceptedPriorLineages — auto-detached", "messagePrefix": "version_skew_major:"},
-        {"code": "version_skew_unknown", "doc": "attach reached `ready` but packageVersion missing, non-String, or not semver — auto-detached", "messagePrefix": "version_skew_unknown:"},
+        {"code": "version_skew_major", "doc": "the attach reached `ready`, but the app's packageVersion lineage is outside acceptedPriorLineages; the sidecar detaches", "messagePrefix": "version_skew_major:"},
+        {"code": "version_skew_unknown", "doc": "the attach reached `ready`, but packageVersion is missing, not a String, or not semver; the sidecar detaches", "messagePrefix": "version_skew_unknown:"},
         {"code": "daemon_failure", "doc": "DaemonSessionException raised inside attach", "messagePrefix": "<exception message>"},
         {"code": "attach_failed", "doc": "the attach ended without a session: flutter could not start or exited early (the message quotes its last output), no daemon.connected or app.debugPort arrived in time, app.stop, an unsupported daemon, a non-mobile device, a refused debugUrl, an unclassified iOS bridge failure, or a detach_app or client cancel that stopped it. Typed envelope; the JSON block carries {error, message, status} with the AppStatusPayload"},
-        {"code": "ios_missing_bundle", "doc": "udid provided without bundle"},
-        {"code": "ios_ambiguous_args", "doc": "udid combined with device or debugUrl"},
-        {"code": "ios_invalid_transport", "doc": "transport not in {auto, usb, wireless}"},
-        {"code": "ios_missing_tool", "doc": "required macOS tool (xcrun/dns-sd/iproxy) not on PATH, or the sidecar runs on a host other than macOS"},
-        {"code": "ios_launch_failed", "doc": "xcrun devicectl process launch returned non-zero"},
-        {"code": "ios_bonjour_timeout", "doc": "VM service not announced within budget"},
-        {"code": "ios_ambiguous_pairings", "doc": "multiple distinct authCodes announced; pass authOverride"},
-        {"code": "ios_no_matching_auth", "doc": "authOverride provided but no announcement matched"},
-        {"code": "ios_iproxy_failed", "doc": "iproxy spawn failed or exited inside readiness window, or another process held the pidfile lock for 10 s, or the setup under the lock stalled for 15 s"},
+        {"code": "ios_missing_bundle", "doc": "udid was given without bundle"},
+        {"code": "ios_ambiguous_args", "doc": "udid was combined with device or debugUrl"},
+        {"code": "ios_invalid_transport", "doc": "transport is not auto, usb or wireless"},
+        {"code": "ios_missing_tool", "doc": "a required macOS tool (xcrun, dns-sd or iproxy) is not on PATH, or the sidecar runs on a host other than macOS"},
+        {"code": "ios_launch_failed", "doc": "xcrun devicectl process launch exited non-zero"},
+        {"code": "ios_bonjour_timeout", "doc": "no VM service announcement arrived within the budget"},
+        {"code": "ios_ambiguous_pairings", "doc": "more than one distinct authCode was announced; pass authOverride"},
+        {"code": "ios_no_matching_auth", "doc": "authOverride was given, but no announcement matched"},
+        {"code": "ios_iproxy_failed", "doc": "iproxy failed to start or exited inside the readiness window, another process held the pidfile lock for 10 s, or the setup under the lock stalled for 15 s"},
         {"code": "ios_cancelled", "doc": "the client cancelled attach_app (notifications/cancelled) during the pipeline; the server sends no response for a cancelled request, so only direct callers see it"},
-        {"code": "ios_vmservice_busy", "doc": "bridge connect saw post-handshake reset; device-side VM service holds a prior session"},
-        {"code": "ios_vmservice_unreachable", "doc": "bridge connect saw Connection refused; the iproxy tunnel is open but nothing is listening on the device side (stale Bonjour cache, app crashed mid-attach)"},
-        {"code": "attach_in_progress", "doc": "another iOS attach is already running for this DaemonSession; second concurrent call rejected"}
+        {"code": "ios_vmservice_busy", "doc": "the bridge connection was reset after the handshake, because the VM service on the device holds an earlier session"},
+        {"code": "ios_vmservice_unreachable", "doc": "the bridge connect saw Connection refused. The iproxy tunnel is open, but nothing is listening on the device side, for example after a stale Bonjour cache or an app crash during the attach"},
+        {"code": "attach_in_progress", "doc": "another iOS attach is already running for this DaemonSession, so the second call is rejected"}
       ],
       "progressStages": {
         "_doc": "notifications/progress messages, sent only when the request carries params._meta.progressToken. Stages that do not apply are skipped, and an iOS retry repeats its stages.",
@@ -135,7 +135,7 @@
       "kind": "direct",
       "args": {},
       "data": {
-        "_shape_source": "AppStatusPayload.toJson() — packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
+        "_shape_source": "AppStatusPayload.toJson() in packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
         "attached": {"type": "bool", "required": true, "nullable": false, "doc": "true only when an attach_app session is in state ready and the bridge is still connected; false for a connection opened with connect"},
         "state": {"type": "String", "required": true, "nullable": false, "values": ["idle", "attaching", "ready", "restarting", "detaching", "error"]},
         "connected": {"type": "bool", "required": true, "nullable": false, "doc": "the bridge holds a VM service connection, whichever tool opened it"},
@@ -157,7 +157,7 @@
       "kind": "direct",
       "args": {},
       "data": {
-        "_shape_source": "AppStatusPayload.toJson() — packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
+        "_shape_source": "AppStatusPayload.toJson() in packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
         "attached": {"type": "bool", "required": true, "nullable": false, "doc": "true only when an attach_app session is in state ready and the bridge is still connected; false for a connection opened with connect"},
         "state": {"type": "String", "required": true, "nullable": false, "values": ["idle", "attaching", "ready", "restarting", "detaching", "error"]},
         "connected": {"type": "bool", "required": true, "nullable": false, "doc": "the bridge holds a VM service connection, whichever tool opened it"},
@@ -179,7 +179,7 @@
       "kind": "direct",
       "args": {},
       "data": {
-        "_shape_source": "AppStatusPayload.toJson() — packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
+        "_shape_source": "AppStatusPayload.toJson() in packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
         "attached": {"type": "bool", "required": true, "nullable": false, "doc": "true only when an attach_app session is in state ready and the bridge is still connected; false for a connection opened with connect"},
         "state": {"type": "String", "required": true, "nullable": false, "values": ["idle", "attaching", "ready", "restarting", "detaching", "error"]},
         "connected": {"type": "bool", "required": true, "nullable": false, "doc": "the bridge holds a VM service connection, whichever tool opened it"},
@@ -211,7 +211,7 @@
         "filteredBy": {"type": "String", "required": true, "nullable": false, "values": ["mobile", "none"]}
       },
       "errors": [
-        {"code": "flutter_not_on_path", "doc": "ProcessException — flutter binary unavailable", "messagePrefix": "flutter not on PATH or failed to run:"},
+        {"code": "flutter_not_on_path", "doc": "a ProcessException: the flutter binary is not available", "messagePrefix": "flutter not on PATH or failed to run:"},
         {"code": "daemon_failure", "doc": "DaemonSessionException raised inside listDevices: flutter devices --machine exited non-zero, printed something other than a JSON array, or did not finish within 15 s, in which case the sidecar killed it (the whole process tree on Windows) and waited at most 2 s more for its output", "messagePrefix": "<exception message>"}
       ]
     },
@@ -250,8 +250,8 @@
     "compare_snapshots": {
       "kind": "client_side",
       "args": {
-        "before": {"type": "Map", "required": true, "nullable": false, "doc": "Snapshot envelope `data` (NOT the full envelope)"},
-        "after": {"type": "Map", "required": true, "nullable": false, "doc": "Snapshot envelope `data` (NOT the full envelope)"}
+        "before": {"type": "Map", "required": true, "nullable": false, "doc": "the `data` object of a snapshot envelope, not the whole envelope"},
+        "after": {"type": "Map", "required": true, "nullable": false, "doc": "the `data` object of a snapshot envelope, not the whole envelope"}
       },
       "data": {
         "added": {"type": "List<String>", "required": true, "nullable": false, "item_shape": "stableId"},
@@ -284,9 +284,9 @@
         "coverageWarning": {"type": "String", "required": false, "nullable": false, "presence": "when neither snapshot had a VM service link (both report isVmConnected false); text starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover"}
       },
       "errors": [
-        {"code": "arg_before_not_object", "doc": "`before` arg not a Map", "messagePrefix": "arg \"before\" must be object"},
-        {"code": "arg_after_not_object", "doc": "`after` arg not a Map", "messagePrefix": "arg \"after\" must be object"},
-        {"code": "arg_capped_issues_uncomparable", "doc": "one/both snapshots projected with maxIssueCount — a truncated top-N issue window can't be diffed (left-window vs resolved are indistinguishable)", "messagePrefix": "arg_capped_issues_uncomparable:"},
+        {"code": "arg_before_not_object", "doc": "the `before` arg is not a Map", "messagePrefix": "arg \"before\" must be object"},
+        {"code": "arg_after_not_object", "doc": "the `after` arg is not a Map", "messagePrefix": "arg \"after\" must be object"},
+        {"code": "arg_capped_issues_uncomparable", "doc": "one or both snapshots were projected with maxIssueCount. A truncated top-N issue window cannot be diffed, because an issue that left the window looks the same as one that resolved", "messagePrefix": "arg_capped_issues_uncomparable:"},
         {"code": "arg_section_mismatch", "doc": "the two snapshots were projected to different sections or different pagination limits", "messagePrefix": "arg_section_mismatch:"},
         {"code": "arg_lineage_mismatch", "doc": "the two snapshots' packageVersion values fall in different sleuth major.minor lineages, or either is missing or not semver; detector ids and defaults change between lineages", "messagePrefix": "arg_lineage_mismatch:"},
         {"code": "arg_snapshot_in_warmup", "doc": "one or both snapshots were taken while Sleuth was still warming up (connectionMode warmup, or the warmup launchModeAdvisory that get_snapshot adds), so their issue lists may be incomplete; take that snapshot again after a few seconds", "messagePrefix": "arg_snapshot_in_warmup:"},
@@ -327,12 +327,12 @@
         }
       },
       "errors": [
-        {"code": "arg_minFps_not_number", "doc": "`minFps` arg not a num", "messagePrefix": "minFps must be number"},
-        {"code": "arg_maxIssues_not_int", "doc": "`maxIssues` arg not an int", "messagePrefix": "maxIssues must be integer"},
-        {"code": "arg_maxCriticalIssues_not_int", "doc": "`maxCriticalIssues` arg not an int", "messagePrefix": "maxCriticalIssues must be integer"},
-        {"code": "snapshot_envelope_no_data", "doc": "snapshot extension returned a malformed envelope", "messagePrefix": "snapshot envelope had no data field"},
-        {"code": "arg_capped_issues_unbudgetable", "doc": "snapshot projected with maxIssueCount — truncated issue list would make budget counts wrong", "messagePrefix": "arg_capped_issues_unbudgetable:"},
-        {"code": "arg_missing_required_section", "doc": "snapshot projected without a section budgets need (currentIssues/frameStatsSummary)", "messagePrefix": "arg_missing_required_section:"},
+        {"code": "arg_minFps_not_number", "doc": "the `minFps` arg is not a num", "messagePrefix": "minFps must be number"},
+        {"code": "arg_maxIssues_not_int", "doc": "the `maxIssues` arg is not an int", "messagePrefix": "maxIssues must be integer"},
+        {"code": "arg_maxCriticalIssues_not_int", "doc": "the `maxCriticalIssues` arg is not an int", "messagePrefix": "maxCriticalIssues must be integer"},
+        {"code": "snapshot_envelope_no_data", "doc": "the snapshot extension returned a malformed envelope", "messagePrefix": "snapshot envelope had no data field"},
+        {"code": "arg_capped_issues_unbudgetable", "doc": "the snapshot was projected with maxIssueCount, so its truncated issue list would make the budget counts wrong", "messagePrefix": "arg_capped_issues_unbudgetable:"},
+        {"code": "arg_missing_required_section", "doc": "the snapshot was projected without a section the budgets need (currentIssues or frameStatsSummary)", "messagePrefix": "arg_missing_required_section:"},
         {"code": "coverage_degraded", "doc": "the snapshot's isVmConnected is false or not a bool, so VM-only detectors never ran and a pass would not cover them; basic connection mode with isVmConnected true still evaluates", "messagePrefix": "coverage_degraded:"},
         {"code": "snapshot_schema_drift", "doc": "the snapshot lacks or mistypes currentIssues, currentIssues[].severity, or frameStatsSummary averageFps/actualFps", "messagePrefix": "snapshot "}
       ]
@@ -342,36 +342,36 @@
       "wraps": "ext.sleuth.diagnose",
       "args": {},
       "data": {
-        "_doc": "Passes through ext.sleuth.diagnose.data and augments it with two sidecar-stamped keys (sidecarVersion, sidecarBuiltAgainstSleuth) plus launchModeAdvisory on a degraded session. All ext.sleuth.diagnose keys remain present.",
+        "_doc": "Passes ext.sleuth.diagnose.data through and adds two sidecar keys (sidecarVersion, sidecarBuiltAgainstSleuth), plus launchModeAdvisory on a degraded session. Every ext.sleuth.diagnose key stays present.",
         "packageVersion": {"type": "String", "required": true, "nullable": false},
         "initializedAtMicros": {"type": "int", "required": true, "nullable": true},
         "vmConnected": {"type": "bool", "required": true, "nullable": false},
         "captureMode": {"type": "bool", "required": true, "nullable": false},
         "lastCaptureExportFailure": {"type": "String", "required": true, "nullable": true},
         "unboundExtensionNames": {"type": "List<String>", "required": true, "nullable": false},
-        "effectiveFrameRateHz": {"type": "num", "required": false, "nullable": false, "presence": "app sleuth >= 0.37.0"},
-        "frameBudgetUs": {"type": "int", "required": false, "nullable": false, "presence": "app sleuth >= 0.37.0"},
-        "frameRateSource": {"type": "String", "required": false, "nullable": false, "presence": "app sleuth >= 0.37.0", "values": ["fixed", "display", "measured"]},
-        "lastPollRpcMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollDecodeMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollParseMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollDispatchMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollDispatchDetectorsMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollDispatchCorrelateMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollDispatchAggregateMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollDispatchOtherMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollTailMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollTailMemoryMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollTailCpuSamplesMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollTailAllocationProfileMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollEventCount": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "lastPollResponseChars": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "maxPollRpcMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "maxPollDecodeMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "maxPollParseMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "maxPollDispatchMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "pollDuplicatesDropped": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
-        "pollWindowFallbacks": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
+        "effectiveFrameRateHz": {"type": "num", "required": false, "nullable": false, "presence": "app on sleuth 0.37.0 or later"},
+        "frameBudgetUs": {"type": "int", "required": false, "nullable": false, "presence": "app on sleuth 0.37.0 or later"},
+        "frameRateSource": {"type": "String", "required": false, "nullable": false, "presence": "app on sleuth 0.37.0 or later", "values": ["fixed", "display", "measured"]},
+        "lastPollRpcMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollDecodeMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollParseMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollDispatchMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollDispatchDetectorsMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollDispatchCorrelateMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollDispatchAggregateMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollDispatchOtherMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollTailMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollTailMemoryMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollTailCpuSamplesMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollTailAllocationProfileMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollEventCount": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "lastPollResponseChars": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "maxPollRpcMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "maxPollDecodeMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "maxPollParseMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "maxPollDispatchMicros": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "pollDuplicatesDropped": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
+        "pollWindowFallbacks": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.37.0 or later"},
         "sidecarVersion": {"type": "String", "required": true, "nullable": false},
         "sidecarBuiltAgainstSleuth": {"type": "String", "required": true, "nullable": false},
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup or disconnected, or basic with vmConnected false, which means the VM-only detectors are off; the basic text suggests reopening the app and names DDS as one possible cause. A basic session with vmConnected true gets none."}
@@ -384,10 +384,10 @@
       "args": {
         "sections": {"type": "List<String>", "required": false, "nullable": false, "itemValues": ["frameStatsSummary", "capturedFrames", "currentIssues", "recentRequests", "heapSamples", "phaseEvents", "gcEvents", "platformChannelEvents", "recentFrames", "widgetHeatMap", "recurrenceTrends", "sessionSummary", "startupMetrics", "routeSessions"], "doc": "Sections to include; forwarded to ext.sleuth.snapshot as a comma-joined string. Each item must be one of itemValues, the app's SnapshotSection keys. Omit (or pass an empty list) for the default set, which leaves out the per-frame and raw sample sections."},
         "full": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "Return every section, including the per-frame and raw sample sections the default leaves out. Cannot be combined with sections."},
-        "maxIssueCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep top-N already-ranked issues (lib-side cap on currentIssues)."},
-        "maxRouteCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep N most-recent routes by startedAt."},
-        "diskHandoff": {"type": "bool", "required": false, "nullable": false, "doc": "When true, write the envelope to a temp file, with every section unless sections is set; the tool returns {path, sizeBytes, sha256, _projectedSections?, _projectionLimits?, _projectionApplied?} instead of inline data."},
-        "verbose": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "When false (default) each data.currentIssues entry is trimmed to the compact actionable subset; true returns full issue fields. Field shape only — independent of the maxIssueCount cap, which is applied lib-side regardless."}
+        "maxIssueCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep the first N issues in the app's ranked order. The app applies this cap to currentIssues."},
+        "maxRouteCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep the N routes with the latest startedAt."},
+        "diskHandoff": {"type": "bool", "required": false, "nullable": false, "doc": "When true, the sidecar writes the envelope to a temp file, with every section unless sections is set. The tool then returns {path, sizeBytes, sha256, _projectedSections?, _projectionLimits?, _projectionApplied?} instead of inline data."},
+        "verbose": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "When false, the default, the sidecar trims each data.currentIssues entry to the compact actionable subset. true returns every issue field. It changes the field shape only and is independent of the maxIssueCount cap, which the app applies either way."}
       },
       "shims": [
         {
@@ -396,27 +396,27 @@
         },
         {
           "name": "compact_issues",
-          "doc": "Unless verbose:true, the sidecar trims every data.currentIssues entry to the compact key set (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds), copying only keys that are present. Runs on both the inline-return and disk-handoff paths from a fresh map (bridge envelope never mutated). No-op when currentIssues was projected out via `sections` or is absent/non-list. Lossless for stableId + severity, so compare_snapshots / check_budgets still operate on compact snapshots."
+          "doc": "Unless verbose:true, the sidecar trims every data.currentIssues entry to the compact key set (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds), copying only keys that are present. It runs on both the inline and the disk-handoff path and builds a fresh map, so the bridge envelope is never changed. It does nothing when `sections` left out currentIssues, or when currentIssues is absent or not a list. It keeps stableId and severity, so compare_snapshots and check_budgets still work on compact snapshots."
         },
         {
           "name": "disk_handoff",
-          "doc": "When `diskHandoff` is true the sidecar serializes the snapshot envelope to a per-process Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json file (128-bit Random.secure name). The per-pid dir is created 0700 and the file 0600, both verified via FileStat; if owner-only perms cannot be set+verified on POSIX the file is deleted and a `disk_handoff_failed` error is returned (fail-closed). On Windows POSIX modes don't apply. The payload MAY contain mildly-sensitive data (e.g. recentRequests[].url with query tokens), hence the fail-closed perms. Returns {path, sizeBytes, sha256} plus any projection metadata, rather than the inline `data` block. Files are deleted on detach_app, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write (per-pid dir prevents cross-instance sweeps). Detach and shutdown also remove the per-pid dir once it is empty. After the shutdown cleanup the sidecar writes no new file, so a get_snapshot still running at exit returns disk_handoff_failed instead, and a call the client cancelled before the write writes nothing. At startup the sidecar removes empty sleuth_snapshot_<pid> dirs that earlier processes left, when they are older than 30 minutes; in a non-empty one whose process is gone (a crashed or killed sidecar; checked through /proc on Linux and `ps -p` on other POSIX hosts, not on Windows) it deletes the .json files older than 30 minutes and then the dir once it is empty. When `diskHandoff` is false/absent the envelope comes back inline. Lineage fallback: if the app predates projection support and the caller requested a projection (sections, maxIssueCount or maxRouteCount), the sidecar stamps `_projectionApplied: by_sidecar_fallback` on the disk-handoff path; on the inline path it returns `projection_unsupported_by_app` instead (the full payload would overflow the response cap)."
+          "doc": "When `diskHandoff` is true, the sidecar writes the snapshot envelope to a per-process file, Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json, whose name is 128 random bits from Random.secure. It creates the per-pid dir with mode 0700 and the file with mode 0600, and checks both with FileStat. On POSIX, if it cannot set and confirm owner-only permissions, it deletes the file and returns a `disk_handoff_failed` error. POSIX modes do not apply on Windows. The payload can hold mildly sensitive data, such as query tokens in recentRequests[].url, which is why a permission failure stops the handoff. The tool returns {path, sizeBytes, sha256} plus any projection metadata instead of the inline `data` block. The sidecar deletes the files on detach_app and at shutdown, and each new write removes files older than 30 minutes from the process's own dir. Each process has its own dir, so one sidecar never removes another's files. Detach and shutdown also remove the per-pid dir once it is empty. After the shutdown cleanup the sidecar writes no new file, so a get_snapshot still running at exit returns disk_handoff_failed instead, and a call the client cancelled before the write writes nothing. At startup the sidecar removes empty sleuth_snapshot_<pid> dirs that earlier processes left, when they are older than 30 minutes. In a non-empty one whose process is gone, which happens after a sidecar crashed or was killed, it deletes the .json files older than 30 minutes and then the dir once it is empty. It checks the process through /proc on Linux and `ps -p` on other POSIX hosts, and not on Windows. When `diskHandoff` is false or absent, the envelope comes back inline. Lineage fallback: if the app predates projection support and the caller requested a projection (sections, maxIssueCount or maxRouteCount), the sidecar stamps `_projectionApplied: by_sidecar_fallback` on the disk-handoff path. On the inline path it returns `projection_unsupported_by_app` instead, because the full payload would overflow the response cap."
         }
       ],
       "data": {
         "_doc": "Passthrough of ext.sleuth.snapshot.data; the sidecar adds launchModeAdvisory on a degraded session, and _omittedSections plus _omittedSectionsHint on a default call.",
-        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "stamped in data on a degraded session (connectionMode warmup/disconnected, or basic without a live VM self-connect); warns the snapshot is incomplete (VM-only detectors suppressed). Rides in the written file on the disk-handoff path."},
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "stamped in data on a degraded session (connectionMode warmup or disconnected, or basic without a live VM link). It warns that the snapshot is incomplete because the VM-only detectors are off. On the disk-handoff path it is in the written file."},
         "_omittedSections": {"type": "List<String>", "required": false, "nullable": false, "presence": "when the default projection applied (no sections, no full:true, no diskHandoff); always the seven per-frame and raw sample sections, whether or not the app had data for them"},
         "_omittedSectionsHint": {"type": "String", "required": false, "nullable": false, "presence": "with _omittedSections; says to pass full:true or name the sections"}
       },
       "errors": [
         {"code": "arg_conflict", "doc": "full:true was combined with a non-empty sections list", "messagePrefix": "arg_conflict:"},
-        {"code": "extension_error_envelope", "doc": "ext.sleuth.snapshot returned an error envelope — surfaced inline, never disk-handed-off"},
+        {"code": "extension_error_envelope", "doc": "ext.sleuth.snapshot returned an error envelope; the tool returns it inline and never writes it to disk"},
         {"code": "arg_invalid_section", "doc": "ext.sleuth.snapshot: a `sections` token is not a known SnapshotSection. Through tools/call the server's enum check rejects an unknown section first with arg_enum_violation"},
-        {"code": "arg_invalid_int", "doc": "ext.sleuth.snapshot: maxIssueCount/maxRouteCount not a non-negative integer"},
+        {"code": "arg_invalid_int", "doc": "ext.sleuth.snapshot: maxIssueCount or maxRouteCount is not a non-negative integer"},
         {"code": "arg_pagination_unused", "doc": "ext.sleuth.snapshot: a cap targets a section omitted from `sections`"},
-        {"code": "projection_unsupported_by_app", "doc": "the caller requested a projection (sections, maxIssueCount or maxRouteCount) but the app predates projection (sleuth < 0.35); inline full payload would overflow the response cap; re-request with diskHandoff:true or upgrade the app"},
-        {"code": "disk_handoff_failed", "doc": "diskHandoff:true but the temp dir/file could not be locked to owner-only perms (fail-closed), the file could not be written, or the sidecar is shutting down and already deleted its handoff files; nothing written", "messagePrefix": "disk_handoff_failed:"},
+        {"code": "projection_unsupported_by_app", "doc": "the caller requested a projection (sections, maxIssueCount or maxRouteCount), but the app runs a sleuth version older than 0.35, which has no projection. The full inline payload would overflow the response cap. Request again with diskHandoff:true, or upgrade the app."},
+        {"code": "disk_handoff_failed", "doc": "diskHandoff:true, but the sidecar could not restrict the temp dir or file to owner-only permissions, could not write the file, or is shutting down and already deleted its handoff files. Nothing is written.", "messagePrefix": "disk_handoff_failed:"},
         {"code": "cancelled", "doc": "diskHandoff:true and the client cancelled the request before the snapshot was written, so nothing was written; the server sends no response for a cancelled request, so only direct callers of the handler see it", "messagePrefix": "cancelled:"}
       ]
     },
@@ -424,16 +424,16 @@
       "kind": "passthrough",
       "passthrough": "ext.sleuth.issues",
       "args": {
-        "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"},
+        "route": {"type": "String", "required": false, "nullable": false, "doc": "An empty string counts as absent."},
         "severityAtLeast": {"type": "String", "required": false, "nullable": false, "values": ["ok", "warning", "critical"]},
-        "maxIssueCount": {"type": "int", "required": false, "nullable": false, "default": 50, "doc": "Keep the front-N of the app's already-ranked order (post severity filter). 0 means unbounded; negative is rejected with arg_invalid_int. Applies whether or not verbose is set."},
-        "verbose": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "When false (default) each kept issue in data.issues is trimmed to the compact actionable subset; true returns full issue fields. Field shape only — the maxIssueCount cap still applies."}
+        "maxIssueCount": {"type": "int", "required": false, "nullable": false, "default": 50, "doc": "Keep the first N issues of the app's ranked order, after the severity filter. 0 means no cap, and a negative value is rejected with arg_invalid_int. The cap applies whether or not verbose is set."},
+        "verbose": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "When false, the default, the sidecar trims each kept issue in data.issues to the compact actionable subset. true returns every issue field. It changes the field shape only, so the maxIssueCount cap still applies."}
       },
       "data": {
-        "_doc": "Passthrough of ext.sleuth.issues, then field-trimmed + capped. data.issues entries carry the compact key set unless verbose:true. _truncated and _totalCount are stamped on data only when the cap dropped at least one issue.",
-        "vmConnected": {"type": "bool", "required": false, "nullable": false, "presence": "app sleuth >= 0.37.0", "doc": "passed through from ext.sleuth.issues data.vmConnected, the app's own VM link (the same flag diagnose reports)"},
+        "_doc": "Passthrough of ext.sleuth.issues, then trimmed to the compact fields and capped. data.issues entries carry the compact key set unless verbose:true. The sidecar stamps _truncated and _totalCount on data only when the cap dropped at least one issue.",
+        "vmConnected": {"type": "bool", "required": false, "nullable": false, "presence": "app on sleuth 0.37.0 or later", "doc": "passed through from ext.sleuth.issues data.vmConnected, the app's own VM link (the same flag diagnose reports)"},
         "_truncated": {"type": "bool", "required": false, "nullable": false, "presence": "stamped true only when maxIssueCount dropped at least one issue from data.issues"},
-        "_totalCount": {"type": "int", "required": false, "nullable": false, "presence": "post-filter pre-cap issue count; stamped alongside _truncated"},
+        "_totalCount": {"type": "int", "required": false, "nullable": false, "presence": "the issue count after the filter and before the cap; stamped with _truncated"},
         "severityAtLeast": {"type": "String", "required": false, "nullable": false, "presence": "echo stamped only when the severity filter was applied"},
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "stamped in data when connectionMode is warmup or disconnected, or basic with no VM service link; warns the issue list is incomplete because the VM-only detectors are off. See the launch_mode_advisory shim for where the VM flag comes from."}
       },
@@ -441,11 +441,11 @@
       "shims": [
         {
           "name": "severity_filter",
-          "doc": "When `severityAtLeast` is `warning` or `critical`, the sidecar filters `data.issues` to entries whose severity meets the threshold AND adds `data.severityAtLeast` echoing the requested level. When `severityAtLeast` is `ok` or absent, no filter + no echo."
+          "doc": "When `severityAtLeast` is `warning` or `critical`, the sidecar keeps only the `data.issues` entries whose severity meets the threshold, and adds `data.severityAtLeast` with the requested level. When `severityAtLeast` is `ok` or absent, there is no filter and no echo."
         },
         {
           "name": "compact_projection",
-          "doc": "After the optional severity filter, data.issues is capped to the front maxIssueCount entries (default 50; 0 = unbounded) of the app's already-ranked order, then — unless verbose:true — each kept entry is trimmed to compactIssueKeys (only present keys copied). When the cap dropped any issue, data gains `_truncated:true` + `_totalCount` (post-filter pre-cap count). Error envelopes (no `data` map / no `issues` list) pass through unmodified."
+          "doc": "After the optional severity filter, the sidecar keeps the first maxIssueCount entries of data.issues in the app's ranked order. The default is 50, and 0 means no cap. Unless verbose:true, it then trims each kept entry to compactIssueKeys, copying only the keys that are present. When the cap dropped any issue, data gains `_truncated:true` and `_totalCount`, the count after the filter and before the cap. Error envelopes, which have no `data` map or no `issues` list, pass through unchanged."
         },
         {
           "name": "launch_mode_advisory",
@@ -454,18 +454,18 @@
       ],
       "errors": [
         {"code": "arg_invalid_int", "doc": "maxIssueCount is negative (or non-integer); only 0 disables the cap", "messagePrefix": "arg_invalid_int:"},
-        {"code": "extension_error_envelope", "doc": "ext.sleuth.issues returned an error envelope — passed through unmodified"}
+        {"code": "extension_error_envelope", "doc": "ext.sleuth.issues returned an error envelope; the tool passes it through unchanged"}
       ]
     },
     "get_route_health": {
       "kind": "passthrough",
       "passthrough": "ext.sleuth.routeHealth",
       "args": {
-        "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"}
+        "route": {"type": "String", "required": false, "nullable": false, "doc": "An empty string counts as absent."}
       },
       "shims": [],
       "errors": [
-        {"code": "unknown_route", "doc": "ext.sleuth.routeHealth returned an error envelope — passed through unmodified", "extensionError": "unknown_route"}
+        {"code": "unknown_route", "doc": "ext.sleuth.routeHealth returned an error envelope; the tool passes it through unchanged", "extensionError": "unknown_route"}
       ]
     },
     "explain_issue": {
@@ -479,8 +479,8 @@
       },
       "shims": [],
       "errors": [
-        {"code": "missing_required_arg", "doc": "stableId arg missing or empty (validated at tool layer before delegating)", "messagePrefix": "missing_required_arg: stableId"},
-        {"code": "unknown_stable_id", "doc": "ext.sleuth.explain returned `unknown_stable_id` — passed through unmodified", "extensionError": "unknown_stable_id"}
+        {"code": "missing_required_arg", "doc": "the stableId arg is missing or empty; the tool checks it before it calls the app", "messagePrefix": "missing_required_arg: stableId"},
+        {"code": "unknown_stable_id", "doc": "ext.sleuth.explain returned `unknown_stable_id`; the tool passes it through unchanged", "extensionError": "unknown_stable_id"}
       ]
     }
   }
