@@ -928,15 +928,14 @@ class McpServer {
         ).toJson(),
       );
     } on SessionChangedException catch (e) {
-      // The connected text holds whether or not the bridge managed to
-      // follow the new session, so it never claims that it did.
+      // The text claims the bridge follows the new session only when it
+      // did; a follow that could not read the new session says so.
       final result = bridge.isConnected
           ? ToolCallResult.text(
               'session_changed baseline=${e.baseline} current=${e.current}: '
               'the app restarted, reconnected, or another app now answers, '
               'so results from before this call came from the old session. '
-              'Call the tool again. If it fails again, call attach_app or '
-              'connect.',
+              '${e.followed ? 'The sidecar now follows the new session; call the tool again.' : 'The sidecar does not follow the new session yet; call the tool again, and if it fails again, call attach_app or connect.'}',
               isError: true,
             )
           : ToolCallResult.text(
@@ -1043,9 +1042,12 @@ class McpServer {
         ),
       );
     } on SessionChangedException catch (e) {
-      final next = bridge.isConnected
-          ? 'Read it again. If it fails again, call attach_app or connect.'
-          : 'Call attach_app or connect to attach to the new session.';
+      final next = !bridge.isConnected
+          ? 'Call attach_app or connect to attach to the new session.'
+          : e.followed
+          ? 'The sidecar now follows the new session; read it again.'
+          : 'The sidecar does not follow the new session yet; read it '
+                'again, and if it fails again, call attach_app or connect.';
       return JsonRpcResponse.error(
         id: msg.id,
         error: JsonRpcError(

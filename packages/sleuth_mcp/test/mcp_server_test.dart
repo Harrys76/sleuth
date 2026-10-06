@@ -224,44 +224,59 @@ void main() {
       expect(text, startsWith('version_skew_major:'));
     });
 
-    test('session_changed on a connected bridge never claims the sidecar '
-        'follows the new session', () async {
+    test('session_changed says the sidecar follows the new session only '
+        'when the bridge followed it', () async {
       await bridge.connect(Uri.parse('ws://localhost/ws'));
       await server.handleForTest(_req('initialize'));
-      bridge.simulateSessionChange('restarted-uuid');
-      final call = await server.handleForTest(
-        _req(
-          'tools/call',
-          params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
-          id: 2,
-        ),
-      );
-      final text =
-          (((call!.result as Map)['content'] as List).first as Map)['text']
-              as String;
-      expect(text, startsWith('session_changed baseline=old-uuid '));
+      Future<String> toolText(int id) async {
+        final call = await server.handleForTest(
+          _req(
+            'tools/call',
+            params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+            id: id,
+          ),
+        );
+        return (((call!.result as Map)['content'] as List).first as Map)['text']
+            as String;
+      }
+
+      Future<String> readMessage(int id) async {
+        final read = await server.handleForTest(
+          _req(
+            'resources/read',
+            params: {'uri': 'sleuth://encyclopedia'},
+            id: id,
+          ),
+        );
+        return read!.error!.message;
+      }
+
+      bridge.simulateSessionChange('followed-uuid');
+      var text = await toolText(2);
+      expect(text, startsWith('session_changed baseline='));
       expect(
         text,
         endsWith(
-          'Call the tool again. If it fails again, call attach_app or '
-          'connect.',
+          'The sidecar now follows the new session; call the tool again.',
         ),
       );
-      expect(text, isNot(contains('follows')));
 
-      bridge.simulateSessionChange('restarted-again');
-      final read = await server.handleForTest(
-        _req('resources/read', params: {'uri': 'sleuth://encyclopedia'}, id: 3),
-      );
-      final message = read!.error!.message;
+      bridge.simulateSessionChange('unread-uuid', followed: false);
+      text = await toolText(3);
+      expect(text, contains('The sidecar does not follow the new session yet'));
+      expect(text, endsWith('call attach_app or connect.'));
+
+      bridge.simulateSessionChange('followed-again');
+      var message = await readMessage(4);
       expect(message, startsWith('session_changed '));
       expect(
         message,
-        endsWith(
-          'Read it again. If it fails again, call attach_app or connect.',
-        ),
+        endsWith('The sidecar now follows the new session; read it again.'),
       );
-      expect(message, isNot(contains('follows')));
+
+      bridge.simulateSessionChange('unread-again', followed: false);
+      message = await readMessage(5);
+      expect(message, contains('does not follow the new session yet'));
     });
 
     test('tools/call rejects non-object arguments', () async {

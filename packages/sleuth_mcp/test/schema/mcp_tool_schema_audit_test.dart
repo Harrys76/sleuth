@@ -1102,7 +1102,7 @@ void main() {
         'arguments': <String, Object?>{},
       });
       expect(text, startsWith(prefixOf('session_changed')));
-      expect(text, contains('Call the tool again.'));
+      expect(text, contains('call the tool again.'));
       final next = await server.handleForTest(
         JsonRpcMessage(
           method: 'tools/call',
