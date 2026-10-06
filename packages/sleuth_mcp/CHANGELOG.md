@@ -83,6 +83,34 @@ apps are now refused (`version_skew_major`). The SDK floor is Dart `^3.8.0`
 - The `triage_performance` prompt reads issues with `get_issues` and asks
   `get_snapshot` only for the sections it needs.
 - README: the quickstart launches with `flutter run --profile --no-dds`.
+- New `get_logs` tool: the app's recent `print`, stderr and
+  `dart:developer` log lines from the VM service in every attach mode, or
+  flutter daemon `app.log` lines while those streams are not active. The
+  sidecar keeps the last 500 lines (each cut to 2,000 characters);
+  `maxLines` (default 100) and a case-insensitive `filter` narrow the result.
+- `detach_app` disconnects the bridge in every state, including a session
+  opened with `connect`, and clears the log buffer. `app_status` and every
+  status payload add `connected` and `connectedVia`, and `attached` is true
+  only while the bridge is connected.
+- A failed `attach_app` returns `isError` with `attach_failed`. When
+  `flutter` exits early, the attach ends at once and quotes flutter's last
+  lines instead of waiting 30 to 60 s. A stale attach timeout no longer
+  tears down a newer session, an unexpected error no longer leaks the
+  flutter child, and a held iOS pidfile lock times out after 10 s.
+- `attach_app` sends `notifications/progress` for each stage when the
+  request carries a `progressToken`, and `notifications/cancelled` stops an
+  in-flight attach and releases what it started.
+- `hot_reload` on a debugUrl, iOS-direct or `connect` session returns
+  `hot_reload_unsupported` and leaves the session working. A reload that
+  flutter rejects, for example on a compile error, returns
+  `hot_reload_failed` instead of success.
+- `check_budgets` thresholds are optional, with the `sleuth_check` defaults
+  (`minFps` 55, `maxIssues` 999999, `maxCriticalIssues` 0).
+- A detach finishes within about 7 s, so it fits the exit bound. The
+  flutter child is killed before its output subscription is cancelled,
+  which could hang on a silent child.
+- On Windows, `flutter` is started through the shell; the iOS-direct path
+  reports `ios_missing_tool` on hosts other than macOS.
 
 ## 0.7.2
 
