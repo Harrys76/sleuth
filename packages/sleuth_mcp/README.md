@@ -49,10 +49,14 @@ for that connect.
 }
 ```
 
-`--tool-timeout <seconds>` (default 10) bounds each tool call. When the
-client closes stdin, or the sidecar gets SIGINT or SIGTERM, it detaches
-the session (waiting at most 10 seconds), so a `flutter attach` child or
-an `iproxy` tunnel does not outlive it.
+`--tool-timeout <seconds>` (default 10) bounds each tool call. It takes a
+whole number of seconds, 1 or more; any other value exits `64` with a
+usage error. When the client closes stdin, or the sidecar gets SIGINT or
+SIGTERM, it detaches the session (waiting at most 10 seconds), so a
+`flutter attach` child or an `iproxy` tunnel does not outlive it. While
+the detach runs, it waits at most 10 seconds for requests still running
+to finish and answer, then exits without them, so the sidecar exits
+within about 12 seconds.
 
 ## Version compatibility
 
@@ -84,7 +88,7 @@ sleuth_mcp 0.8.0 is built against sleuth 0.37.0
 | `diagnose` | none | Reports operational health: package version, VM connection and unbound extensions, plus the frame budget and VM poll timings on sleuth 0.37 apps. Call it when other tools return nothing. |
 | `app_status` | none | Returns `{attached, state, connected, connectedVia, device, appId, sessionUuid, launchMode, mode, lastError}`, plus `transportMode` and `wsUri` on iOS-direct sessions. `connected` and `connectedVia` (`attach_device`, `attach_debug_url`, `attach_ios` or `connect`) report the bridge whichever tool opened it. `attached` is true only for an `attach_app` session in state `ready` whose bridge is still connected. |
 | `detach_app` | none | Stops the daemon child or the `iproxy` tunnel, disconnects the bridge in every state, including a bridge opened with `connect`, clears the `get_logs` buffer and deletes disk-handoff files. Every step is bounded, so a detach ends within about 7 seconds. Safe to call when nothing is attached. |
-| `hot_reload` | none | Hot reloads the app and keeps its state and `sessionUuid`. Works only on sessions attached with `attach_app(device:)`; other sessions get `hot_reload_unsupported` and keep working. A rejected reload, for example on a compile error, returns `hot_reload_failed`. |
+| `hot_reload` | none | Hot reloads the app and keeps its state and `sessionUuid`. Works only on sessions attached with `attach_app(device:)`; other sessions get `hot_reload_unsupported` and keep working. A rejected reload, for example on a compile error, returns `hot_reload_failed`. While it runs, new tool calls, resource reads and prompts wait for it; `ping` and cancellations are answered at once. |
 | `get_logs` | `maxLines?`, `filter?` | Returns the app's recent output: `print` and stderr lines and `dart:developer` log records from the VM service, or flutter daemon `app.log` lines while those streams are not active. The sidecar keeps the last 500 lines. `maxLines` defaults to 100, `filter` keeps lines containing the text (case insensitive), and `droppedCount` says how many older lines were evicted. |
 
 Every tool except `connect`, `attach_app`, `detach_app` and `hot_reload` sets `annotations.readOnlyHint: true`, so a client that honors the hint can approve those calls without asking each time. Each descriptor also sets `destructiveHint`, `idempotentHint` and `openWorldHint`, and an audit checks the values against `doc/mcp_tool_schema.json`. Among the read-only tools, `openWorldHint` is true for the ones that read the live app or host (`get_snapshot`, `get_issues`, `get_route_health`, `explain_issue`, `diagnose`, `check_budgets`, `list_devices`), and false for `compare_snapshots`, `app_status` and `get_logs`, which read only their input or the sidecar's own state. `detach_app` sets `destructiveHint: true` because it ends the session and deletes disk-handoff files.
@@ -100,7 +104,7 @@ Every tool except `connect`, `attach_app`, `detach_app` and `hot_reload` sets `a
 - `not_connected`: no app is attached. Call `attach_app` or `connect`.
 - `timeout_after_<ms>ms`: the app did not answer in time, for example while it janks. The connection is kept, so retry or call `diagnose`. Each app call has its own limit, shorter than `--tool-timeout` (8 seconds for the default 10), so a slow call reports itself before the tool timeout.
 - `app_busy`: 8 earlier calls timed out and the app still has not answered them, so the sidecar sends no more until it does. Retry in a few seconds, or call `attach_app` or `connect` to open a new connection.
-- `session_changed`: the app restarted (for example a hot restart). It is reported once; the sidecar then follows the new session, so calling the tool again works. When the restart closed the connection, the message says to call `attach_app` or `connect` instead.
+- `session_changed`: the app restarted (for example a hot restart). It is reported once, and the sidecar tries to follow the new session, so the message says to call the tool again, and to call `attach_app` or `connect` if that call fails too. When the restart closed the connection, the message says to call `attach_app` or `connect` instead.
 
 [`doc/mcp_tool_schema.md`](doc/mcp_tool_schema.md#server-level-errors) lists every error.
 
@@ -303,8 +307,10 @@ sidecar for that.
 - Clients on MCP protocol versions before `2025-06-18` get every tool
   result, including the `compare_snapshots` diff, only as JSON text in
   `content[0].text`.
-- JSON-RPC batches are not supported (MCP `2025-06-18` removed them). A
-  batch gets one Invalid Request error; send each request on its own line.
+- JSON-RPC batches work only for clients that negotiate MCP `2025-03-26`,
+  the one version that defines them (`2025-06-18` removed them). On
+  `2024-11-05` or `2025-06-18` a batch gets one Invalid Request error;
+  send each request on its own line.
 - There is no `hot_restart` tool. In Android profile mode the new main
   isolate does not register again within the bridge's reconnect window
   after `app.restart`. Use `detach_app` and then `attach_app`.
