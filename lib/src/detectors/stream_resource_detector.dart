@@ -111,7 +111,7 @@ class StreamResourcePollResult {
 /// (a) heap_growing is currently in its recency window,
 /// (b) ≥2 watchlist classes show ≥3 of 3 ascending transitions
 ///     across the K=4 sample window, and
-/// (c) the dominant growing class's net delta exceeds
+/// (c) the dominant growing class's net delta is at least
 ///     [DetectorThresholds.streamResourceMinDelta] (single-class
 ///     magnitude gate; multi-class growth in (b) is a structural
 ///     confidence escalator only).
@@ -842,7 +842,7 @@ class StreamResourceDetector extends BaseDetector
         'true within recency window (default 30 s), (b) ≥2 watchlist '
         'classes show ≥3 of 3 ascending transitions (structural '
         'precondition), (c) the dominant growing class\'s net delta '
-        '> `streamResourceMinDelta` (default 50). Single-class '
+        'at least `streamResourceMinDelta` (default 50). Single-class '
         'magnitude gate so the firing axis matches the bracketed '
         'axis (`extraTraceArgs.topGrowthDelta`). Confidence `likely` '
         '— class growth alone is circumstantial. 3-cycle cooldown '
@@ -851,7 +851,8 @@ class StreamResourceDetector extends BaseDetector
         '\n'
         '`stream_resource_growth.warning` is runtimeVerified via '
         '`perStableIdTier`, backed by three iPhone 12 / iOS 17.5 / '
-        'Flutter 3.41.4 captures bracketing threshold 50 instances. '
+        'Flutter 3.47.6 captures (8, 72 and 110 instances) bracketing '
+        'threshold 50 instances. '
         'atTolerance 0.6 (at-band [50, 80]); aboveCeilingMultiplier '
         '3.0 (ceiling 150) — wider than NetworkMonitor / Repaint to '
         'absorb in-scenario heap_growing readiness-wait variance. '

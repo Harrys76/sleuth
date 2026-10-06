@@ -285,7 +285,10 @@
   every in-span record stamped, the reduced value in band, enough in-band
   records). A below leg with no measured value is refused instead of
   exporting `observed` 0, and an export or rewrite failure shows its real
-  reason and stashes nothing.
+  reason and stashes nothing. The StreamResource at leg runs 150
+  subscriptions per kind (100 measured 43 on an iPhone 12, under the at
+  band), and its triad is re-recorded with Flutter 3.47.6 at 8, 72 and 110
+  instances.
 
 ### Detector fixes and schema docs
 

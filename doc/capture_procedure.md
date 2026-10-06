@@ -1104,11 +1104,11 @@ as OUT-OF-BAND. Every in-span record must carry `topGrowthDelta`, and
 the audit compares `observed` with the largest in-span value and
 accepts a difference of up to 25 %.
 
-The checked-in triad (iPhone 12, iOS 17.5, Flutter 3.41.4) carries 5,
-54 and 89. Its `captureCommand` is the older form without `--no-dds`
-and `SLEUTH_CAPTURE_DEVICE`. A new recording stamps the current build's
-Flutter version, and the audit requires one exact `flutterVersion`
-across a triad, so record all three legs again with one build.
+The checked-in triad (iPhone 12, iOS 17.5, Flutter 3.47.6, recorded
+with the launch command above) carries 8, 72 and 110. A new recording
+stamps the current build's Flutter version, and the audit requires one
+exact `flutterVersion` across a triad, so record all three legs again
+with one build.
 
 ### Refused legs and exports
 
