@@ -182,4 +182,4 @@ test/
 - **v0.18.1**: `Sleuth.flushTimelineNow()`; producer-side dedup; `requireUniqueDetectedAtMicros` opt-in.
 - **v0.18.0**: `NetworkMonitorDetector.slow_request.warning` first runtimeVerified raise; capture infrastructure (markScenarioBegin/End, exportCaptureJson, schemaVersion v1).
 
-For full release notes see `CHANGELOG.md`.
+For release notes see `CHANGELOG.md`; the full 0.37.0 and sleuth_mcp 0.8.0 notes are in `doc/release_notes/0.37.0.md` and `packages/sleuth_mcp/doc/release_notes/0.8.0.md`.

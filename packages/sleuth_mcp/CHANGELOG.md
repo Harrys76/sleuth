@@ -1,155 +1,55 @@
 ## 0.8.0
 
-Pins sleuth 0.37.0 and accepts the 0.36 lineage as the prior fallback, so the
-sidecar now refuses 0.35 apps (`version_skew_major`). The SDK floor is Dart `^3.8.0`
-(was `>=3.5.0`), and the `vm_service` constraint widens to `>=14.3.1 <16.0.0`.
+Pins sleuth 0.37.0 and accepts 0.36 apps with a warning; 0.35 apps are
+refused. The SDK floor is Dart `^3.8.0`, and `vm_service` widens to
+`>=14.3.1 <16.0.0`. The
+[full release notes](https://github.com/Harrys76/sleuth/blob/main/packages/sleuth_mcp/doc/release_notes/0.8.0.md)
+list every change.
 
-- `compare_snapshots` refuses snapshots from different sleuth lineages, or
-  with a missing or non-semver `packageVersion` (`arg_lineage_mismatch`),
-  because detector ids and defaults change between lineages. It refuses a
-  snapshot taken while Sleuth was still warming up (`arg_snapshot_in_warmup`)
-  and snapshots whose VM coverage differs or is unknown
-  (`arg_coverage_mismatch`, read from `isVmConnected` only). It adds
-  `coverageWarning` when neither had a VM link.
-- `compare_snapshots` aggregates issues per stableId (highest severity and
-  occurrence count), so a new critical occurrence beside a warning shows in
-  `elevatedSeverity`. The new `countChanged` lists `{stableId, before, after}`
-  count changes.
-- `check_budgets` and `sleuth_check` refuse with `coverage_degraded` when the
-  snapshot's `isVmConnected` is false or unreadable. They still evaluate a
-  basic-mode snapshot with the VM connected. `sleuth_check` exits with code
-  `2` on the refusal, and the `release_check` prompt reports NOT RUN.
-- An app `packageVersion` must be semver `major.minor.patch`. A
-  `-prerelease` or `+build` suffix keeps its `major.minor` lineage. The
-  sidecar refuses anything else with `version_skew_unknown`, and
-  `versionLineage` returns null for it.
-- `attach_app` returns the same version-skew `warning` as `connect`.
-- `explain_issue` declares `openWorldHint:true`. On sleuth 0.37 it fills its
-  text from the matching live issue. Sleuth 0.36 apps return the raw
-  `{widgetName}` and `{routeName}` placeholders.
-- `get_route_health` passes the envelope through. The sidecar no longer
-  wraps the pre-0.33 inline shape, since no accepted lineage emits it.
-- Descriptors declare `default` for `verbose`, `maxIssueCount`,
-  `forceRelaunch` and `mobileOnly`. `doc/mcp_tool_schema.json` lists the
-  server-level validation and dispatch errors (`serverErrors`). The audit
-  compares every descriptor's arguments with the doc in both directions and
-  checks that every error prefix in the source is documented.
-- `launchModeAdvisory` names the VM-only stableIds, including
-  `shader_compilation` and `platform_channel_traffic`.
-- `get_issues` no longer reports a connected `basic` session as degraded.
-  It reads `vmConnected` from the `ext.sleuth.issues` payload (sleuth 0.37),
-  or, for 0.36 apps, from a `diagnose` read it makes first. A failed or
-  slow read adds no advisory. A session change between the two reads still
-  returns `session_changed`. The basic advisory names DDS as one possible
-  cause instead of the diagnosis. The warm-up advisory no longer asks for
-  full mode. `connect` returns `vmConnected`.
-- `diagnose` documents the passthrough keys that sleuth 0.37.0 adds:
-  `effectiveFrameRateHz`, `frameBudgetUs`, `frameRateSource` and the VM poll
-  timings (`lastPoll*`, `maxPoll*`, `pollDuplicatesDropped`,
-  `pollWindowFallbacks`).
-- `get_snapshot` with no `sections` returns a compact default of seven
-  sections and leaves out the per-frame, request, heap and event lists
-  (`capturedFrames`, `recentFrames`, `recentRequests`, `heapSamples`,
-  `phaseEvents`, `gcEvents`, `platformChannelEvents`). It lists them in
-  `_omittedSections`. On an iPhone 12 the default call returned 10 KB where
-  the full payload was 285 KB, so the default stays under a client's
-  tool-output cap. `full: true` returns every section. Combining it with
-  `sections` returns `arg_conflict`. `sections` items are an enum of the 14
-  section names and are case-sensitive. With `diskHandoff` and no `sections`, the file holds
-  every section.
-- A tool call that runs past `--tool-timeout` keeps the connection to the
-  app. The bridge's own per-call timeout fires first. Once 8 calls go
-  unanswered, the sidecar refuses new calls with `app_busy` until a new
-  connect.
-- Errors say what to do next. `not_connected` names `attach_app` and
-  `connect`. The server reports `session_changed` once and then follows
-  the restarted app.
-- `connect` and `attach_app(debugUrl:)` accept the `http://` URI that
-  `flutter run` prints, and a ws URI without `/ws`. The `connect`
-  description no longer says it must be called first.
-- `initialize` returns `instructions` describing the attach flow and the
-  main tools. A client that asks for an unknown protocol version gets the
-  newest supported one (`2025-06-18`), not the oldest.
-- `resources/templates/list` returns an empty list. The server answers a
-  parse error or an invalid request with `id: null`, and a batch gets one
-  `-32600` error.
-- The server starts serving before the `--uri` connect finishes. Every
-  exit path, including the client closing stdin, detaches the daemon
-  session within a time limit. The sidecar does not watch SIGTERM on
-  Windows.
-- `sleuth_check` exits with code `64` for a missing `--uri` and for invalid
-  threshold arguments.
-- Disk handoff removes its per-process temp directory and, at startup,
-  sweeps empty ones that earlier processes left behind.
-- The `triage_performance` prompt reads issues with `get_issues` and asks
-  `get_snapshot` only for the sections it needs.
-- The README quickstart launches with `flutter run --profile --no-dds`.
-- The new `get_logs` tool returns the app's recent `print`, stderr and
-  `dart:developer` log lines from the VM service in every attach mode, or
-  flutter daemon `app.log` lines while those streams are not active. The
-  VM service cuts `dart:developer` messages to 128 characters, so the
-  sidecar reads the full message before it stores the line. It keeps the
-  last 500 lines, each cut to 2,000 characters. `maxLines` (default 100)
-  and a case-insensitive `filter` narrow the result.
-- `detach_app` disconnects the bridge in every state, including a session
-  opened with `connect`, and clears the log buffer. `app_status` and every
-  status payload add `connected` and `connectedVia`. `attached` is true
-  only while the bridge is connected.
-- A failed `attach_app` returns `isError` with `attach_failed`. When
-  `flutter` exits early, the attach ends at once and quotes flutter's last
-  lines instead of waiting 30 to 60 s. A stale attach timeout no longer
-  tears down a newer session. An unexpected error no longer leaks the
-  flutter child. A held iOS pidfile lock times out after 10 s.
-- `attach_app` sends `notifications/progress` for each stage when the
-  request carries a `progressToken`. `notifications/cancelled` stops an
-  in-flight attach and releases what it started.
-- `hot_reload` on a debugUrl, iOS-direct or `connect` session returns
-  `hot_reload_unsupported` and leaves the session working. A reload that
-  flutter rejects, for example on a compile error, returns
-  `hot_reload_failed` instead of success.
-- `check_budgets` thresholds are optional, with the `sleuth_check` defaults
-  (`minFps` 55, `maxIssues` 999999, `maxCriticalIssues` 0).
-- A detach finishes within about 7 s, so it fits the exit time limit. The
-  sidecar kills the flutter child before it cancels the child's output
-  subscription, because that cancel could hang on a silent child.
-- On Windows, the sidecar starts `flutter` through the shell. The
-  iOS-direct path reports `ios_missing_tool` on hosts other than macOS.
-- `hot_reload` no longer waits on its own request. With `--uri`, a reload
-  used to hold every request for 30 s and then freeze the sidecar. While a
-  reload runs, the server answers `ping` and cancellations, and only tool
-  calls, resource reads and prompts wait.
-- The sidecar follows a hot restart that replaces the app's isolate. It
-  waits for the new isolate to register Sleuth, reports `session_changed`
-  once and then reads the new session. The message says whether it follows
-  the new session or could not read it yet.
-- A failed stdout write or a stalled flutter stdin no longer crashes the
-  sidecar. It shuts down and still detaches. Exit waits at most about 12 s
-  for requests in flight. Requests held by a reload get an error instead
-  of running after shutdown.
-- The sidecar kills a cancelled or timed-out `xcrun devicectl`, `dns-sd`
-  or `flutter devices` command, on Windows with `taskkill /T`.
-  `detach_app` and shutdown also cancel an attach in flight, and the
-  sidecar does not refuse the next `attach_app`.
-- `connect` refuses with `attached_session` while an `attach_app` session
-  owns the connection, so `hot_reload` cannot restart one app while the
-  sidecar reads another.
-- `get_logs` keeps `truncated` on messages longer than the stored text. It
-  reads at most 4 cut messages at a time. It drops lines from a previous
-  connection, including lines still being read when `detach_app` runs.
-- After an explicit `disconnect` or a connect to another app, a reconnect
-  that was already queued gives up instead of reconnecting the old app.
-- `check_budgets` and `sleuth_check` ask only for the two sections they
-  read. The startup sweep also removes old handoff files of sidecars that
-  exited without cleaning up. A cancelled `diskHandoff` writes no file. A
-  handoff write failure returns `disk_handoff_failed`.
-- Tool, argument and prompt descriptions, `instructions`, advisories and
-  error messages are written as plain sentences. Every error code and
-  documented message prefix is unchanged, so clients that match on the
-  prefix are unaffected; a client that compares whole message texts sees
-  new wording.
-- Sessions negotiated at `2025-03-26` accept JSON-RPC batches. Other
-  versions answer a batch with one `-32600` error. `--tool-timeout` must be
-  a whole number of seconds, 1 or more.
+### Changed
+
+- `get_snapshot` returns a compact default of seven sections and lists the
+  others in `_omittedSections`. On an iPhone 12 that was 10 KB instead of
+  285 KB. `full: true` returns every section.
+- `compare_snapshots` refuses snapshots from different sleuth lineages, from
+  the warm-up, or with different VM coverage, and compares issues per
+  stableId (`countChanged`).
+- `check_budgets` and `sleuth_check` refuse with `coverage_degraded`
+  (`sleuth_check` exit code 2) when the app has no VM link. `check_budgets`
+  thresholds default to the `sleuth_check` values.
+- `get_issues` no longer reports a connected `basic` session as degraded, and
+  `connect` returns `vmConnected`.
+- An app `packageVersion` must be semver `major.minor.patch`; anything else is
+  refused with `version_skew_unknown`.
+- Tool descriptions, `instructions`, advisories and error messages are
+  rewritten as plain sentences. Error-code prefixes are unchanged.
+
+### Added
+
+- `get_logs` returns the app's recent `print`, stderr and `dart:developer`
+  lines (the sidecar keeps the last 500).
+- `attach_app` reports progress and can be cancelled.
+- `app_status` reports `connected` and `connectedVia`, and `initialize`
+  returns `instructions`.
+- `connect` and `attach_app(debugUrl:)` accept the http URI that
+  `flutter run` prints.
+
+### Fixed
+
+- With `--uri`, `hot_reload` no longer freezes the sidecar.
+- A tool timeout keeps the connection. After 8 unanswered calls the sidecar
+  answers `app_busy` until the next connect.
+- The sidecar follows a hot restart and reports `session_changed` once.
+- `detach_app` works in every state. A failed stdout write or a stalled
+  flutter stdin no longer crashes the sidecar, and exit takes at most about
+  12 s.
+- `connect` refuses with `attached_session` while an `attach_app` session owns
+  the connection.
+- The sidecar kills `flutter devices`, `xcrun devicectl` and `dns-sd`
+  commands on cancel or timeout, on Windows with `taskkill /T`.
+- `hot_reload` returns `hot_reload_unsupported` or `hot_reload_failed` instead
+  of reporting success.
+- JSON-RPC batches are accepted only on `2025-03-26` sessions.
 
 ## 0.7.2
 
