@@ -1033,7 +1033,20 @@ class DebugInstrumentationCoordinator {
     final dirty = renderObject.debugNeedsPaint;
     final parent = renderObject.parent;
     final parentIsBoundary = parent != null && parent.isRepaintBoundary;
-    if (!dirty && !parentIsBoundary) return false;
+    if (!dirty) {
+      // `flushPaint` repaints the deepest dirty boundaries first, so a
+      // boundary already repainted this frame reads clean when its parent
+      // paints it. A change inside it that resized it also marked the
+      // ancestors it relaid out, so it counts as a marked child here and
+      // its parent is not where the parent layer's chain started.
+      if (parent != null &&
+          _originFrameOpen &&
+          renderObject.isRepaintBoundary &&
+          _frameRoots.contains(renderObject)) {
+        _frameReached.add(parent);
+      }
+      if (!parentIsBoundary) return false;
+    }
     _openOriginFrame();
     // A boundary painting its children with no hook call of its own this
     // frame is a layer root that `flushPaint` repainted. A clean boundary

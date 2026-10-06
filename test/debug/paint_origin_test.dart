@@ -406,6 +406,37 @@ void main() {
     await tester.pump();
     expect(snap.paintOrigins, isEmpty);
   }, semanticsEnabled: false);
+
+  testWidgets(
+    'a nested boundary repainted first does not make the ancestors it '
+    'relaid out into origins',
+    (tester) async {
+      final notifier = ValueNotifier<int>(0);
+      addTearDown(notifier.dispose);
+      final snap = await record(
+        tester,
+        MaterialApp(
+          home: Column(
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 200),
+                child: SingleChildScrollView(
+                  child: Row(
+                    children: [RepaintBoundary(child: _CountText(notifier))],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // A new value every frame relays out the text and, through it,
+        // the scroll view above the boundary. `flushPaint` repaints the
+        // boundary's layer before the scroll view's.
+        tick: (i) => notifier.value = i * 7919,
+      );
+      expect(snap.paintOrigins.keys, ['Text']);
+    },
+  );
 }
 
 Element _elementOf<T extends Widget>() => find.byType(T).evaluate().single;
@@ -491,4 +522,34 @@ class _RenderSelfDirtying extends RenderProxyBox {
     notifier.removeListener(markNeedsPaint);
     super.detach();
   }
+}
+
+/// Shows [notifier]'s value through its own `setState`, so no animation
+/// owner sits above the text it repaints.
+class _CountText extends StatefulWidget {
+  const _CountText(this.notifier);
+
+  final ValueNotifier<int> notifier;
+
+  @override
+  State<_CountText> createState() => _CountTextState();
+}
+
+class _CountTextState extends State<_CountText> {
+  @override
+  void initState() {
+    super.initState();
+    widget.notifier.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    widget.notifier.removeListener(_changed);
+    super.dispose();
+  }
+
+  void _changed() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) => Text('${widget.notifier.value}');
 }
