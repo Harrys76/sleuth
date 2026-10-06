@@ -1,6 +1,6 @@
 # sleuth_mcp
 
-`sleuth_mcp` is an MCP stdio sidecar for [sleuth](https://github.com/Harrys76/sleuth).
+`sleuth_mcp` is an MCP stdio sidecar for [sleuth](https://pub.dev/packages/sleuth).
 It connects the `ext.sleuth.*` VM service extensions to AI clients such as
 Claude Code, Cursor and Zed over the Model Context Protocol, so your
 assistant can query a running Flutter app's live performance data.
@@ -263,9 +263,11 @@ flutter run --profile --no-dds
 ```
 
 The VM service then accepts more than one client, and Sleuth connects to
-it. In full mode Sleuth polls the VM on the app isolate. The cost is
-negligible on real devices but can lower FPS on emulators and simulators,
-so measure frame rates on real hardware. Hot reload and hot restart still
+it. Sleuth then polls the VM every 500 ms on the app isolate. On an
+iPhone 12 an idle screen costs about 1.5 ms of UI-isolate time per poll,
+and a screen that writes about 10k timeline events per poll costs about
+32 ms. On emulators and simulators polling can lower FPS, so measure frame
+rates on real hardware. Hot reload and hot restart still
 work. You lose the features that only DDS provides, such as multi-client
 DevTools and log history.
 
@@ -285,8 +287,9 @@ xcrun simctl spawn booted log stream --predicate 'process == "Runner"' | grep "D
 # attach_app(debugUrl: "ws://127.0.0.1:PORT/<token>=/ws")
 ```
 
-`diagnose` then reports `full`, or `correlated` once the per-frame
-timeline correlator has warmed up.
+`diagnose` then reports `vmConnected: true`. `connectionMode` stays
+`basic` until a jank frame gets a VM-tier verdict, then reads `full`, or
+`correlated` when the frame matches its timeline events.
 
 ## CI gate with `sleuth_check`
 

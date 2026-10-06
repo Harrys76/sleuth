@@ -15,11 +15,11 @@ platforms:
   ios:
 
 screenshots:
-  - description: 'Sleuth — in-app performance diagnostics overlay for Flutter.'
+  - description: 'Sleuth, an in-app performance diagnostics overlay for Flutter.'
     path: doc/screenshots/cover.png
-  - description: 'Live issue list (dark theme): jank, rebuilds, memory, network, GPU, structural anti-patterns — each with a fix hint.'
+  - description: 'Live issue list in the dark theme, ranked by severity and confidence, with severity filter chips and recurrence badges.'
     path: doc/screenshots/overlay-dark.png
-  - description: 'Same overlay in light theme — auto-detects the host app theme.'
+  - description: 'The same overlay in the light theme. It follows the platform brightness unless the header toggle picks Light or Dark.'
     path: doc/screenshots/overlay-light.png
 
 environment:

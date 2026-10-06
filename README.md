@@ -5,9 +5,9 @@
 # Sleuth
 
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
-[![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
+[![Flutter](https://img.shields.io/badge/Flutter-3.32%2B-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-4%2C274_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-4%2C296_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Sleuth is an in-app performance diagnostics overlay for Flutter. It shows jank, memory leaks, slow network requests, GPU pressure and widget anti-patterns inside your app, and every issue comes with a fix hint.
@@ -77,13 +77,13 @@ flutter run
 ## MCP integration
 
 You can drive Sleuth from your AI assistant. The
-[`sleuth_mcp`](packages/sleuth_mcp) sidecar connects Sleuth's seven
-`ext.sleuth.*` VM service extensions to MCP clients (Claude Code, Cursor,
-Zed), so the assistant can query live issues, route health and snapshots
-in conversation, with the same signals as the overlay. Every response
-carries `connectionMode` (`correlated`, `full`, `basic`, `warmup` or
-`disconnected`), so the assistant can tell a session without VM data from
-a session without issues.
+[`sleuth_mcp`](https://pub.dev/packages/sleuth_mcp) sidecar connects
+Sleuth's seven `ext.sleuth.*` VM service extensions to MCP clients (Claude
+Code, Cursor, Zed), so the assistant can query live issues, route health
+and snapshots in conversation, with the same signals as the overlay. Every
+response carries `connectionMode` (`correlated`, `full`, `basic`, `warmup`
+or `disconnected`), and `diagnose` reports `vmConnected`, so the assistant
+can tell a session without VM data from a session without issues.
 
 The sidecar is opt-in; most developers only need the in-app overlay.
 Sleuth reserves the `ext.sleuth.*` namespace, so other packages should
@@ -138,7 +138,7 @@ SleuthConfig(
 
 **VM full mode** adds the sub-phase breakdown (build, layout, paint and raster) but depends on VM service connectivity, which varies by platform. Sleuth falls back to frame timing mode when the VM is unavailable. On cold start, a background reconnect ladder (seven attempts, from 500 ms up to 30 s apart) upgrades Sleuth to full mode once the VM web server binds, with no manual action.
 
-> **Prefer VM+ (full) mode for complete diagnostics.** In `basic` mode (no VM self-connect) the VM-only detectors (Shader Jank, Heavy Compute, Platform Channel, Memory Pressure, Stream Resource) stay silent, and so do the VM time-share issues `rebuild_activity` and `excessive_repaint`. Structural heuristics stay at `possible`, although measured structural signals still reach `likely` without a VM (`uncached_images`, for example, compares decoded and rendered image sizes). The issue list is real but **incomplete**. Do not read "no memory or repaint issues" as a clean result until the `connectionMode` field on an `ext.sleuth.*` response reads `full` or `correlated` (the `sleuth_mcp` `diagnose` tool shows it), or `Sleuth.diagnoseCaptureState().vmConnected` is `true` in the app. Run with `--no-dds` (below) to get there.
+> **Prefer VM+ (full) mode for complete diagnostics.** Without a VM link the VM-only detectors (Shader Jank, Heavy Compute, Platform Channel, Memory Pressure, Stream Resource) stay silent, and so do the VM time-share issues `rebuild_activity` and `excessive_repaint`. Structural heuristics stay at `possible`, although measured structural signals still reach `likely` without a VM (`uncached_images`, for example, compares decoded and rendered image sizes). The issue list is real but **incomplete**. Do not read "no memory or repaint issues" as a clean result until `vmConnected` is `true`, either in `ext.sleuth.diagnose` (the `sleuth_mcp` `diagnose` tool shows it) or in `Sleuth.diagnoseCaptureState()` in the app. `connectionMode` alone does not tell you. It reads `basic` until a jank frame gets a VM-tier verdict, so a connected session on a smooth screen also reads `basic`. Run with `--no-dds` (below) to get the VM link.
 
 ### Reaching full mode
 
@@ -150,7 +150,7 @@ Skip DDS so Sleuth can self-connect on the first run, with no relaunch:
 flutter run --profile --no-dds
 ```
 
-The VM service then accepts several clients, so Sleuth connects alongside the tooling and the `connectionMode` field on `ext.sleuth.*` responses reads `full` (or `correlated`). Hot reload and hot restart still work. You lose the features only DDS provides (smoother multi-client DevTools, log history).
+The VM service then accepts several clients, so Sleuth connects alongside the tooling and `vmConnected` reads `true`. `connectionMode` moves from `basic` to `full` (or `correlated`) at the first jank frame. Hot reload and hot restart still work. You lose the features only DDS provides (smoother multi-client DevTools, log history).
 
 Full mode runs VM polling on the app isolate, and its cost grows with the number of timeline events the app writes. On an iPhone 12 (profile mode, 500 ms polls) an idle screen costs about 1.5 ms of UI-isolate time per poll. An FPS stress screen that writes about 10k events per poll costs about 32 ms per poll, mostly to decode the response (see [doc/internals.md](doc/internals.md)). To find what caused a stall, read `Sleuth.lastPollTimings` (`uiBlockingMicros` is the synchronous decode, parse and dispatch time) or the `lastPoll*` and `maxPoll*` keys of `ext.sleuth.diagnose`. On **emulators and simulators** (software rendering, weak CPU) polling can lower FPS. Measure frame rates on a real device, not an emulator.
 
@@ -171,7 +171,7 @@ xcrun simctl launch booted com.example.example
 # capture the URI: xcrun simctl spawn booted log stream | grep "Dart VM service"
 ```
 
-On either path, the `connectionMode` field on every `ext.sleuth.*` response (shown by the `sleuth_mcp` `diagnose` tool) reads `full` or `correlated`, and in the app `Sleuth.diagnoseCaptureState().vmConnected` is `true`.
+On either path, `ext.sleuth.diagnose` (shown by the `sleuth_mcp` `diagnose` tool) reports `vmConnected: true`, and so does `Sleuth.diagnoseCaptureState()` in the app.
 
 ## FPS semantics
 
