@@ -113,6 +113,37 @@ apps are now refused (`version_skew_major`). The SDK floor is Dart `^3.8.0`
   which could hang on a silent child.
 - On Windows, `flutter` is started through the shell; the iOS-direct path
   reports `ios_missing_tool` on hosts other than macOS.
+- `hot_reload` no longer waits on its own request. With `--uri`, a reload
+  used to hold every request for 30 s and then freeze the sidecar. While a
+  reload runs, `ping` and cancellations are answered and only tool calls,
+  resource reads and prompts wait.
+- A hot restart that replaces the app's isolate is followed: the sidecar
+  waits for the new isolate to register Sleuth, reports `session_changed`
+  once and then reads the new session. The message says whether it follows
+  the new session or could not read it yet.
+- A failed stdout write or a stalled flutter stdin no longer crashes the
+  sidecar; it shuts down and still detaches. Exit waits at most about 12 s
+  for requests in flight, and requests held by a reload get an error
+  instead of running after shutdown.
+- External commands are owned: a cancelled or timed-out `xcrun devicectl`,
+  `dns-sd` or `flutter devices` is killed, on Windows with `taskkill /T`.
+  `detach_app` and shutdown also cancel an attach in flight, and the next
+  `attach_app` is not refused.
+- `connect` refuses with `attached_session` while an `attach_app` session
+  owns the connection, so `hot_reload` cannot restart one app while the
+  sidecar reads another.
+- `get_logs` keeps `truncated` on messages longer than the stored text,
+  reads at most 4 cut messages at a time, and drops lines from a previous
+  connection, including lines still being read when `detach_app` runs.
+- After an explicit `disconnect` or a connect to another app, a reconnect
+  that was already queued gives up instead of reconnecting the old app.
+- `check_budgets` and `sleuth_check` ask only for the two sections they
+  read. The startup sweep also removes old handoff files of sidecars that
+  exited without cleaning up, a cancelled `diskHandoff` writes no file, and
+  a handoff write failure returns `disk_handoff_failed`.
+- Sessions negotiated at `2025-03-26` accept JSON-RPC batches; other
+  versions answer a batch with one `-32600` error. `--tool-timeout` must be
+  a whole number of seconds, 1 or more.
 
 ## 0.7.2
 
