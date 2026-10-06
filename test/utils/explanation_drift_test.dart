@@ -53,40 +53,42 @@ void main() {
     (
       'excessive_keep_alive',
       _Field.readingTheData,
-      '>$keepAliveThreshold kept-alive subtrees',
+      'more than $keepAliveThreshold kept-alive subtrees',
     ),
     (
       'non_lazy_list',
       _Field.readingTheData,
-      '>${config.maxListChildren} children',
+      'above ${config.maxListChildren} children',
     ),
     (
       'non_lazy_list',
       _Field.readingTheData,
-      'critical above ${ListviewDetector.criticalChildMultiplier}× the '
+      'critical above ${ListviewDetector.criticalChildMultiplier} times the '
           'threshold '
-          '(>${config.maxListChildren * ListviewDetector.criticalChildMultiplier})',
+          '(more than ${config.maxListChildren * ListviewDetector.criticalChildMultiplier})',
     ),
     (
       'platform_channel_traffic',
       _Field.readingTheData,
-      'Alert: >${config.platformChannelLimit}/sec',
+      'above ${config.platformChannelLimit}/sec (default, configurable)',
     ),
     (
       'platform_channel_traffic',
       _Field.readingTheData,
-      'critical above ${PlatformChannelDetector.criticalMultiplier}× that '
-          '(>${config.platformChannelLimit * PlatformChannelDetector.criticalMultiplier}/sec',
+      'critical above ${PlatformChannelDetector.criticalMultiplier} times that '
+          '(more than ${config.platformChannelLimit * PlatformChannelDetector.criticalMultiplier}/sec',
     ),
     (
       'heavy_compute',
       _Field.whatItIs,
-      '>$heavyMs ms warning, >$heavyCriticalMs ms critical at 60 Hz',
+      'At 60 Hz, more than $heavyMs ms is a warning and more than '
+          '$heavyCriticalMs ms is critical',
     ),
     (
       'heavy_compute',
       _Field.readingTheData,
-      '>${heavyMs}ms (warning), >${heavyCriticalMs}ms (critical)',
+      'above ${heavyMs}ms (warning) and above ${heavyCriticalMs}ms '
+          '(critical)',
     ),
     (
       'heap_near_capacity',
@@ -103,23 +105,27 @@ void main() {
     (
       'jank_detected',
       _Field.readingTheData,
-      '>$jankPercent% (warning, at least $jankFrames frames sampled)',
+      'above $jankPercent%, once at least $jankFrames frames are sampled',
     ),
     (
       'sustained_jank',
       _Field.whatItIs,
-      'At least $severeFrames severe frames (over $severeX× the',
+      'At least $severeFrames severe frames (over $severeX times the',
     ),
-    ('sustained_jank', _Field.readingTheData, '≥$severeFrames severe frames'),
     (
       'sustained_jank',
       _Field.readingTheData,
-      'Frames exceeding $severeX× the budget',
+      '$severeFrames or more severe frames',
+    ),
+    (
+      'sustained_jank',
+      _Field.readingTheData,
+      'frames over $severeX times the budget',
     ),
     (
       'large_response',
       _Field.readingTheData,
-      'Alert: >${config.largeResponseThresholdBytes >> 20}MB',
+      'above ${config.largeResponseThresholdBytes >> 20}MB',
     ),
     (
       'large_response',
@@ -134,26 +140,26 @@ void main() {
     (
       'rebuild_debug',
       _Field.readingTheData,
-      'Alert: ≥${config.rebuildThreshold}/sec',
+      'at ${config.rebuildThreshold}/sec or more',
     ),
     (
       'rebuild_debug',
       _Field.readingTheData,
-      'alert at ${RebuildDetector.builderThresholdMultiplier}× that rate',
+      'alert at ${RebuildDetector.builderThresholdMultiplier} times that rate',
     ),
     (
       'rebuild_debug',
       _Field.readingTheData,
-      'Critical above ${RebuildDetector.debugCriticalMultiplier}× the alert '
-          'rate',
+      'critical above ${RebuildDetector.debugCriticalMultiplier} times the '
+          'alert rate',
     ),
     for (final id in ['repaint_debug', 'excessive_repaint_debug']) ...[
-      (id, _Field.readingTheData, 'Alert: ≥$repaintDebugRate/sec'),
+      (id, _Field.readingTheData, 'at $repaintDebugRate/sec or more'),
       (
         id,
         _Field.readingTheData,
-        'critical above ${RepaintDetector.debugCriticalMultiplier}× that '
-            '(>${repaintDebugRate * RepaintDetector.debugCriticalMultiplier}/sec)',
+        'critical above ${RepaintDetector.debugCriticalMultiplier} times that '
+            '(more than ${repaintDebugRate * RepaintDetector.debugCriticalMultiplier}/sec)',
       ),
     ],
     (
@@ -169,12 +175,12 @@ void main() {
     (
       'heap_growing',
       _Field.readingTheData,
-      '>${thresholds.memoryGrowthBytesPerSec ~/ 1000} KB/s',
+      'above ${thresholds.memoryGrowthBytesPerSec ~/ 1000} KB/s',
     ),
     (
       'gc_pressure',
       _Field.readingTheData,
-      '>${config.gcRateThresholdPerMin}/min',
+      'above ${config.gcRateThresholdPerMin}/min',
     ),
     (
       'gc_pressure',
@@ -190,7 +196,7 @@ void main() {
     (
       'heap_near_capacity',
       _Field.readingTheData,
-      '≥${(thresholds.memoryCapacityPercent * 100).round()}%',
+      'at ${(thresholds.memoryCapacityPercent * 100).round()}% or more',
     ),
     if (thresholds.memoryBudgetBytes == null)
       (
@@ -201,7 +207,7 @@ void main() {
     (
       'request_frequency',
       _Field.readingTheData,
-      '>${config.requestFrequencyLimit} per',
+      'more than ${config.requestFrequencyLimit} per',
     ),
     (
       'tracked_resource_concurrent',
@@ -226,7 +232,7 @@ void main() {
     (
       'setstate_scope',
       _Field.readingTheData,
-      '>${(thresholds.setStateScopeOwnershipPercent * 100).round()}%',
+      'above ${(thresholds.setStateScopeOwnershipPercent * 100).round()}%',
     ),
     (
       'setstate_scope',
@@ -236,55 +242,55 @@ void main() {
     (
       'multiple_custom_fonts',
       _Field.readingTheData,
-      '>${thresholds.fontLoadingMaxFamilies} custom font families',
+      'more than ${thresholds.fontLoadingMaxFamilies} custom font families',
     ),
     (
       'stateful_density',
       _Field.readingTheData,
-      '≥${RebuildDetector().statefulDensityThreshold} public',
+      '${RebuildDetector().statefulDensityThreshold} or more public',
     ),
     (
       'rebuild_activity',
       _Field.readingTheData,
-      '>${thresholds.buildTimePercentThreshold.round()}% of UI-thread time '
+      'above ${thresholds.buildTimePercentThreshold.round()}% of UI-thread time '
           '(warning)',
     ),
     (
       'rebuild_activity',
       _Field.readingTheData,
-      '>${(thresholds.buildTimePercentThreshold * 3).round()}% (critical)',
+      'above ${(thresholds.buildTimePercentThreshold * 3).round()}% (critical)',
     ),
     (
       'excessive_repaint',
       _Field.readingTheData,
-      '>${thresholds.paintTimePercentThreshold.round()}% of UI-thread time '
+      'above ${thresholds.paintTimePercentThreshold.round()}% of UI-thread time '
           '(warning)',
     ),
     (
       'excessive_repaint',
       _Field.readingTheData,
-      '>${(thresholds.paintTimePercentThreshold * 3).round()}% (critical)',
+      'above ${(thresholds.paintTimePercentThreshold * 3).round()}% (critical)',
     ),
     (
       'heavy_compute',
       _Field.readingTheData,
-      '>${thresholds.heavyComputeGapMs ?? DetectorThresholds.defaultHeavyComputeGapMs}ms '
+      'above ${thresholds.heavyComputeGapMs ?? DetectorThresholds.defaultHeavyComputeGapMs}ms '
           '(warning)',
     ),
     (
       'raster_dominance',
       _Field.readingTheData,
-      'above ${thresholds.gpuPressureRatio}×',
+      'above ${thresholds.gpuPressureRatio} times',
     ),
     (
       'raster_dominance',
       _Field.readingTheData,
-      '>${thresholds.gpuPressureRatio}× (warning)',
+      'above ${thresholds.gpuPressureRatio} times (warning)',
     ),
     (
       'raster_dominance',
       _Field.readingTheData,
-      '>${thresholds.gpuPressureRatio * 2}× (critical)',
+      'above ${thresholds.gpuPressureRatio * 2} times (critical)',
     ),
     (
       'raster_dominance',
@@ -300,7 +306,7 @@ void main() {
     (
       'non_lazy_shrinkwrap',
       _Field.readingTheData,
-      '>${ListviewDetector.shrinkWrapMinChildCount} items',
+      'above ${ListviewDetector.shrinkWrapMinChildCount} items',
     ),
     (
       'non_lazy_shrinkwrap',
@@ -310,22 +316,22 @@ void main() {
     (
       'sliver_to_box_adapter_shrinkwrap',
       _Field.readingTheData,
-      '>${ListviewDetector.shrinkWrapMinChildCount} items',
+      'above ${ListviewDetector.shrinkWrapMinChildCount} items',
     ),
     (
       'uncached_images',
       _Field.readingTheData,
-      'at ${image.oversizeRatio}× or more',
+      'at ${image.oversizeRatio} times or more',
     ),
     (
       'uncached_images',
       _Field.readingTheData,
-      '≥ ${image.minWastedBytes >> 20} MiB in total',
+      'at ${image.minWastedBytes >> 20} MiB of total waste',
     ),
     (
       'uncached_images',
       _Field.readingTheData,
-      'critical at ≥ ${image.criticalWastedBytes >> 20} MiB',
+      'critical at ${image.criticalWastedBytes >> 20} MiB',
     ),
   ];
 

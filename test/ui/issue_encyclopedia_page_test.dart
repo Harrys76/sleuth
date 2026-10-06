@@ -72,9 +72,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // Sample from different categories
-      expect(find.text('Sustained Jank'), findsOneWidget);
-      expect(find.text('Memory Near Budget'), findsOneWidget);
-      expect(find.text('Shader Compilation'), findsOneWidget);
+      expect(find.text('Sustained jank'), findsOneWidget);
+      expect(find.text('Memory near budget'), findsOneWidget);
+      expect(find.text('Shader compilation'), findsOneWidget);
     });
 
     testWidgets('expanding an entry shows explanation sections', (
@@ -84,7 +84,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Tap to expand "Sustained Jank"
-      await tester.tap(find.text('Sustained Jank'));
+      await tester.tap(find.text('Sustained jank'));
       await tester.pumpAndSettle();
 
       expect(find.text('What it is'), findsOneWidget);
@@ -100,12 +100,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // Expand
-      await tester.tap(find.text('Sustained Jank'));
+      await tester.tap(find.text('Sustained jank'));
       await tester.pumpAndSettle();
       expect(find.text('What it is'), findsOneWidget);
 
       // Collapse
-      await tester.tap(find.text('Sustained Jank'));
+      await tester.tap(find.text('Sustained jank'));
       await tester.pumpAndSettle();
       expect(find.text('What it is'), findsNothing);
     });
@@ -120,12 +120,12 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
 
-      // GC Pressure entry visible (whatItIs contains "garbage collector")
-      expect(find.text('GC Pressure'), findsOneWidget);
+      // GC pressure entry visible (whatItIs contains "garbage collector")
+      expect(find.text('GC pressure'), findsOneWidget);
 
       // Non-matching entries hidden
-      expect(find.text('Sustained Jank'), findsNothing);
-      expect(find.text('Shader Compilation'), findsNothing);
+      expect(find.text('Sustained jank'), findsNothing);
+      expect(find.text('Shader compilation'), findsNothing);
     });
 
     testWidgets('search hides empty category groups', (tester) async {
@@ -203,7 +203,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Expand heavy_compute
-      await tester.tap(find.text('Heavy Computation'));
+      await tester.tap(find.text('Heavy computation'));
       await tester.pumpAndSettle();
 
       expect(find.text('What it is'), findsOneWidget);
@@ -278,10 +278,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
 
-      expect(find.text('GC Pressure'), findsOneWidget);
+      expect(find.text('GC pressure'), findsOneWidget);
       // Non-matching entries hidden
-      expect(find.text('Sustained Jank'), findsNothing);
-      expect(find.text('Shader Compilation'), findsNothing);
+      expect(find.text('Sustained jank'), findsNothing);
+      expect(find.text('Shader compilation'), findsNothing);
     });
 
     testWidgets('renders search bar', (tester) async {
@@ -300,7 +300,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'garbage collector');
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
-      expect(find.text('Sustained Jank'), findsNothing);
+      expect(find.text('Sustained jank'), findsNothing);
 
       // Tap clear button
       await tester.tap(find.byIcon(Icons.close));
@@ -309,7 +309,7 @@ void main() {
 
       // All entries visible again
       expect(find.text('BUILD & REBUILD'), findsOneWidget);
-      expect(find.text('Sustained Jank'), findsOneWidget);
+      expect(find.text('Sustained jank'), findsOneWidget);
     });
 
     // v11.28: relatedIssues rendering
@@ -328,9 +328,9 @@ void main() {
 
       // uncached_images has relatedIssues
       expect(find.text('Related issues'), findsOneWidget);
-      // GC Pressure appears twice: once in the entry list title, once as chip
-      expect(find.text('GC Pressure'), findsNWidgets(2));
-      expect(find.text('Heap Growing'), findsNWidgets(2));
+      // GC pressure appears twice: once in the entry list title, once as chip
+      expect(find.text('GC pressure'), findsNWidgets(2));
+      expect(find.text('Heap growing'), findsNWidgets(2));
     });
 
     testWidgets('related issue display names appear in chips', (tester) async {
@@ -348,9 +348,9 @@ void main() {
 
       // Should show the related issue chip
       expect(find.text('Related issues'), findsOneWidget);
-      // Expensive GPU Nodes display name appears as a chip (plus in the
+      // Expensive GPU nodes display name appears as a chip (plus in the
       // entry list header — so at least 1, possibly 2 if visible)
-      expect(find.text('Expensive GPU Nodes'), findsWidgets);
+      expect(find.text('Expensive GPU nodes'), findsWidgets);
     });
   });
 

@@ -641,7 +641,7 @@ void main() {
         );
         expect(
           IssueExplanationBuilder.explain('non_lazy_shrinkwrap')?.displayName,
-          'ShrinkWrap List in Column',
+          'ShrinkWrap list in Column',
         );
       });
 
