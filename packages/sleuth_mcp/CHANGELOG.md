@@ -86,7 +86,9 @@ apps are now refused (`version_skew_major`). The SDK floor is Dart `^3.8.0`
 - New `get_logs` tool: the app's recent `print`, stderr and
   `dart:developer` log lines from the VM service in every attach mode, or
   flutter daemon `app.log` lines while those streams are not active. The
-  sidecar keeps the last 500 lines (each cut to 2,000 characters);
+  VM service cuts `dart:developer` messages to 128 characters, so the
+  sidecar reads the full message before it stores the line. It keeps the
+  last 500 lines (each cut to 2,000 characters);
   `maxLines` (default 100) and a case-insensitive `filter` narrow the result.
 - `detach_app` disconnects the bridge in every state, including a session
   opened with `connect`, and clears the log buffer. `app_status` and every

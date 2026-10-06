@@ -175,7 +175,7 @@ The sidecar keeps the app's recent output in a ring buffer of 500 lines, each cu
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
-| `lines` | List\<Map\> | yes | the newest matching lines, oldest first. Item shape `{time, source, text, level?, logger?, truncated?}`: `time` is ISO-8601 UTC; `source` is `stdout`, `stderr`, `logging` or `daemon`; `level` (the `dart:developer` level, 0 to 2000) and `logger` appear on `logging` lines; `truncated: true` marks text the VM service shortened (it cuts long `dart:developer` messages) or the 2000-character cap cut |
+| `lines` | List\<Map\> | yes | the newest matching lines, oldest first. Item shape `{time, source, text, level?, logger?, truncated?}`: `time` is ISO-8601 UTC; `source` is `stdout`, `stderr`, `logging` or `daemon`; `level` (the `dart:developer` level, 0 to 2000) and `logger` appear on `logging` lines; `truncated: true` marks text the 2000-character cap cut, or a `dart:developer` message the VM service shortened to 128 characters when the sidecar could not read the full message within 2 s |
 | `count` | int | yes | `lines.length` |
 | `matchedCount` | int | yes | buffered lines that match `filter`; more than `count` when `maxLines` cut the list |
 | `bufferedCount` | int | yes | lines in the buffer, at most 500 |

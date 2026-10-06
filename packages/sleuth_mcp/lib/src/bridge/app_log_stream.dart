@@ -1,6 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:vm_service/vm_service.dart' as vm;
+
+/// Longest line `get_logs` keeps, in characters. Longer lines are cut
+/// and marked `truncated`.
+const int maxAppLogLineLength = 2000;
 
 /// One line of app output: a `print` or stderr write, a `dart:developer`
 /// log record, or a flutter daemon `app.log` line.
@@ -69,14 +74,50 @@ abstract interface class AppLogSource {
   bool get appLogStreamsActive;
 }
 
+/// Reads the full text of a log message the VM service cut short: the
+/// string instance [messageId] in isolate [isolateId]. Returns null when
+/// the text cannot be read.
+typedef LogMessageResolver =
+    Future<String?> Function(String isolateId, String messageId);
+
 /// Turns VM service stream events into [AppLogLine]s. Write events can
 /// carry part of a line or several lines, so each output stream keeps the
 /// unfinished tail until its newline arrives. One decoder serves one VM
 /// service connection.
+///
+/// The VM service cuts a log record's message to its first 128
+/// characters. With a [resolveMessage], the decoder reads the whole
+/// message before it emits the line. Lines are emitted in the order their
+/// events arrived, so a line waiting for its message holds back the lines
+/// behind it, for at most [resolveTimeout].
 class VmLogEventDecoder {
-  VmLogEventDecoder(this._emit, {this.maxPendingLength = 4096});
+  VmLogEventDecoder(
+    this._emit, {
+    this.maxPendingLength = 4096,
+    this.resolveMessage,
+    this.resolveTimeout = const Duration(seconds: 2),
+  });
 
   final void Function(AppLogLine line) _emit;
+
+  /// Reads a cut log message in full. Null leaves cut messages as they
+  /// arrived, marked `truncated`.
+  final LogMessageResolver? resolveMessage;
+
+  /// Longest wait for one cut message.
+  final Duration resolveTimeout;
+
+  Future<void> _emitChain = Future<void>.value();
+  int _waiting = 0;
+
+  /// Emits [line] after every line queued before it.
+  void _emitInOrder(AppLogLine line) {
+    if (_waiting == 0) {
+      _emit(line);
+      return;
+    }
+    _emitChain = _emitChain.then((_) => _emit(line));
+  }
 
   /// A tail longer than this is emitted as a line of its own, so a writer
   /// that never prints a newline cannot grow the buffer without bound.
@@ -102,12 +143,12 @@ class VmLogEventDecoder {
       if (newline < 0) break;
       var line = text.substring(0, newline);
       if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
-      _emit(AppLogLine(time: time, source: source, text: line));
+      _emitInOrder(AppLogLine(time: time, source: source, text: line));
       text = text.substring(newline + 1);
     }
     if (text.isEmpty) return;
     if (text.length > maxPendingLength) {
-      _emit(AppLogLine(time: time, source: source, text: text));
+      _emitInOrder(AppLogLine(time: time, source: source, text: text));
       return;
     }
     _pending[source] = text;
@@ -121,18 +162,37 @@ class VmLogEventDecoder {
     final text = message?.valueAsString ?? '';
     final loggerName = record.loggerName?.valueAsString;
     final recordTime = record.time;
-    _emit(
-      AppLogLine(
-        time: _timeOf(
-          recordTime != null && recordTime > 0 ? recordTime : event.timestamp,
-        ),
-        source: 'logging',
-        text: text,
-        level: record.level != null && record.level! >= 0 ? record.level : null,
-        logger: loggerName,
-        truncated: message?.valueAsStringIsTruncated == true,
+    AppLogLine lineWith(String text, {required bool truncated}) => AppLogLine(
+      time: _timeOf(
+        recordTime != null && recordTime > 0 ? recordTime : event.timestamp,
       ),
+      source: 'logging',
+      text: text,
+      level: record.level != null && record.level! >= 0 ? record.level : null,
+      logger: loggerName,
+      truncated: truncated,
     );
+    final cut = message?.valueAsStringIsTruncated == true;
+    final resolve = resolveMessage;
+    final isolateId = event.isolate?.id;
+    final messageId = message?.id;
+    if (!cut || resolve == null || isolateId == null || messageId == null) {
+      _emitInOrder(lineWith(text, truncated: cut));
+      return;
+    }
+    _waiting++;
+    final full = resolve(isolateId, messageId)
+        .timeout(resolveTimeout)
+        .then<String?>((value) => value, onError: (Object _) => null);
+    _emitChain = _emitChain.then((_) async {
+      final value = await full;
+      _waiting--;
+      _emit(
+        value != null && value.length >= text.length
+            ? lineWith(value, truncated: false)
+            : lineWith(text, truncated: true),
+      );
+    });
   }
 
   static DateTime _timeOf(int? millis) => millis != null && millis > 0

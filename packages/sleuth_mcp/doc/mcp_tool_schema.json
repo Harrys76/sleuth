@@ -231,7 +231,7 @@
             "text": {"type": "String", "required": true, "nullable": false},
             "level": {"type": "int", "required": false, "nullable": false, "presence": "logging lines; the dart:developer level (0 to 2000)"},
             "logger": {"type": "String", "required": false, "nullable": false, "presence": "logging lines whose record names a logger"},
-            "truncated": {"type": "bool", "required": false, "nullable": false, "presence": "true when the text was cut, by the VM service (it shortens long dart:developer messages) or by the 2000-character line cap"}
+            "truncated": {"type": "bool", "required": false, "nullable": false, "presence": "true when the text was cut: by the 2000-character line cap, or by the VM service (it shortens dart:developer messages to 128 characters) when the sidecar could not read the full message within 2 s"}
           }
         },
         "count": {"type": "int", "required": true, "nullable": false, "doc": "lines.length"},

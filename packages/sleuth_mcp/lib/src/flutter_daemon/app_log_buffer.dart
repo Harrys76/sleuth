@@ -8,7 +8,7 @@ import '../bridge/app_log_stream.dart';
 /// characters. [droppedCount] counts the lines evicted since the buffer was
 /// last cleared, so a reader can tell that older output is gone.
 class AppLogBuffer {
-  AppLogBuffer({this.capacity = 500, this.maxLineLength = 2000})
+  AppLogBuffer({this.capacity = 500, this.maxLineLength = maxAppLogLineLength})
     : assert(capacity > 0),
       assert(maxLineLength > 0);
 

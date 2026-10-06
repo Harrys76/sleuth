@@ -759,7 +759,17 @@ class RealVmBridge implements VmBridge, AppLogSource {
     }
     _appLogSubscriptions.clear();
     _appLogService = null;
-    final decoder = VmLogEventDecoder(_appLogLines.add);
+    final decoder = VmLogEventDecoder(
+      _appLogLines.add,
+      resolveMessage: (isolateId, messageId) async {
+        final object = await service.getObject(
+          isolateId,
+          messageId,
+          count: maxAppLogLineLength,
+        );
+        return object is vm.Instance ? object.valueAsString : null;
+      },
+    );
     _appLogSubscriptions
       ..add(service.onStdoutEvent.listen((e) => decoder.onWrite('stdout', e)))
       ..add(service.onStderrEvent.listen((e) => decoder.onWrite('stderr', e)))

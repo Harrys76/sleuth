@@ -85,6 +85,65 @@ void main() {
       expect(line.truncated, isTrue);
       expect(line.toJson(), containsPair('truncated', true));
     });
+
+    vm.Event cutLog(String shown) => vm.Event(
+      kind: vm.EventKind.kLogging,
+      timestamp: 1,
+      isolate: vm.IsolateRef(id: 'isolates/1'),
+      logRecord: vm.LogRecord(
+        message: vm.InstanceRef(
+          id: 'objects/7',
+          kind: vm.InstanceKind.kString,
+          valueAsString: shown,
+          valueAsStringIsTruncated: true,
+        ),
+        time: 1700000000500,
+        level: 0,
+      ),
+    );
+
+    test('a cut Logging message is read in full and keeps its order', () async {
+      final requests = <String>[];
+      final full = Completer<String?>();
+      decoder = VmLogEventDecoder(
+        lines.add,
+        resolveMessage: (isolateId, messageId) {
+          requests.add('$isolateId $messageId');
+          return full.future;
+        },
+      );
+      decoder.onLogging(cutLog('first part'));
+      decoder.onWrite('stdout', _write('after\n'));
+      // The stdout line waits behind the log line being read.
+      expect(lines, isEmpty);
+      full.complete('first part and the rest');
+      await pumpEventQueue();
+      expect(requests, ['isolates/1 objects/7']);
+      expect(lines.map((l) => l.text), ['first part and the rest', 'after']);
+      expect(lines.first.truncated, isFalse);
+    });
+
+    test('a cut message that cannot be read stays marked truncated', () async {
+      decoder = VmLogEventDecoder(
+        lines.add,
+        resolveMessage: (_, _) async => throw StateError('gone'),
+      );
+      decoder.onLogging(cutLog('shown text'));
+      await pumpEventQueue();
+      expect(lines.single.text, 'shown text');
+      expect(lines.single.truncated, isTrue);
+    });
+
+    test('a slow read gives up after resolveTimeout', () async {
+      decoder = VmLogEventDecoder(
+        lines.add,
+        resolveMessage: (_, _) => Completer<String?>().future,
+        resolveTimeout: const Duration(milliseconds: 20),
+      );
+      decoder.onLogging(cutLog('shown text'));
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(lines.single.truncated, isTrue);
+    });
   });
 
   group('AppLogBuffer', () {
