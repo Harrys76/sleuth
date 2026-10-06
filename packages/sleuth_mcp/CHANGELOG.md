@@ -142,6 +142,11 @@ sidecar now refuses 0.35 apps (`version_skew_major`). The SDK floor is Dart `^3.
   read. The startup sweep also removes old handoff files of sidecars that
   exited without cleaning up. A cancelled `diskHandoff` writes no file. A
   handoff write failure returns `disk_handoff_failed`.
+- Tool, argument and prompt descriptions, `instructions`, advisories and
+  error messages are written as plain sentences. Every error code and
+  documented message prefix is unchanged, so clients that match on the
+  prefix are unaffected; a client that compares whole message texts sees
+  new wording.
 - Sessions negotiated at `2025-03-26` accept JSON-RPC batches. Other
   versions answer a batch with one `-32600` error. `--tool-timeout` must be
   a whole number of seconds, 1 or more.

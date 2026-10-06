@@ -255,7 +255,7 @@ Returns the rules that link trigger stableIds to their downstream effects. It ta
 
 ## Sidecar tool layer
 
-The `sleuth_mcp` sidecar exposes 13 MCP tools that wrap or transform the
+The `sleuth_mcp` sidecar exposes 14 MCP tools that wrap or transform the
 envelopes above. In the sleuth repository,
 `packages/sleuth_mcp/doc/mcp_tool_schema.json` defines the tool return
 shapes, `packages/sleuth_mcp/doc/mcp_tool_schema.md` renders them, and

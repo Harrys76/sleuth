@@ -441,7 +441,7 @@
       "shims": [
         {
           "name": "severity_filter",
-          "doc": "When `severityAtLeast` is `warning` or `critical`, the sidecar keeps only the `data.issues` entries whose severity meets the threshold, and adds `data.severityAtLeast` with the requested level. When `severityAtLeast` is `ok` or absent, there is no filter and no echo."
+          "doc": "When `severityAtLeast` is `warning` or `critical`, the sidecar keeps only the `data.issues` entries whose severity meets the threshold, and adds `data.severityAtLeast` with the requested level. `ok` applies no filter but is echoed the same way. When `severityAtLeast` is absent there is no filter and no echo."
         },
         {
           "name": "compact_projection",
