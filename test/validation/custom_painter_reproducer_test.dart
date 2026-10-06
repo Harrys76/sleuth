@@ -135,6 +135,7 @@ void main() {
             totalPaintCount: 60,
             elapsed: Duration(seconds: 1),
             paintCounts: {'CustomPaint': 60}, // 60 paints/sec > 30 threshold
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 60)},
           ),
         );
         final issues = await scanAndIssues(
@@ -155,6 +156,27 @@ void main() {
           totalPaintCount: 30,
           elapsed: Duration(seconds: 1),
           paintCounts: {'CustomPaint': 30},
+          paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 30)},
+        ),
+      );
+      final issues = await scanAndIssues(
+        tester,
+        detector,
+        const CustomPaint(painter: _WellBehavedPainter(), size: Size(10, 10)),
+      );
+      expect(issues, lacksStableId('frequent_repaint_painter'));
+    });
+
+    testWidgets('frequent_repaint_painter: paints shared with a repainting '
+        'layer, with no origin, stay silent', (tester) async {
+      final detector = CustomPainterDetector();
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 120,
+          elapsed: Duration(seconds: 1),
+          paintCounts: {'CustomPaint': 60, 'Text': 60},
+          paintOrigins: {'Text': PaintOriginStats(maxCount: 60)},
         ),
       );
       final issues = await scanAndIssues(
@@ -176,6 +198,7 @@ void main() {
             totalPaintCount: 100,
             elapsed: Duration(seconds: 1),
             paintCounts: {'CustomPaint': 100},
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 100)},
           ),
         );
         final issues = await scanAndIssues(
@@ -192,8 +215,8 @@ void main() {
           lacksStableId('frequent_repaint_painter'),
           reason: 'frequent_repaint_painter fires only when _found is empty.',
         );
-        // paintCounts=100 crosses > 10 but the frequent branch is suppressed
-        // by a non-empty `_found`, so confidence lands at `likely`, not
+        // An origin count of 100 crosses > 10 but the frequent branch is
+        // suppressed by a non-empty `_found`, so confidence lands at `likely`, not
         // `confirmed`. The exact > 10 boundary is pinned by the 10/11 pair
         // below.
         final issue = issues.firstWhere(
@@ -208,11 +231,11 @@ void main() {
     );
 
     testWidgets(
-      'always_repaint_painter: paintCounts=10 at-threshold stays possible '
+      'always_repaint_painter: origin count 10 at-threshold stays possible '
       '(strict-greater `> 10` boundary pin)',
       (tester) async {
-        // `custom_painter_detector.dart:108` uses `cpRate > 10`. At
-        // paintCounts=10 with elapsed=1s, cpRate=10.0 → check fails →
+        // `CustomPainterDetector` uses `cpRate > 10`. At an origin
+        // count of 10 with elapsed=1s, cpRate=10.0 → check fails →
         // confidence stays at `possible`, observationSource null.
         final detector = CustomPainterDetector();
         detector.updateDebugSnapshot(
@@ -221,6 +244,7 @@ void main() {
             totalPaintCount: 10,
             elapsed: Duration(seconds: 1),
             paintCounts: {'CustomPaint': 10},
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 10)},
           ),
         );
         final issues = await scanAndIssues(
@@ -250,12 +274,12 @@ void main() {
     );
 
     testWidgets(
-      'always_repaint_painter: paintCounts=11 just above threshold upgrades '
+      'always_repaint_painter: origin count 11 just above threshold upgrades '
       'to likely (strict-greater `> 10` boundary pin)',
       (tester) async {
-        // paintCounts=11 → cpRate=11.0 > 10 → confidence upgrades to
-        // `likely`. 11 is the smallest integer strictly above 10; pairs
-        // with the paintCounts=10 silent test above to pin the boundary.
+        // An origin count of 11 → cpRate=11.0 > 10 → confidence upgrades
+        // to `likely`. 11 is the smallest integer strictly above 10; pairs
+        // with the count-10 silent test above to pin the boundary.
         final detector = CustomPainterDetector();
         detector.updateDebugSnapshot(
           const DebugSnapshot(
@@ -263,6 +287,7 @@ void main() {
             totalPaintCount: 11,
             elapsed: Duration(seconds: 1),
             paintCounts: {'CustomPaint': 11},
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 11)},
           ),
         );
         final issues = await scanAndIssues(

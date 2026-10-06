@@ -9,9 +9,9 @@
 //     (`> paintTimePercentThreshold`, default 10 %) and 3× critical
 //     escalation (`> 30 %`).
 //   Per-widget debug (`repaint_debug_<typeName>`) — supplies a
-//     `DebugSnapshot` with `paintCounts` keyed by widget type. Pins the
-//     residual-rate gate (`>= threshold`) on a triad: just-below /
-//     boundary / 2× critical.
+//     `DebugSnapshot` with `paintOrigins` keyed by widget type (the
+//     busiest instance's likely-origin count). Pins the rate gate
+//     (`>= threshold`) on a triad: just-below / boundary / 2× critical.
 //   Aggregate debug (`excessive_repaint_debug`) — supplies a snapshot with
 //     empty `paintCounts` but non-zero `totalPaintCount` while VM is
 //     disconnected, exercising the residual-aggregate fallback path. Same
@@ -28,9 +28,9 @@
 // `vmConnected=false → true` transition stages `_pendingVmWindowPercent=0`,
 // causing the next `_evaluate` to clear and re-emit nothing).
 //
-// Highlights — pins per-type emission count and `_maxHighlightsPerType=3`
-// cap by mounting 5 instances of one type and asserting only 3
-// highlights are emitted.
+// Highlights: mounts 5 instances of one type and asserts only the
+// instances the snapshot names as origins are outlined, never the first
+// instances of the type in the tree.
 //
 // `_vmConnected` defaults to false; setUp explicitly sets `true` so VM-
 // backed tests aren't silently routed into structural-only fallback.
@@ -116,11 +116,15 @@ void main() {
       detector.processTimelineData(parsed);
     }
 
+    /// [typeName] painted [count] times and was the likely origin of
+    /// every paint [ownedCount] does not cover, in the busiest of
+    /// [instances] when given.
     DebugSnapshot perWidgetSnapshot({
       required String typeName,
       required int count,
       Duration elapsed = const Duration(seconds: 1),
       int ownedCount = 0,
+      List<Element> instances = const [],
     }) {
       return DebugSnapshot(
         rebuildCounts: const {},
@@ -130,6 +134,21 @@ void main() {
             ? {typeName: ownedCount}
             : const {},
         totalAnimationOwnedPaintCount: ownedCount,
+        paintOrigins: {
+          if (count > ownedCount)
+            typeName: PaintOriginStats(
+              maxCount: count - ownedCount,
+              instanceCount: instances.isEmpty ? 1 : instances.length,
+              animationOwnedCount: ownedCount,
+              busiest: [
+                for (final element in instances)
+                  PaintOriginInstance(
+                    element: element,
+                    count: count - ownedCount,
+                  ),
+              ],
+            ),
+        },
         elapsed: elapsed,
       );
     }
@@ -314,7 +333,7 @@ void main() {
         final issue = issues.single;
         expect(issues, hasStableId('repaint_debug_MyWidget'));
         expect(issue.severity, IssueSeverity.warning);
-        expect(issue.confidence, IssueConfidence.confirmed);
+        expect(issue.confidence, IssueConfidence.likely);
         expect(issue.observationSource, ObservationSource.debugCallback);
       });
 
@@ -394,6 +413,7 @@ void main() {
             paintCounts: const {'Spinner': 50, 'Chart': 20},
             animationOwnedPaintCounts: const {'Spinner': 50},
             totalAnimationOwnedPaintCount: 50,
+            paintOrigins: const {'Chart': PaintOriginStats(maxCount: 20)},
             elapsed: const Duration(seconds: 1),
           ),
         );
@@ -438,18 +458,28 @@ void main() {
       );
     });
 
-    // -- Group F: highlights (severity match + cap = 3) -------------------
+    // -- Group F: highlights (severity match, origin instances only) -----
 
     group('highlights', () {
+      /// Mounts [tree] the way `scanAndIssues` does, so its elements are
+      /// the ones the scan walks.
+      Future<List<Element>> leaves(WidgetTester tester, Widget tree) async {
+        await tester.pumpWidget(
+          Directionality(textDirection: TextDirection.ltr, child: tree),
+        );
+        return find.byType(_PaintLeaf).evaluate().toList();
+      }
+
       testWidgets('severity matches issue severity (warning)', (tester) async {
+        const tree = _PaintTree(leafCount: 1);
         detector.updateDebugSnapshot(
-          perWidgetSnapshot(typeName: '_PaintLeaf', count: 30),
+          perWidgetSnapshot(
+            typeName: '_PaintLeaf',
+            count: 30,
+            instances: await leaves(tester, tree),
+          ),
         );
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          const _PaintTree(leafCount: 1),
-        );
+        final issues = await scanAndIssues(tester, detector, tree);
         expect(issues, hasLength(1));
         expect(issues, hasStableId('repaint_debug__PaintLeaf'));
         final highlight = detector.highlights.firstWhere(
@@ -458,20 +488,28 @@ void main() {
         expect(highlight.severity, IssueSeverity.warning);
       });
 
-      testWidgets('5 instances at hot rate emit only 3 highlights (cap)', (
-        tester,
-      ) async {
-        // Rate 30/sec → _hotTypes['_PaintLeaf'] = 30.0. Tree has 5
-        // _PaintLeaf elements; checkElement adds highlights up to
-        // _maxHighlightsPerType=3 then skips the rest.
+      testWidgets('of 5 instances at a hot rate only the origins are '
+          'outlined', (tester) async {
+        // Rate 30/sec. The tree has 5 _PaintLeaf elements; the snapshot
+        // names leaves 1 and 3 as the origins, so the first leaves in the
+        // tree stay unmarked.
+        const tree = _PaintTree(leafCount: 5);
+        final all = await leaves(tester, tree);
         detector.updateDebugSnapshot(
-          perWidgetSnapshot(typeName: '_PaintLeaf', count: 30),
+          perWidgetSnapshot(
+            typeName: '_PaintLeaf',
+            count: 30,
+            instances: [all[3], all[1]],
+          ),
         );
-        await scanAndIssues(tester, detector, const _PaintTree(leafCount: 5));
+        await scanAndIssues(tester, detector, tree);
         final leafHighlights = detector.highlights
             .where((h) => h.widgetName == '_PaintLeaf')
             .toList();
-        expect(leafHighlights.length, 3);
+        expect(leafHighlights.map((h) => h.renderObject), [
+          all[1].renderObject,
+          all[3].renderObject,
+        ]);
       });
     });
 

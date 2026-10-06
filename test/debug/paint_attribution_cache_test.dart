@@ -39,6 +39,39 @@ void main() {
       final snap = coord.snapshot();
       coord.dispose();
       expect(snap.paintCounts.values.fold<int>(0, (a, b) => a + b), 4);
+      // The object painted before these hand calls, so it is no longer
+      // marked as needing paint: it took part, but started nothing.
+      expect(snap.paintOrigins, isEmpty);
+    });
+
+    testWidgets('a hand-called paint of an object marked as needing paint '
+        'is an origin, once per frame', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(child: _Painted(key: ValueKey('p'))),
+        ),
+      );
+      final coord = DebugInstrumentationCoordinator(installRebuild: false);
+      coord.install();
+      final ro = tester.renderObject(find.byType(CustomPaint));
+      final onPaint = debugOnProfilePaint!;
+
+      ro.markNeedsPaint();
+      onPaint(ro);
+      onPaint(ro);
+      final snap = coord.snapshot();
+      coord.dispose();
+      await tester.pump();
+
+      expect(snap.paintCounts['CustomPaint'], 2);
+      final origins = snap.paintOrigins['CustomPaint']!;
+      expect(origins.maxCount, 1);
+      expect(origins.instanceCount, 1);
+      expect(
+        origins.busiest.single.element,
+        same(tester.element(find.byType(CustomPaint))),
+      );
     });
 
     testWidgets('reparenting the element recomputes its chain', (tester) async {

@@ -22,7 +22,8 @@ class DebugInstrumentationConfig {
   /// Track per-widget rebuild counts via `debugOnRebuildDirtyWidget`.
   final bool rebuildAttribution;
 
-  /// Track per-widget paint counts via `debugOnProfilePaint`.
+  /// Track per-widget paint counts and likely repaint origins via
+  /// `debugOnProfilePaint`.
   final bool paintAttribution;
 
   /// Enable `debugProfileBuildsEnabledUserWidgets` for per-widget build
@@ -75,6 +76,9 @@ class DebugInstrumentationConfig {
   /// objects the framework creates (`RichText`, `RawImage`), so they get
   /// no per-widget paint count, and framework widgets such as
   /// `_InkFeatures` are left out. Their paints stay in the aggregate
-  /// count. Set false to count framework widgets too.
+  /// count. A likely repaint origin goes to the nearest widget your code
+  /// created at or above the render object where the repaint started, so
+  /// a `Text` whose content changes reports as that `Text`. Set false to
+  /// count framework widgets too.
   final bool userWidgetsOnly;
 }

@@ -177,6 +177,8 @@ void main() {
             animationOwnedPaintCounts: captured.animationOwnedPaintCounts,
             totalAnimationOwnedPaintCount:
                 captured.totalAnimationOwnedPaintCount,
+            paintOrigins: captured.paintOrigins,
+            paintOriginTypesCapped: captured.paintOriginTypesCapped,
             elapsed: const Duration(milliseconds: 100),
             source: captured.source,
           );

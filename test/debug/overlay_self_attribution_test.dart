@@ -79,6 +79,9 @@ void main() {
     expect(snap.paintCounts.keys.toSet().difference(app), isEmpty);
     final perType = snap.paintCounts.values.fold<int>(0, (a, b) => a + b);
     expect(snap.totalPaintCount, perType);
+    // The overlay's own repaints start no origin either: only the app's
+    // ticking painter is one.
+    expect(snap.paintOrigins.keys, ['CustomPaint']);
   }, semanticsEnabled: false);
 
   testWidgets('without the registration the same run counts the overlay', (

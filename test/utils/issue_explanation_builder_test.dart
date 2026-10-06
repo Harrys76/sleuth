@@ -56,7 +56,7 @@ void main() {
     test('strips dynamic suffix for repaint_debug', () {
       final result = IssueExplanationBuilder.explain('repaint_debug_MyWidget');
       expect(result, isNotNull);
-      expect(result!.whatItIs, contains('specific widget type'));
+      expect(result!.whatItIs, contains('likely origin of frequent repaints'));
     });
 
     test('all explanations have non-empty fields', () {

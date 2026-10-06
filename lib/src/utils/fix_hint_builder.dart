@@ -728,11 +728,19 @@ class FixHintBuilder {
   }) {
     final location = ancestorChain != null ? ' ($ancestorChain)' : '';
     return (
-      'Isolate $typeName repaints from parent widgets:\n'
+      '$typeName is the likely origin of repaints in its layer at '
+          '$rate/sec$location. Isolate the part that changes: wrap '
+          '$typeName itself, or the smallest subtree around it, in a '
+          'RepaintBoundary so the rest of the layer stops repainting with '
+          'it:\n'
           'RepaintBoundary(\n'
           '  child: $typeName(...),\n'
           ')\n'
-          '$typeName is repainting at $rate/sec$location.',
+          'Wrapping a sibling does not help. You can also move the '
+          'animation or listenable that changes it lower in the tree. A '
+          'boundary makes each repaint cheaper, not rarer: to repaint less '
+          'often, check what marks $typeName as needing paint (setState, '
+          'a repaint listenable, shouldRepaint).',
       FixEffort.quick,
     );
   }

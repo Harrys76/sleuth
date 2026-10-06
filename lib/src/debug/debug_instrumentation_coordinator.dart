@@ -11,6 +11,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 import '../utils/animation_owner_names.dart';
+import '../utils/framework_painters.dart';
 import '../utils/overlay_ownership.dart';
 import '../utils/widget_location.dart';
 import 'debug_snapshot.dart';
@@ -26,7 +27,9 @@ enum _InstalledMode { none, debug, profile }
 ///
 /// - **Debug mode** uses `debugOnRebuildDirtyWidget` + `debugOnProfilePaint`
 ///   global callbacks. Counts actual rebuilds only (initial builds are
-///   excluded via the `builtOnce` flag).
+///   excluded via the `builtOnce` flag). Paints feed two records: every
+///   widget that takes part in a repaint (`paintCounts`) and, per frame,
+///   the likely origin of each layer's repaint (`paintOrigins`).
 /// - **Profile mode** uses `FlutterTimeline.debugCollect()` drained on every
 ///   scan. Counts include initial widget inflations as well as rebuilds
 ///   because the framework emits the same `FlutterTimeline.startSync` from
@@ -174,6 +177,45 @@ class DebugInstrumentationCoordinator {
   /// Drops every cached paint attribution (hot reload can move widgets
   /// without replacing their elements' parents).
   void invalidatePaintAttribution() => _paintAttributionEpoch++;
+
+  /// Most instances of one widget type counted as likely repaint origins
+  /// in a window; further instances of the type are not counted.
+  @visibleForTesting
+  static const int maxOriginInstancesPerType = 128;
+
+  /// Likely repaint origins credited this window, per user widget type:
+  /// for each instance (the credited element), the frames in which it was
+  /// an origin that no animation owner drove.
+  final Map<String, Map<Element, int>> _originCounts = {};
+
+  /// Frames per user widget type in which an instance was a likely origin
+  /// driven by an animation owner.
+  final Map<String, int> _ownedOriginCounts = {};
+  bool _originTypesCapped = false;
+
+  // The frame whose paints the origin pass is recording. A frame closes
+  // after its paint phase (a post-frame callback), when the frame stamp
+  // changes, or at a snapshot, whichever comes first.
+  bool _originFrameOpen = false;
+  int? _originFrameStamp;
+  bool _originFrameEndScheduled = false;
+  late final FrameCallback _onOriginFrameEnd = _handleOriginFrameEnd;
+
+  /// Render objects painted this frame while marked as needing paint,
+  /// with whether an animation owner drove the paint (null when the hook
+  /// did not judge it).
+  final Map<RenderObject, bool?> _frameDirty = {};
+
+  /// Render objects with a child painted this frame while marked as
+  /// needing paint: not the deepest marked node of their layer.
+  final Set<RenderObject> _frameReached = {};
+
+  /// Repaint boundaries that painted their children this frame without a
+  /// hook call of their own: layer roots that `flushPaint` repainted.
+  final Set<RenderObject> _frameRoots = {};
+
+  /// Elements credited this frame, so an instance counts once per frame.
+  final Set<Element> _frameCredited = {};
 
   bool _rebuildInstalled = false;
   bool _paintInstalled = false;
@@ -367,6 +409,9 @@ class DebugInstrumentationCoordinator {
     if (_installedMode == _InstalledMode.profile) {
       return _drainProfileBuffer();
     }
+    // Scans run after a frame's paint phase, so the open frame is
+    // complete.
+    _closeOriginFrame();
     final now = _clock();
     final elapsed = now.difference(_lastSnapshotTime);
     _lastSnapshotTime = now;
@@ -387,6 +432,8 @@ class DebugInstrumentationCoordinator {
       forcedRebuildsByRoot: Map<String, int>.of(_forcedRebuildsByRoot),
       rebuildTypesCapped: _rebuildTypesCapped,
       paintTypesCapped: _paintTypesCapped,
+      paintOrigins: _originStats(),
+      paintOriginTypesCapped: _originTypesCapped,
     );
     _clearWindow();
     return result;
@@ -398,6 +445,7 @@ class DebugInstrumentationCoordinator {
   void discardWindow() {
     if (_installedMode == _InstalledMode.profile) return;
     _lastSnapshotTime = _clock();
+    _dropOriginFrame();
     _clearWindow();
   }
 
@@ -407,10 +455,60 @@ class DebugInstrumentationCoordinator {
     _ancestorChains.clear();
     _animationOwnedPaintCounts.clear();
     _forcedRebuildsByRoot.clear();
+    _originCounts.clear();
+    _ownedOriginCounts.clear();
     _rebuildTypesCapped = false;
     _paintTypesCapped = false;
+    _originTypesCapped = false;
     _paintCount = 0;
     _totalAnimationOwnedPaintCount = 0;
+  }
+
+  /// Per-type origin statistics for the window, busiest instances first.
+  Map<String, PaintOriginStats> _originStats() {
+    if (_originCounts.isEmpty) return const {};
+    final result = <String, PaintOriginStats>{};
+    _originCounts.forEach((typeName, instances) {
+      // The few busiest instances, without sorting every instance.
+      final busiest = <MapEntry<Element, int>>[];
+      for (final entry in instances.entries) {
+        if (busiest.length == PaintOriginStats.maxBusiest &&
+            entry.value <= busiest.last.value) {
+          continue;
+        }
+        var at = busiest.length;
+        while (at > 0 && busiest[at - 1].value < entry.value) {
+          at--;
+        }
+        busiest.insert(at, entry);
+        if (busiest.length > PaintOriginStats.maxBusiest) {
+          busiest.removeLast();
+        }
+      }
+      final top = busiest.first.key;
+      String? chain;
+      if (top.mounted) {
+        try {
+          chain = buildAncestorChain(top);
+        } catch (e, s) {
+          assert(() {
+            debugPrint('Sleuth: paint origin chain failed: $e\n$s');
+            return true;
+          }());
+        }
+      }
+      result[typeName] = PaintOriginStats(
+        maxCount: busiest.first.value,
+        instanceCount: instances.length,
+        animationOwnedCount: _ownedOriginCounts[typeName] ?? 0,
+        ancestorChain: chain,
+        busiest: [
+          for (final entry in busiest)
+            PaintOriginInstance(element: entry.key, count: entry.value),
+        ],
+      );
+    });
+    return result;
   }
 
   /// Drains `FlutterTimeline.debugCollect()`, applies the type-name filter
@@ -461,6 +559,9 @@ class DebugInstrumentationCoordinator {
     _paintCounts.clear();
     _ancestorChains.clear();
     _animationOwnedPaintCounts.clear();
+    _originCounts.clear();
+    _ownedOriginCounts.clear();
+    _dropOriginFrame();
     _typeNames.clear();
     _paintAttributionEpoch++;
     _paintCount = 0;
@@ -788,16 +889,16 @@ class DebugInstrumentationCoordinator {
     return binding.currentSystemFrameTimeStamp.inMicroseconds;
   }
 
-  /// Whether [owner] drove the paint being counted: a rebuild-driven
-  /// owner only in a frame where it rebuilt itself, any other owner by
-  /// being there. Without the rebuild callback there are no rebuild
-  /// stamps, so presence decides.
-  bool _ownerActive(Element owner) {
+  /// Whether [owner] drove a paint in [frame] (the current frame when
+  /// null): a rebuild-driven owner only in a frame where it rebuilt
+  /// itself, any other owner by being there. Without the rebuild callback
+  /// there are no rebuild stamps, so presence decides.
+  bool _ownerActive(Element owner, {int? frame}) {
     if (!_rebuildInstalled || !isRebuildDrivenOwnerElement(owner)) {
       return true;
     }
-    final frame = _frameStamp();
-    return frame != null && _ownerRebuildFrame[owner] == frame;
+    final stamp = frame ?? _frameStamp();
+    return stamp != null && _ownerRebuildFrame[owner] == stamp;
   }
 
   /// Framework widgets that only annotate the semantics tree. Their
@@ -819,14 +920,18 @@ class DebugInstrumentationCoordinator {
 
   void _handleProfilePaint(RenderObject renderObject) {
     final creator = renderObject.debugCreator;
-    if (creator is! DebugCreator) {
+    final element = creator is DebugCreator ? creator.element : null;
+    // Every paint takes part in the origin pass, filtered or not, so the
+    // marked chains it reads have no gaps. The overlay's are never
+    // credited.
+    final dirty = _notePaintForOrigins(renderObject);
+    // Sleuth's own overlay paints count nowhere, not even in the total.
+    if (element != null && OverlayOwnership.isOverlayOwned(element)) return;
+    if (element == null) {
       _paintCount++;
       return;
     }
 
-    final element = creator.element;
-    // Sleuth's own overlay paints count nowhere, not even in the total.
-    if (OverlayOwnership.isOverlayOwned(element)) return;
     final typeName = _typeName(element.widget.runtimeType);
     if (semanticsOnlyWidgets.contains(typeName) &&
         SemanticsBinding.instance.semanticsEnabled) {
@@ -867,28 +972,12 @@ class DebugInstrumentationCoordinator {
     }
 
     // Per-paint animation-owned attribution. The descendant leg runs on
-    // every paint (a child can change without the element moving). It
-    // is wrapped because `Element.visitChildren` can throw on deactivated
-    // elements during teardown — we never want a paint-callback
-    // exception to crash the host app. An owner only counts when it drove
-    // this frame ([_ownerActive]), so an idle `AnimatedContainer` next to
-    // a repainting widget does not hide it.
-    final ancestorOwner = attribution.owner?.target;
-    var owned =
-        ancestorOwner != null &&
-        ancestorOwner.mounted &&
-        _ownerActive(ancestorOwner);
-    if (!owned) {
-      try {
-        final descendantOwner = findAnimationOwnerDescendant(element);
-        owned = descendantOwner != null && _ownerActive(descendantOwner);
-      } catch (e, s) {
-        assert(() {
-          debugPrint('Sleuth: animation-owned check failed: $e\n$s');
-          return true;
-        }());
-      }
-    }
+    // every paint (a child can change without the element moving). An
+    // owner only counts when it drove this frame ([_ownerActive]), so an
+    // idle `AnimatedContainer` next to a repainting widget does not hide
+    // it.
+    final owned = _isOwnedPaint(element, attribution);
+    if (dirty) _frameDirty[renderObject] = owned;
 
     if (owned) {
       if (perWidget) {
@@ -897,6 +986,233 @@ class DebugInstrumentationCoordinator {
       }
       _totalAnimationOwnedPaintCount++;
     }
+  }
+
+  /// Whether an animation owner drove a paint of [element] in [frame]
+  /// (the current frame when null): an active owner among the ancestors
+  /// in [attribution], or one the bounded descendant walk reaches.
+  bool _isOwnedPaint(
+    Element element,
+    _PaintAttribution attribution, {
+    int? frame,
+  }) {
+    final ancestorOwner = attribution.owner?.target;
+    if (ancestorOwner != null &&
+        ancestorOwner.mounted &&
+        _ownerActive(ancestorOwner, frame: frame)) {
+      return true;
+    }
+    // Wrapped because `Element.visitChildren` can throw on deactivated
+    // elements during teardown; a paint-callback exception must never
+    // crash the host app.
+    try {
+      final descendantOwner = findAnimationOwnerDescendant(element);
+      return descendantOwner != null &&
+          _ownerActive(descendantOwner, frame: frame);
+    } catch (e, s) {
+      assert(() {
+        debugPrint('Sleuth: animation-owned check failed: $e\n$s');
+        return true;
+      }());
+      return false;
+    }
+  }
+
+  /// Records [renderObject]'s paint for the per-frame origin pass and
+  /// returns whether it was marked as needing paint.
+  ///
+  /// The framework calls the hook before it paints the child, and only
+  /// that paint clears the flag, so the flag read here is the child's own.
+  /// Marking a render object also marks its ancestors up to the nearest
+  /// repaint boundary, so the marked nodes of a layer form chains from
+  /// where each mark started up to the layer's root, and a marked node
+  /// with a marked child is not where a chain started. Clean paints (the
+  /// widgets that repaint only because they share the layer, and reused
+  /// boundary layers) cost one flag read and a parent check.
+  bool _notePaintForOrigins(RenderObject renderObject) {
+    final dirty = renderObject.debugNeedsPaint;
+    final parent = renderObject.parent;
+    final parentIsBoundary = parent != null && parent.isRepaintBoundary;
+    if (!dirty && !parentIsBoundary) return false;
+    _openOriginFrame();
+    // A boundary painting its children with no hook call of its own this
+    // frame is a layer root that `flushPaint` repainted. A clean boundary
+    // painted by its parent reuses its layer and paints no children.
+    if (parentIsBoundary && !_frameDirty.containsKey(parent)) {
+      _frameRoots.add(parent);
+    }
+    if (dirty) {
+      _frameDirty[renderObject] = null;
+      if (parent != null) _frameReached.add(parent);
+    }
+    return dirty;
+  }
+
+  /// Opens a frame for the origin pass, closing the open one first when
+  /// the frame stamp has moved on.
+  void _openOriginFrame() {
+    final stamp = _frameStamp();
+    if (_originFrameOpen) {
+      if (stamp == _originFrameStamp) return;
+      _closeOriginFrame();
+    }
+    _originFrameOpen = true;
+    _originFrameStamp = stamp;
+    if (!_originFrameEndScheduled) {
+      _originFrameEndScheduled = true;
+      SchedulerBinding.instance.addPostFrameCallback(
+        _onOriginFrameEnd,
+        debugLabel: 'Sleuth.paintOrigins',
+      );
+    }
+  }
+
+  void _handleOriginFrameEnd(Duration _) {
+    _originFrameEndScheduled = false;
+    _closeOriginFrame();
+  }
+
+  /// Credits the open frame's likely origins: every marked node none of
+  /// whose painted children was marked, and every layer root none of
+  /// whose children was marked (a boundary that marked itself).
+  void _closeOriginFrame() {
+    if (!_originFrameOpen) return;
+    final frame = _originFrameStamp;
+    try {
+      _frameDirty.forEach((renderObject, owned) {
+        if (!_frameReached.contains(renderObject)) {
+          _creditOrigin(renderObject, owned, frame);
+        }
+      });
+      for (final root in _frameRoots) {
+        if (!_frameReached.contains(root)) _creditOrigin(root, null, frame);
+      }
+    } finally {
+      _dropOriginFrame();
+    }
+  }
+
+  void _dropOriginFrame() {
+    _originFrameOpen = false;
+    _frameDirty.clear();
+    _frameReached.clear();
+    _frameRoots.clear();
+    _frameCredited.clear();
+  }
+
+  /// Counts one frame for the widget instance credited with
+  /// [renderObject]'s repaint: the nearest widget the app created at or
+  /// above the render object's creator. [owned] is the hook's animation
+  /// ownership verdict, judged here for [frame] when the hook made none.
+  void _creditOrigin(RenderObject renderObject, bool? owned, int? frame) {
+    try {
+      // A render object that another render object made directly has no
+      // creator; it is credited through the nearest one that has.
+      Element? element;
+      for (
+        RenderObject? node = renderObject;
+        node != null;
+        node = node.parent
+      ) {
+        final creator = node.debugCreator;
+        if (creator is DebugCreator) {
+          element = creator.element;
+          break;
+        }
+      }
+      if (element == null || !element.mounted) return;
+      if (OverlayOwnership.isOverlayOwned(element)) return;
+      // A scroll view repaints its viewport and slivers whenever its offset
+      // moves, and the framework's own painters animate its controls (a
+      // scrollbar thumb, a toggle, a tab indicator). Neither is a change
+      // the app made, and both would otherwise be credited to the app
+      // widget around them.
+      if (renderObject is RenderSliver ||
+          renderObject is RenderAbstractViewport ||
+          isFrameworkPainterPaint(element)) {
+        return;
+      }
+      if (semanticsOnlyWidgets.contains(
+            _typeName(element.widget.runtimeType),
+          ) &&
+          SemanticsBinding.instance.semanticsEnabled) {
+        return;
+      }
+      final credited = _nearestUserElement(element);
+      if (credited == null || !_frameCredited.add(credited)) return;
+      final typeName = _typeName(credited.widget.runtimeType);
+      final isOwned =
+          owned ??
+          _isOwnedPaint(element, _attributionFor(element), frame: frame);
+      if (isOwned) {
+        if (_ownedOriginCounts.length < _maxTrackedTypes ||
+            _ownedOriginCounts.containsKey(typeName)) {
+          _ownedOriginCounts[typeName] =
+              (_ownedOriginCounts[typeName] ?? 0) + 1;
+        }
+        return;
+      }
+      // Content that follows the scroll offset while the user scrolls (a
+      // collapsing app bar, a header fading out) repaints because of the
+      // scroll, not because of a change the app made to it.
+      if (_inActiveScroll(element)) return;
+      var instances = _originCounts[typeName];
+      if (instances == null) {
+        if (_originCounts.length >= _maxTrackedTypes) {
+          _originTypesCapped = true;
+          return;
+        }
+        _originCounts[typeName] = instances = <Element, int>{};
+      }
+      final count = instances[credited];
+      if (count == null && instances.length >= maxOriginInstancesPerType) {
+        return;
+      }
+      instances[credited] = (count ?? 0) + 1;
+    } catch (e, s) {
+      // An element torn down since its paint cannot be walked.
+      assert(() {
+        debugPrint('Sleuth: paint origin attribution failed: $e\n$s');
+        return true;
+      }());
+    }
+  }
+
+  /// [element] when the app created its widget, else the nearest ancestor
+  /// whose widget the app created, not looking past the widget Sleuth
+  /// wraps around the app. Null when there is none.
+  Element? _nearestUserElement(Element element) {
+    if (_isUserWidget(element.widget)) return element;
+    Element? found;
+    element.visitAncestorElements((ancestor) {
+      if (OverlayOwnership.isAppBoundary(ancestor)) return false;
+      if (_isUserWidget(ancestor.widget)) {
+        found = ancestor;
+        return false;
+      }
+      return true;
+    });
+    return found;
+  }
+
+  /// Whether a scroll view above [element], below the widget Sleuth wraps
+  /// around the app, is being scrolled (a drag, a fling or an animated
+  /// scroll).
+  static bool _inActiveScroll(Element element) {
+    var scrolling = false;
+    element.visitAncestorElements((ancestor) {
+      if (OverlayOwnership.isAppBoundary(ancestor)) return false;
+      if (ancestor is StatefulElement) {
+        final state = ancestor.state;
+        if (state is ScrollableState &&
+            state.position.isScrollingNotifier.value) {
+          scrolling = true;
+          return false;
+        }
+      }
+      return true;
+    });
+    return scrolling;
   }
 
   /// Ancestors read by the ownership walk ([hasAnimationOwnerAncestor]).

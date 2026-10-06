@@ -244,6 +244,8 @@ void main() {
           ancestorChains: captured.ancestorChains,
           animationOwnedPaintCounts: captured.animationOwnedPaintCounts,
           totalAnimationOwnedPaintCount: captured.totalAnimationOwnedPaintCount,
+          paintOrigins: captured.paintOrigins,
+          paintOriginTypesCapped: captured.paintOriginTypesCapped,
           // residual / 0.1s must clear 30/sec: residual ≥ 4 paints suffices.
           elapsed: const Duration(milliseconds: 100),
           source: captured.source,
@@ -284,6 +286,14 @@ void main() {
               'over-suppressing (treating mixed as fully owned). If more '
               'than one, the gate is double-counting.',
         );
+
+        // Each painter sits alone in its boundary layer, so every one of
+        // its paints is also an origin: the un-owned instance is the only
+        // one counted, and the owned one is disclosed.
+        final origins = captured.paintOrigins['CustomPaint']!;
+        expect(origins.instanceCount, 1);
+        expect(origins.maxCount, residual);
+        expect(origins.animationOwnedCount, ownedCustomPaint);
 
         final issue = repaintIssues.single;
         expect(issue.stableId, 'repaint_debug_CustomPaint');
@@ -461,6 +471,8 @@ void _expectNoIssues(DebugSnapshot captured) {
     ancestorChains: captured.ancestorChains,
     animationOwnedPaintCounts: captured.animationOwnedPaintCounts,
     totalAnimationOwnedPaintCount: captured.totalAnimationOwnedPaintCount,
+    paintOrigins: captured.paintOrigins,
+    paintOriginTypesCapped: captured.paintOriginTypesCapped,
     elapsed: const Duration(milliseconds: 100),
     source: captured.source,
   );

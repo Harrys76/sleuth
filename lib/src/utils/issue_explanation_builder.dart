@@ -1009,33 +1009,48 @@ class IssueExplanationBuilder {
       displayName: 'Widget Repaint (Debug)',
       category: IssueCategory.paint,
       whatItIs:
-          'A specific widget type is triggering frequent repaints. Debug '
-          'callbacks identified this render object as painting more often '
-          'than expected.',
+          'A widget is the likely origin of frequent repaints. In each '
+          'frame, debug callbacks see which render objects were marked as '
+          'needing paint; the deepest marked one in a layer is where the '
+          'repaint most likely started. Widgets that only repaint because '
+          'they share that layer are not reported.',
       readingTheData:
-          'Like one wall in your house that needs a fresh coat every week '
-          '— something about that specific surface keeps getting dirty.\n\n'
-          '• Repaint rate — How many times this render object repainted '
-          'per second, leaving out paints driven by its own animation. '
-          'Normal: 0–1/sec at idle. Alert: ≥30/sec; critical above 2× '
-          'that (>60/sec).\n\n'
-          '• Widget type — The class name of the widget that created the '
-          'repainting render object. Only widgets your code creates are '
-          'counted: your CustomPaint, Padding or DecoratedBox count as '
-          'themselves, while Text, Icon and Image paint through render '
-          'objects the framework creates and have no count of their '
-          'own.\n\n'
-          '• Debug mode only — values may differ in profile mode.\n\n'
+          'Like one wall in your house that needs a fresh coat every week: '
+          'something about that specific surface keeps getting dirty, and '
+          'the rest of the room gets repainted with it.\n\n'
+          '• Repaint rate: how many frames per second the busiest instance '
+          'of this widget type was the likely origin of a repaint, leaving '
+          'out repaints driven by an animation owner. Rates are per '
+          'instance, never summed across instances; the detail says how '
+          'many instances were origins. Normal: 0 to 1/sec at idle. '
+          'Alert: ≥30/sec; critical above 2× that (>60/sec).\n\n'
+          '• Widget type: the nearest widget your code created at or above '
+          'the render object that changed. A Text whose content changes '
+          'reports as Text, although the framework creates the render '
+          'object that paints it.\n\n'
+          '• Likely, not certain: an ancestor that marked itself in the '
+          'same frame as the reported widget looks the same as one marked '
+          'through it.\n\n'
+          '• Debug mode only. Values may differ in profile mode.\n\n'
           '• Source: debugOnProfilePaint callback.',
       whyItMatters:
-          'When one widget type dominates paint activity, it often '
-          'indicates a missing RepaintBoundary or a CustomPainter that '
-          'always returns true from shouldRepaint().',
+          'Each repaint re-records every widget in the same layer, so one '
+          'widget that changes every frame makes everything around it '
+          'repaint too. That usually means a missing RepaintBoundary, an '
+          'animation placed too high in the tree, or a CustomPainter that '
+          'returns true from shouldRepaint() more often than its output '
+          'changes.',
       howToFix:
-          'Wrap the widget in a RepaintBoundary to prevent its repaints '
-          'from propagating to parent layers. If it\'s a CustomPainter, '
-          'implement shouldRepaint() to compare relevant fields. If it\'s '
-          'an animation, ensure only the animating subtree repaints.',
+          'Isolate the part that changes: wrap the reported widget itself, '
+          'or the smallest subtree around it, in a RepaintBoundary, so the '
+          'rest of its layer stops repainting with it. Wrapping a sibling '
+          'does not help: the sibling\'s layer is reused, but the reported '
+          'widget still repaints its own layer. You can also move the '
+          'animation or listenable lower in the tree. A boundary makes '
+          'each repaint cheaper, not rarer; to repaint less often, check '
+          'what marks the widget as needing paint: a setState or listenable '
+          'that fires every frame, or a CustomPainter whose shouldRepaint() '
+          'should compare the fields it draws.',
       whenToIgnore:
           'Widgets inside active animations are expected to repaint every '
           'frame. Sleuth v0.15.3+ skips per-widget repaint reporting when '
@@ -1050,7 +1065,11 @@ class IssueExplanationBuilder {
           'either above or below the painted leaf in the element tree. '
           'If this issue still fires next to an animation, the owning '
           'widget is probably custom — wrap it in an AnimatedBuilder or '
-          'a RepaintBoundary to make the animation explicit.',
+          'a RepaintBoundary to make the animation explicit.\n\n'
+          'Repaints that follow a scroll (the scroll view itself, or a '
+          'collapsing app bar while the user scrolls) and the framework\'s '
+          'own control painters (a scrollbar thumb, a toggle, a tab '
+          'indicator) are not reported.',
       relatedIssues: [
         'excessive_repaint',
         'excessive_repaint_debug',
@@ -1706,9 +1725,13 @@ class IssueExplanationBuilder {
           'Like a painter who checks their work every 5 seconds and touches '
           'up something each time — the constant small changes add up to '
           'significant effort.\n\n'
-          '• Repaint rate — CustomPaint paints per second from debug '
-          'callbacks, excluding paints driven by an animation owner. '
-          'Normal: <10/sec. Alert: >30/sec (fixed threshold).\n\n'
+          '• Repaint rate: how many frames per second the busiest '
+          'CustomPaint was the likely origin of a repaint (debug '
+          'callbacks), excluding repaints driven by an animation owner. '
+          'Paints it made only because something else in its layer '
+          'repainted are not counted, since they never reach '
+          'shouldRepaint(). Normal: <10/sec. Alert: >30/sec (fixed '
+          'threshold).\n\n'
           '• Input change rate — How rapidly the painter\'s Listenable or '
           'fields change. Fast-changing inputs drive high repaint rate.\n\n'
           '• Source: Structural tree walk.',

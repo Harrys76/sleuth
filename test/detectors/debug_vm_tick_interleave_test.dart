@@ -17,6 +17,8 @@ void main() {
 
   setUp(() => fakeNow = DateTime(2026));
 
+  /// A window in which each type in [counts] painted that often and was
+  /// the likely origin of every paint [owned] does not cover.
   DebugSnapshot paints(
     Map<String, int> counts, {
     int? total,
@@ -30,6 +32,14 @@ void main() {
     animationOwnedPaintCounts: owned,
     totalAnimationOwnedPaintCount:
         totalOwned ?? owned.values.fold(0, (a, b) => a + b),
+    paintOrigins: {
+      for (final MapEntry(key: type, value: count) in counts.entries)
+        if (count - (owned[type] ?? 0) > 0)
+          type: PaintOriginStats(
+            maxCount: count - (owned[type] ?? 0),
+            animationOwnedCount: owned[type] ?? 0,
+          ),
+    },
     elapsed: Duration(milliseconds: ms),
   );
 

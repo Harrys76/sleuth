@@ -110,7 +110,12 @@ export 'src/vm/poll_timings.dart' show PollTimings;
 export 'src/vm/service_extension_handlers.dart'
     show kMcpEnvelopeSchemaVersion, kSleuthPackageVersion;
 export 'src/vm/service_extension_registry.dart' show ServiceExtensionRegistry;
-export 'src/debug/debug_snapshot.dart' show DebugSnapshot, RebuildCountSource;
+export 'src/debug/debug_snapshot.dart'
+    show
+        DebugSnapshot,
+        PaintOriginInstance,
+        PaintOriginStats,
+        RebuildCountSource;
 export 'src/models/allocation_entry.dart';
 export 'src/models/cpu_attribution.dart';
 export 'src/models/gc_event_summary.dart';

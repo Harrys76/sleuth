@@ -10,7 +10,6 @@ import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/monotonic_clock.dart';
 import '../utils/rate_hysteresis.dart';
-import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -20,8 +19,9 @@ import '../vm/timeline_parser.dart';
 /// **Hybrid Detector** — the VM timeline measures the share of UI-thread
 /// wall time spent inside PAINT scopes over each ~1 s window
 /// (`excessive_repaint`, confirmed confidence). Debug callbacks provide
-/// per-widget paint rates (`repaint_debug_<type>`) and an aggregate paint
-/// rate fallback (`excessive_repaint_debug`, likely confidence).
+/// per-widget likely repaint origins (`repaint_debug_<type>`, likely
+/// confidence) and an aggregate paint rate fallback
+/// (`excessive_repaint_debug`, likely confidence).
 ///
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
@@ -44,17 +44,17 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
          name: 'Repaint',
          description:
              'Detects paint work above 10% of UI-thread time (VM) or '
-             'widgets repainting over 30 times/sec (debug)',
+             'widgets that start repaints over 30 times/sec (debug)',
        ) {
     _windowStart = _clock();
   }
 
-  /// Per-widget (and debug-aggregate) paints per second above which the
-  /// debug-callback paths fire; critical above 2×. Does not gate the VM
-  /// time-share axis.
+  /// Per-widget origin rate (repaints per second one instance started)
+  /// and debug-aggregate paints per second above which the debug-callback
+  /// paths fire; critical above 2×. Does not gate the VM time-share axis.
   final int paintFrequencyThreshold;
 
-  /// A per-widget paint rate above this many times
+  /// A per-widget origin rate above this many times
   /// [paintFrequencyThreshold] is critical.
   static const int debugCriticalMultiplier = 2;
 
@@ -80,8 +80,9 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// The VM share's issue on display, if any ([_vmHeld]).
   final List<PerformanceIssue> _vmIssues = [];
 
-  /// Per-widget residual paint rates, held across scans so a widget
-  /// repainting at the threshold does not flip on and off.
+  /// Per-widget origin rates (the busiest instance of each type), held
+  /// across scans so a widget repainting at the threshold does not flip
+  /// on and off.
   final RateHysteresis _perWidget = RateHysteresis();
 
   /// Gate B for the latest snapshot: every paint in it, framework paints
@@ -101,14 +102,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   static const double vmExitFactor = 0.8;
 
   final List<WidgetHighlight> _highlights = [];
-  static const int _maxHighlightsPerType = 3;
   bool _isEnabled = true;
-
-  /// Returns the per-widget animation-owned paint count for [typeName],
-  /// as attributed by the coordinator's per-paint walk. Defaults to 0
-  /// when the type has no owned paints in this snapshot.
-  static int _ownedPaintsFor(DebugSnapshot snapshot, String typeName) =>
-      snapshot.animationOwnedPaintCounts[typeName] ?? 0;
 
   /// PAINT scope time accumulated in the open window, in microseconds.
   int _paintTimeUs = 0;
@@ -297,63 +291,61 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     _issues.clear();
     _clearHeld();
     _highlights.clear();
-    _hotTypes = const {};
-    _hotCounts.clear();
+    _hotInstances.clear();
   }
 
-  Map<String, ({double rate, bool critical})> _hotTypes = const {};
-  final Map<String, int> _hotCounts = {};
+  /// The origin instances to outline in this scan: the busiest instances
+  /// of each held type, with their own rate in the snapshot window.
+  final Map<Element, ({String type, double rate, bool critical})>
+  _hotInstances = {};
 
   @override
   void prepareScan(BuildContext context) {
     _highlights.clear();
-    _hotCounts.clear();
+    _hotInstances.clear();
 
-    // Hot types come from the held per-widget residual rates, the same
-    // set the issues use, so the overlay doesn't draw a red box around a
-    // `CircularProgressIndicator` whose paints are fully owned and the
-    // boxes don't blink while the cards stay.
-    _hotTypes = _pendingDebugSnapshot == null
-        ? const {}
-        : {
-            for (final entry in _perWidget.held.entries)
-              entry.key: (
-                rate: entry.value.rate,
-                critical: entry.value.critical,
-              ),
-          };
+    // Hot instances come from the held types, the same set the issues
+    // use, so the boxes don't blink while the cards stay. Only the
+    // instances that started the repaints are outlined, never other
+    // instances of the type that happen to be in the tree.
+    final snapshot = _pendingDebugSnapshot;
+    if (snapshot == null) return;
+    final seconds =
+        snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    for (final MapEntry(key: type, value: held) in _perWidget.held.entries) {
+      final origins = snapshot.paintOrigins[type];
+      if (origins == null) continue;
+      for (final instance in origins.busiest) {
+        final element = instance.element;
+        if (element == null || !element.mounted) continue;
+        _hotInstances[element] = (
+          type: type,
+          rate: seconds > 0 ? instance.count / seconds : held.rate,
+          critical: held.critical,
+        );
+      }
+    }
   }
 
   @override
   void checkElement(Element element) {
-    if (_hotTypes.isEmpty) return;
-
-    final name = typeNameCache.lookup(element.widget);
-    final hot = _hotTypes[name];
-    if (hot != null) {
-      final count = _hotCounts[name] ?? 0;
-      if (count < _maxHighlightsPerType) {
-        final ro = element.renderObject;
-        if (ro != null) {
-          final rect = getGlobalRect(ro);
-          if (rect != null) {
-            _highlights.add(
-              WidgetHighlight(
-                rect: rect,
-                renderObject: ro,
-                widgetName: name,
-                severity: hot.critical
-                    ? IssueSeverity.critical
-                    : IssueSeverity.warning,
-                detectorName: 'Repaint',
-                detail: '${hot.rate.round()} repaints/sec',
-              ),
-            );
-            _hotCounts[name] = count + 1;
-          }
-        }
-      }
-    }
+    if (_hotInstances.isEmpty) return;
+    final hot = _hotInstances[element];
+    if (hot == null) return;
+    final ro = element.renderObject;
+    if (ro == null) return;
+    final rect = getGlobalRect(ro);
+    if (rect == null) return;
+    _highlights.add(
+      WidgetHighlight(
+        rect: rect,
+        renderObject: ro,
+        widgetName: hot.type,
+        severity: hot.critical ? IssueSeverity.critical : IssueSeverity.warning,
+        detectorName: 'Repaint',
+        detail: 'likely repaint origin, ${hot.rate.round()}/sec',
+      ),
+    );
   }
 
   @override
@@ -365,14 +357,18 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   void updateDebugSnapshot(DebugSnapshot snapshot) {
     _pendingDebugSnapshot = snapshot;
     final us = snapshot.elapsed.inMicroseconds;
+    // Gate A: a type's rate is its busiest instance's origin count, which
+    // already leaves out frames an animation owner drove. Instances are
+    // never summed, so forty widgets of one type at 10/sec each read as
+    // 10/sec.
     _perWidget.update(
       counts: {
-        for (final entry in snapshot.paintCounts.entries)
-          if (entry.value - _ownedPaintsFor(snapshot, entry.key) > 0)
-            entry.key: entry.value - _ownedPaintsFor(snapshot, entry.key),
+        for (final MapEntry(key: type, value: origins)
+            in snapshot.paintOrigins.entries)
+          if (origins.maxCount > 0) type: origins.maxCount,
       },
       elapsedUs: us,
-      capped: snapshot.paintTypesCapped,
+      capped: snapshot.paintOriginTypesCapped,
       thresholdFor: (_) => paintFrequencyThreshold.toDouble(),
       criticalMultiplier: debugCriticalMultiplier.toDouble(),
     );
@@ -561,30 +557,22 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       ? value.toStringAsFixed(0)
       : value.toStringAsFixed(1);
 
-  /// Debug callback path — per-widget paint attribution.
+  /// Debug callback path: per-widget likely repaint origins.
   ///
-  /// **Gate A — per-widget residual subtraction.**
-  /// Earlier (v0.15.3) this gate did `if (_isAnimationOwned(...))
-  /// continue;` — a binary skip-or-fire on the cached ancestor chain.
-  /// That behaved correctly for monomorphic typeNames, but for
-  /// polymorphic keys like `'CustomPaint'` (where one widget's paints
-  /// are 100% owned by `CircularProgressIndicator` and another's are
-  /// not owned at all), the chain belonged to whoever was seen first
-  /// and the gate either fully suppressed the chart's bug or fully
-  /// fired on the indicator's spinner.
+  /// The coordinator reads, in each frame, which painted render objects
+  /// were marked as needing paint and credits the deepest marked one of
+  /// each layer to the nearest widget the app created
+  /// ([DebugSnapshot.paintOrigins]). Widgets that repaint only because
+  /// they share that layer are not counted, so one animating painter
+  /// yields one card, not one per widget around it.
   ///
-  /// The fix: the coordinator now does per-paint attribution and the
-  /// snapshot carries a per-widget owned-count subset. Each paint is
-  /// judged on its live element; the totals come back here as
-  /// `paintCounts[typeName] = total` and
-  /// `animationOwnedPaintCounts[typeName] = owned`. We compute the
-  /// residual (`total - owned`), recompute the rate from the residual,
-  /// and compare *that* against the threshold. Mixed-ownership widgets
-  /// fire on their unowned subset and surface the owned subset as a
-  /// disclosure suffix in the detail line.
+  /// **Gate A: animation-owned origins.** Each origin is judged on its
+  /// live element for an active animation owner; owned frames are left
+  /// out of the instance counts and disclosed in the detail line.
   ///
-  /// The held types come from [RateHysteresis] over those residuals; the
-  /// owned share in the detail is the latest window's.
+  /// The held types come from [RateHysteresis] over the busiest
+  /// instance's count; the instance count and owned share in the detail
+  /// are the latest window's.
   List<PerformanceIssue> _perWidgetIssues(DebugSnapshot snapshot) => [
     for (final MapEntry(key: typeName, value: held) in _perWidget.held.entries)
       _perWidgetIssue(typeName, held, snapshot),
@@ -596,36 +584,51 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     DebugSnapshot snapshot,
   ) {
     final rate = held.rate;
-    final ownedCount = _ownedPaintsFor(snapshot, typeName);
+    final origins = snapshot.paintOrigins[typeName];
+    final instances = origins?.instanceCount ?? 1;
+    final ownedCount = origins?.animationOwnedCount ?? 0;
+    final chain = origins?.ancestorChain ?? snapshot.ancestorChains[typeName];
     final (hint, effort) = FixHintBuilder.repaintDebugType(
       typeName: typeName,
       rate: rate.round(),
-      ancestorChain: snapshot.ancestorChains[typeName],
+      ancestorChain: chain,
     );
+    final instanceNote = instances > 1
+        ? ' (the busiest of $instances instances)'
+        : '';
     final ownedSuffix = ownedCount > 0
-        ? ' Excludes $ownedCount animation-owned paint'
+        ? ' Excludes $ownedCount animation-owned repaint'
               '${ownedCount == 1 ? '' : 's'} in the last window.'
         : '';
     return PerformanceIssue(
       stableId: 'repaint_debug_$typeName',
       severity: held.critical ? IssueSeverity.critical : IssueSeverity.warning,
       category: IssueCategory.paint,
-      confidence: IssueConfidence.confirmed,
-      title: 'Excessive Repainting: $typeName (${rate.round()}/sec)',
+      // Whether the widget repainted is observed, but naming it as the
+      // origin is a heuristic: the deepest node marked as needing paint
+      // is where a repaint likely started, and an ancestor that marked
+      // itself in the same frame cannot be told apart from one its child
+      // marked. So the card is likely, not confirmed.
+      confidence: IssueConfidence.likely,
+      title: 'Likely Repaint Origin: $typeName (${rate.round()}/sec)',
       detail:
-          '$typeName: ${held.count} repaints in '
-          '${held.seconds.toStringAsFixed(1)}s '
-          '(${rate.round()}/sec).$ownedSuffix',
+          '$typeName$instanceNote was the likely origin of '
+          '${held.count} repaints in ${held.seconds.toStringAsFixed(1)}s '
+          '(${rate.round()}/sec): the deepest widget marked as needing '
+          'paint in its layer. Widgets that only repainted because they '
+          'share that layer are not counted.$ownedSuffix',
       fixHint: hint,
       fixEffort: effort,
       widgetName: typeName,
-      ancestorChain: snapshot.ancestorChains[typeName],
+      ancestorChain: chain,
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
       confidenceReason: ownedCount > 0
-          ? 'Measured directly from debug callback paint counter '
-                '(animation-owned paints excluded)'
-          : 'Measured directly from debug callback paint counter',
+          ? 'Debug paint callbacks: deepest widget marked as needing paint '
+                'in its layer, a likely origin rather than a measured cause '
+                '(animation-owned repaints excluded)'
+          : 'Debug paint callbacks: deepest widget marked as needing paint '
+                'in its layer, a likely origin rather than a measured cause',
     );
   }
 
@@ -704,8 +707,10 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
         '`> paintTimePercentThreshold` default 10 %, critical at `> 3×` '
         '= 30 %), `excessive_repaint_debug` (debug-callback aggregate '
         'paint rate, animation-owned paints excluded), and parametric '
-        '`repaint_debug_<typeName>` (per-widget paints/sec against '
-        '`paintFrequencyThreshold`, declared via `parametricFamilies` — '
+        '`repaint_debug_<typeName>` (per-instance likely-origin '
+        'repaints/sec against `paintFrequencyThreshold`: the deepest node '
+        'marked as needing paint in each layer, credited to the nearest '
+        'app-created widget; declared via `parametricFamilies`, so a '
         'concrete `repaint_debug_CustomPaint` credits the family via the '
         '`_` separator matcher). VM → TimelineParser → detector boundary '
         'exercised via cross-harness reproducer (raw '

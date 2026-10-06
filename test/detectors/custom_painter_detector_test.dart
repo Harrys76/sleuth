@@ -185,6 +185,7 @@ void main() {
             rebuildCounts: {},
             totalPaintCount: 50,
             paintCounts: {'CustomPaint': 20},
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 20)},
             elapsed: Duration(seconds: 1),
           ),
         );
@@ -214,6 +215,7 @@ void main() {
             rebuildCounts: {},
             totalPaintCount: 10,
             paintCounts: {'CustomPaint': 5},
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 5)},
             elapsed: Duration(seconds: 1),
           ),
         );
@@ -242,6 +244,7 @@ void main() {
               rebuildCounts: {},
               totalPaintCount: 50,
               paintCounts: {'CustomPaint': 50},
+              paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 50)},
               elapsed: Duration(seconds: 1),
             ),
           );
@@ -262,8 +265,40 @@ void main() {
           expect(detector.issues.first.severity, IssueSeverity.warning);
           expect(detector.issues.first.confidence, IssueConfidence.possible);
           expect(detector.issues.first.title, contains('50/sec'));
+          expect(
+            detector.issues.first.detail,
+            contains('likely origin of 50 repaints/sec'),
+          );
         },
       );
+
+      testWidgets('a CustomPaint that only shares a repainting layer is not '
+          'blamed', (tester) async {
+        // It painted 60 times because a neighbour repainted the layer,
+        // but it was never where a repaint started.
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 180,
+            paintCounts: {'CustomPaint': 60, 'Text': 60},
+            paintOrigins: {'Text': PaintOriginStats(maxCount: 60)},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomPaint(
+              painter: _NeverRepaintPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty);
+      });
 
       testWidgets(
         'no duplicate issue when always-repaint painter has high paint rate',
@@ -273,6 +308,7 @@ void main() {
               rebuildCounts: {},
               totalPaintCount: 50,
               paintCounts: {'CustomPaint': 50},
+              paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 50)},
               elapsed: Duration(seconds: 1),
             ),
           );
@@ -327,6 +363,13 @@ void main() {
             paintCounts: {'CustomPaint': raw},
             animationOwnedPaintCounts: {'CustomPaint': owned},
             totalAnimationOwnedPaintCount: owned,
+            paintOrigins: {
+              if (raw > owned)
+                'CustomPaint': PaintOriginStats(
+                  maxCount: raw - owned,
+                  animationOwnedCount: owned,
+                ),
+            },
             elapsed: const Duration(seconds: 1),
           );
 
@@ -441,6 +484,7 @@ void main() {
         rebuildCounts: {},
         totalPaintCount: 40,
         paintCounts: {'CustomPaint': 40},
+        paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 40)},
         elapsed: Duration(seconds: 1),
       );
 
@@ -504,6 +548,7 @@ void main() {
         rebuildCounts: {},
         totalPaintCount: 40,
         paintCounts: {'CustomPaint': 40},
+        paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 40)},
         elapsed: Duration(seconds: 1),
       );
 

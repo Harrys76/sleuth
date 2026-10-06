@@ -358,30 +358,101 @@ void main() {
       expect(detector.lifecycle, DetectorLifecycle.hybrid);
     });
 
-    group('per-widget paint attribution', () {
+    group('per-widget repaint origins', () {
       setUp(() {
         detector.vmConnected = false;
       });
 
-      test('produces per-widget issues with confirmed confidence', () {
+      test('produces per-widget issues with likely confidence', () {
         detector.updateDebugSnapshot(
           const DebugSnapshot(
             rebuildCounts: {},
             totalPaintCount: 80,
             paintCounts: {'CustomPaint': 50, 'SomeWidget': 5},
+            paintOrigins: {
+              'CustomPaint': PaintOriginStats(maxCount: 50),
+              'SomeWidget': PaintOriginStats(maxCount: 5),
+            },
             elapsed: Duration(seconds: 1),
           ),
         );
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.title, contains('CustomPaint'));
-        expect(detector.issues.first.confidence, IssueConfidence.confirmed);
-        expect(detector.issues.first.widgetName, 'CustomPaint');
-        expect(
-          detector.issues.first.observationSource,
-          ObservationSource.debugCallback,
+        final issue = detector.issues.first;
+        expect(issue.title, 'Likely Repaint Origin: CustomPaint (50/sec)');
+        expect(issue.detail, contains('likely origin of 50 repaints'));
+        expect(issue.confidence, IssueConfidence.likely);
+        expect(issue.widgetName, 'CustomPaint');
+        expect(issue.observationSource, ObservationSource.debugCallback);
+      });
+
+      test('widgets that only share the layer get no card', () {
+        // Every widget in a repainting layer paints each frame; only the
+        // origin counts.
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 360,
+            paintCounts: {
+              'Center': 60,
+              'Column': 60,
+              'Padding': 120,
+              'SizedBox': 120,
+              'CustomPaint': 60,
+            },
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 60)},
+            elapsed: Duration(seconds: 1),
+          ),
         );
+        detector.evaluateNow();
+
+        expect(detector.issues.map((i) => i.stableId), [
+          'repaint_debug_CustomPaint',
+        ]);
+      });
+
+      test('the rate is the busiest instance, never a sum', () {
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 400,
+            paintCounts: {'Gauge': 400},
+            paintOrigins: {
+              'Gauge': PaintOriginStats(maxCount: 10, instanceCount: 40),
+            },
+            elapsed: Duration(seconds: 1),
+          ),
+        );
+        detector.evaluateNow();
+        expect(
+          detector.issues.where(
+            (i) => i.stableId!.startsWith('repaint_debug_'),
+          ),
+          isEmpty,
+        );
+
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 400,
+            paintCounts: {'Gauge': 400},
+            paintOrigins: {
+              'Gauge': PaintOriginStats(
+                maxCount: 40,
+                instanceCount: 3,
+                ancestorChain: 'Dashboard > Gauge',
+              ),
+            },
+            elapsed: Duration(seconds: 1),
+          ),
+        );
+        detector.evaluateNow();
+        final issue = detector.issues.single;
+        expect(issue.title, contains('(40/sec)'));
+        expect(issue.detail, contains('Gauge (the busiest of 3 instances)'));
+        expect(issue.ancestorChain, 'Dashboard > Gauge');
+        expect(issue.fixHint, contains('Dashboard > Gauge'));
       });
 
       test('per-widget takes priority over VM when both available', () {
@@ -395,6 +466,7 @@ void main() {
             rebuildCounts: {},
             totalPaintCount: 80,
             paintCounts: {'CustomPaint': 50},
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 50)},
             elapsed: Duration(seconds: 1),
           ),
         );
@@ -415,6 +487,7 @@ void main() {
             rebuildCounts: {},
             totalPaintCount: 30,
             paintCounts: {'CustomPaint': 20},
+            paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 20)},
             elapsed: Duration(milliseconds: 500),
           ),
         );
@@ -453,6 +526,7 @@ void main() {
             rebuildCounts: {},
             totalPaintCount: 60,
             paintCounts: {'MyWidget': 50},
+            paintOrigins: {'MyWidget': PaintOriginStats(maxCount: 50)},
             elapsed: Duration(seconds: 1),
           ),
         );
@@ -485,6 +559,11 @@ void main() {
             rebuildCounts: {},
             totalPaintCount: 60,
             paintCounts: {'TypeA': 5, 'TypeB': 5, 'TypeC': 5},
+            paintOrigins: {
+              'TypeA': PaintOriginStats(maxCount: 5),
+              'TypeB': PaintOriginStats(maxCount: 5),
+              'TypeC': PaintOriginStats(maxCount: 5),
+            },
             elapsed: Duration(seconds: 1),
           ),
         );
@@ -505,12 +584,14 @@ void main() {
             rebuildCounts: {},
             totalPaintCount: 100,
             paintCounts: {'HeavyWidget': 70},
+            paintOrigins: {'HeavyWidget': PaintOriginStats(maxCount: 70)},
             elapsed: Duration(seconds: 1),
           ),
         );
         detector.evaluateNow();
 
-        expect(detector.issues.first.severity, IssueSeverity.critical);
+        expect(detector.issues.single.stableId, 'repaint_debug_HeavyWidget');
+        expect(detector.issues.single.severity, IssueSeverity.critical);
       });
     });
   });
@@ -579,32 +660,46 @@ void main() {
       detector.vmConnected = false;
     });
 
-    testWidgets(
-      'debug snapshot with high paint rate produces highlights for matching widgets',
-      (tester) async {
-        await tester.pumpWidget(
-          const Directionality(
-            textDirection: TextDirection.ltr,
-            child: _TestPaintWidget(),
-          ),
+    /// A one-second window in which each element of [instances] was the
+    /// likely origin of [count] repaints.
+    DebugSnapshot originsOf(List<Element> instances, int count) =>
+        DebugSnapshot(
+          rebuildCounts: const {},
+          totalPaintCount: count,
+          paintCounts: {'_TestPaintWidget': count},
+          paintOrigins: {
+            '_TestPaintWidget': PaintOriginStats(
+              maxCount: count,
+              instanceCount: instances.length,
+              busiest: [
+                for (final element in instances)
+                  PaintOriginInstance(element: element, count: count),
+              ],
+            ),
+          },
+          elapsed: const Duration(seconds: 1),
         );
 
-        detector.updateDebugSnapshot(
-          const DebugSnapshot(
-            rebuildCounts: {},
-            totalPaintCount: 50,
-            paintCounts: {'_TestPaintWidget': 50},
-            elapsed: Duration(seconds: 1),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+    testWidgets('debug snapshot with a high origin rate outlines the origin', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: _TestPaintWidget(),
+        ),
+      );
 
-        expect(detector.highlights, isNotEmpty);
-        expect(detector.highlights.first.widgetName, '_TestPaintWidget');
-        expect(detector.highlights.first.detectorName, 'Repaint');
-        expect(detector.highlights.first.detail, contains('50 repaints/sec'));
-      },
-    );
+      detector.updateDebugSnapshot(
+        originsOf([tester.element(find.byType(_TestPaintWidget))], 50),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights, isNotEmpty);
+      expect(detector.highlights.first.widgetName, '_TestPaintWidget');
+      expect(detector.highlights.first.detectorName, 'Repaint');
+      expect(detector.highlights.first.detail, 'likely repaint origin, 50/sec');
+    });
 
     testWidgets('no debug snapshot produces no highlights', (tester) async {
       await tester.pumpWidget(
@@ -627,19 +722,15 @@ void main() {
       );
 
       detector.updateDebugSnapshot(
-        const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 10,
-          paintCounts: {'_TestPaintWidget': 10},
-          elapsed: Duration(seconds: 1),
-        ),
+        originsOf([tester.element(find.byType(_TestPaintWidget))], 10),
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights, isEmpty);
     });
 
-    testWidgets('caps highlights at 3 per type', (tester) async {
+    testWidgets('outlines only the origin instances, not other instances '
+        'of the type', (tester) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -651,18 +742,40 @@ void main() {
           ),
         ),
       );
+      Element instance(int i) => tester.element(find.byKey(ValueKey(i)));
+
+      detector.updateDebugSnapshot(originsOf([instance(7), instance(2)], 50));
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights.map((h) => h.renderObject), [
+        instance(2).renderObject,
+        instance(7).renderObject,
+      ]);
+    });
+
+    testWidgets('a held type with no kept instance outlines nothing', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: _TestPaintWidget(),
+        ),
+      );
 
       detector.updateDebugSnapshot(
         const DebugSnapshot(
           rebuildCounts: {},
           totalPaintCount: 50,
           paintCounts: {'_TestPaintWidget': 50},
+          paintOrigins: {'_TestPaintWidget': PaintOriginStats(maxCount: 50)},
           elapsed: Duration(seconds: 1),
         ),
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.highlights.length, 3);
+      expect(detector.issues.single.stableId, 'repaint_debug__TestPaintWidget');
+      expect(detector.highlights, isEmpty);
     });
 
     testWidgets('critical severity at 2x threshold', (tester) async {
@@ -675,12 +788,7 @@ void main() {
 
       // 65/sec > 30 * 2 = 60 → critical
       detector.updateDebugSnapshot(
-        const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 65,
-          paintCounts: {'_TestPaintWidget': 65},
-          elapsed: Duration(seconds: 1),
-        ),
+        originsOf([tester.element(find.byType(_TestPaintWidget))], 65),
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
@@ -696,12 +804,7 @@ void main() {
       );
 
       detector.updateDebugSnapshot(
-        const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          paintCounts: {'_TestPaintWidget': 50},
-          elapsed: Duration(seconds: 1),
-        ),
+        originsOf([tester.element(find.byType(_TestPaintWidget))], 50),
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
       expect(detector.highlights, isNotEmpty);
@@ -746,8 +849,9 @@ void main() {
       detector.vmConnected = false;
     });
 
-    // Gate A: every paint of `CustomPaint` is owned (residual=0)
-    // → no issue emitted even at 60 paints/sec.
+    // Gate A: every origin frame of `CustomPaint` was owned, so the
+    // coordinator reports no unowned origin for it → no issue emitted
+    // even at 60 paints/sec.
     test('Gate A skips per-widget when fully owned (residual=0)', () {
       detector.updateDebugSnapshot(
         const DebugSnapshot(
@@ -778,8 +882,9 @@ void main() {
           rebuildCounts: {},
           totalPaintCount: 60,
           paintCounts: {'CustomPaint': 60},
-          // animationOwnedPaintCounts intentionally omitted (defaults to
-          // const {}). Coordinator never marked any of these as owned.
+          // animationOwnedCount intentionally omitted (defaults to 0).
+          // Coordinator never marked any of these as owned.
+          paintOrigins: {'CustomPaint': PaintOriginStats(maxCount: 60)},
           elapsed: Duration(seconds: 1),
         ),
       );
@@ -804,6 +909,12 @@ void main() {
           totalPaintCount: 60,
           paintCounts: {'CustomPaint': 60},
           animationOwnedPaintCounts: {'CustomPaint': 0},
+          paintOrigins: {
+            'CustomPaint': PaintOriginStats(
+              maxCount: 60,
+              animationOwnedCount: 0,
+            ),
+          },
           elapsed: Duration(seconds: 1),
         ),
       );
@@ -828,6 +939,12 @@ void main() {
           paintCounts: {'CustomPaint': 60},
           animationOwnedPaintCounts: {'CustomPaint': 30},
           totalAnimationOwnedPaintCount: 30,
+          paintOrigins: {
+            'CustomPaint': PaintOriginStats(
+              maxCount: 30,
+              animationOwnedCount: 30,
+            ),
+          },
           elapsed: Duration(seconds: 1),
         ),
       );
@@ -846,7 +963,7 @@ void main() {
       expect(issue.title, isNot(contains('60/sec')));
       // Detail discloses the exclusion accounting.
       expect(issue.detail, contains('30 repaints'));
-      expect(issue.detail, contains('Excludes 30 animation-owned paint'));
+      expect(issue.detail, contains('Excludes 30 animation-owned repaints'));
     });
 
     // Gate A residual below threshold: 60 total - 35 owned = 25
@@ -860,6 +977,12 @@ void main() {
           paintCounts: {'CustomPaint': 60},
           animationOwnedPaintCounts: {'CustomPaint': 35},
           totalAnimationOwnedPaintCount: 35,
+          paintOrigins: {
+            'CustomPaint': PaintOriginStats(
+              maxCount: 25,
+              animationOwnedCount: 35,
+            ),
+          },
           elapsed: Duration(seconds: 1),
         ),
       );
@@ -1201,6 +1324,7 @@ void main() {
           rebuildCounts: {},
           totalPaintCount: 31,
           paintCounts: {'MyChart': 31},
+          paintOrigins: {'MyChart': PaintOriginStats(maxCount: 31)},
           elapsed: Duration(seconds: 1),
         ),
       );

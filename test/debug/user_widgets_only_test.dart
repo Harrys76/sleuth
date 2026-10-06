@@ -75,6 +75,14 @@ void main() {
     // Framework paints stay in the aggregate.
     final perType = snap.paintCounts.values.fold<int>(0, (a, b) => a + b);
     expect(snap.totalPaintCount, greaterThan(perType));
+    // The painter and the button label start the repaints; the app bar
+    // title only shares the route's layer. The label's RenderParagraph is
+    // the framework's, so the Text the app wrote is credited.
+    expect(snap.paintOrigins.keys.toSet(), {'CustomPaint', 'Text'});
+    final label = snap.paintOrigins['Text']!;
+    expect(label.instanceCount, 1);
+    expect(label.maxCount, greaterThanOrEqualTo(25));
+    expect((label.busiest.single.element!.widget as Text).data, isNot('Title'));
   }, semanticsEnabled: false);
 
   testWidgets('userWidgetsOnly: false counts the framework widgets too', (

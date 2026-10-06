@@ -111,16 +111,13 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     if (_found.isNotEmpty) {
       final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
 
-      // Check debug snapshot for CustomPaint paint activity.
+      // Check debug snapshot for CustomPaint repaint activity.
       IssueConfidence confidence = IssueConfidence.possible;
       ObservationSource? source;
       final ds = _lastDebugSnapshot;
-      if (ds != null && ds.paintCounts.isNotEmpty) {
-        final cpRate = _residualCustomPaintRate(ds);
-        if (cpRate > 10) {
-          confidence = IssueConfidence.likely;
-          source = ObservationSource.debugCallbackAndStructural;
-        }
+      if (ds != null && _customPaintOriginRate(ds) > 10) {
+        confidence = IssueConfidence.likely;
+        source = ObservationSource.debugCallbackAndStructural;
       }
 
       final (hint1, effort1) = FixHintBuilder.alwaysRepaintPainter();
@@ -146,13 +143,13 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
       );
     }
 
-    // Secondary heuristic: painters that passed self-comparison but have
-    // high paint rates may have problematic shouldRepaint logic that
-    // only manifests with different old/new instances.
+    // Secondary heuristic: painters that passed self-comparison but start
+    // repaints often may have problematic shouldRepaint logic that only
+    // manifests with different old/new instances.
     if (_found.isEmpty && _userPaintCount > 0) {
       final ds = _lastDebugSnapshot;
-      if (ds != null && ds.paintCounts.isNotEmpty) {
-        final cpRate = _residualCustomPaintRate(ds);
+      if (ds != null) {
+        final cpRate = _customPaintOriginRate(ds);
         if (cpRate > 30) {
           final (hint2, effort2) = FixHintBuilder.frequentRepaintPainter();
 
@@ -164,13 +161,14 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
               confidence: IssueConfidence.possible,
               title: 'Frequent CustomPainter Repaints: ${cpRate.round()}/sec',
               detail:
-                  'CustomPainter is repainting at ${cpRate.round()}/sec. '
-                  'Verify shouldRepaint() returns false when visual state '
-                  "hasn't changed.",
+                  'A CustomPaint was the likely origin of '
+                  '${cpRate.round()} repaints/sec. Verify shouldRepaint() '
+                  "returns false when visual state hasn't changed.",
               fixHint: hint2,
               fixEffort: effort2,
               observationSource: ObservationSource.debugCallbackAndStructural,
-              confidenceReason: 'Debug callback paint rate + structural scan',
+              confidenceReason:
+                  'Debug callback likely-origin rate + structural scan',
               detectedAt: DateTime.now(),
             ),
           );
@@ -179,20 +177,15 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  /// CustomPaint paints per second that no animation owner drove:
-  /// `paintCounts['CustomPaint']` minus
-  /// `animationOwnedPaintCounts['CustomPaint']`, over the same window.
-  /// Animation-driven paints (progress indicators, transitions) are
-  /// expected to repaint every frame and say nothing about shouldRepaint.
-  static double _residualCustomPaintRate(DebugSnapshot snapshot) {
-    final us = snapshot.elapsed.inMicroseconds;
-    if (us == 0) return 0;
-    final total = snapshot.paintCounts['CustomPaint'] ?? 0;
-    final owned = snapshot.animationOwnedPaintCounts['CustomPaint'] ?? 0;
-    final residual = total - owned;
-    if (residual <= 0) return 0;
-    return residual / (us / Duration.microsecondsPerSecond);
-  }
+  /// Repaints per second the busiest CustomPaint was the likely origin
+  /// of, leaving out frames an animation owner drove
+  /// ([DebugSnapshot.paintOrigins]). A CustomPaint that only repaints
+  /// because something else in its layer did never reaches its painter's
+  /// shouldRepaint, so those paints are not counted; animation-driven
+  /// repaints (progress indicators, transitions) are expected every frame
+  /// and say nothing about shouldRepaint either.
+  static double _customPaintOriginRate(DebugSnapshot snapshot) =>
+      snapshot.paintOriginsPerSecondForType('CustomPaint');
 
   @override
   void dispose() {
@@ -210,10 +203,11 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
         'Hermetic reproducer pins both emission branches: '
         '`always_repaint_painter` (shouldRepaint self-comparison returns '
         'true, exercised on both `painter` and `foregroundPainter` '
-        'slots) and `frequent_repaint_painter` (residual CustomPaint '
-        'paints/sec > 30, excluding animation-owned paints, '
-        'via injected `DebugSnapshot`, silent at threshold — '
-        'strict-greater). The "always-repaint suppresses frequent" '
+        'slots) and `frequent_repaint_painter` (CustomPaint '
+        'likely-origin repaints/sec > 30 for the busiest instance, '
+        'excluding animation-owned repaints and repaints it only shared '
+        'with its layer, via injected `DebugSnapshot`, silent at the '
+        'threshold, strict-greater). The "always-repaint suppresses frequent" '
         'ordering contract is pinned as a negative control so both '
         'branches cannot fire simultaneously. Framework toggle and '
         'scrollbar painters (ToggleablePainter, ScrollbarPainter) are '
