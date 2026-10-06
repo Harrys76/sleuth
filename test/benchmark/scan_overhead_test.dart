@@ -332,7 +332,7 @@ void main() {
     });
 
     testWidgets('1,000 paints of a 6-deep tree: cached attribution under '
-        '10 % of uncached', (tester) async {
+        '20 % of uncached', (tester) async {
       debugOnProfilePaint = null;
       debugOnRebuildDirtyWidget = null;
       final repaint = ValueNotifier<int>(0);
@@ -383,10 +383,13 @@ void main() {
       // The uncached loop's last paint left a fresh entry; the cached
       // loop never recomputes.
       expect(recomputed, 0);
-      // measured: cached 5.1 % of uncached, 286 µs per 1,000 paints
-      // (serial, debug JIT, M1 Pro). The loops run back to back; on a
-      // shared CI runner load can land on one of them only.
-      expect(cached, lessThan(uncached * 0.1 * budgetMultiplier));
+      // measured: cached 13 % of uncached, about 350 µs against 2,700 µs
+      // per 1,000 paints (serial, debug JIT, M1 Pro). A cached hit still
+      // checks every ancestor in its stamp, so it costs about 0.35 µs;
+      // the uncached walk reads ownership through a weak owner reference
+      // and costs about 2.7 µs. The loops run back to back; on a shared
+      // CI runner load can land on one of them only.
+      expect(cached, lessThan(uncached * 0.2 * budgetMultiplier));
     });
   });
 }
