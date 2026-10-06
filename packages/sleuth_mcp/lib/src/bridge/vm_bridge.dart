@@ -492,7 +492,12 @@ class RealVmBridge implements VmBridge, AppLogSource {
         bypassValidatedGate: true,
       );
       await _applyBaseline(diag, acceptSessionRotation: acceptSessionRotation);
-      _listenForAppLogs(_service!);
+      // Wait briefly for the log streams, so get_logs reports `vm_service`
+      // and keeps the app's output from the moment connect returns. A slow
+      // subscription finishes in the background.
+      await _listenForAppLogs(
+        _service!,
+      ).timeout(_appLogListenWait, onTimeout: () {});
       return true;
     } catch (_) {
       // Collapse before rethrow so `isConnected` stays false and any
@@ -1207,11 +1212,14 @@ class RealVmBridge implements VmBridge, AppLogSource {
       _appLogService != null &&
       identical(_appLogService, _service);
 
+  /// Longest wait connect spends on the app log stream subscriptions.
+  static const Duration _appLogListenWait = Duration(seconds: 2);
+
   /// Listens to the app's `Stdout`, `Stderr` and `Logging` streams on
   /// [service]. Runs after every successful connect, so a reconnect listens
   /// again on the new connection. A stream that cannot be listened to costs
   /// only its log lines, never the connection.
-  void _listenForAppLogs(vm.VmService service) {
+  Future<void> _listenForAppLogs(vm.VmService service) {
     for (final subscription in _appLogSubscriptions) {
       unawaited(subscription.cancel());
     }
@@ -1270,7 +1278,7 @@ class RealVmBridge implements VmBridge, AppLogSource {
       }
     }
 
-    unawaited(() async {
+    return () async {
       final listening = await Future.wait([
         listen(vm.EventStreams.kStdout),
         listen(vm.EventStreams.kStderr),
@@ -1279,7 +1287,7 @@ class RealVmBridge implements VmBridge, AppLogSource {
       if (listening.first && identical(_service, service)) {
         _appLogService = service;
       }
-    }());
+    }();
   }
 }
 

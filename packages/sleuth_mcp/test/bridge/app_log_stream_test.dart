@@ -338,10 +338,7 @@ void main() {
       await bridge.connect(wsUri);
       try {
         final watch = Stopwatch()..start();
-        while (!bridge.appLogStreamsActive &&
-            watch.elapsed < const Duration(seconds: 5)) {
-          await Future<void>.delayed(const Duration(milliseconds: 20));
-        }
+        // connect returns once the log streams are listened to.
         expect(bridge.appLogStreamsActive, isTrue);
 
         developer.log('sidecar log probe', name: 'probe', level: 800);
