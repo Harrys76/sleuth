@@ -105,6 +105,28 @@ void main() {
     expect(run.out, contains('"passed":false'));
   });
 
+  test(
+    'asks only for the sections the budgets read, with no issue cap',
+    () async {
+      final bridge = defaultFakeBridge()
+        ..setResponder(
+          'ext.sleuth.snapshot',
+          projectingSnapshotResponder(fullFakeSnapshotData()),
+        );
+      final run = await _check([
+        '--uri',
+        'ws://127.0.0.1:5/x=/ws',
+        '--max-critical-issues',
+        '5',
+      ], bridgeFactory: () => bridge);
+      expect(run.code, checkExitPass, reason: run.err);
+      final sent = bridge.callLog
+          .lastWhere((c) => c.method == 'ext.sleuth.snapshot')
+          .args;
+      expect(sent, {'sections': 'currentIssues,frameStatsSummary'});
+    },
+  );
+
   test('coverage_degraded exits 2', () async {
     final run = await _check([
       '--uri',

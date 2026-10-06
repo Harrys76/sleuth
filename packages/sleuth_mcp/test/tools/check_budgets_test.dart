@@ -188,6 +188,28 @@ void main() {
     expect(_errorText(result), startsWith('arg_capped_issues_unbudgetable:'));
   });
 
+  test('check_budgets asks only for the sections it reads, with no issue '
+      'cap, and evaluates the projected snapshot', () async {
+    final bridge = defaultFakeBridge()
+      ..setResponder(
+        'ext.sleuth.snapshot',
+        projectingSnapshotResponder(fullFakeSnapshotData()),
+      );
+    await bridge.connect(Uri.parse('ws://localhost/ws'));
+    final result =
+        await builtInTools['check_budgets']!.handler(bridge, {
+              'maxCriticalIssues': 5,
+            })
+            as Map<String, Object?>;
+    final sent = bridge.callLog
+        .lastWhere((c) => c.method == 'ext.sleuth.snapshot')
+        .args;
+    expect(sent, {'sections': 'currentIssues,frameStatsSummary'});
+    expect(sent.containsKey('maxIssueCount'), isFalse);
+    expect(result['passed'], isTrue);
+    expect((result['observed'] as Map)['issueCount'], 2);
+  });
+
   test('evaluateBudgets evaluates normally when only maxRouteCount capped', () {
     final result = evaluateBudgets(
       snapshot: {

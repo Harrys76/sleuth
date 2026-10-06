@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:sleuth_mcp/sleuth_mcp.dart';
+import 'package:sleuth_mcp/src/tools/snapshot_disk_handoff.dart'
+    show defaultProcessAliveCheck;
 import 'package:test/test.dart';
 
 void main() {
@@ -118,15 +120,41 @@ void main() {
       );
     });
 
+    test('deleteFiles removes the process directory once it is empty, and a '
+        'later write creates it again', () async {
+      final h = SnapshotDiskHandoff(tempDir: tmp);
+      final path = (await h.write(envelope()))['path'] as String;
+      final sessionDir = File(path).parent;
+      h.deleteFiles();
+      expect(File(path).existsSync(), isFalse);
+      expect(sessionDir.existsSync(), isFalse);
+      final again = (await h.write(envelope()))['path'] as String;
+      expect(File(again).existsSync(), isTrue);
+    });
+
     test('cleanupAll removes the process directory once it is empty', () async {
       final h = SnapshotDiskHandoff(tempDir: tmp);
       final path = (await h.write(envelope()))['path'] as String;
       final sessionDir = File(path).parent;
       h.cleanupAll();
       expect(sessionDir.existsSync(), isFalse);
-      // A later write creates it again.
-      final again = (await h.write(envelope()))['path'] as String;
-      expect(File(again).existsSync(), isTrue);
+    });
+
+    test('a write after cleanupAll fails and leaves no file, so a call still '
+        'running at exit cannot write after the exit cleanup', () async {
+      final h = SnapshotDiskHandoff(tempDir: tmp);
+      h.cleanupAll();
+      await expectLater(
+        h.write(envelope()),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('shutting down'),
+          ),
+        ),
+      );
+      expect(tmp.listSync(), isEmpty);
     });
 
     test('cleanupAll keeps the process directory when something else is in '
@@ -178,10 +206,21 @@ void main() {
           final looseFile = File('${tmp.path}/sleuth_snapshot_99999905')
             ..writeAsStringSync('x');
 
-          SnapshotDiskHandoff(tempDir: tmp).sweepStaleProcessDirs();
+          final sweep = SnapshotDiskHandoff(
+            tempDir: tmp,
+            isProcessAlive: (_) async => true,
+          ).sweepStaleProcessDirs();
+          // The empty directories go before the first await, so the startup
+          // call, which does not await the sweep, still removes them.
+          expect(oldEmpty.existsSync(), isFalse);
+          await sweep;
 
           expect(oldEmpty.existsSync(), isFalse);
-          expect(oldFull.existsSync(), isTrue, reason: 'never deletes files');
+          expect(
+            oldFull.existsSync(),
+            isTrue,
+            reason: 'keeps the files of a process that may still run',
+          );
           expect(fresh.existsSync(), isTrue, reason: 'younger than 30 min');
           expect(otherName.existsSync(), isTrue, reason: 'pid must be numeric');
           expect(otherPrefix.existsSync(), isTrue, reason: 'not our prefix');
@@ -195,13 +234,108 @@ void main() {
         testOn: '!windows',
       );
 
-      test('a missing temp dir is not an error', () {
+      test('a missing temp dir is not an error', () async {
         final gone = Directory('${tmp.path}/missing');
-        expect(
-          () => SnapshotDiskHandoff(tempDir: gone).sweepStaleProcessDirs(),
-          returnsNormally,
+        await expectLater(
+          SnapshotDiskHandoff(tempDir: gone).sweepStaleProcessDirs(),
+          completes,
         );
       });
+
+      /// Writes `<name>` into [dir], last modified [age] ago.
+      File handoffFile(Directory dir, String name, Duration age) =>
+          File('${dir.path}/$name')
+            ..writeAsStringSync('{}')
+            ..setLastModifiedSync(DateTime.now().subtract(age));
+
+      test('deletes the aged handoff files of a sidecar whose process is '
+          'gone, then its directory', () async {
+        final crashed = Directory('${tmp.path}/sleuth_snapshot_99999906')
+          ..createSync();
+        final stale = handoffFile(
+          crashed,
+          'a.json',
+          const Duration(minutes: 45),
+        );
+        final checked = <int>[];
+
+        await SnapshotDiskHandoff(
+          tempDir: tmp,
+          isProcessAlive: (owner) async {
+            checked.add(owner);
+            return false;
+          },
+        ).sweepStaleProcessDirs();
+
+        expect(checked, [99999906]);
+        expect(stale.existsSync(), isFalse);
+        expect(crashed.existsSync(), isFalse);
+      });
+
+      test('keeps young files and other files of a process that is gone, and '
+          'the directory with them', () async {
+        final crashed = Directory('${tmp.path}/sleuth_snapshot_99999907')
+          ..createSync();
+        final stale = handoffFile(
+          crashed,
+          'old.json',
+          const Duration(minutes: 45),
+        );
+        final young = handoffFile(
+          crashed,
+          'new.json',
+          const Duration(minutes: 5),
+        );
+        final other = handoffFile(
+          crashed,
+          'keep.txt',
+          const Duration(hours: 2),
+        );
+
+        await SnapshotDiskHandoff(
+          tempDir: tmp,
+          isProcessAlive: (_) async => false,
+        ).sweepStaleProcessDirs();
+
+        expect(stale.existsSync(), isFalse);
+        expect(young.existsSync(), isTrue);
+        expect(other.existsSync(), isTrue);
+        expect(crashed.existsSync(), isTrue);
+      });
+
+      test('keeps every file of a process that still runs', () async {
+        final live = Directory('${tmp.path}/sleuth_snapshot_99999908')
+          ..createSync();
+        final old = handoffFile(live, 'a.json', const Duration(hours: 3));
+
+        await SnapshotDiskHandoff(
+          tempDir: tmp,
+          isProcessAlive: (_) async => true,
+        ).sweepStaleProcessDirs();
+
+        expect(old.existsSync(), isTrue);
+        expect(live.existsSync(), isTrue);
+      });
+
+      test('a liveness check that throws keeps the files', () async {
+        final unknown = Directory('${tmp.path}/sleuth_snapshot_99999909')
+          ..createSync();
+        final old = handoffFile(unknown, 'a.json', const Duration(hours: 3));
+
+        await SnapshotDiskHandoff(
+          tempDir: tmp,
+          isProcessAlive: (_) async => throw StateError('no ps'),
+        ).sweepStaleProcessDirs();
+
+        expect(old.existsSync(), isTrue);
+      });
+
+      test('the default liveness check sees this process and not a pid that '
+          'cannot exist', () async {
+        expect(await defaultProcessAliveCheck(pid), isTrue);
+        // Above the largest pid Linux and macOS hand out.
+        expect(await defaultProcessAliveCheck(99999910), isFalse);
+      }, testOn: '!windows');
     });
 
     test('POSIX file mode is 0600', () async {

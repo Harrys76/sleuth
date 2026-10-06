@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:synchronized/synchronized.dart';
 
 import '../bridge/vm_bridge.dart';
@@ -437,13 +438,40 @@ Future<Object> _getSnapshotHandler(
   }
 
   if (!diskHandoff) return out;
+  return writeSnapshotHandoff(snapshotDiskHandoff, out);
+}
+
+/// Writes [out] through [handoff] for `get_snapshot(diskHandoff: true)` and
+/// returns the pointer, or a `disk_handoff_failed` error when nothing could
+/// be written. A request the client already cancelled writes nothing.
+@visibleForTesting
+Future<Object> writeSnapshotHandoff(
+  SnapshotDiskHandoff handoff,
+  Map<String, Object?> out,
+) async {
+  if (ToolCallContext.current?.isCancelled ?? false) {
+    // The client gave up on this request and never gets a response, so it
+    // would never learn the path. Write nothing.
+    return ToolCallResult.text(
+      'cancelled: the client cancelled the request before the snapshot '
+      'was written',
+      isError: true,
+    );
+  }
   try {
-    return await snapshotDiskHandoff.write(out);
+    return await handoff.write(out);
   } on StateError catch (e) {
     // Fail-closed: handoff refused because it couldn't lock the temp
-    // dir/file to owner-only perms. Surface inline, no loose file.
+    // dir/file to owner-only perms, or the sidecar is shutting down.
+    // Surface inline, no loose file.
     return ToolCallResult.text(
       'disk_handoff_failed: ${e.message}',
+      isError: true,
+    );
+  } on FileSystemException catch (e) {
+    return ToolCallResult.text(
+      'disk_handoff_failed: the snapshot file could not be written: '
+      '${e.message}${e.path == null ? '' : ' (${e.path})'}',
       isError: true,
     );
   }
@@ -710,7 +738,9 @@ final Map<String, BuiltInTool> builtInTools = {
           'Connect to a running Flutter app by its VM service URI, when you '
           'already have the URI. attach_app also connects and can find the '
           'app by device, so use either one before the other tools. Accepts '
-          'the http URI that flutter run prints and the ws form.',
+          'the http URI that flutter run prints and the ws form. While an '
+          'attach_app session is attached or attaching, connect refuses '
+          'with attached_session; call detach_app first.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -946,6 +976,11 @@ final Map<String, BuiltInTool> builtInTools = {
 /// Builds the attach-mode tools bound to [server]. Caller registers
 /// them on the server alongside `builtInTools`.
 ///
+/// It also builds the `connect` tool that the server serves: the built-in
+/// one plus a refusal while an `attach_app` session owns the connection.
+/// The server registers these tools after `builtInTools`, so this one
+/// replaces the built-in `connect`.
+///
 /// Closure capture reads `server.daemonSession` lazily so tests can swap
 /// the session via `setDaemonSession()` between calls.
 Map<String, BuiltInTool> lifecycleTools(McpServer server) {
@@ -953,6 +988,35 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     'internal: daemon session not initialized on this server',
     isError: true,
   );
+
+  // Refusing is safer than detaching the attach first: a detach stops a
+  // flutter attach child or an iOS tunnel the user may still want, can take
+  // up to seven seconds, and connect runs under the generic tool timeout,
+  // which would answer while that detach still ran. The refusal names the
+  // explicit step instead.
+  Future<Object> connectHandler(
+    VmBridge bridge,
+    Map<String, Object?> args,
+  ) async {
+    final session = server.daemonSession;
+    if (session is DaemonSession && session.ownsConnection) {
+      final status = session.status;
+      final via = status.connectedVia;
+      return _typedErrorEnvelope(
+        'attached_session',
+        'an attach_app session owns the connection (state=${status.state}'
+            '${via == null ? '' : ', connectedVia=$via'}). connect would '
+            'point the bridge at another app while that session keeps '
+            'running, so hot_reload would reload one app while the other '
+            'tools read another. Call detach_app first, then connect.',
+        data: <String, Object?>{
+          'remedy': 'detach_app, then connect(uri)',
+          'status': status.toJson(),
+        },
+      );
+    }
+    return _connectHandler(bridge, args);
+  }
 
   Future<Object> attachHandler(
     VmBridge bridge,
@@ -1069,7 +1133,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     try {
       await session.detach();
     } finally {
-      snapshotDiskHandoff.cleanupAll();
+      snapshotDiskHandoff.deleteFiles();
     }
     return session.status.toJson();
   }
@@ -1201,7 +1265,13 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     };
   }
 
+  final builtInConnect = builtInTools['connect']!;
   return {
+    'connect': BuiltInTool(
+      descriptor: builtInConnect.descriptor,
+      handler: connectHandler,
+      bypassesGenericTimeout: builtInConnect.bypassesGenericTimeout,
+    ),
     'attach_app': BuiltInTool(
       descriptor: const Tool(
         name: 'attach_app',

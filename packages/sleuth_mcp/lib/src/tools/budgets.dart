@@ -13,6 +13,22 @@ const int defaultMaxIssues = 999999;
 /// `sleuth_check --max-critical-issues`.
 const int defaultMaxCriticalIssues = 0;
 
+/// The snapshot sections [evaluateBudgets] reads. It also reads
+/// `isVmConnected`, a metadata key that every snapshot carries.
+const List<String> budgetSnapshotSections = [
+  'currentIssues',
+  'frameStatsSummary',
+];
+
+/// `ext.sleuth.snapshot` args for a budget check: only
+/// [budgetSnapshotSections], so a long session does not ship its per-frame
+/// and raw sample data, and no `maxIssueCount`, because a capped issue list
+/// would under-count. An app older than sleuth 0.35 ignores the args and
+/// returns the full snapshot, which the evaluator reads the same way.
+final Map<String, String> budgetSnapshotArgs = Map.unmodifiable({
+  'sections': budgetSnapshotSections.join(','),
+});
+
 /// Evaluate live snapshot against FPS / issue-count budgets. Returns a
 /// `{passed, violations, observed}` shape. Pure data — no exit code
 /// (sidecar is long-running stdio; CI gate is `sleuth_check` binary).
@@ -45,7 +61,10 @@ Future<Object> checkBudgetsHandler(
     );
   }
 
-  final envelope = await bridge.callExtension('ext.sleuth.snapshot');
+  final envelope = await bridge.callExtension(
+    'ext.sleuth.snapshot',
+    args: budgetSnapshotArgs,
+  );
   final data = envelope['data'];
   if (data is! Map<String, Object?>) {
     return ToolCallResult.text(

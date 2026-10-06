@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:sleuth_mcp/sleuth_mcp.dart';
+import 'package:sleuth_mcp/src/mcp/tool_call_context.dart';
 import 'package:sleuth_mcp/src/tools/tools.dart';
 import 'package:test/test.dart';
 
@@ -33,7 +34,9 @@ Map<String, dynamic> _sentArgs(FakeVmBridge bridge) =>
     bridge.callLog.lastWhere((c) => c.method == 'ext.sleuth.snapshot').args;
 
 void main() {
-  tearDown(snapshotDiskHandoff.cleanupAll);
+  // deleteFiles, not cleanupAll: cleanupAll is the exit cleanup and makes
+  // every later write in this isolate fail.
+  tearDown(snapshotDiskHandoff.deleteFiles);
 
   group('section lists', () {
     test('default and heavy sets split the 14 sections with no overlap', () {
@@ -321,6 +324,64 @@ void main() {
               as Map<String, Object?>;
       expect(result['_projectionApplied'], 'by_sidecar_fallback');
       expect(result.containsKey('path'), isTrue);
+    });
+
+    test('a diskHandoff call the client cancelled while the snapshot was '
+        'read writes no file', () async {
+      final bridge = await _projectingBridge();
+      final gate = bridge.gateExtension('ext.sleuth.snapshot');
+      final context = ToolCallContext();
+      final pending = context.run(() => _call(bridge, {'diskHandoff': true}));
+      await Future<void>.delayed(Duration.zero);
+      context.cancel();
+      gate.complete();
+      final result = await pending;
+      expect(result, isA<ToolCallResult>());
+      final text = (result as ToolCallResult).content.first['text'] as String;
+      expect(text, startsWith('cancelled:'));
+      final processDir = Directory(
+        '${Directory.systemTemp.path}/sleuth_snapshot_$pid',
+      );
+      final written = processDir.existsSync()
+          ? processDir.listSync().where((e) => e.path.endsWith('.json'))
+          : const <FileSystemEntity>[];
+      expect(written, isEmpty);
+    });
+
+    test('a handoff whose file cannot be written returns disk_handoff_failed '
+        'instead of throwing', () async {
+      final tmp = Directory.systemTemp.createTempSync('sleuth_handoff_fs_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      // A plain file where the process directory belongs makes every write
+      // fail with a FileSystemException, as a write does when another
+      // sidecar's startup sweep removes the directory under it.
+      File('${tmp.path}/sleuth_snapshot_$pid').writeAsStringSync('x');
+      final result = await writeSnapshotHandoff(
+        SnapshotDiskHandoff(tempDir: tmp),
+        {'data': <String, Object?>{}},
+      );
+      expect(result, isA<ToolCallResult>());
+      final failure = result as ToolCallResult;
+      expect(failure.isError, isTrue);
+      expect(
+        failure.content.first['text'] as String,
+        startsWith('disk_handoff_failed:'),
+      );
+    });
+
+    test('a handoff after the exit cleanup returns disk_handoff_failed and '
+        'writes nothing', () async {
+      final tmp = Directory.systemTemp.createTempSync('sleuth_handoff_exit_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final handoff = SnapshotDiskHandoff(tempDir: tmp)..cleanupAll();
+      final result = await writeSnapshotHandoff(handoff, {
+        'data': <String, Object?>{},
+      });
+      expect(
+        (result as ToolCallResult).content.first['text'] as String,
+        startsWith('disk_handoff_failed:'),
+      );
+      expect(tmp.listSync(), isEmpty);
     });
 
     test('diskHandoff:true with an app ERROR envelope surfaces the error '

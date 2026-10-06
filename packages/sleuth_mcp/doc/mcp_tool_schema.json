@@ -72,7 +72,8 @@
         {"code": "missing_required_arg", "doc": "uri arg missing or empty", "messagePrefix": "missing_required_arg: uri"},
         {"code": "invalid_uri", "doc": "the uri does not parse, its scheme is not http, https, ws or wss, or it has no host", "messagePrefix": "invalid_uri:"},
         {"code": "version_skew_major", "doc": "app packageVersion lineage outside acceptedPriorLineages — bridge disconnected", "messagePrefix": "version_skew_major:"},
-        {"code": "version_skew_unknown", "doc": "diagnose envelope packageVersion missing, non-String, or not a semver major.minor.patch (optional -prerelease / +build) — fail closed", "messagePrefix": "version_skew_unknown:"}
+        {"code": "version_skew_unknown", "doc": "diagnose envelope packageVersion missing, non-String, or not a semver major.minor.patch (optional -prerelease / +build) — fail closed", "messagePrefix": "version_skew_unknown:"},
+        {"code": "attached_session", "doc": "an attach_app session owns the connection: it is attaching, ready, reloading or detaching, or it ended in error but still holds its flutter child, daemon channel or iOS tunnel. connect refuses rather than pointing the bridge at another app while hot_reload would still reload the attached one. Typed envelope; the JSON block carries {error, message, remedy, status} with the AppStatusPayload. Call detach_app, then connect", "messagePrefix": "attached_session:"}
       ]
     },
     "attach_app": {
@@ -211,7 +212,7 @@
       },
       "errors": [
         {"code": "flutter_not_on_path", "doc": "ProcessException — flutter binary unavailable", "messagePrefix": "flutter not on PATH or failed to run:"},
-        {"code": "daemon_failure", "doc": "DaemonSessionException raised inside listDevices", "messagePrefix": "<exception message>"}
+        {"code": "daemon_failure", "doc": "DaemonSessionException raised inside listDevices: flutter devices --machine exited non-zero, printed something other than a JSON array, or did not finish within 15 s, in which case the sidecar killed it (the whole process tree on Windows) and waited at most 2 s more for its output", "messagePrefix": "<exception message>"}
       ]
     },
     "get_logs": {
@@ -302,6 +303,7 @@
         "maxCriticalIssues": {"type": "int", "required": false, "nullable": false, "default": 0, "doc": "most critical issues allowed; same default as sleuth_check --max-critical-issues"}
       },
       "data": {
+        "_doc": "The tool asks ext.sleuth.snapshot for the currentIssues and frameStatsSummary sections only, which come with the metadata keys, and sets no maxIssueCount. An app older than sleuth 0.35 ignores the projection and returns the full snapshot, which is evaluated the same way. sleuth_check requests the same projection.",
         "passed": {"type": "bool", "required": true, "nullable": false},
         "violations": {
           "type": "List<Map>",
@@ -398,7 +400,7 @@
         },
         {
           "name": "disk_handoff",
-          "doc": "When `diskHandoff` is true the sidecar serializes the snapshot envelope to a per-process Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json file (128-bit Random.secure name). The per-pid dir is created 0700 and the file 0600, both verified via FileStat; if owner-only perms cannot be set+verified on POSIX the file is deleted and a `disk_handoff_failed` error is returned (fail-closed). On Windows POSIX modes don't apply. The payload MAY contain mildly-sensitive data (e.g. recentRequests[].url with query tokens), hence the fail-closed perms. Returns {path, sizeBytes, sha256} plus any projection metadata, rather than the inline `data` block. Files are deleted on detach_app, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write (per-pid dir prevents cross-instance sweeps). Detach and shutdown also remove the per-pid dir once it is empty, and at startup the sidecar removes empty sleuth_snapshot_<pid> dirs that earlier processes left, when they are older than 30 minutes. When `diskHandoff` is false/absent the envelope comes back inline. Lineage fallback: if the app predates projection support and the caller requested a projection (sections, maxIssueCount or maxRouteCount), the sidecar stamps `_projectionApplied: by_sidecar_fallback` on the disk-handoff path; on the inline path it returns `projection_unsupported_by_app` instead (the full payload would overflow the response cap)."
+          "doc": "When `diskHandoff` is true the sidecar serializes the snapshot envelope to a per-process Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json file (128-bit Random.secure name). The per-pid dir is created 0700 and the file 0600, both verified via FileStat; if owner-only perms cannot be set+verified on POSIX the file is deleted and a `disk_handoff_failed` error is returned (fail-closed). On Windows POSIX modes don't apply. The payload MAY contain mildly-sensitive data (e.g. recentRequests[].url with query tokens), hence the fail-closed perms. Returns {path, sizeBytes, sha256} plus any projection metadata, rather than the inline `data` block. Files are deleted on detach_app, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write (per-pid dir prevents cross-instance sweeps). Detach and shutdown also remove the per-pid dir once it is empty. After the shutdown cleanup the sidecar writes no new file, so a get_snapshot still running at exit returns disk_handoff_failed instead, and a call the client cancelled before the write writes nothing. At startup the sidecar removes empty sleuth_snapshot_<pid> dirs that earlier processes left, when they are older than 30 minutes; in a non-empty one whose process is gone (a crashed or killed sidecar; checked through /proc on Linux and `ps -p` on other POSIX hosts, not on Windows) it deletes the .json files older than 30 minutes and then the dir once it is empty. When `diskHandoff` is false/absent the envelope comes back inline. Lineage fallback: if the app predates projection support and the caller requested a projection (sections, maxIssueCount or maxRouteCount), the sidecar stamps `_projectionApplied: by_sidecar_fallback` on the disk-handoff path; on the inline path it returns `projection_unsupported_by_app` instead (the full payload would overflow the response cap)."
         }
       ],
       "data": {
@@ -414,7 +416,8 @@
         {"code": "arg_invalid_int", "doc": "ext.sleuth.snapshot: maxIssueCount/maxRouteCount not a non-negative integer"},
         {"code": "arg_pagination_unused", "doc": "ext.sleuth.snapshot: a cap targets a section omitted from `sections`"},
         {"code": "projection_unsupported_by_app", "doc": "the caller requested a projection (sections, maxIssueCount or maxRouteCount) but the app predates projection (sleuth < 0.35); inline full payload would overflow the response cap; re-request with diskHandoff:true or upgrade the app"},
-        {"code": "disk_handoff_failed", "doc": "diskHandoff:true but the temp dir/file could not be locked to owner-only perms (fail-closed); nothing written"}
+        {"code": "disk_handoff_failed", "doc": "diskHandoff:true but the temp dir/file could not be locked to owner-only perms (fail-closed), the file could not be written, or the sidecar is shutting down and already deleted its handoff files; nothing written", "messagePrefix": "disk_handoff_failed:"},
+        {"code": "cancelled", "doc": "diskHandoff:true and the client cancelled the request before the snapshot was written, so nothing was written; the server sends no response for a cancelled request, so only direct callers of the handler see it", "messagePrefix": "cancelled:"}
       ]
     },
     "get_issues": {

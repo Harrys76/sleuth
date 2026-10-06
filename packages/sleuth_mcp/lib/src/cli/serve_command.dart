@@ -34,8 +34,9 @@ List<Stream<ProcessSignal>> shutdownSignals() => [
 /// bounded by the server's exit drain timeout, so with the defaults the
 /// cleanup ends within about 12 seconds.
 ///
-/// At startup it removes the empty handoff directories that earlier
-/// processes left behind ([SnapshotDiskHandoff.sweepStaleProcessDirs]).
+/// At startup it removes the handoff directories that earlier processes
+/// left behind: empty ones, and the files older than 30 minutes in those
+/// whose process is gone ([SnapshotDiskHandoff.sweepStaleProcessDirs]).
 ///
 /// With [startupUri] the server starts serving first and connects in the
 /// background, so a slow connect cannot make the client's `initialize` time
@@ -53,11 +54,8 @@ Future<void> serveUntilExit({
   StringSink? errorSink,
 }) async {
   final err = errorSink ?? stderr;
-  try {
-    handoff.sweepStaleProcessDirs();
-  } catch (e) {
-    logger?.add('stale handoff directory sweep failed: $e');
-  }
+  // The sweep never fails and runs in the background.
+  unawaited(handoff.sweepStaleProcessDirs());
   if (startupUri != null) {
     server.holdToolCallsUntil(
       _connectAtStartup(bridge, startupUri, startupConnectWait, logger, err),

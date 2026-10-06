@@ -231,6 +231,68 @@ void main() {
     );
   });
 
+  group('connect while an attach_app session owns the connection', () {
+    const otherApp = 'ws://127.0.0.1:5555/other=/ws';
+
+    test('connect refuses over a ready daemon attach and leaves the bridge on '
+        'the attached app', () async {
+      final fake = FakeFlutterProcess();
+      final ctx = await _setup(processes: [fake]);
+      final attach = ctx.call('attach_app');
+      await _driveToDebugPort(fake);
+      final attached = _json(await attach);
+      expect(attached['state'], 'ready');
+
+      final refused = await ctx.call('connect', {'uri': otherApp});
+      expect(refused['isError'], isTrue);
+      expect(_text(refused), startsWith('attached_session:'));
+      expect(_text(refused), contains('detach_app'));
+      final data = _json(refused, 1);
+      expect(data['error'], 'attached_session');
+      expect((data['status'] as Map)['connectedVia'], 'attach_device');
+      expect(
+        ctx.bridge.lastConnectUri,
+        Uri.parse('ws://127.0.0.1:4242/tok/ws'),
+      );
+      expect(ctx.session.status.state, 'ready');
+      expect(fake.killed, isFalse);
+
+      final detach = ctx.call('detach_app');
+      await _answerRpc(fake, {'code': 0});
+      await detach;
+      final connected = _json(await ctx.call('connect', {'uri': otherApp}));
+      expect(connected['connected'], isTrue);
+      expect(ctx.bridge.lastConnectUri, Uri.parse(otherApp));
+    });
+
+    test('connect refuses while a session that ended in error still holds '
+        'its flutter child', () async {
+      final fake = FakeFlutterProcess();
+      final ctx = await _setup(
+        processes: [fake],
+        hotReloadTimeout: const Duration(milliseconds: 50),
+      );
+      final attach = ctx.call('attach_app');
+      await _driveToDebugPort(fake);
+      await attach;
+      await ctx.call('hot_reload');
+      expect(ctx.session.status.state, 'error');
+
+      final refused = await ctx.call('connect', {'uri': otherApp});
+      expect(refused['isError'], isTrue);
+      expect(_text(refused), startsWith('attached_session:'));
+      expect(fake.killed, isFalse);
+    });
+
+    test('connect replaces a connection that connect opened', () async {
+      final ctx = await _setup();
+      await ctx.call('connect', {'uri': 'ws://127.0.0.1:1/tok/ws'});
+      final again = await ctx.call('connect', {'uri': otherApp});
+      expect(again['isError'], isNot(isTrue));
+      expect(ctx.bridge.lastConnectUri, Uri.parse(otherApp));
+    });
+  });
+
   group('detach_app and app_status after connect', () {
     test(
       'app_status reports a connect session without calling it attached',

@@ -147,7 +147,10 @@ Future<int> runCheckCommand(
   }
 
   try {
-    final envelope = await bridge.callExtension('ext.sleuth.snapshot');
+    final envelope = await bridge.callExtension(
+      'ext.sleuth.snapshot',
+      args: budgetSnapshotArgs,
+    );
     final data = envelope['data'];
     if (data is! Map<String, Object?>) {
       stderrSink.writeln('snapshot envelope had no data field');
