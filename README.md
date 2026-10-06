@@ -105,7 +105,7 @@ Both modes run the full overlay, all 20 detectors and the AI chat. They differ i
 | VM timeline (build, layout and paint durations) | Yes | Yes | n/a |
 | Source location in issues (`file.dart:42`) | Yes | Yes, except iOS builds from `flutter build ios` or `ipa` | n/a |
 | Per-widget rebuild and paint issues (`enableDebugCallbacks`) | Yes (opt-in) | No | n/a |
-| Rebuild Stats panel with per-widget rebuild counts (`enableDeepDebugInstrumentation`) | No | Yes (opt-in) | n/a |
+| Rebuild stats panel with per-widget rebuild counts (`enableDeepDebugInstrumentation`) | No | Yes (opt-in) | n/a |
 | Widget dirty-state arguments on timeline events (`DebugInstrumentationConfig.timelineEnrichment`) | Yes (opt-in) | No | n/a |
 | AI chat and Issue Encyclopedia | Yes | Yes | n/a |
 
@@ -116,12 +116,12 @@ Both modes run the full overlay, all 20 detectors and the AI chat. They differ i
 
 ### Opt-in deep instrumentation
 
-These options add overhead and are off by default. Turn them on when you need per-widget attribution. `enableDebugCallbacks` works only in debug mode. `enableDeepDebugInstrumentation` also works in profile mode, where it feeds the Rebuild Stats panel:
+These options add overhead and are off by default. Turn them on when you need per-widget attribution. `enableDebugCallbacks` works only in debug mode. `enableDeepDebugInstrumentation` also works in profile mode, where it feeds the Rebuild stats panel:
 
 ```dart
 SleuthConfig(
   enableDebugCallbacks: true,        // debug: per-widget rebuild and paint counts (widgets your code creates)
-  enableDeepDebugInstrumentation: true, // per-widget build timeline events; in profile mode, the Rebuild Stats panel
+  enableDeepDebugInstrumentation: true, // per-widget build timeline events; in profile mode, the Rebuild stats panel
 )
 ```
 
@@ -498,7 +498,7 @@ void main() {
 
 Sleuth captures four metrics: `ttffMs` (Dart entry to first frame, the part Dart controls; default budget 1500 ms for a warning and 3000 ms for critical), `engineTtffMs` (matches `flutter run --trace-startup`), `preDartOverheadMs` (the native phase before Dart starts, outside Dart's control) and `frameworkInitMs`. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#startup-tracing) has the per-metric windows and platform guidance.
 
-The in-app Startup Metrics page explains the method and breaks the startup down by phase.
+The in-app Startup metrics page explains the method and breaks the startup down by phase.
 
 ## Detector matrix
 
@@ -522,7 +522,7 @@ The per-detector ledger at [`doc/validation_ledger.md`](https://github.com/Harry
 To set expectations:
 
 - Sleuth **does not replace** DevTools heap snapshots or interactive flame charts. It covers breadth (20 detectors, encyclopedia, AI chat), not object-level inspection or zoomable timelines.
-- **Widget attribution depends on the mode.** Debug mode gives exact per-widget rebuild and paint counts. Profile mode gives per-widget rebuild counts only in the Rebuild Stats panel (with `enableDeepDebugInstrumentation`), and those counts include first builds. Its rebuild and repaint issues measure the share of UI-thread time spent in BUILD and PAINT, not single widgets. See [Debug vs profile mode](#debug-vs-profile-mode) for the full matrix.
+- **Widget attribution depends on the mode.** Debug mode gives exact per-widget rebuild and paint counts. Profile mode gives per-widget rebuild counts only in the Rebuild stats panel (with `enableDeepDebugInstrumentation`), and those counts include first builds. Its rebuild and repaint issues measure the share of UI-thread time spent in BUILD and PAINT, not single widgets. See [Debug vs profile mode](#debug-vs-profile-mode) for the full matrix.
 - **VM full mode** depends on the runtime environment and is not guaranteed on every platform.
 - **Memory pressure detection** watches GC frequency, heap growth trends (linear regression) and, when you set a budget, process memory (RSS) against it. When it detects growth, it adds per-class allocation deltas to the issue, but it does not track individual object leaks or retention paths.
 - **CPU attribution** is statistical (about 1 kHz sampling), so functions that run for less than 1 ms may not appear. Use the DevTools CPU profiler for complete call trees.

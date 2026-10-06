@@ -640,7 +640,8 @@ class NetworkMonitorDetector extends BaseDetector
         'request dispatch. Multiple in-span emissions per scenario carry '
         'distinct `detectedAtMicros` and a `peakCount` that only grows, '
         'which the audit-gate MAX reduction picks. The critical tier '
-        '(slow_request 3000 ms) and the two unraised families '
+        '(slow_request 3000 ms) is raised through its own bracket in '
+        '`additionalBrackets`. The two unraised families '
         '(http_error_spike, high_frequency_same_path) stay reproducerOnly.',
     reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
     profileCapturePaths: [

@@ -193,7 +193,7 @@ Sleuth reports four metrics over three windows:
 
 Use `ttffMs` to catch Dart regressions, such as heavy work in `main()`, the first `build()` or the initial route. Use `engineTtffMs` for product dashboards. Compare `preDartOverheadMs` with `ttffMs` to split the cost between the engine and your code.
 
-The in-app Startup Metrics page shows the full method and a per-phase breakdown.
+The in-app Startup metrics page shows the full method and a per-phase breakdown.
 
 ## iOS builds from `flutter build ios` lose source locations
 

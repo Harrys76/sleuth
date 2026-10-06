@@ -6,7 +6,7 @@ import 'sleuth_theme.dart';
 /// Full-screen drilldown page showing every widget type rebuilt during the
 /// active [RouteSession]'s lifetime, sorted descending by count.
 ///
-/// Opened by tapping the "See all N →" drilldown link inside the expanded
+/// Opened by tapping the "See all N" link inside the expanded
 /// `_RebuildStatsBanner` panel on the floating issues card. Mirrors the
 /// [Positioned.fill] overlay chrome used by
 /// [StartupMetricsPage] / [GuidePage] so it composes identically inside the
