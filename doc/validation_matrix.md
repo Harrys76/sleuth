@@ -204,7 +204,7 @@ issue list.
 | KeepAlive | KeepAlive Overuse | "Excessive Keep-Alive" | |
 | FontLoading | Font Loading Stress | "Multiple Custom Fonts" with family count | |
 | RepaintBoundary | Missing RepaintBoundary | "Missing RepaintBoundary: N expensive widgets unprotected" | |
-| Repaint | Live Waveform (VM+/debug) | `repaint_debug_*` / `excessive_repaint_debug` (debug); "Excessive Repainting: paint phase N% of UI time" only above 10 % (VM+) | |
+| Repaint | Live Waveform (VM+/debug) | "Likely Repaint Origin" (`repaint_debug_*`) or `excessive_repaint_debug` (debug); "Excessive Repainting: paint phase N% of UI time" only above 10 % (VM+) | |
 | ShaderJank | Shader Jank (first run) | "Shader Compilation" (VM+ only) | |
 | MemoryPressure | Memory Pressure | "Heap Growing" or "High GC Pressure" (VM+ only) | |
 | PlatformChannel | Platform Channel Traffic | "High Platform Channel Traffic" (VM+ only) | |

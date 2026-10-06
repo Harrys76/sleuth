@@ -211,7 +211,7 @@ A follow-up in the same release fixed five problems with one root cause: ownersh
 
 The gates today, described in [`internals.md`](internals.md#debug-rebuild-and-paint-counts):
 
-- `repaint_debug_<type>` compares each type's residual rate, its paints minus its animation-owned paints, with the threshold, and `RateHysteresis` holds the result across scans. Per-widget counts cover only widgets the app creates, so a framework `CircularProgressIndicator` has no per-widget count of its own.
+- `repaint_debug_<type>` compares the busiest instance's likely-origin rate with the threshold, and `RateHysteresis` holds the result across scans. The origin is the deepest render object marked as needing paint in its layer, mapped to the nearest widget the app creates, with animation-owned origins left out. Widgets that only repaint because they share the layer are not counted.
 - The VM share, `excessive_repaint`, is hidden while every paint in the window, framework paints included, was animation-owned.
 - `excessive_repaint_debug` subtracts owned paints from the total, stays silent when the residual rate is under the threshold, adds "Excludes N animation-owned paints" otherwise, and shows only without a VM connection.
 - The owners that animate by rebuilding (`AnimatedBuilder`, `ValueListenableBuilder`, `TweenAnimationBuilder`, and six implicit `Animated*` widgets) own paints only in frames where they rebuilt, so an idle one next to a repainting widget does not hide it.
