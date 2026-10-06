@@ -2,9 +2,22 @@ import '../bridge/vm_bridge.dart';
 import '../mcp/mcp_types.dart';
 import 'launch_mode_advisory.dart';
 
+/// `check_budgets` default for `minFps`, the same as `sleuth_check --min-fps`.
+const int defaultMinFps = 55;
+
+/// `check_budgets` default for `maxIssues`, the same as
+/// `sleuth_check --max-issues`. It sets no practical limit.
+const int defaultMaxIssues = 999999;
+
+/// `check_budgets` default for `maxCriticalIssues`, the same as
+/// `sleuth_check --max-critical-issues`.
+const int defaultMaxCriticalIssues = 0;
+
 /// Evaluate live snapshot against FPS / issue-count budgets. Returns a
 /// `{passed, violations, observed}` shape. Pure data — no exit code
 /// (sidecar is long-running stdio; CI gate is `sleuth_check` binary).
+/// An omitted threshold takes the `sleuth_check` default: [defaultMinFps],
+/// [defaultMaxIssues] and [defaultMaxCriticalIssues].
 ///
 /// Schema-drift behaviour: this tool consumes `isVmConnected`,
 /// `currentIssues[].severity` and `frameStatsSummary.averageFps |
@@ -15,9 +28,10 @@ Future<Object> checkBudgetsHandler(
   VmBridge bridge,
   Map<String, Object?> args,
 ) async {
-  final minFps = args['minFps'];
-  final maxIssues = args['maxIssues'];
-  final maxCriticalIssues = args['maxCriticalIssues'];
+  final minFps = args['minFps'] ?? defaultMinFps;
+  final maxIssues = args['maxIssues'] ?? defaultMaxIssues;
+  final maxCriticalIssues =
+      args['maxCriticalIssues'] ?? defaultMaxCriticalIssues;
   if (minFps is! num) {
     return ToolCallResult.text('minFps must be number', isError: true);
   }

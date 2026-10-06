@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:sleuth_mcp/sleuth_mcp.dart';
+import 'package:sleuth_mcp/src/bridge/app_log_stream.dart';
 import 'package:sleuth_mcp/src/tools/tools.dart';
 import 'package:test/test.dart';
 
@@ -610,6 +611,121 @@ void main() {
     });
   });
 
+  group('lifecycle tool shapes', () {
+    Future<(McpServer, FakeVmBridge, DaemonSession)> setup() async {
+      final bridge = defaultFakeBridge();
+      final server = McpServer(bridge: bridge)..registerDefaults();
+      await server.handleForTest(
+        JsonRpcMessage(method: 'initialize', params: const {}, id: 0),
+      );
+      final session = DaemonSession(
+        bridge: bridge,
+        server: server,
+        processFactory:
+            (
+              String exe,
+              List<String> args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+            }) async => throw StateError('no flutter in the audit'),
+      );
+      server.setDaemonSession(session);
+      return (server, bridge, session);
+    }
+
+    Future<Map<String, Object?>> call(
+      McpServer server,
+      String tool, [
+      Map<String, Object?> args = const {},
+    ]) async {
+      final resp = await server.handleForTest(
+        JsonRpcMessage(
+          method: 'tools/call',
+          params: {'name': tool, 'arguments': args},
+          id: 9,
+        ),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      expect(result['isError'], isNot(isTrue), reason: '$tool failed');
+      return jsonDecode(
+            ((result['content'] as List).first as Map)['text'] as String,
+          )
+          as Map<String, Object?>;
+    }
+
+    void expectDocumented(String tool, Map<String, Object?> data) {
+      final doc = tools[tool] as Map<String, Object?>;
+      expect(
+        data.keys.toSet().difference(_documentedKeys(doc)),
+        isEmpty,
+        reason: '$tool emitted undocumented keys',
+      );
+      expect(
+        _requiredKeys(doc).difference(data.keys.toSet()),
+        isEmpty,
+        reason: '$tool is missing required documented keys',
+      );
+    }
+
+    test(
+      'attach_app, app_status, detach_app and hot_reload return '
+      'documented status keys, including connected and connectedVia',
+      () async {
+        final (server, bridge, _) = await setup();
+        final attached = await call(server, 'attach_app', {
+          'debugUrl': 'ws://127.0.0.1:1/tok/ws',
+        });
+        expectDocumented('attach_app', attached);
+        expect(attached['connectedVia'], 'attach_debug_url');
+        final status = await call(server, 'app_status');
+        expectDocumented('app_status', status);
+        final detached = await call(server, 'detach_app');
+        expectDocumented('detach_app', detached);
+        await bridge.connect(Uri.parse('ws://127.0.0.1:1/tok/ws'));
+        final viaConnect = await call(server, 'app_status');
+        expectDocumented('app_status', viaConnect);
+        final values =
+            ((tools['app_status'] as Map)['data'] as Map)['connectedVia']
+                as Map;
+        expect(values['values'], ConnectedVia.values);
+        expect(viaConnect['connectedVia'], 'connect');
+      },
+    );
+
+    test('get_logs returns the documented keys and line shape', () async {
+      final (server, _, session) = await setup();
+      session.appLogs.add(
+        AppLogLine(
+          time: DateTime.utc(2026),
+          source: 'logging',
+          text: 'hello',
+          level: 800,
+          logger: 'app',
+          truncated: true,
+        ),
+      );
+      final result = await call(server, 'get_logs');
+      expectDocumented('get_logs', result);
+      final itemShape =
+          (((tools['get_logs'] as Map)['data'] as Map)['lines']
+                  as Map)['item_shape']
+              as Map;
+      final line = (result['lines'] as List).single as Map;
+      expect(line.keys.toSet(), itemShape.keys.toSet());
+    });
+
+    test('check_budgets runs with no arguments', () async {
+      final (server, bridge, _) = await setup();
+      bridge.setEnvelope(
+        'ext.sleuth.snapshot',
+        fakeSnapshotEnvelope(isVmConnected: true),
+      );
+      await bridge.connect(Uri.parse('ws://127.0.0.1:1/tok/ws'));
+      final result = await call(server, 'check_budgets');
+      expectDocumented('check_budgets', result);
+    });
+  });
+
   group('passthrough delegation', () {
     test(
       'get_snapshot returns the ext.sleuth.snapshot envelope verbatim',
@@ -1089,7 +1205,7 @@ void main() {
       }
       final typedCodes = {
         for (final m in RegExp(
-          r"_iosErrorEnvelope\(\s*'([a-z_]+)'",
+          r"_typedErrorEnvelope\(\s*'([a-z_]+)'",
         ).allMatches(source))
           m.group(1)!,
         for (final m in RegExp(r"return '(ios_[a-z_]+)';").allMatches(source))

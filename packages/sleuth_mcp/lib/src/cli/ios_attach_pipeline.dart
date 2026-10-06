@@ -482,49 +482,59 @@ class IosAttacher {
       // any outer reference to `iproxy`. Static analysis can't prove
       // this — the contract is "spawn-failure path never reads iproxy".
       late Process iproxy;
-      await withPidfileLock<void>(pidfile, (guard) async {
-        await reclaimStaleIproxy(
-          pidfile: pidfile,
-          hostPort: hostPort,
-          devicePort: devicePort,
-          udid: udid,
-          run: run,
-          err: _NullStringSink(),
-        );
-        throwIfCancelled();
-
-        onProgress?.call(
-          IosAttachPhase.spawningIproxy,
-          data: <String, Object?>{
-            'hostPort': hostPort,
-            'devicePort': devicePort,
-          },
-        );
-        try {
-          iproxy = await iproxyStart('iproxy', [
-            '$hostPort',
-            '$devicePort',
-            '--udid',
-            udid,
-          ]);
-          // Register before any other await so a lock timeout between
-          // spawn and pidfile write doesn't leave an unreapable orphan.
-          guard.registerSpawn(iproxy, pidfile);
-        } catch (e) {
-          throw IosAttachException(
-            IosAttachErrorKind.iproxyFailedSpawn,
-            'iproxy failed to spawn: $e',
+      try {
+        await withPidfileLock<void>(pidfile, (guard) async {
+          await reclaimStaleIproxy(
+            pidfile: pidfile,
+            hostPort: hostPort,
+            devicePort: devicePort,
+            udid: udid,
+            run: run,
+            err: _NullStringSink(),
           );
-        }
+          throwIfCancelled();
 
-        try {
-          pidfile.writeAsStringSync('${iproxy.pid}\n', flush: true);
-        } on FileSystemException {
-          // Pidfile write failure is non-fatal — sidecar still owns
-          // the child process. Orphan reclamation degrades to "no-op"
-          // on next run but the present attach can proceed.
-        }
-      });
+          onProgress?.call(
+            IosAttachPhase.spawningIproxy,
+            data: <String, Object?>{
+              'hostPort': hostPort,
+              'devicePort': devicePort,
+            },
+          );
+          try {
+            iproxy = await iproxyStart('iproxy', [
+              '$hostPort',
+              '$devicePort',
+              '--udid',
+              udid,
+            ]);
+            // Register before any other await so a lock timeout between
+            // spawn and pidfile write doesn't leave an unreapable orphan.
+            guard.registerSpawn(iproxy, pidfile);
+          } catch (e) {
+            throw IosAttachException(
+              IosAttachErrorKind.iproxyFailedSpawn,
+              'iproxy failed to spawn: $e',
+            );
+          }
+
+          try {
+            pidfile.writeAsStringSync('${iproxy.pid}\n', flush: true);
+          } on FileSystemException {
+            // Pidfile write failure is non-fatal — sidecar still owns
+            // the child process. Orphan reclamation degrades to "no-op"
+            // on next run but the present attach can proceed.
+          }
+        });
+      } on TimeoutException catch (e) {
+        // Either another process held the pidfile lock, or the reclaim and
+        // spawn inside it stalled. The lock already killed any iproxy it
+        // started.
+        throw IosAttachException(
+          IosAttachErrorKind.iproxyFailedSpawn,
+          'iproxy setup did not finish: ${e.message ?? 'pidfile lock timed out'}',
+        );
+      }
 
       // Stderr buffer + stdout drain. Stream-close detection covers
       // both detached (no exitCode access) and non-detached spawns.
@@ -601,9 +611,10 @@ class IosAttacher {
         await stderrSub.cancel();
         iproxy.kill();
         // exitCode is unavailable on detached spawns; rely on
-        // stream-close (already wired via `markIproxyExit`).
+        // stream-close (already wired via `markIproxyExit`). The grace
+        // stays below the session's 3s teardown budget.
         await exitCompleter.future.timeout(
-          const Duration(seconds: 3),
+          const Duration(seconds: 2),
           onTimeout: () async {
             await run('kill', ['-KILL', '${iproxy.pid}']);
           },
@@ -643,8 +654,15 @@ Future<Process> _defaultIproxyStart(String exe, List<String> args) =>
     Process.start('nohup', [exe, ...args]);
 
 Future<bool> _defaultHasTool(String name) async {
-  final r = await _defaultRun('which', [name]);
-  return r.exitCode == 0;
+  // The tools come from Xcode and libimobiledevice, so only macOS has them.
+  // Elsewhere `which` itself may be missing.
+  if (!Platform.isMacOS) return false;
+  try {
+    final r = await _defaultRun('which', [name]);
+    return r.exitCode == 0;
+  } on ProcessException {
+    return false;
+  }
 }
 
 Stream<String> _defaultBonjourLines(String bundleId, String service) async* {

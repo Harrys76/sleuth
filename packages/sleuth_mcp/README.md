@@ -73,20 +73,21 @@ sleuth_mcp 0.8.0 is built against sleuth 0.37.0
 | Tool | Args | Purpose |
 | --- | --- | --- |
 | `list_devices` | `mobileOnly?` | Runs `flutter devices --machine` and lists Android and iOS devices by default. |
-| `attach_app` | `device?`, `debugUrl?`, `udid?`, `bundle?`, `transport?`, `authOverride?`, `forceRelaunch?` | Attaches to a running app. See [Attaching](#attaching) for the three modes. |
+| `attach_app` | `device?`, `debugUrl?`, `udid?`, `bundle?`, `transport?`, `authOverride?`, `forceRelaunch?` | Attaches to a running app. See [Attaching](#attaching) for the three modes, progress and cancellation. A failed attach returns `isError` with code `attach_failed`. |
 | `connect` | `uri` | Connects to a known VM service URI: the http URI that `flutter run` prints (`http://127.0.0.1:PORT/<token>=/`) or the ws form, with or without `/ws`. Returns `connectionMode`, `vmConnected`, `sessionUuid`, the ws `vmServiceUri` it connected to, and a `warning` on version skew. `attach_app` returns the same `warning`. |
 | `get_snapshot` | `sections?`, `full?`, `maxIssueCount?`, `maxRouteCount?`, `diskHandoff?`, `verbose?` | Returns the performance snapshot: issues, frame stats summary, route history, session summary and recurrence trends. By default it leaves out the per-frame and raw sample sections (`capturedFrames`, `recentFrames`, `recentRequests`, `heapSamples`, `phaseEvents`, `gcEvents`, `platformChannelEvents`) and lists them in `data._omittedSections`. Pass `full: true` for every section, or `sections` to pick them. Issues are compact unless you pass `verbose: true`. |
 | `get_issues` | `route?`, `severityAtLeast?`, `maxIssueCount?`, `verbose?` | Returns the current issues. `route` filters by route. `severityAtLeast` takes `ok`, `warning` or `critical` in lower case; the server rejects other values. Issues are compact and capped at 50 by default. `verbose: true` returns every field, and `maxIssueCount` changes the cap (`0` removes it). |
 | `get_route_health` | `route?` | Returns the health score, FPS and issue counts for each route. |
 | `explain_issue` | `stableId` | Returns the encyclopedia entry. Parametric stableIds resolve to their canonical form. On sleuth 0.37 apps the route, widget and count text comes from the live issue with that exact stableId. A canonical id with no exact match uses the first live issue of its family, and any other id gets neutral wording. Sleuth 0.36 apps return raw placeholders such as `{widgetName}` and `{routeName}`. |
 | `compare_snapshots` | `before`, `after` | Diffs two snapshots on the client: added, removed and elevated issues, occurrence-count changes and the FPS delta. Issues aggregate per stableId. Refuses snapshots from different sleuth lineages (`arg_lineage_mismatch`), a snapshot taken while Sleuth was still warming up (`arg_snapshot_in_warmup`), or snapshots with different VM coverage (`arg_coverage_mismatch`, read from `isVmConnected`), and adds `coverageWarning` when neither snapshot had a VM link. |
-| `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Checks the live snapshot against the thresholds. Refuses with `coverage_degraded` when the app has no VM service link. Use `sleuth_check` for CI exit codes. |
+| `check_budgets` | `minFps?`, `maxIssues?`, `maxCriticalIssues?` | Checks the live snapshot against the thresholds. Each is optional with the `sleuth_check` default: `minFps` 55, `maxIssues` 999999 (no practical limit), `maxCriticalIssues` 0. Refuses with `coverage_degraded` when the app has no VM service link. Use `sleuth_check` for CI exit codes. |
 | `diagnose` | none | Reports operational health: package version, VM connection and unbound extensions, plus the frame budget and VM poll timings on sleuth 0.37 apps. Call it when other tools return nothing. |
-| `app_status` | none | Returns `{attached, state, device, appId, sessionUuid, launchMode, mode, lastError}`, plus `transportMode` and `wsUri` on iOS-direct sessions. |
-| `detach_app` | none | Stops the daemon child or the `iproxy` tunnel, disconnects the bridge and deletes disk-handoff files. Safe to call when nothing is attached. |
-| `hot_reload` | none | Hot reloads the app and keeps its state and `sessionUuid`. Works only on sessions attached through the flutter daemon (`device`). |
+| `app_status` | none | Returns `{attached, state, connected, connectedVia, device, appId, sessionUuid, launchMode, mode, lastError}`, plus `transportMode` and `wsUri` on iOS-direct sessions. `connected` and `connectedVia` (`attach_device`, `attach_debug_url`, `attach_ios` or `connect`) report the bridge whichever tool opened it. `attached` is true only for an `attach_app` session in state `ready` whose bridge is still connected. |
+| `detach_app` | none | Stops the daemon child or the `iproxy` tunnel, disconnects the bridge in every state, including a bridge opened with `connect`, clears the `get_logs` buffer and deletes disk-handoff files. Every step is bounded, so a detach ends within about 7 seconds. Safe to call when nothing is attached. |
+| `hot_reload` | none | Hot reloads the app and keeps its state and `sessionUuid`. Works only on sessions attached with `attach_app(device:)`; other sessions get `hot_reload_unsupported` and keep working. A rejected reload, for example on a compile error, returns `hot_reload_failed`. |
+| `get_logs` | `maxLines?`, `filter?` | Returns the app's recent output: `print` and stderr lines and `dart:developer` log records from the VM service, or flutter daemon `app.log` lines while those streams are not active. The sidecar keeps the last 500 lines. `maxLines` defaults to 100, `filter` keeps lines containing the text (case insensitive), and `droppedCount` says how many older lines were evicted. |
 
-Every tool except `connect`, `attach_app`, `detach_app` and `hot_reload` sets `annotations.readOnlyHint: true`, so a client that honors the hint can approve those calls without asking each time. Each descriptor also sets `destructiveHint`, `idempotentHint` and `openWorldHint`, and an audit checks the values against `doc/mcp_tool_schema.json`. Among the read-only tools, `openWorldHint` is true for the ones that read the live app or host (`get_snapshot`, `get_issues`, `get_route_health`, `explain_issue`, `diagnose`, `check_budgets`, `list_devices`). `detach_app` sets `destructiveHint: true` because it ends the session and deletes disk-handoff files.
+Every tool except `connect`, `attach_app`, `detach_app` and `hot_reload` sets `annotations.readOnlyHint: true`, so a client that honors the hint can approve those calls without asking each time. Each descriptor also sets `destructiveHint`, `idempotentHint` and `openWorldHint`, and an audit checks the values against `doc/mcp_tool_schema.json`. Among the read-only tools, `openWorldHint` is true for the ones that read the live app or host (`get_snapshot`, `get_issues`, `get_route_health`, `explain_issue`, `diagnose`, `check_budgets`, `list_devices`), and false for `compare_snapshots`, `app_status` and `get_logs`, which read only their input or the sidecar's own state. `detach_app` sets `destructiveHint: true` because it ends the session and deletes disk-handoff files.
 
 **Snapshot size.** On an iPhone 12, a full snapshot was 87 KB right after launch and 528 KB after a few minutes on an animated screen, about 90 % of it `capturedFrames` and `recentFrames`. A `2025-06-18` client receives the JSON of each result twice (text and `structuredContent`), and Claude Code caps a tool result at 25,000 tokens by default. The default set is about 3 to 15 KB. Use `sections` for the heavy data you need, such as `sections: ["recentFrames"]`, or `diskHandoff: true`, which writes every section to a temp file.
 
@@ -128,7 +129,25 @@ shapes, and [`doc/mcp_schema.md`](doc/mcp_schema.md) locks the
 
 - `device` spawns `flutter attach --machine`. This is the Quickstart path.
 - `debugUrl` connects to a WebSocket URI you already have.
-- `udid` with `bundle` runs the iOS real-device pipeline directly.
+- `udid` with `bundle` runs the iOS real-device pipeline directly. It
+  needs macOS; on other hosts it returns `ios_missing_tool`.
+
+On Windows the sidecar starts `flutter` through the shell, so
+`flutter.bat` is found on PATH.
+
+When `flutter attach` exits before the app reports its VM service, for
+example because more than one device is connected and `device` is not
+set, `attach_app` returns `attach_failed` at once with the last lines
+flutter printed, instead of waiting for the 30-second timeout.
+
+**Progress and cancellation.** An iOS attach can take longer than a
+client's request timeout. When the client sends a `progressToken` with
+the request, `attach_app` reports each stage (starting flutter, waiting
+for the daemon, Bonjour, launching the app, the `iproxy` tunnel,
+connecting) as a `notifications/progress` frame. When the client sends
+`notifications/cancelled` for the request, the sidecar stops the attach,
+releases the `flutter attach` child or the `iproxy` tunnel, disconnects
+the bridge and sends no response, as the MCP spec asks.
 
 **iOS real device.** USB attach needs `iproxy`, so install it once with
 `brew install libimobiledevice`. Wireless attach does not need it. Build

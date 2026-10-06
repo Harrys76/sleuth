@@ -69,14 +69,14 @@ export 'src/tools/snapshot_sections.dart'
         defaultSnapshotSections,
         snapshotMetadataKeys;
 export 'src/flutter_daemon/app_status.dart'
-    show AppStatusPayload, AppSessionState;
+    show AppStatusPayload, AppSessionState, ConnectedVia;
 export 'src/flutter_daemon/daemon_events.dart';
 export 'src/flutter_daemon/daemon_parser.dart'
     show DaemonParser, minDaemonProtocolVersion, isAtLeastVersion;
 export 'src/flutter_daemon/daemon_rpc.dart'
     show DaemonRpc, DaemonRpcException, DaemonRpcTimeoutException;
 export 'src/flutter_daemon/daemon_session.dart'
-    show DaemonSession, DaemonSessionException;
+    show DaemonSession, DaemonSessionException, DetachBudget;
 export 'src/mcp/mcp_server.dart'
     show
         DaemonSessionLifecycle,

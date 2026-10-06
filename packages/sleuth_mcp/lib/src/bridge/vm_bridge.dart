@@ -5,6 +5,8 @@ import 'package:synchronized/synchronized.dart';
 import 'package:vm_service/vm_service.dart' as vm;
 import 'package:vm_service/vm_service_io.dart';
 
+import 'app_log_stream.dart';
+
 /// Bridges MCP tool handlers to the running app's VM service.
 ///
 /// `Response.json` is the parsed sleuth envelope
@@ -168,7 +170,7 @@ typedef VersionSkewValidator =
 /// Connect / disconnect / reconnect serialize via [Lock] so concurrent
 /// dispatches don't observe half-initialized state. `callServiceExtension`
 /// itself runs outside the lock — vm_service handles concurrent calls.
-class RealVmBridge implements VmBridge {
+class RealVmBridge implements VmBridge, AppLogSource {
   RealVmBridge({
     this.callTimeout = const Duration(seconds: 8),
     this.maxUnansweredCalls = 8,
@@ -383,6 +385,7 @@ class RealVmBridge implements VmBridge {
         bypassValidatedGate: true,
       );
       await _applyBaseline(diag, acceptSessionRotation: acceptSessionRotation);
+      _listenForAppLogs(_service!);
       return true;
     } catch (_) {
       // Collapse before rethrow so `isConnected` stays false and any
@@ -726,6 +729,67 @@ class RealVmBridge implements VmBridge {
         _logger?.add('service dispose failed: $e');
       }
     }
+  }
+
+  // App output from the VM service streams, read by the get_logs tool.
+
+  final StreamController<AppLogLine> _appLogLines =
+      StreamController<AppLogLine>.broadcast();
+  final List<StreamSubscription<vm.Event>> _appLogSubscriptions = [];
+
+  /// The connection whose `Stdout` stream the bridge listens to.
+  vm.VmService? _appLogService;
+
+  @override
+  Stream<AppLogLine> get appLogLines => _appLogLines.stream;
+
+  @override
+  bool get appLogStreamsActive =>
+      isConnected &&
+      _appLogService != null &&
+      identical(_appLogService, _service);
+
+  /// Listens to the app's `Stdout`, `Stderr` and `Logging` streams on
+  /// [service]. Runs after every successful connect, so a reconnect listens
+  /// again on the new connection. A stream that cannot be listened to costs
+  /// only its log lines, never the connection.
+  void _listenForAppLogs(vm.VmService service) {
+    for (final subscription in _appLogSubscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _appLogSubscriptions.clear();
+    _appLogService = null;
+    final decoder = VmLogEventDecoder(_appLogLines.add);
+    _appLogSubscriptions
+      ..add(service.onStdoutEvent.listen((e) => decoder.onWrite('stdout', e)))
+      ..add(service.onStderrEvent.listen((e) => decoder.onWrite('stderr', e)))
+      ..add(service.onLoggingEvent.listen(decoder.onLogging));
+    Future<bool> listen(String streamId) async {
+      try {
+        await service.streamListen(streamId).timeout(callTimeout);
+        return true;
+      } on vm.RPCError catch (e) {
+        if (e.code == vm.RPCErrorKind.kStreamAlreadySubscribed.code) {
+          return true;
+        }
+        _logger?.add('app log stream $streamId unavailable: $e');
+        return false;
+      } catch (e) {
+        _logger?.add('app log stream $streamId unavailable: $e');
+        return false;
+      }
+    }
+
+    unawaited(() async {
+      final listening = await Future.wait([
+        listen(vm.EventStreams.kStdout),
+        listen(vm.EventStreams.kStderr),
+        listen(vm.EventStreams.kLogging),
+      ]);
+      if (listening.first && identical(_service, service)) {
+        _appLogService = service;
+      }
+    }());
   }
 }
 

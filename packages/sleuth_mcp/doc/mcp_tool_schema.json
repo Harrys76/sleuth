@@ -1,7 +1,7 @@
 {
   "_doc": "Wire schema for sleuth_mcp tool-call return shapes. Sidecar-only — the root sleuth package does not ship a parallel copy. Audit source: packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart. Human-readable render at mcp_tool_schema.md.",
   "schemaVersion": 2,
-  "readOnlyTools": ["app_status", "check_budgets", "compare_snapshots", "diagnose", "explain_issue", "get_issues", "get_route_health", "get_snapshot", "list_devices"],
+  "readOnlyTools": ["app_status", "check_budgets", "compare_snapshots", "diagnose", "explain_issue", "get_issues", "get_logs", "get_route_health", "get_snapshot", "list_devices"],
   "toolAnnotations": {
     "connect": {"destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
     "get_snapshot": {"openWorldHint": true},
@@ -15,7 +15,8 @@
     "detach_app": {"destructiveHint": true, "idempotentHint": true, "openWorldHint": true},
     "app_status": {"openWorldHint": false},
     "list_devices": {"openWorldHint": true},
-    "hot_reload": {"destructiveHint": false, "idempotentHint": false, "openWorldHint": true}
+    "hot_reload": {"destructiveHint": false, "idempotentHint": false, "openWorldHint": true},
+    "get_logs": {"openWorldHint": false}
   },
   "notes": [
     "Error envelopes describe current sidecar handler behavior — each handler returns ToolCallResult.text(...) with `isError: true` and a single text content carrying the message string. Codes listed in `errors[].code` appear verbatim as the prefix of that text. A centralized typed error class is acknowledged debt.",
@@ -25,6 +26,7 @@
     "Transport (cross-cutting, not a per-tool shape): for clients that negotiate MCP protocol >= 2025-06-18, every SUCCESS tools/call result also carries a top-level `structuredContent` field — the same JSON the text content block carries, as an object. Clients on older protocol versions see the text content only. structuredContent is never set on error results (isError:true). This is additive and does not change any per-tool data/args/errors shape below, so schemaVersion stays 2.",
     "toolAnnotations locks the three non-readOnly MCP annotation hints (destructiveHint, idempotentHint, openWorldHint) per tool; readOnlyHint stays sourced from readOnlyTools (not duplicated here). Only non-default hints are listed. openWorldHint:true for tools whose output reflects external/runtime state (the live-app readers get_snapshot/get_issues/get_route_health/explain_issue/diagnose/check_budgets and the host enumerator list_devices); false for self-contained tools (compare_snapshots local diff, app_status server-internal status). destructiveHint:true for detach_app (it terminates the session and deletes disk-handoff files); destructive/idempotent are omitted on read-only tools (the spec ignores those unless readOnlyHint is false). Annotations are advisory descriptor metadata, not a tool return/args shape, so schemaVersion stays 2.",
     "serverErrors lists the errors McpServer returns for any tools/call before or around the handler: argument validation against the tool's inputSchema (missing_required_arg, arg_unknown, arg_type_mismatch, arg_enum_violation, arg_min_length_violation) and dispatch failures. They share the per-tool error envelope (isError:true, code as the message prefix) and apply to every tool, so per-tool `errors` lists only handler-level codes. The audit checks every literal error prefix in the handler and server source against these lists.",
+    "Progress and cancellation (cross-cutting, not a per-tool shape): when a tools/call request carries params._meta.progressToken, a tool that reports progress (attach_app) sends notifications/progress frames {progressToken, progress, message} before its response. progress starts at 1 and goes up by one per stage, there is no total, and message is sent only to clients on protocol 2025-03-26 or later. A notifications/cancelled whose requestId names an in-flight tools/call cancels it, and the server sends no response for that request: attach_app stops and releases what it started, and other tools finish with their response dropped. An unknown or finished requestId is ignored.",
     "The audit enforces descriptor<->toolAnnotations CONSISTENCY, not value-vs-behavior CORRECTNESS — a hint that disagrees with what a handler actually does (e.g. a destructive tool marked non-destructive) passes as long as the descriptor and this doc agree. Hint values are a spec/behavior judgment, reviewed against the MCP ToolAnnotations spec + the handlers, not machine-verified."
   ],
   "serverErrors": [
@@ -85,8 +87,10 @@
       },
       "data": {
         "_shape_source": "AppStatusPayload.toJson() — packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
-        "attached": {"type": "bool", "required": true, "nullable": false},
+        "attached": {"type": "bool", "required": true, "nullable": false, "doc": "true only when an attach_app session is in state ready and the bridge is still connected; false for a connection opened with connect"},
         "state": {"type": "String", "required": true, "nullable": false, "values": ["idle", "attaching", "ready", "restarting", "detaching", "error"]},
+        "connected": {"type": "bool", "required": true, "nullable": false, "doc": "the bridge holds a VM service connection, whichever tool opened it"},
+        "connectedVia": {"type": "String", "required": false, "nullable": false, "values": ["attach_device", "attach_debug_url", "attach_ios", "connect"], "presence": "when connected is true", "doc": "how the connection was opened: attach_app(device:), attach_app(debugUrl:), attach_app(udid:), or the connect tool (also --uri at startup)"},
         "device": {"type": "String", "required": false, "nullable": false},
         "appId": {"type": "String", "required": false, "nullable": false},
         "sessionUuid": {"type": "String", "required": false, "nullable": false},
@@ -103,34 +107,45 @@
         {"code": "version_skew_major", "doc": "attach reached `ready` but app packageVersion lineage outside acceptedPriorLineages — auto-detached", "messagePrefix": "version_skew_major:"},
         {"code": "version_skew_unknown", "doc": "attach reached `ready` but packageVersion missing, non-String, or not semver — auto-detached", "messagePrefix": "version_skew_unknown:"},
         {"code": "daemon_failure", "doc": "DaemonSessionException raised inside attach", "messagePrefix": "<exception message>"},
+        {"code": "attach_failed", "doc": "the attach ended without a session: flutter could not start or exited early (the message quotes its last output), no daemon.connected or app.debugPort arrived in time, app.stop, an unsupported daemon, a non-mobile device, a refused debugUrl, an unclassified iOS bridge failure, or a detach_app or client cancel that stopped it. Typed envelope; the JSON block carries {error, message, status} with the AppStatusPayload"},
         {"code": "ios_missing_bundle", "doc": "udid provided without bundle"},
         {"code": "ios_ambiguous_args", "doc": "udid combined with device or debugUrl"},
         {"code": "ios_invalid_transport", "doc": "transport not in {auto, usb, wireless}"},
-        {"code": "ios_missing_tool", "doc": "required macOS tool (xcrun/dns-sd/iproxy) not on PATH"},
+        {"code": "ios_missing_tool", "doc": "required macOS tool (xcrun/dns-sd/iproxy) not on PATH, or the sidecar runs on a host other than macOS"},
         {"code": "ios_launch_failed", "doc": "xcrun devicectl process launch returned non-zero"},
         {"code": "ios_bonjour_timeout", "doc": "VM service not announced within budget"},
         {"code": "ios_ambiguous_pairings", "doc": "multiple distinct authCodes announced; pass authOverride"},
         {"code": "ios_no_matching_auth", "doc": "authOverride provided but no announcement matched"},
-        {"code": "ios_iproxy_failed", "doc": "iproxy spawn failed or exited inside readiness window"},
-        {"code": "ios_cancelled", "doc": "caller-injected cancellation fired mid-pipeline"},
+        {"code": "ios_iproxy_failed", "doc": "iproxy spawn failed or exited inside readiness window, or another process held the pidfile lock for 10 s, or the setup under the lock stalled for 15 s"},
+        {"code": "ios_cancelled", "doc": "the client cancelled attach_app (notifications/cancelled) during the pipeline; the server sends no response for a cancelled request, so only direct callers see it"},
         {"code": "ios_vmservice_busy", "doc": "bridge connect saw post-handshake reset; device-side VM service holds a prior session"},
         {"code": "ios_vmservice_unreachable", "doc": "bridge connect saw Connection refused; the iproxy tunnel is open but nothing is listening on the device side (stale Bonjour cache, app crashed mid-attach)"},
         {"code": "attach_in_progress", "doc": "another iOS attach is already running for this DaemonSession; second concurrent call rejected"}
-      ]
+      ],
+      "progressStages": {
+        "_doc": "notifications/progress messages, sent only when the request carries params._meta.progressToken. Stages that do not apply are skipped, and an iOS retry repeats its stages.",
+        "device": ["Checking that <device> is an Android or iOS device", "Starting flutter attach", "Waiting for the flutter daemon to start", "Flutter daemon connected; waiting for the app to report its VM service", "Connecting to the app VM service"],
+        "debugUrl": ["Connecting to the VM service at debugUrl"],
+        "udid": ["Detecting whether the device is on USB or wireless", "Looking for the app VM service over Bonjour", "Launching the app with xcrun devicectl", "Found <n> VM service announcement(s)", "Selecting the VM service to connect to", "Checking for a leftover iproxy tunnel", "Starting the iproxy USB tunnel", "The iproxy tunnel is up", "Connecting to the app VM service"]
+      }
     },
     "detach_app": {
       "kind": "direct",
       "args": {},
       "data": {
         "_shape_source": "AppStatusPayload.toJson() — packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
-        "attached": {"type": "bool", "required": true, "nullable": false},
+        "attached": {"type": "bool", "required": true, "nullable": false, "doc": "true only when an attach_app session is in state ready and the bridge is still connected; false for a connection opened with connect"},
         "state": {"type": "String", "required": true, "nullable": false, "values": ["idle", "attaching", "ready", "restarting", "detaching", "error"]},
+        "connected": {"type": "bool", "required": true, "nullable": false, "doc": "the bridge holds a VM service connection, whichever tool opened it"},
+        "connectedVia": {"type": "String", "required": false, "nullable": false, "values": ["attach_device", "attach_debug_url", "attach_ios", "connect"], "presence": "when connected is true", "doc": "how the connection was opened: attach_app(device:), attach_app(debugUrl:), attach_app(udid:), or the connect tool (also --uri at startup)"},
         "device": {"type": "String", "required": false, "nullable": false},
         "appId": {"type": "String", "required": false, "nullable": false},
         "sessionUuid": {"type": "String", "required": false, "nullable": false},
         "launchMode": {"type": "String", "required": false, "nullable": false},
         "mode": {"type": "String", "required": false, "nullable": false},
-        "lastError": {"type": "String", "required": false, "nullable": false}
+        "lastError": {"type": "String", "required": false, "nullable": false, "presence": "when state == 'error'"},
+        "transportMode": {"type": "String", "required": false, "nullable": false, "values": ["wired", "wireless", "unknown"], "presence": "when launchMode == 'ios-direct'"},
+        "wsUri": {"type": "String", "required": false, "nullable": false, "presence": "when launchMode == 'ios-direct'"}
       },
       "errors": [
         {"code": "session_missing", "doc": "DaemonSession not initialized on this server", "messagePrefix": "internal: daemon session not initialized"}
@@ -141,14 +156,18 @@
       "args": {},
       "data": {
         "_shape_source": "AppStatusPayload.toJson() — packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
-        "attached": {"type": "bool", "required": true, "nullable": false},
+        "attached": {"type": "bool", "required": true, "nullable": false, "doc": "true only when an attach_app session is in state ready and the bridge is still connected; false for a connection opened with connect"},
         "state": {"type": "String", "required": true, "nullable": false, "values": ["idle", "attaching", "ready", "restarting", "detaching", "error"]},
+        "connected": {"type": "bool", "required": true, "nullable": false, "doc": "the bridge holds a VM service connection, whichever tool opened it"},
+        "connectedVia": {"type": "String", "required": false, "nullable": false, "values": ["attach_device", "attach_debug_url", "attach_ios", "connect"], "presence": "when connected is true", "doc": "how the connection was opened: attach_app(device:), attach_app(debugUrl:), attach_app(udid:), or the connect tool (also --uri at startup)"},
         "device": {"type": "String", "required": false, "nullable": false},
         "appId": {"type": "String", "required": false, "nullable": false},
         "sessionUuid": {"type": "String", "required": false, "nullable": false},
         "launchMode": {"type": "String", "required": false, "nullable": false},
         "mode": {"type": "String", "required": false, "nullable": false},
-        "lastError": {"type": "String", "required": false, "nullable": false}
+        "lastError": {"type": "String", "required": false, "nullable": false, "presence": "when state == 'error'"},
+        "transportMode": {"type": "String", "required": false, "nullable": false, "values": ["wired", "wireless", "unknown"], "presence": "when launchMode == 'ios-direct'"},
+        "wsUri": {"type": "String", "required": false, "nullable": false, "presence": "when launchMode == 'ios-direct'"}
       },
       "errors": [
         {"code": "session_missing", "doc": "DaemonSession not initialized on this server", "messagePrefix": "internal: daemon session not initialized"}
@@ -159,19 +178,24 @@
       "args": {},
       "data": {
         "_shape_source": "AppStatusPayload.toJson() — packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart",
-        "attached": {"type": "bool", "required": true, "nullable": false},
-        "state": {"type": "String", "required": true, "nullable": false},
+        "attached": {"type": "bool", "required": true, "nullable": false, "doc": "true only when an attach_app session is in state ready and the bridge is still connected; false for a connection opened with connect"},
+        "state": {"type": "String", "required": true, "nullable": false, "values": ["idle", "attaching", "ready", "restarting", "detaching", "error"]},
+        "connected": {"type": "bool", "required": true, "nullable": false, "doc": "the bridge holds a VM service connection, whichever tool opened it"},
+        "connectedVia": {"type": "String", "required": false, "nullable": false, "values": ["attach_device", "attach_debug_url", "attach_ios", "connect"], "presence": "when connected is true", "doc": "how the connection was opened: attach_app(device:), attach_app(debugUrl:), attach_app(udid:), or the connect tool (also --uri at startup)"},
         "device": {"type": "String", "required": false, "nullable": false},
         "appId": {"type": "String", "required": false, "nullable": false},
         "sessionUuid": {"type": "String", "required": false, "nullable": false},
         "launchMode": {"type": "String", "required": false, "nullable": false},
         "mode": {"type": "String", "required": false, "nullable": false},
-        "lastError": {"type": "String", "required": false, "nullable": false}
+        "lastError": {"type": "String", "required": false, "nullable": false, "presence": "when state == 'error'"},
+        "transportMode": {"type": "String", "required": false, "nullable": false, "values": ["wired", "wireless", "unknown"], "presence": "when launchMode == 'ios-direct'"},
+        "wsUri": {"type": "String", "required": false, "nullable": false, "presence": "when launchMode == 'ios-direct'"}
       },
       "errors": [
         {"code": "session_missing", "doc": "DaemonSession not initialized on this server", "messagePrefix": "internal: daemon session not initialized"},
-        {"code": "state_error", "doc": "StateError raised by DaemonSession.hotReload (e.g. not attached, debugUrl session)", "messagePrefix": "<state error message>"},
-        {"code": "hot_reload_unsupported", "doc": "iOS-direct sessions do not support hot reload (no flutter daemon attached)", "messagePrefix": "<typed envelope — see structured.error.code>"}
+        {"code": "state_error", "doc": "StateError raised by DaemonSession.hotReload: the session is not attached (state is not ready)", "messagePrefix": "<state error message>"},
+        {"code": "hot_reload_unsupported", "doc": "the session has no flutter daemon: an iOS-direct, debugUrl or connect session. Typed envelope with data.remedy; the session and its connection are left as they were", "messagePrefix": "<typed envelope, see structured.error.code>"},
+        {"code": "hot_reload_failed", "doc": "flutter rejected the reload with a non-zero app.restart code, for example on a compile error, and the session stays ready; or the reload RPC timed out or failed, or the bridge refresh after it failed, and state becomes error. Typed envelope; the JSON block carries {error, message, status}"}
       ]
     },
     "list_devices": {
@@ -187,6 +211,38 @@
       "errors": [
         {"code": "flutter_not_on_path", "doc": "ProcessException — flutter binary unavailable", "messagePrefix": "flutter not on PATH or failed to run:"},
         {"code": "daemon_failure", "doc": "DaemonSessionException raised inside listDevices", "messagePrefix": "<exception message>"}
+      ]
+    },
+    "get_logs": {
+      "kind": "direct",
+      "args": {
+        "maxLines": {"type": "int", "required": false, "nullable": false, "default": 100, "doc": "most lines to return, newest kept; at least 1; values above the 500-line buffer return the whole buffer"},
+        "filter": {"type": "String", "required": false, "nullable": false, "doc": "keep only lines whose text contains this text, ignoring case"}
+      },
+      "data": {
+        "lines": {
+          "type": "List<Map>",
+          "required": true,
+          "nullable": false,
+          "doc": "the newest matching lines, oldest first",
+          "item_shape": {
+            "time": {"type": "String", "required": true, "nullable": false, "doc": "ISO-8601 UTC; from the VM event when it carries a timestamp, else when the sidecar received the line"},
+            "source": {"type": "String", "required": true, "nullable": false, "values": ["stdout", "stderr", "logging", "daemon"]},
+            "text": {"type": "String", "required": true, "nullable": false},
+            "level": {"type": "int", "required": false, "nullable": false, "presence": "logging lines; the dart:developer level (0 to 2000)"},
+            "logger": {"type": "String", "required": false, "nullable": false, "presence": "logging lines whose record names a logger"},
+            "truncated": {"type": "bool", "required": false, "nullable": false, "presence": "true when the text was cut, by the VM service (it shortens long dart:developer messages) or by the 2000-character line cap"}
+          }
+        },
+        "count": {"type": "int", "required": true, "nullable": false, "doc": "lines.length"},
+        "matchedCount": {"type": "int", "required": true, "nullable": false, "doc": "buffered lines that match filter; more than count when maxLines cut the list"},
+        "bufferedCount": {"type": "int", "required": true, "nullable": false, "doc": "lines in the buffer, at most 500"},
+        "droppedCount": {"type": "int", "required": true, "nullable": false, "doc": "older lines evicted from the full buffer since it was last cleared; output before them is gone"},
+        "capturing": {"type": "String", "required": true, "nullable": false, "values": ["vm_service", "daemon", "none"], "doc": "where new lines come from now: the VM service Stdout, Stderr and Logging streams; flutter daemon app.log lines while those streams are not active; or nothing"}
+      },
+      "errors": [
+        {"code": "session_missing", "doc": "DaemonSession not initialized on this server", "messagePrefix": "internal: daemon session not initialized"},
+        {"code": "arg_invalid_int", "doc": "maxLines is below 1", "messagePrefix": "arg_invalid_int:"}
       ]
     },
     "compare_snapshots": {
@@ -240,9 +296,9 @@
       "kind": "wraps",
       "wraps": "ext.sleuth.snapshot",
       "args": {
-        "minFps": {"type": "num", "required": true, "nullable": false},
-        "maxIssues": {"type": "int", "required": true, "nullable": false},
-        "maxCriticalIssues": {"type": "int", "required": true, "nullable": false}
+        "minFps": {"type": "num", "required": false, "nullable": false, "default": 55, "doc": "lowest acceptable average FPS; same default as sleuth_check --min-fps"},
+        "maxIssues": {"type": "int", "required": false, "nullable": false, "default": 999999, "doc": "most issues allowed; the default sets no practical limit, as in sleuth_check --max-issues"},
+        "maxCriticalIssues": {"type": "int", "required": false, "nullable": false, "default": 0, "doc": "most critical issues allowed; same default as sleuth_check --max-critical-issues"}
       },
       "data": {
         "passed": {"type": "bool", "required": true, "nullable": false},

@@ -124,7 +124,7 @@ void main() {
       }
       expect(byId.keys, containsAll(<int>[1, 2, 3, 4]));
       expect(((byId[1]!['result']) as Map)['protocolVersion'], '2024-11-05');
-      expect(((byId[2]!['result']) as Map)['tools'], hasLength(13));
+      expect(((byId[2]!['result']) as Map)['tools'], hasLength(14));
       final diagContent = ((byId[3]!['result']) as Map)['content'] as List;
       expect((diagContent.first as Map)['type'], 'text');
       final snapContent = ((byId[4]!['result']) as Map)['content'] as List;

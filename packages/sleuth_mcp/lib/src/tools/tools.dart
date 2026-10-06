@@ -7,10 +7,12 @@ import 'package:synchronized/synchronized.dart';
 import '../bridge/vm_bridge.dart';
 import '../cli/attach_ios_command.dart' show IosTransport;
 import '../cli/ios_attach_pipeline.dart'
-    show IosAttachErrorKind, IosAttachException;
+    show IosAttachErrorKind, IosAttachException, IosAttachPhase;
+import '../flutter_daemon/app_status.dart';
 import '../flutter_daemon/daemon_session.dart';
 import '../mcp/mcp_server.dart';
 import '../mcp/mcp_types.dart';
+import '../mcp/tool_call_context.dart';
 import '../util/device_filter.dart';
 import '../util/version_lineage.dart';
 import 'budgets.dart';
@@ -897,16 +899,33 @@ final Map<String, BuiltInTool> builtInTools = {
       description:
           'Compare live snapshot against FPS / issue-count budgets. Returns '
           '{passed, violations}; refuses with coverage_degraded when the app '
-          'has no VM service link (VM-only detectors never ran). For CI '
-          'exit-code gating, use the `sleuth_check` one-shot binary instead.',
+          'has no VM service link (VM-only detectors never ran). Every '
+          'threshold is optional and defaults to the sleuth_check default: '
+          'minFps 55, maxIssues 999999 (no practical limit), '
+          'maxCriticalIssues 0. For CI exit-code gating, use the '
+          '`sleuth_check` one-shot binary instead.',
       inputSchema: {
         'type': 'object',
         'properties': {
-          'minFps': {'type': 'number'},
-          'maxIssues': {'type': 'integer'},
-          'maxCriticalIssues': {'type': 'integer'},
+          'minFps': {
+            'type': 'number',
+            'default': defaultMinFps,
+            'description': 'Lowest acceptable average FPS. Default 55.',
+          },
+          'maxIssues': {
+            'type': 'integer',
+            'default': defaultMaxIssues,
+            'description':
+                'Most issues allowed. Default 999999, which sets no '
+                'practical limit.',
+          },
+          'maxCriticalIssues': {
+            'type': 'integer',
+            'default': defaultMaxCriticalIssues,
+            'description': 'Most critical issues allowed. Default 0.',
+          },
         },
-        'required': ['minFps', 'maxIssues', 'maxCriticalIssues'],
+        'required': <String>[],
       },
     ),
     handler: checkBudgetsHandler,
@@ -924,7 +943,7 @@ final Map<String, BuiltInTool> builtInTools = {
   ),
 };
 
-/// Builds the 5 attach-mode tools bound to [server]. Caller registers
+/// Builds the attach-mode tools bound to [server]. Caller registers
 /// them on the server alongside `builtInTools`.
 ///
 /// Closure capture reads `server.daemonSession` lazily so tests can swap
@@ -951,18 +970,24 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     final authOverride = (args['authOverride'] as String?)?.trim();
     final forceRelaunch = args['forceRelaunch'] == true;
 
+    // Progress and cancellation from the `tools/call` request, when the
+    // handler runs inside one.
+    final context = ToolCallContext.current;
+    final cancelSignal = context?.cancelled.asStream();
+    void progress(String message) => context?.reportProgress(message);
+
     // iOS-direct path: drive the full attach-ios pipeline.
     if (udid != null && udid.isNotEmpty) {
       if ((device != null && device.isNotEmpty) ||
           (debugUrl != null && debugUrl.isNotEmpty)) {
-        return _iosErrorEnvelope(
+        return _typedErrorEnvelope(
           'ios_ambiguous_args',
           '`udid` cannot be combined with `device` or `debugUrl`. Pick '
               'one routing mode.',
         );
       }
       if (bundle == null || bundle.isEmpty) {
-        return _iosErrorEnvelope(
+        return _typedErrorEnvelope(
           'ios_missing_bundle',
           '`udid` requires `bundle` (iOS bundle identifier). Example: '
               '`com.example.app`.',
@@ -982,7 +1007,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           transportOverride = IosTransport.wireless;
           break;
         default:
-          return _iosErrorEnvelope(
+          return _typedErrorEnvelope(
             'ios_invalid_transport',
             '`transport` must be one of: auto, usb, wireless. Got '
                 '`$transportRaw`.',
@@ -998,46 +1023,13 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           authOverride: authOverride,
           transportOverride: transportOverride,
           forceRelaunch: forceRelaunch,
+          onProgress: (phase, {data}) =>
+              progress(_iosPhaseMessage(phase, data)),
+          cancelSignal: cancelSignal,
         );
-        Map<String, Object?>? diag;
-        if (status.attached) {
-          final result = await _enforceVersionSkew(bridge);
-          if (result.refusal != null) {
-            await session.detach();
-            return result.refusal!;
-          }
-          diag = result.diagnose;
-        } else {
-          final lastError = status.lastError ?? '';
-          if (lastError.contains('version_skew_')) {
-            return ToolCallResult.text(lastError, isError: true);
-          }
-          if (lastError.startsWith('ios_vmservice_busy:')) {
-            return _iosErrorEnvelope(
-              'ios_vmservice_busy',
-              lastError,
-              data: const <String, Object?>{
-                'remedy':
-                    'swipe the app off the device home screen and '
-                    'rerun attach_app; or rebuild the profile binary',
-              },
-            );
-          }
-          if (lastError.startsWith('ios_vmservice_unreachable:')) {
-            return _iosErrorEnvelope(
-              'ios_vmservice_unreachable',
-              lastError,
-              data: const <String, Object?>{
-                'remedy':
-                    'wait ~30s for mDNS cache to clear, or swipe '
-                    'the app off the device and rerun attach_app',
-              },
-            );
-          }
-        }
-        return _withAttachStamps(status.toJson(), diag);
+        return await _finishAttach(session, bridge, status, context);
       } on IosAttachException catch (e) {
-        return _iosErrorEnvelope(
+        return _typedErrorEnvelope(
           _iosErrorKindToTypedName(e.kind),
           e.message,
           data: e.data,
@@ -1047,40 +1039,20 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
         // typed-envelope treatment as the other iOS-typed errors so MCP
         // clients introspecting `structured.error` see it uniformly.
         if (e.message.startsWith('attach_in_progress:')) {
-          return _iosErrorEnvelope('attach_in_progress', e.message);
+          return _typedErrorEnvelope('attach_in_progress', e.message);
         }
         return ToolCallResult.text(e.message, isError: true);
       }
     }
 
     try {
-      final status = await session.attach(device: device, debugUrl: debugUrl);
-      // Bridge-layer refusal flows through `DaemonSession.attach`'s
-      // `on VmBridgeException` catch, which wraps `version_skew_…` into
-      // `lastError` as `'bridge connect failed: version_skew_…'`.
-      // Surface that as `isError` so clients distinguish contract
-      // refusal from generic attach failures (timeout, app.stop, etc.)
-      // that share the same non-attached `status.toJson()` return path.
-      if (!status.attached) {
-        final lastError = status.lastError ?? '';
-        if (lastError.contains('version_skew_')) {
-          return ToolCallResult.text(lastError, isError: true);
-        }
-      }
-      // Attach reaches `state: ready` only when `bridge.connect()`
-      // succeeded — run the same skew check `connect` runs. Redundant
-      // when `defaultVersionSkewValidator` is wired into the bridge;
-      // covers fakes / future bridges that skip wiring.
-      Map<String, Object?>? diag;
-      if (status.attached) {
-        final result = await _enforceVersionSkew(bridge);
-        if (result.refusal != null) {
-          await session.detach();
-          return result.refusal!;
-        }
-        diag = result.diagnose;
-      }
-      return _withAttachStamps(status.toJson(), diag);
+      final status = await session.attach(
+        device: device,
+        debugUrl: debugUrl,
+        onProgress: progress,
+        cancelSignal: cancelSignal,
+      );
+      return await _finishAttach(session, bridge, status, context);
     } on StateError catch (e) {
       return ToolCallResult.text(e.message, isError: true);
     } on DaemonSessionException catch (e) {
@@ -1094,8 +1066,11 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
   ) async {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
-    await session.detach();
-    snapshotDiskHandoff.cleanupAll();
+    try {
+      await session.detach();
+    } finally {
+      snapshotDiskHandoff.cleanupAll();
+    }
     return session.status.toJson();
   }
 
@@ -1139,11 +1114,12 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
   ) async {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
+    final before = session.status;
     // iOS-direct sessions bypass the flutter daemon, so the daemon's
     // `app.restart` RPC isn't reachable. Surface a typed error with a
     // remedy rather than a confusing StateError from the daemon path.
-    if (session.status.launchMode == 'ios-direct') {
-      return _iosErrorEnvelope(
+    if (before.launchMode == 'ios-direct') {
+      return _typedErrorEnvelope(
         'hot_reload_unsupported',
         'hot_reload is not available on iOS-direct sessions '
             '(`attach_app(udid: ...)`). Re-attach via the flutter daemon '
@@ -1155,12 +1131,74 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
         },
       );
     }
-    try {
-      final status = await session.hotReload();
-      return status.toJson();
-    } on StateError catch (e) {
-      return ToolCallResult.text(e.message, isError: true);
+    // debugUrl and connect sessions have no flutter daemon either. Their
+    // connection keeps working, so refuse without touching the session.
+    final via = before.connectedVia;
+    if (via == ConnectedVia.attachDebugUrl ||
+        (via == ConnectedVia.connect &&
+            before.state == AppSessionState.idle.name)) {
+      return _hotReloadUnsupported(
+        via == ConnectedVia.attachDebugUrl
+            ? 'attach_app(debugUrl:)'
+            : 'connect',
+      );
     }
+    try {
+      final after = await session.hotReload();
+      if (after.state != AppSessionState.ready.name) {
+        return _typedErrorEnvelope(
+          'hot_reload_failed',
+          after.lastError ?? 'hot reload did not finish (state=${after.state})',
+          data: <String, Object?>{'status': after.toJson()},
+        );
+      }
+      return after.toJson();
+    } on StateError catch (e) {
+      if (e.message.startsWith('hot_reload_unsupported:')) {
+        return _hotReloadUnsupported('attach_app without a flutter daemon');
+      }
+      return ToolCallResult.text(e.message, isError: true);
+    } on DaemonSessionException catch (e) {
+      return _typedErrorEnvelope(
+        'hot_reload_failed',
+        e.message,
+        data: <String, Object?>{'status': session.status.toJson()},
+      );
+    }
+  }
+
+  Future<Object> getLogsHandler(
+    VmBridge bridge,
+    Map<String, Object?> args,
+  ) async {
+    final session = server.daemonSession;
+    if (session is! DaemonSession) return sessionMissing();
+    final logs = session.appLogs;
+    var maxLines = _defaultLogLines;
+    final rawMaxLines = args['maxLines'];
+    if (rawMaxLines != null) {
+      final parsed = _asInt(rawMaxLines);
+      if (parsed == null || parsed < 1) {
+        return ToolCallResult.text(
+          'arg_invalid_int: maxLines must be a positive integer',
+          isError: true,
+        );
+      }
+      maxLines = parsed < logs.capacity ? parsed : logs.capacity;
+    }
+    final filter = args['filter'];
+    final result = logs.query(
+      maxLines: maxLines,
+      filter: filter is String ? filter : null,
+    );
+    return <String, Object?>{
+      'lines': [for (final line in result.lines) line.toJson()],
+      'count': result.lines.length,
+      'matchedCount': result.matched,
+      'bufferedCount': logs.length,
+      'droppedCount': logs.droppedCount,
+      'capturing': session.logCapture,
+    };
   }
 
   return {
@@ -1183,7 +1221,10 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
             '  • `device` (name or id from list_devices) — routes via '
             '`flutter attach --machine` daemon (Android + iOS daemon path).\n'
             'Connects bridge to the app\'s VM service. Call before any '
-            'diagnostic tools.',
+            'diagnostic tools. A failed attach returns isError with code '
+            'attach_failed. When the request carries a progressToken, each '
+            'stage sends notifications/progress; notifications/cancelled '
+            'stops the attach and releases what it started.',
         inputSchema: {
           'type': 'object',
           'properties': {
@@ -1205,7 +1246,8 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
               'description':
                   'iOS device UDID. When set, drives the iOS attach '
                   'pipeline directly (no flutter daemon). Requires `bundle`. '
-                  'Mutually exclusive with `device` / `debugUrl`.',
+                  'Mutually exclusive with `device` / `debugUrl`. macOS '
+                  'only.',
             },
             'bundle': {
               'type': 'string',
@@ -1256,8 +1298,10 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           openWorldHint: true,
         ),
         description:
-            'Detach from the current Flutter app and release the daemon '
-            'child. Idempotent — safe to call when not attached.',
+            'End the session: stop the flutter attach child or the iproxy '
+            'tunnel, disconnect the bridge (also one opened with connect), '
+            'clear the get_logs buffer and delete disk-handoff files. '
+            'Idempotent, so it is safe to call when nothing is attached.',
         inputSchema: _emptyObjectSchema,
       ),
       handler: detachHandler,
@@ -1268,8 +1312,13 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
         name: 'app_status',
         annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: false),
         description:
-            'Current attach state. Returns {attached, state, device, appId, '
-            'sessionUuid, launchMode, mode, lastError}.',
+            'Current attach and connection state. Returns {attached, state, '
+            'connected, connectedVia, device, appId, sessionUuid, '
+            'launchMode, mode, lastError}, plus transportMode and wsUri on '
+            'iOS-direct sessions. attached is true only for an attach_app '
+            'session in state ready whose bridge is still connected. '
+            'connected and connectedVia also report a connection opened '
+            'with connect.',
         inputSchema: _emptyObjectSchema,
       ),
       handler: statusHandler,
@@ -1308,9 +1357,11 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           openWorldHint: true,
         ),
         description:
-            'Trigger flutter hot reload (`r`) on a daemon-spawn session. '
-            'Preserves app state and sessionUuid. Not available on '
-            'debugUrl sessions.',
+            'Trigger flutter hot reload (`r`) on a session attached with '
+            'attach_app(device:). Preserves app state and sessionUuid. '
+            'debugUrl, iOS-direct and connect sessions have no flutter '
+            'daemon and return hot_reload_unsupported. A rejected or '
+            'failed reload returns isError with code hot_reload_failed.',
         inputSchema: _emptyObjectSchema,
       ),
       handler: hotReloadHandler,
@@ -1319,7 +1370,162 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     // There is no `hot_restart` tool: in Android profile mode the new main
     // isolate does not register again within the bridge's reconnect window
     // after `app.restart`. Use `detach_app` and then `attach_app`.
+    'get_logs': BuiltInTool(
+      descriptor: const Tool(
+        name: 'get_logs',
+        annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: false),
+        description:
+            'Recent output of the connected app: print and stderr lines and '
+            'dart:developer log records from the VM service, or flutter '
+            'daemon app.log lines while those streams are not available. '
+            'Returns the newest maxLines lines (default 100), oldest first. '
+            'filter keeps lines containing the text, ignoring case. The '
+            'sidecar keeps the last 500 lines; droppedCount says how many '
+            'older lines it evicted.',
+        inputSchema: {
+          'type': 'object',
+          'properties': {
+            'maxLines': {
+              'type': 'integer',
+              'default': _defaultLogLines,
+              'minimum': 1,
+              'description':
+                  'Most lines to return, newest kept. Default 100; values '
+                  'above the 500-line buffer return the whole buffer.',
+            },
+            'filter': {
+              'type': 'string',
+              'description':
+                  'Keep only lines whose text contains this text, ignoring '
+                  'case.',
+            },
+          },
+          'required': <String>[],
+        },
+      ),
+      handler: getLogsHandler,
+    ),
   };
+}
+
+/// `get_logs` default for `maxLines`.
+const int _defaultLogLines = 100;
+
+/// Shared tail of `attach_app`: turns a non-attached status into an error,
+/// runs the version check, and undoes an attach whose request the client
+/// cancelled while the check ran.
+Future<Object> _finishAttach(
+  DaemonSession session,
+  VmBridge bridge,
+  AppStatusPayload status,
+  ToolCallContext? context,
+) async {
+  final generation = session.generation;
+  if (!status.attached) {
+    // Bridge-layer refusal flows through the session's connect catch,
+    // which wraps `version_skew_…` into `lastError`. Surface it with the
+    // same text `connect` uses, so clients can tell a contract refusal
+    // from other attach failures.
+    final lastError = status.lastError ?? '';
+    if (lastError.contains('version_skew_')) {
+      return ToolCallResult.text(lastError, isError: true);
+    }
+    if (lastError.startsWith('ios_vmservice_busy:')) {
+      return _typedErrorEnvelope(
+        'ios_vmservice_busy',
+        lastError,
+        data: const <String, Object?>{
+          'remedy':
+              'swipe the app off the device home screen and '
+              'rerun attach_app; or rebuild the profile binary',
+        },
+      );
+    }
+    if (lastError.startsWith('ios_vmservice_unreachable:')) {
+      return _typedErrorEnvelope(
+        'ios_vmservice_unreachable',
+        lastError,
+        data: const <String, Object?>{
+          'remedy':
+              'wait ~30s for mDNS cache to clear, or swipe '
+              'the app off the device and rerun attach_app',
+        },
+      );
+    }
+    return _attachFailed(status);
+  }
+  // Attach reaches `ready` only when `bridge.connect()` succeeded — run the
+  // same skew check `connect` runs. Redundant when
+  // `defaultVersionSkewValidator` is wired into the bridge; covers fakes /
+  // future bridges that skip wiring.
+  final result = await _enforceVersionSkew(bridge);
+  if (result.refusal != null) {
+    await session.detach();
+    return result.refusal!;
+  }
+  if (context != null && context.isCancelled) {
+    // The client gave up on this request, so it will never learn about the
+    // session. Do not leave one running.
+    await session.detachIfCurrent(generation);
+    return _attachFailed(session.status, reason: 'the client cancelled it');
+  }
+  return _withAttachStamps(status.toJson(), result.diagnose);
+}
+
+/// `attach_failed` envelope for an attach that ended without a session.
+ToolCallResult _attachFailed(AppStatusPayload status, {String? reason}) {
+  final message =
+      reason ??
+      status.lastError ??
+      (status.state == AppSessionState.idle.name
+          ? 'the attach stopped before it finished, because detach_app ran '
+                'or the client cancelled it'
+          : 'the attach did not reach ready (state=${status.state})');
+  return _typedErrorEnvelope(
+    'attach_failed',
+    message,
+    data: <String, Object?>{'status': status.toJson()},
+  );
+}
+
+/// `hot_reload_unsupported` envelope for a session without a flutter daemon.
+ToolCallResult _hotReloadUnsupported(String openedWith) => _typedErrorEnvelope(
+  'hot_reload_unsupported',
+  'hot_reload needs a session attached with attach_app(device:), which runs '
+      'flutter attach. This session was opened with $openedWith and has no '
+      'flutter daemon; its connection still works.',
+  data: const <String, Object?>{
+    'remedy':
+        'detach_app, then attach_app(device: <device id or name>) to get a '
+        'session that supports hot_reload',
+  },
+);
+
+/// Progress message for one stage of the iOS-direct pipeline.
+String _iosPhaseMessage(IosAttachPhase phase, Map<String, Object?>? data) {
+  switch (phase) {
+    case IosAttachPhase.detectingTransport:
+      return 'Detecting whether the device is on USB or wireless';
+    case IosAttachPhase.resolvingBonjour:
+      return 'Looking for the app VM service over Bonjour';
+    case IosAttachPhase.launchingApp:
+      return 'Launching the app with xcrun devicectl';
+    case IosAttachPhase.announcementsCollected:
+      final count = (data?['announcements'] as List?)?.length;
+      return count == null
+          ? 'Found the VM service announcement'
+          : 'Found $count VM service announcement(s)';
+    case IosAttachPhase.selectingAnnouncement:
+      return 'Selecting the VM service to connect to';
+    case IosAttachPhase.reclaimingStalePidfile:
+      return 'Checking for a leftover iproxy tunnel';
+    case IosAttachPhase.spawningIproxy:
+      return 'Starting the iproxy USB tunnel';
+    case IosAttachPhase.iproxyReady:
+      return 'The iproxy tunnel is up';
+    case IosAttachPhase.attachComplete:
+      return 'Connecting to the app VM service';
+  }
 }
 
 /// Map [IosAttachErrorKind] to a stable typed-error name surfaced over
@@ -1346,12 +1552,12 @@ String _iosErrorKindToTypedName(IosAttachErrorKind kind) {
   }
 }
 
-/// Construct an iOS-typed error envelope. The text content carries
-/// the typed name + message so clients without structured-error
-/// parsing still see a useful string; the structured `data` block
-/// carries the error name + supplemental info (remedy, allowed
-/// values, etc.) for clients that introspect.
-ToolCallResult _iosErrorEnvelope(
+/// Construct a typed error envelope. The text content carries the typed
+/// name + message so clients without structured-error parsing still see
+/// a useful string; the second text block carries a JSON object with the
+/// error name and supplemental info (remedy, allowed values, the session
+/// status, etc.) for clients that introspect.
+ToolCallResult _typedErrorEnvelope(
   String errorName,
   String message, {
   Map<String, Object?>? data,
@@ -1368,17 +1574,17 @@ ToolCallResult _iosErrorEnvelope(
     isError: true,
     content: [
       {'type': 'text', 'text': '$errorName: $message'},
-      {'type': 'text', 'text': _encodeIosErrorData(payload)},
+      {'type': 'text', 'text': _encodeTypedErrorData(payload)},
     ],
   );
 }
 
-String _encodeIosErrorData(Map<String, Object?> payload) {
+String _encodeTypedErrorData(Map<String, Object?> payload) {
   try {
-    return _iosErrorJsonEncoder.convert(payload);
+    return _typedErrorJsonEncoder.convert(payload);
   } catch (_) {
     return '{"error":"${payload['error']}"}';
   }
 }
 
-final _iosErrorJsonEncoder = JsonEncoder();
+final _typedErrorJsonEncoder = JsonEncoder();

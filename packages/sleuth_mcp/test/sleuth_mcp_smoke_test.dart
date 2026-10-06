@@ -62,7 +62,7 @@ void main() {
     );
   });
 
-  test('binary spawns, initialize + tools/list lists 13 tool names', () async {
+  test('binary spawns, initialize + tools/list lists 14 tool names', () async {
     final process = await Process.start(Platform.resolvedExecutable, [
       'run',
       'bin/sleuth_mcp.dart',
@@ -93,7 +93,7 @@ void main() {
     await process.stdin.flush();
     final listResp = jsonDecode(await responses.next) as Map<String, Object?>;
     final tools = (listResp['result'] as Map)['tools'] as List;
-    expect(tools, hasLength(13));
+    expect(tools, hasLength(14));
     final names = tools.map((t) => (t as Map)['name']).toSet();
     expect(names, {
       // diagnostic tools
@@ -111,6 +111,7 @@ void main() {
       'app_status',
       'list_devices',
       'hot_reload',
+      'get_logs',
     });
 
     await process.stdin.close();

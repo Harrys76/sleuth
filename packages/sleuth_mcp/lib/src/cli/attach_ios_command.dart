@@ -89,8 +89,15 @@ Future<Process> _defaultIproxyStart(String exe, List<String> args) =>
     Process.start('nohup', [exe, ...args]);
 
 Future<bool> _defaultHasTool(String name) async {
-  final r = await _defaultRun('which', [name]);
-  return r.exitCode == 0;
+  // The tools come from Xcode and libimobiledevice, so only macOS has them.
+  // Elsewhere `which` itself may be missing.
+  if (!Platform.isMacOS) return false;
+  try {
+    final r = await _defaultRun('which', [name]);
+    return r.exitCode == 0;
+  } on ProcessException {
+    return false;
+  }
 }
 
 Stream<String> _defaultBonjourLines(String bundleId, String service) async* {
@@ -296,10 +303,15 @@ class PidfileLockGuard {
 /// On [TimeoutException], any [PidfileLockGuard]-registered child is
 /// SIGKILLed and the pidfile removed before rethrow, so a mid-body
 /// spawn doesn't leak as an unreapable orphan.
+///
+/// Waiting for the lock is bounded by [lockTimeout]: when another process
+/// holds it that long, this throws [TimeoutException] without running
+/// [body].
 Future<T> withPidfileLock<T>(
   File pidfile,
   Future<T> Function(PidfileLockGuard guard) body, {
   Duration timeout = const Duration(seconds: 15),
+  Duration lockTimeout = const Duration(seconds: 10),
 }) async {
   final lockFile = File('${pidfile.path}.lock');
   RandomAccessFile? raf;
@@ -307,7 +319,7 @@ Future<T> withPidfileLock<T>(
   final guard = PidfileLockGuard();
   try {
     raf = await lockFile.open(mode: FileMode.write);
-    await raf.lock(FileLock.blockingExclusive);
+    await _lockWithin(raf, lockTimeout, lockFile);
     locked = true;
     // 15s wall-clock: past readiness window + Bonjour collect ceiling.
     // Tripping it signals the iproxy spawn pipeline is wedged.
@@ -349,6 +361,31 @@ Future<T> withPidfileLock<T>(
       } on FileSystemException {
         // ignore
       }
+    }
+  }
+}
+
+/// Takes an exclusive lock on [raf], polling a non-blocking lock until
+/// [timeout] passes. A blocking lock cannot be abandoned: the pending call
+/// keeps the file busy, so it could neither time out nor be closed.
+Future<void> _lockWithin(
+  RandomAccessFile raf,
+  Duration timeout,
+  File lockFile,
+) async {
+  final waited = Stopwatch()..start();
+  while (true) {
+    try {
+      await raf.lock(FileLock.exclusive);
+      return;
+    } on FileSystemException {
+      if (waited.elapsed >= timeout) {
+        throw TimeoutException(
+          'another process held ${lockFile.path} for ${timeout.inSeconds}s',
+          timeout,
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
     }
   }
 }

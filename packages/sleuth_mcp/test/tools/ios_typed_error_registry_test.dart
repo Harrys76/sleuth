@@ -82,7 +82,7 @@ void main() {
       // tool-layer-only allowlist below.
       //
       // MAINTENANCE: three synced touchpoints per typed error —
-      // (1) production mapper / `_iosErrorEnvelope` call site,
+      // (1) production mapper / `_typedErrorEnvelope` call site,
       // (2) schema `doc/mcp_tool_schema.{json,md}`, (3) this allowlist.
       // Audit catches single-side drift; rule is "change two, change three".
       const toolLayerOnly = {
@@ -96,6 +96,7 @@ void main() {
         'version_skew_major',
         'version_skew_unknown',
         'daemon_failure',
+        'attach_failed',
       };
       final fromKinds = _expectedTypedName.values.toSet();
       for (final code in codes) {

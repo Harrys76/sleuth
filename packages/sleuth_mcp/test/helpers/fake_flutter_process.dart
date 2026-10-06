@@ -31,6 +31,7 @@ class FakeFlutterProcess implements Process {
   bool get killed => _killed;
   ProcessSignal? lastSignal;
 
+  /// Like a real process, a killed fake exits and closes its output.
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
     _killed = true;
@@ -38,12 +39,36 @@ class FakeFlutterProcess implements Process {
     if (!_exitCompleter.isCompleted) {
       _exitCompleter.complete(-1);
     }
+    unawaited(_stdoutCtrl.close());
+    unawaited(_stderrCtrl.close());
     return true;
   }
 
-  /// Emit a single NDJSON frame to stdout (newline appended).
+  /// Emit a single NDJSON frame to stdout (newline appended). Ignored once
+  /// the process exited.
   void emit(String frame) {
+    if (_stdoutCtrl.isClosed) return;
     _stdoutCtrl.add(utf8.encode('$frame\n'));
+  }
+
+  /// Write [text] to stderr, as flutter does for its own errors.
+  void emitStderr(String text) {
+    if (_stderrCtrl.isClosed) return;
+    _stderrCtrl.add(utf8.encode(text));
+  }
+
+  /// Write a plain text line to stdout, outside the daemon protocol.
+  void emitStdoutText(String line) {
+    if (_stdoutCtrl.isClosed) return;
+    _stdoutCtrl.add(utf8.encode('$line\n'));
+  }
+
+  /// Exit on its own with [code] and close stdout and stderr, the way
+  /// flutter does when it gives up early.
+  void exitEarly(int code) {
+    unawaited(_stdoutCtrl.close());
+    unawaited(_stderrCtrl.close());
+    if (!_exitCompleter.isCompleted) _exitCompleter.complete(code);
   }
 
   /// Convenience: emit a `[{event, params}]` frame.

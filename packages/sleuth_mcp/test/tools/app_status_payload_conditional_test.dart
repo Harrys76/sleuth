@@ -53,7 +53,30 @@ void main() {
     test('idle state omits all session-scoped fields', () {
       const payload = AppStatusPayload(attached: false, state: 'idle');
       final json = payload.toJson();
-      expect(json.keys.toSet(), {'attached', 'state'});
+      expect(json.keys.toSet(), {'attached', 'state', 'connected'});
+      expect(json['connected'], isFalse);
+    });
+
+    test('connectedVia appears only while connected', () {
+      const viaConnect = AppStatusPayload(
+        attached: false,
+        state: 'idle',
+        connected: true,
+        connectedVia: ConnectedVia.connect,
+      );
+      expect(viaConnect.toJson(), containsPair('connectedVia', 'connect'));
+      const dropped = AppStatusPayload(
+        attached: false,
+        state: 'ready',
+        connectedVia: ConnectedVia.attachDevice,
+      );
+      expect(dropped.toJson().containsKey('connectedVia'), isFalse);
+      expect(ConnectedVia.values, [
+        'attach_device',
+        'attach_debug_url',
+        'attach_ios',
+        'connect',
+      ]);
     });
 
     test('wireless ios-direct emits transportMode=wireless', () {

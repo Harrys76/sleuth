@@ -11,6 +11,7 @@ import '../resources/encyclopedia.dart';
 import '../tools/tools.dart';
 import 'mcp_protocol.dart';
 import 'mcp_types.dart';
+import 'tool_call_context.dart';
 
 /// The newest MCP protocol version the server speaks. When a client asks
 /// for a version the server does not support, the server answers with this
@@ -239,6 +240,14 @@ class McpServer {
   Completer<void>? _serveDone;
   bool _shuttingDown = false;
 
+  /// Output of the running [serve] call. Progress notifications go here;
+  /// they are dropped while no [serve] call runs.
+  IOSink? _notificationOut;
+
+  /// Contexts of the `tools/call` requests in flight, keyed by request id,
+  /// so a `notifications/cancelled` can reach the right handler.
+  final Map<Object, ToolCallContext> _toolCallsInFlight = {};
+
   /// Drive the server over stdio. Returns when stdin closes, when
   /// [shutdown] is called, or when a write failure trips fatal shutdown.
   /// Drains pending dispatches + the write chain before returning.
@@ -250,6 +259,7 @@ class McpServer {
   Future<void> serve({Stream<List<int>>? input, IOSink? output}) async {
     final codec = McpProtocolCodec();
     final out = output ?? stdout;
+    _notificationOut = out;
     final stream = input ?? stdin;
     final done = _serveDone = Completer<void>();
     final sub = codec
@@ -447,7 +457,10 @@ class McpServer {
       case 'tools/list':
         return _handleToolsList(msg);
       case 'tools/call':
-        return _handleToolsCall(msg);
+        return _handleToolsCallWithContext(msg);
+      case 'notifications/cancelled':
+        _cancelToolCall(msg.params['requestId']);
+        return null;
       case 'resources/list':
         return _handleResourcesList(msg);
       case 'resources/templates/list':
@@ -473,6 +486,72 @@ class McpServer {
                 ),
               );
     }
+  }
+
+  /// Runs a `tools/call` inside a [ToolCallContext]. When the request
+  /// carries `_meta.progressToken`, the handler can send
+  /// `notifications/progress` for it. A `notifications/cancelled` that names
+  /// the request while it runs cancels the context, and the server then
+  /// sends no response, as the MCP spec asks.
+  Future<JsonRpcResponse?> _handleToolsCallWithContext(
+    JsonRpcMessage msg,
+  ) async {
+    final meta = msg.params['_meta'];
+    final Object? rawToken = meta is Map ? meta['progressToken'] : null;
+    final token = rawToken is String || rawToken is num ? rawToken : null;
+    final context = ToolCallContext(
+      sendProgress: token == null
+          ? null
+          : (progress, message) => _sendProgress(token, progress, message),
+    );
+    final id = msg.id;
+    if (id != null) _toolCallsInFlight[id] = context;
+    try {
+      final response = await context.run(() => _handleToolsCall(msg));
+      return context.isCancelled ? null : response;
+    } finally {
+      context.finish();
+      if (id != null && identical(_toolCallsInFlight[id], context)) {
+        _toolCallsInFlight.remove(id);
+      }
+    }
+  }
+
+  /// Cancels the in-flight `tools/call` named by [requestId]. An unknown or
+  /// finished id is ignored, as the MCP spec allows.
+  void _cancelToolCall(Object? requestId) {
+    if (requestId == null) return;
+    final context = _toolCallsInFlight[requestId];
+    if (context == null) return;
+    _log('tools/call $requestId cancelled by the client');
+    context.cancel();
+  }
+
+  /// Writes one `notifications/progress` frame through the write chain, so
+  /// it lands before the response of the same request.
+  void _sendProgress(Object token, num progress, String message) {
+    final out = _notificationOut;
+    if (out == null || _shuttingDown) return;
+    final params = <String, Object?>{
+      'progressToken': token,
+      'progress': progress,
+      // `message` joined the progress notification in protocol 2025-03-26.
+      if (_negotiatedProtocolVersion.compareTo('2025-03-26') >= 0)
+        'message': message,
+    };
+    final line =
+        '${jsonEncode({'jsonrpc': '2.0', 'method': 'notifications/progress', 'params': params})}\n';
+    final next = _writeChain.then((_) async {
+      out.write(line);
+      await out.flush();
+    });
+    _writeChain = next.catchError((Object e) {
+      if (_firstWriteError == null) {
+        _firstWriteError = e;
+        _log('stdout write failed: $e; initiating shutdown');
+        shutdown();
+      }
+    });
   }
 
   JsonRpcResponse _handleInitialize(JsonRpcMessage msg) {
