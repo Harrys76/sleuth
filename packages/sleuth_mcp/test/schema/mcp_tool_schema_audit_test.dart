@@ -241,7 +241,14 @@ void main() {
           );
           expect(p['type'], _jsonSchemaTypes[d['type']], reason: '$where type');
           if (d['type'] == 'List<String>') {
-            expect(p['items'], {'type': 'string'}, reason: '$where items');
+            final items = p['items'] as Map<String, Object?>;
+            expect(items['type'], 'string', reason: '$where items type');
+            expect(items['enum'], d['itemValues'], reason: '$where item enum');
+            expect(
+              items.keys.toSet().difference({'type', 'enum'}),
+              isEmpty,
+              reason: '$where items declares undocumented keywords',
+            );
           }
           expect(
             required.contains(arg),
@@ -739,6 +746,74 @@ void main() {
     );
   });
 
+  group('get_snapshot', () {
+    test('default call data keys are ext.sleuth.snapshot keys or documented '
+        'sidecar keys', () async {
+      final appSchema =
+          jsonDecode(
+                File(
+                  '${_packageDir().path}/doc/mcp_schema.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, Object?>;
+      final appKeys =
+          (((appSchema['handlers']
+                          as Map<String, Object?>)['ext.sleuth.snapshot']
+                      as Map<String, Object?>)['data']
+                  as Map<String, Object?>)
+              .keys
+              .toSet();
+      final documented = _documentedKeys(
+        tools['get_snapshot'] as Map<String, Object?>,
+      );
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final result =
+          await builtInTools['get_snapshot']!.handler(bridge, {})
+              as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      expect(
+        data.keys,
+        containsAll(<String>[
+          '_omittedSections',
+          '_omittedSectionsHint',
+          '_projectedSections',
+          'launchModeAdvisory',
+        ]),
+      );
+      expect(
+        data.keys.toSet().difference(appKeys.union(documented)),
+        isEmpty,
+        reason: 'get_snapshot emitted undocumented data keys',
+      );
+    });
+
+    test('the default_projection shim names the default and omitted sets', () {
+      final shims =
+          ((tools['get_snapshot'] as Map<String, Object?>)['shims'] as List)
+              .cast<Map<String, Object?>>();
+      final doc =
+          shims.singleWhere((s) => s['name'] == 'default_projection')['doc']
+              as String;
+      for (final section in [
+        ...defaultSnapshotSections,
+        ...heavySnapshotSections,
+      ]) {
+        expect(doc, contains(section), reason: 'shim doc omits $section');
+      }
+    });
+
+    test('error: arg_conflict when full is combined with sections', () async {
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final result = await builtInTools['get_snapshot']!.handler(bridge, {
+        'full': true,
+        'sections': ['currentIssues'],
+      });
+      expect(_errorText(result as ToolCallResult), startsWith('arg_conflict:'));
+    });
+  });
+
   group('get_route_health passthrough', () {
     test('doc declares no shim', () {
       final doc = tools['get_route_health'] as Map<String, Object?>;
@@ -849,6 +924,11 @@ void main() {
           'arguments': [1],
         },
       ),
+      (
+        // The default fake bridge is not connected until a test connects it.
+        'not_connected',
+        {'name': 'get_issues', 'arguments': <String, Object?>{}},
+      ),
     ]) {
       test('$code is documented and returned through tools/call', () async {
         final server = await _initializedServer();
@@ -856,6 +936,66 @@ void main() {
         expect(text, startsWith(prefixOf(code)));
       });
     }
+
+    for (final (code, error) in <(String, VmBridgeException)>[
+      (
+        'timeout',
+        VmBridgeException(
+          'the app did not answer ext.sleuth.issues within 8000 ms',
+          kind: VmBridgeErrorKind.timeout,
+          timeout: const Duration(seconds: 8),
+        ),
+      ),
+      (
+        'app_busy',
+        VmBridgeException(
+          '8 earlier calls to the app are still unanswered, so '
+          'ext.sleuth.issues was not sent',
+          kind: VmBridgeErrorKind.busy,
+        ),
+      ),
+    ]) {
+      test('$code is documented and returned through tools/call', () async {
+        final bridge = defaultFakeBridge();
+        await bridge.connect(Uri.parse('ws://localhost/ws'));
+        bridge.setResponder('ext.sleuth.issues', (_) => throw error);
+        final server = McpServer(bridge: bridge)..registerDefaults();
+        await server.handleForTest(
+          JsonRpcMessage(method: 'initialize', params: const {}, id: 0),
+        );
+        final text = await _serverCallError(server, {
+          'name': 'get_issues',
+          'arguments': <String, Object?>{},
+        });
+        expect(text, startsWith(prefixOf(code)));
+        expect(bridge.isConnected, isTrue, reason: '$code keeps the bridge');
+      });
+    }
+
+    test('session_changed is documented and returned through tools/call; '
+        'the next call succeeds', () async {
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      bridge.simulateSessionChange('restarted-uuid');
+      final server = McpServer(bridge: bridge)..registerDefaults();
+      await server.handleForTest(
+        JsonRpcMessage(method: 'initialize', params: const {}, id: 0),
+      );
+      final text = await _serverCallError(server, {
+        'name': 'diagnose',
+        'arguments': <String, Object?>{},
+      });
+      expect(text, startsWith(prefixOf('session_changed')));
+      expect(text, contains('call the tool again'));
+      final next = await server.handleForTest(
+        JsonRpcMessage(
+          method: 'tools/call',
+          params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+          id: 3,
+        ),
+      );
+      expect((next!.result as Map<String, Object?>)['isError'], isNull);
+    });
 
     test('every documented server error is returned by McpServer and every '
         'literal server error is documented', () {

@@ -57,6 +57,41 @@ void main() {
     expect(bridge.isConnected, isFalse);
   });
 
+  for (final (given, expected) in <(String, String)>[
+    // What flutter run and flutter attach print.
+    ('http://127.0.0.1:50300/AbC-_d1=/', 'ws://127.0.0.1:50300/AbC-_d1=/ws'),
+    ('https://10.0.0.5:8443/tok=/', 'wss://10.0.0.5:8443/tok=/ws'),
+    ('ws://127.0.0.1:50300/tok=/', 'ws://127.0.0.1:50300/tok=/ws'),
+    ('ws://127.0.0.1:50300/tok=', 'ws://127.0.0.1:50300/tok=/ws'),
+    ('ws://127.0.0.1:50300/tok=/ws', 'ws://127.0.0.1:50300/tok=/ws'),
+    (' http://127.0.0.1:50300/tok=/ ', 'ws://127.0.0.1:50300/tok=/ws'),
+  ]) {
+    test('connect accepts "$given" and connects to $expected', () async {
+      final bridge = defaultFakeBridge();
+      final result =
+          await builtInTools['connect']!.handler(bridge, {'uri': given})
+              as Map<String, Object?>;
+      expect(result['connected'], isTrue);
+      expect(result['vmServiceUri'], expected);
+      expect(bridge.lastConnectUri.toString(), expected);
+    });
+  }
+
+  for (final bad in ['ftp://127.0.0.1:1/x=/', '127.0.0.1:50300/tok=/']) {
+    test('connect rejects "$bad" with invalid_uri and a next step', () async {
+      final bridge = defaultFakeBridge();
+      final result = await builtInTools['connect']!.handler(bridge, {
+        'uri': bad,
+      });
+      final tc = result as ToolCallResult;
+      expect(tc.isError, isTrue);
+      final text = tc.content.first['text'] as String;
+      expect(text, startsWith('invalid_uri: '));
+      expect(text, contains('flutter run'));
+      expect(bridge.lastConnectUri, isNull);
+    });
+  }
+
   test('connect tool returns isError on missing uri', () async {
     final bridge = defaultFakeBridge();
     final handler = builtInTools['connect']!.handler;

@@ -118,6 +118,92 @@ void main() {
       );
     });
 
+    test('cleanupAll removes the process directory once it is empty', () async {
+      final h = SnapshotDiskHandoff(tempDir: tmp);
+      final path = (await h.write(envelope()))['path'] as String;
+      final sessionDir = File(path).parent;
+      h.cleanupAll();
+      expect(sessionDir.existsSync(), isFalse);
+      // A later write creates it again.
+      final again = (await h.write(envelope()))['path'] as String;
+      expect(File(again).existsSync(), isTrue);
+    });
+
+    test('cleanupAll keeps the process directory when something else is in '
+        'it', () async {
+      final h = SnapshotDiskHandoff(tempDir: tmp);
+      final path = (await h.write(envelope()))['path'] as String;
+      final sessionDir = File(path).parent;
+      final other = File('${sessionDir.path}/keep.txt')..writeAsStringSync('x');
+      h.cleanupAll();
+      expect(File(path).existsSync(), isFalse);
+      expect(other.existsSync(), isTrue);
+      expect(sessionDir.existsSync(), isTrue);
+    });
+
+    test('cleanupAll without a write leaves the temp dir alone', () {
+      SnapshotDiskHandoff(tempDir: tmp).cleanupAll();
+      expect(tmp.existsSync(), isTrue);
+      expect(tmp.listSync(), isEmpty);
+    });
+
+    group('sweepStaleProcessDirs', () {
+      // Back-dates [dir] with `touch -t`; Dart cannot set a directory's
+      // modification time.
+      void age(Directory dir) {
+        final result = Process.runSync('touch', [
+          '-t',
+          '202001010000',
+          dir.path,
+        ]);
+        expect(result.exitCode, 0, reason: '${result.stderr}');
+      }
+
+      Directory make(String name, {bool old = true, bool empty = true}) {
+        final dir = Directory('${tmp.path}/$name')..createSync();
+        if (!empty) File('${dir.path}/a.json').writeAsStringSync('{}');
+        if (old) age(dir);
+        return dir;
+      }
+
+      test(
+        'removes only old, empty sleuth_snapshot_<pid> dirs of other processes',
+        () async {
+          final oldEmpty = make('sleuth_snapshot_99999901');
+          final oldFull = make('sleuth_snapshot_99999902', empty: false);
+          final fresh = make('sleuth_snapshot_99999903', old: false);
+          final otherName = make('sleuth_snapshot_abc');
+          final otherPrefix = make('not_sleuth_99999904');
+          final own = make('sleuth_snapshot_$pid');
+          final looseFile = File('${tmp.path}/sleuth_snapshot_99999905')
+            ..writeAsStringSync('x');
+
+          SnapshotDiskHandoff(tempDir: tmp).sweepStaleProcessDirs();
+
+          expect(oldEmpty.existsSync(), isFalse);
+          expect(oldFull.existsSync(), isTrue, reason: 'never deletes files');
+          expect(fresh.existsSync(), isTrue, reason: 'younger than 30 min');
+          expect(otherName.existsSync(), isTrue, reason: 'pid must be numeric');
+          expect(otherPrefix.existsSync(), isTrue, reason: 'not our prefix');
+          expect(
+            own.existsSync(),
+            isTrue,
+            reason: 'this process keeps its dir',
+          );
+          expect(looseFile.existsSync(), isTrue);
+        },
+        testOn: '!windows',
+      );
+
+      test('a missing temp dir is not an error', () {
+        final gone = Directory('${tmp.path}/missing');
+        expect(
+          () => SnapshotDiskHandoff(tempDir: gone).sweepStaleProcessDirs(),
+          returnsNormally,
+        );
+      });
+    });
+
     test('POSIX file mode is 0600', () async {
       if (Platform.isWindows) return;
       final h = SnapshotDiskHandoff(tempDir: tmp);

@@ -1,0 +1,101 @@
+import 'dart:async';
+import 'dart:io';
+
+import '../bridge/vm_bridge.dart';
+import '../mcp/mcp_server.dart';
+import '../tools/snapshot_disk_handoff.dart';
+
+/// How long tool calls wait for the startup `--uri` connect before they run
+/// anyway.
+const Duration defaultStartupConnectWait = Duration(seconds: 15);
+
+/// Signals that ask the stdio server to shut down: SIGINT everywhere, and
+/// SIGTERM except on Windows, where watching it throws.
+List<Stream<ProcessSignal>> shutdownSignals() => [
+  ProcessSignal.sigint.watch(),
+  if (!Platform.isWindows) ProcessSignal.sigterm.watch(),
+];
+
+/// Runs [server] over stdio until stdin closes or a signal in [signals]
+/// arrives, then cleans up on every exit path: it detaches the daemon
+/// session (bounded by the server's exit detach timeout), deletes the
+/// disk-handoff files and their directory, and disconnects [bridge].
+///
+/// At startup it removes the empty handoff directories that earlier
+/// processes left behind ([SnapshotDiskHandoff.sweepStaleProcessDirs]).
+///
+/// With [startupUri] the server starts serving first and connects in the
+/// background, so a slow connect cannot make the client's `initialize` time
+/// out. Tool calls wait for that connect, at most [startupConnectWait].
+Future<void> serveUntilExit({
+  required McpServer server,
+  required VmBridge bridge,
+  required SnapshotDiskHandoff handoff,
+  Stream<List<int>>? input,
+  IOSink? output,
+  Uri? startupUri,
+  List<Stream<ProcessSignal>> signals = const [],
+  Duration startupConnectWait = defaultStartupConnectWait,
+  Sink<String>? logger,
+  StringSink? errorSink,
+}) async {
+  final err = errorSink ?? stderr;
+  try {
+    handoff.sweepStaleProcessDirs();
+  } catch (e) {
+    logger?.add('stale handoff directory sweep failed: $e');
+  }
+  if (startupUri != null) {
+    server.holdToolCallsUntil(
+      _connectAtStartup(bridge, startupUri, startupConnectWait, logger, err),
+    );
+  }
+  final subscriptions = [
+    for (final signal in signals)
+      signal.listen((s) {
+        logger?.add('$s received, draining');
+        server.shutdown();
+      }),
+  ];
+  try {
+    await server.serve(input: input, output: output);
+  } finally {
+    for (final sub in subscriptions) {
+      await sub.cancel();
+    }
+    await server.detachDaemonSession();
+    handoff.cleanupAll();
+    try {
+      await bridge.disconnect().timeout(const Duration(seconds: 2));
+    } catch (e) {
+      logger?.add('bridge disconnect failed: $e');
+    }
+  }
+}
+
+Future<void> _connectAtStartup(
+  VmBridge bridge,
+  Uri uri,
+  Duration wait,
+  Sink<String>? logger,
+  StringSink err,
+) async {
+  try {
+    await bridge.connect(uri).timeout(wait);
+    final uuid = bridge.baselineSessionUuid;
+    final shortUuid = uuid == null
+        ? '<none>'
+        : uuid.substring(0, uuid.length < 8 ? uuid.length : 8);
+    logger?.add('connected; sessionUuid=$shortUuid…');
+  } on TimeoutException {
+    err.writeln(
+      'initial --uri connect did not finish within ${wait.inSeconds} s; '
+      'tool calls run now and the connect continues in the background.',
+    );
+  } catch (e) {
+    err.writeln('initial --uri connect failed: $e');
+    err.writeln(
+      'continuing; the MCP client can call attach_app or connect instead.',
+    );
+  }
+}

@@ -5,6 +5,8 @@ import 'package:sleuth_mcp/sleuth_mcp.dart';
 import 'package:sleuth_mcp/src/mcp/mcp_protocol.dart';
 import 'package:test/test.dart';
 
+import 'helpers/counting_session.dart';
+
 Stream<List<int>> _lines(List<String> messages) async* {
   for (final m in messages) {
     yield utf8.encode('$m\n');
@@ -78,6 +80,60 @@ void main() {
       expect((events.first as DecodeError).code, JsonRpcError.parseError);
     });
 
+    test('a batch array is one Invalid Request error with id null', () async {
+      final codec = McpProtocolCodec();
+      final events = await codec
+          .decode(
+            _lines([
+              '[{"jsonrpc":"2.0","method":"ping","id":1},'
+                  '{"jsonrpc":"2.0","method":"ping","id":2}]',
+              '[]',
+            ]),
+          )
+          .toList();
+      expect(events, hasLength(2));
+      for (final e in events) {
+        final error = e as DecodeError;
+        expect(error.code, JsonRpcError.invalidRequest);
+        expect(error.id, isNull);
+        expect(error.message, contains('Batch'));
+      }
+    });
+
+    test('a JSON-RPC response from the client is dropped', () async {
+      final codec = McpProtocolCodec();
+      final events = await codec
+          .decode(
+            _lines([
+              '{"jsonrpc":"2.0","result":{},"id":7}',
+              '{"jsonrpc":"2.0","error":{"code":-1,"message":"x"},"id":8}',
+              '{"jsonrpc":"2.0","method":"ping","id":9}',
+            ]),
+          )
+          .toList();
+      expect(events, hasLength(1));
+      expect((events.single as JsonRpcMessage).id, 9);
+    });
+
+    test('a request without a method keeps a readable id', () async {
+      final codec = McpProtocolCodec();
+      final events = await codec
+          .decode(
+            _lines([
+              '{"jsonrpc":"2.0","id":5}',
+              '{"jsonrpc":"2.0","id":{"bad":true}}',
+            ]),
+          )
+          .toList();
+      expect((events[0] as DecodeError).id, 5);
+      expect((events[0] as DecodeError).code, JsonRpcError.invalidRequest);
+      expect(
+        (events[1] as DecodeError).id,
+        isNull,
+        reason: 'an object is not a valid JSON-RPC id',
+      );
+    });
+
     test('UTF-8 emoji round-trips', () async {
       final codec = McpProtocolCodec();
       final events = await codec
@@ -107,6 +163,47 @@ void main() {
       final messages = events.whereType<JsonRpcMessage>().toList();
       expect(messages, hasLength(1));
       expect(messages.first.method, 'ping');
+    });
+  });
+
+  group('McpServer over the wire', () {
+    Future<List<Map<String, Object?>>> exchange(List<String> lines) async {
+      final out = LineSink();
+      final server = McpServer(bridge: FakeVmBridge())..registerDefaults();
+      await server.serve(input: _lines(lines), output: out);
+      return [for (final l in out.lines) jsonDecode(l) as Map<String, Object?>];
+    }
+
+    test('a parse error is answered with id null', () async {
+      final responses = await exchange(['{not json']);
+      expect(responses, hasLength(1));
+      expect(responses.single.containsKey('id'), isTrue);
+      expect(responses.single['id'], isNull);
+      expect(
+        (responses.single['error'] as Map)['code'],
+        JsonRpcError.parseError,
+      );
+    });
+
+    test('a batch is answered with one Invalid Request error', () async {
+      final responses = await exchange([
+        '[{"jsonrpc":"2.0","method":"ping","id":1}]',
+      ]);
+      expect(responses, hasLength(1));
+      expect(responses.single['id'], isNull);
+      expect(
+        (responses.single['error'] as Map)['code'],
+        JsonRpcError.invalidRequest,
+      );
+    });
+
+    test('a client response gets no answer, the next request does', () async {
+      final responses = await exchange([
+        '{"jsonrpc":"2.0","result":{},"id":7}',
+        '{"jsonrpc":"2.0","method":"ping","id":8}',
+      ]);
+      expect(responses, hasLength(1));
+      expect(responses.single['id'], 8);
     });
   });
 

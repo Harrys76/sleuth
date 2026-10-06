@@ -15,9 +15,10 @@ abstract class VmBridge {
   Future<bool> connect(Uri wsUri);
 
   /// Returns the inner sleuth envelope as a `Map`. Throws
-  /// [VmBridgeException] on transport / decode failure, [SessionChangedException]
-  /// when the responding session's UUID differs from the baseline captured
-  /// at [connect] time.
+  /// [VmBridgeException] on transport / decode failure, and
+  /// [SessionChangedException] when the responding session's UUID differs
+  /// from the baseline. A session change is reported once: the bridge then
+  /// moves its baseline to the new session, so the next call succeeds.
   Future<Map<String, Object?>> callExtension(
     String method, {
     Map<String, dynamic> args = const <String, dynamic>{},
@@ -51,12 +52,89 @@ abstract class VmBridge {
   Future<void> disconnect();
 }
 
+/// What went wrong in a [VmBridgeException], so a caller can say what to do
+/// next.
+enum VmBridgeErrorKind {
+  /// No app is connected, or a connect is still running or was refused.
+  notConnected,
+
+  /// The app did not answer within the bridge's per-call timeout. The
+  /// connection stays open.
+  timeout,
+
+  /// Too many earlier calls are still unanswered, so the bridge did not send
+  /// this one. The connection stays open.
+  busy,
+
+  /// The version-skew validator refused the app. The bridge is disconnected
+  /// and the message starts with the refusal code (`version_skew_…`).
+  refused,
+
+  /// Any other failure.
+  other,
+}
+
 /// Connect / dispatch failure not attributable to a session change.
 class VmBridgeException implements Exception {
-  VmBridgeException(this.message);
+  VmBridgeException(
+    this.message, {
+    this.kind = VmBridgeErrorKind.other,
+    this.timeout,
+  });
   final String message;
+
+  /// The failure class. Defaults to [VmBridgeErrorKind.other].
+  final VmBridgeErrorKind kind;
+
+  /// The deadline that passed, set when [kind] is [VmBridgeErrorKind.timeout].
+  final Duration? timeout;
+
   @override
   String toString() => 'VmBridgeException: $message';
+}
+
+/// Converts a VM service URI to the WebSocket form that
+/// `vmServiceConnectUri` needs.
+///
+/// `flutter run` and `flutter attach` print an http URI such as
+/// `http://127.0.0.1:50000/AbCd=/`, which becomes
+/// `ws://127.0.0.1:50000/AbCd=/ws`. An https URI becomes wss, and a ws or wss
+/// URI without the `/ws` path gets it. Throws [FormatException] for any other
+/// scheme or for a URI without a host.
+Uri normalizeVmServiceUri(Uri uri) {
+  final String scheme;
+  switch (uri.scheme.toLowerCase()) {
+    case 'http':
+    case 'ws':
+      scheme = 'ws';
+    case 'https':
+    case 'wss':
+      scheme = 'wss';
+    default:
+      throw FormatException(
+        'expected an http, https, ws or wss VM service URI, got "$uri"',
+      );
+  }
+  if (uri.host.isEmpty) {
+    throw FormatException('the VM service URI has no host: "$uri"');
+  }
+  var path = uri.path;
+  while (path.endsWith('/')) {
+    path = path.substring(0, path.length - 1);
+  }
+  if (!path.endsWith('/ws')) path = '$path/ws';
+  return uri.replace(scheme: scheme, path: path);
+}
+
+/// Per-call bridge timeout for tools bounded by [toolTimeout].
+///
+/// It is shorter than [toolTimeout] (by a fifth, at most 2 seconds) so the
+/// bridge reports a slow app call itself, naming the extension, before the
+/// server's generic tool timeout fires.
+Duration bridgeCallTimeoutWithin(Duration toolTimeout) {
+  final fifth = toolTimeout ~/ 5;
+  const maxMargin = Duration(seconds: 2);
+  return toolTimeout - (fifth > maxMargin ? maxMargin : fifth);
 }
 
 /// The target app's `sessionUuid` differs from the baseline. Indicates a
@@ -92,7 +170,8 @@ typedef VersionSkewValidator =
 /// itself runs outside the lock — vm_service handles concurrent calls.
 class RealVmBridge implements VmBridge {
   RealVmBridge({
-    this.callTimeout = const Duration(seconds: 10),
+    this.callTimeout = const Duration(seconds: 8),
+    this.maxUnansweredCalls = 8,
     Sink<String>? logger,
     String? targetIsolateIdOverride,
     VersionSkewValidator? versionSkewValidator,
@@ -100,7 +179,17 @@ class RealVmBridge implements VmBridge {
        _targetIsolateIdOverride = targetIsolateIdOverride,
        _versionSkewValidator = versionSkewValidator;
 
+  /// How long one extension call may wait for the app. A call that passes
+  /// it fails with [VmBridgeErrorKind.timeout] and the connection stays open.
   final Duration callTimeout;
+
+  /// How many timed-out calls may still wait for an answer on the current
+  /// connection. vm_service keeps each one until the app answers or the
+  /// connection closes, so at this many the bridge refuses new calls with
+  /// [VmBridgeErrorKind.busy] instead of piling up more. A new connect
+  /// starts the count again.
+  final int maxUnansweredCalls;
+
   final Sink<String>? _logger;
 
   /// Bypasses [pickMainIsolate] when set. In-process tests use it to bind
@@ -120,6 +209,19 @@ class RealVmBridge implements VmBridge {
   int _baselineGeneration = 0;
   final Lock _connectLock = Lock();
   Future<void>? _reconnectInFlight;
+
+  /// Bumped whenever [_service] is replaced or cleared, so an answer that
+  /// arrives for an older connection does not touch [_unanswered].
+  int _serviceGeneration = 0;
+
+  /// Timed-out calls on the current connection that the app has not
+  /// answered yet. Bounded by [maxUnansweredCalls].
+  int _unanswered = 0;
+
+  /// Timed-out calls on the current connection that still wait for an
+  /// answer.
+  @visibleForTesting
+  int get unansweredCalls => _unanswered;
 
   /// Test seam: invoked once inside `_connectUnlocked` AFTER the
   /// `_validated` / `_service` / `_mainIsolateId` / `_wsUri` unpublish,
@@ -184,9 +286,15 @@ class RealVmBridge implements VmBridge {
   }
 
   Future<bool> _connectUnlocked(
-    Uri wsUri, {
+    Uri requestedUri, {
     required bool acceptSessionRotation,
   }) async {
+    final Uri wsUri;
+    try {
+      wsUri = normalizeVmServiceUri(requestedUri);
+    } on FormatException catch (e) {
+      throw VmBridgeException('invalid VM service URI: ${e.message}');
+    }
     // Lower the gate AND unpublish refs BEFORE awaiting `prior.dispose()`.
     // Dispose is an async suspension point; if `_validated` / `_service`
     // / `_mainIsolateId` stay populated across it, a lock-free
@@ -199,6 +307,8 @@ class RealVmBridge implements VmBridge {
     _validated = false;
     final prior = _service;
     _service = null;
+    _serviceGeneration++;
+    _unanswered = 0;
     _mainIsolateId = null;
     _wsUri = wsUri;
     assert(() {
@@ -292,7 +402,10 @@ class RealVmBridge implements VmBridge {
 
   Future<void> _refreshBaselineUnlocked(bool acceptSessionRotation) async {
     if (_service == null || _mainIsolateId == null) {
-      throw VmBridgeException('cannot refresh — bridge disconnected');
+      throw VmBridgeException(
+        'cannot refresh because the bridge is disconnected',
+        kind: VmBridgeErrorKind.notConnected,
+      );
     }
     // Lower the gate BEFORE the diagnose await. `_applyBaseline` lowers
     // it again, but only AFTER the round-trip resolves; without this
@@ -362,7 +475,7 @@ class RealVmBridge implements VmBridge {
       final refusal = await validator(diag);
       if (refusal != null) {
         await _disconnectUnlocked();
-        throw VmBridgeException(refusal);
+        throw VmBridgeException(refusal, kind: VmBridgeErrorKind.refused);
       }
     }
     if (!acceptSessionRotation &&
@@ -397,15 +510,57 @@ class RealVmBridge implements VmBridge {
       }
     }
     final uuid = inner['sessionUuid'];
-    if (uuid is String &&
-        _baselineSessionUuid != null &&
-        uuid != _baselineSessionUuid) {
-      throw SessionChangedException(
-        baseline: _baselineSessionUuid!,
-        current: uuid,
-      );
+    final seen = _baselineSessionUuid;
+    if (uuid is String && seen != null && uuid != seen) {
+      // The app restarted (or another app answers at this URI). Report it
+      // once, then follow the new session so the next call works.
+      if (await _followSession(from: seen, to: uuid)) {
+        throw SessionChangedException(baseline: seen, current: uuid);
+      }
     }
     return inner;
+  }
+
+  /// Moves the baseline to the app's new session after a session change.
+  ///
+  /// Re-reads `ext.sleuth.diagnose` and runs the version-skew validator on
+  /// it, so a restart into an incompatible sleuth version is still refused
+  /// (that refusal disconnects the bridge and is rethrown). Any other
+  /// failure keeps the connection and the old baseline, so the next call
+  /// tries again.
+  ///
+  /// Returns false when a concurrent call already moved the baseline to
+  /// [to]: the caller's result then belongs to the current session and
+  /// needs no report. Returns true otherwise, and the caller reports the
+  /// change.
+  Future<bool> _followSession({required String from, required String to}) {
+    return _connectLock.synchronized(() async {
+      final current = _baselineSessionUuid;
+      if (current == to) return false;
+      if (current != from || _service == null) return true;
+      // The gate stays up during the diagnose round trip: a concurrent call
+      // that gets an answer from the new session sees the same mismatch and
+      // waits on this lock, so it never returns data the validator has not
+      // checked. `_applyBaseline` lowers the gate while the validator runs.
+      final service = _service;
+      try {
+        final diag = await _callExtensionRaw(
+          'ext.sleuth.diagnose',
+          bypassValidatedGate: true,
+        );
+        await _applyBaseline(diag, acceptSessionRotation: true);
+      } catch (e) {
+        if (e is VmBridgeException && e.kind == VmBridgeErrorKind.refused) {
+          rethrow;
+        }
+        // Keep the connection and the old baseline: the next call tries
+        // again, or reconnects through `_ensureReconnected` after a
+        // transport close.
+        _logger?.add('could not follow the new session: $e');
+        if (identical(_service, service)) _validated = true;
+      }
+      return true;
+    });
   }
 
   /// Test-only handle on the same reconnect path `callExtension` takes
@@ -449,7 +604,10 @@ class RealVmBridge implements VmBridge {
     final service = _service;
     final isolateId = _mainIsolateId;
     if (service == null || isolateId == null) {
-      throw VmBridgeException('not connected');
+      throw VmBridgeException(
+        'not connected to an app',
+        kind: VmBridgeErrorKind.notConnected,
+      );
     }
     // Lock-free callers must wait until `_connectUnlocked` finishes
     // validation. The only legitimate bypass is the bootstrap
@@ -457,17 +615,37 @@ class RealVmBridge implements VmBridge {
     // the envelope the validator consumes.
     if (!bypassValidatedGate && !_validated) {
       throw VmBridgeException(
-        'bridge not yet validated — connect did not complete '
-        'or refusal pending',
+        'the connection to the app is not yet validated: a connect is '
+        'still running, or it was refused',
+        kind: VmBridgeErrorKind.notConnected,
       );
     }
+    if (_unanswered >= maxUnansweredCalls) {
+      throw VmBridgeException(
+        '$_unanswered earlier calls to the app are still unanswered, so '
+        '$method was not sent',
+        kind: VmBridgeErrorKind.busy,
+      );
+    }
+    final generation = _serviceGeneration;
+    Future<vm.Response>? call;
     vm.Response response;
     try {
-      response = await service
-          .callServiceExtension(method, isolateId: isolateId, args: args)
-          .timeout(callTimeout);
+      call = service.callServiceExtension(
+        method,
+        isolateId: isolateId,
+        args: args,
+      );
+      response = await call.timeout(callTimeout);
     } on TimeoutException {
-      throw VmBridgeException('$method timed out after $callTimeout');
+      // Only `call.timeout` throws this, so `call` is set.
+      _trackUnanswered(call!, generation);
+      throw VmBridgeException(
+        'the app did not answer $method within '
+        '${callTimeout.inMilliseconds} ms',
+        kind: VmBridgeErrorKind.timeout,
+        timeout: callTimeout,
+      );
     } on vm.RPCError catch (e) {
       // vm_service raises this RPCError when the socket closes or the
       // service is dispose()d mid-call — transport state, not an
@@ -499,6 +677,19 @@ class RealVmBridge implements VmBridge {
     return Map<String, Object?>.from(envelope);
   }
 
+  /// Counts [call], whose caller timed out, until the app answers it or the
+  /// connection it was sent on is replaced.
+  void _trackUnanswered(Future<vm.Response> call, int generation) {
+    _unanswered++;
+    void settle() {
+      if (generation == _serviceGeneration && _unanswered > 0) _unanswered--;
+    }
+
+    unawaited(
+      call.then<void>((_) => settle(), onError: (Object _) => settle()),
+    );
+  }
+
   @override
   Future<void> disconnect() {
     return _connectLock.synchronized(_disconnectUnlocked);
@@ -517,6 +708,8 @@ class RealVmBridge implements VmBridge {
     _validated = false;
     final prior = _service;
     _service = null;
+    _serviceGeneration++;
+    _unanswered = 0;
     _mainIsolateId = null;
     _baselineSessionUuid = null;
     _lastDiagnoseEnvelope = null;
@@ -560,10 +753,28 @@ class FakeVmBridge implements VmBridge {
   bool _connected = false;
   bool _sessionDrifted = false;
   final VersionSkewValidator? _versionSkewValidator;
+  final Map<String, Map<String, Object?> Function(Map<String, dynamic> args)>
+  _responders = {};
+
+  /// Every `callExtension` that reached an envelope, in order, with its
+  /// args. Lets tests check what a handler asked the app for.
+  final List<({String method, Map<String, dynamic> args})> callLog = [];
+
+  /// The URI passed to the last [connect].
+  Uri? lastConnectUri;
 
   /// Replace the canned envelope for a given extension name.
   void setEnvelope(String method, Map<String, Object?> envelope) {
     _envelopes[method] = envelope;
+  }
+
+  /// Answer [method] by calling [responder] with the call's args. Takes
+  /// precedence over [setEnvelope] for that method.
+  void setResponder(
+    String method,
+    Map<String, Object?> Function(Map<String, dynamic> args) responder,
+  ) {
+    _responders[method] = responder;
   }
 
   /// Force the next callExtension to throw a SessionChangedException.
@@ -599,6 +810,7 @@ class FakeVmBridge implements VmBridge {
 
   @override
   Future<bool> connect(Uri wsUri) async {
+    lastConnectUri = wsUri;
     // Initial connect — no prior baseline exists, so session-rotation
     // detection is a no-op (matches RealVmBridge.connect semantics).
     final diag = _envelopes['ext.sleuth.diagnose'];
@@ -609,7 +821,10 @@ class FakeVmBridge implements VmBridge {
   @override
   Future<void> refreshBaseline({bool acceptSessionRotation = false}) async {
     if (!_connected) {
-      throw VmBridgeException('cannot refresh — bridge disconnected');
+      throw VmBridgeException(
+        'cannot refresh because the bridge is disconnected',
+        kind: VmBridgeErrorKind.notConnected,
+      );
     }
     final diag = _envelopes['ext.sleuth.diagnose'];
     await _applyBaseline(diag, acceptSessionRotation: acceptSessionRotation);
@@ -633,7 +848,7 @@ class FakeVmBridge implements VmBridge {
     if (validator != null && diag != null) {
       final refusal = await validator(diag);
       if (refusal != null) {
-        throw VmBridgeException(refusal);
+        throw VmBridgeException(refusal, kind: VmBridgeErrorKind.refused);
       }
     }
     // Session-rotation guard: read uuid from the canned envelope so
@@ -659,14 +874,22 @@ class FakeVmBridge implements VmBridge {
     Map<String, dynamic> args = const <String, dynamic>{},
   }) async {
     if (!_connected) {
-      throw VmBridgeException('not connected');
+      throw VmBridgeException(
+        'not connected to an app',
+        kind: VmBridgeErrorKind.notConnected,
+      );
     }
     if (_sessionDrifted) {
+      // Reported once; the baseline already moved to the new session, as
+      // RealVmBridge does after it reports a change.
       _sessionDrifted = false;
       throw SessionChangedException(baseline: 'old-uuid', current: _baseline);
     }
     final gate = _extensionGates.remove(method);
     if (gate != null) await gate.future;
+    callLog.add((method: method, args: Map<String, dynamic>.of(args)));
+    final responder = _responders[method];
+    if (responder != null) return responder(args);
     final canned = _envelopes[method];
     if (canned == null) {
       throw VmBridgeException('no canned envelope for $method');

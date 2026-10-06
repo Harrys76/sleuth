@@ -39,17 +39,35 @@ export 'src/cli/ios_attach_pipeline.dart'
         IosAttachProgress,
         IosAttachResult,
         IosAttacher;
+export 'src/cli/check_command.dart'
+    show
+        runCheckCommand,
+        checkExitPass,
+        checkExitViolation,
+        checkExitNotRun,
+        checkExitUsage;
+export 'src/cli/serve_command.dart'
+    show serveUntilExit, shutdownSignals, defaultStartupConnectWait;
 export 'src/bridge/vm_bridge.dart'
     show
         VmBridge,
         RealVmBridge,
         FakeVmBridge,
         VmBridgeException,
+        VmBridgeErrorKind,
         SessionChangedException,
-        VersionSkewValidator;
+        VersionSkewValidator,
+        bridgeCallTimeoutWithin,
+        normalizeVmServiceUri;
 export 'src/tools/tools.dart'
     show defaultVersionSkewValidator, snapshotDiskHandoff;
 export 'src/tools/snapshot_disk_handoff.dart' show SnapshotDiskHandoff;
+export 'src/tools/snapshot_sections.dart'
+    show
+        snapshotSectionKeys,
+        heavySnapshotSections,
+        defaultSnapshotSections,
+        snapshotMetadataKeys;
 export 'src/flutter_daemon/app_status.dart'
     show AppStatusPayload, AppSessionState;
 export 'src/flutter_daemon/daemon_events.dart';
@@ -64,7 +82,9 @@ export 'src/mcp/mcp_server.dart'
         DaemonSessionLifecycle,
         McpServer,
         ToolHandler,
+        defaultExitDetachTimeout,
         mcpProtocolVersion,
+        mcpServerInstructions,
         supportedMcpProtocolVersions,
         sleuthMcpVersion,
         sleuthPackageVersionPin;

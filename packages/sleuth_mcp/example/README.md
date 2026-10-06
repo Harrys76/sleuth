@@ -14,8 +14,8 @@ Reload your MCP client.
 
 ## 2. Attach to a running app
 
-Start your app in debug or profile mode with `flutter run`, then ask the
-assistant:
+Start your app with `flutter run --profile --no-dds` (without `--no-dds`
+Sleuth cannot reach the VM service), then ask the assistant:
 
 > attach to my Flutter app and explore
 

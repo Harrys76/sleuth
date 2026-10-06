@@ -12,17 +12,41 @@ import '../tools/tools.dart';
 import 'mcp_protocol.dart';
 import 'mcp_types.dart';
 
-const String mcpProtocolVersion = '2024-11-05';
+/// The newest MCP protocol version the server speaks. When a client asks
+/// for a version the server does not support, the server answers with this
+/// one, as the MCP spec recommends, and the client decides whether to
+/// continue or disconnect.
+const String mcpProtocolVersion = '2025-06-18';
 
 /// Protocol versions the server can speak. When a client sends `initialize`
 /// with one of these, the server echoes it back; otherwise the server
-/// replies with [mcpProtocolVersion] and the client decides whether to
-/// continue or disconnect (per MCP spec).
+/// replies with [mcpProtocolVersion].
 const Set<String> supportedMcpProtocolVersions = {
   '2024-11-05',
   '2025-03-26',
   '2025-06-18',
 };
+
+/// Protocol assumed before `initialize`: the oldest supported version, so
+/// no newer feature is used before the client has negotiated one.
+const String _preInitializeProtocolVersion = '2024-11-05';
+
+/// `instructions` in the `initialize` result: the workflow an MCP client's
+/// model should follow.
+const String mcpServerInstructions =
+    'Sleuth reports runtime performance issues from a running Flutter app. '
+    'Start the app with `flutter run --profile --no-dds`; without --no-dds '
+    'Sleuth cannot reach the VM service, and its memory, CPU and repaint '
+    'detectors stay off. Attach with attach_app (pass device, or debugUrl, '
+    'or udid and bundle for a physical iOS device) or with connect(uri), '
+    'using the VM service URI that flutter run prints. Then call get_issues '
+    'for the ranked issues, explain_issue with a stableId for the cause and '
+    'the fix, get_snapshot for frame stats and route history (per-frame '
+    'sections are left out unless you pass full: true or name them in '
+    'sections), and check_budgets for a pass or fail gate.';
+
+/// How long the exit path waits for the daemon session to detach.
+const Duration defaultExitDetachTimeout = Duration(seconds: 10);
 
 const String sleuthMcpVersion = '0.8.0';
 
@@ -61,8 +85,8 @@ class _RegisteredTool {
   final Tool descriptor;
   final ToolHandler handler;
 
-  /// Skips the dispatcher's generic `_toolTimeout` + post-timeout
-  /// `bridge.disconnect()`. Lifecycle tools own their own deadlines.
+  /// Skips the dispatcher's generic `_toolTimeout`. Lifecycle tools own
+  /// their own deadlines.
   final bool bypassesGenericTimeout;
 }
 
@@ -83,12 +107,15 @@ class McpServer {
   McpServer({
     required this.bridge,
     Duration toolTimeout = const Duration(seconds: 10),
+    Duration exitDetachTimeout = defaultExitDetachTimeout,
     Sink<String>? logger,
   }) : _toolTimeout = toolTimeout,
+       _exitDetachTimeout = exitDetachTimeout,
        _logger = logger;
 
   final VmBridge bridge;
   final Duration _toolTimeout;
+  final Duration _exitDetachTimeout;
   final Sink<String>? _logger;
   late final EncyclopediaResource _encyclopedia = EncyclopediaResource(
     bridge: bridge,
@@ -97,7 +124,7 @@ class McpServer {
     bridge: bridge,
   );
   bool _initialized = false;
-  String _negotiatedProtocolVersion = mcpProtocolVersion;
+  String _negotiatedProtocolVersion = _preInitializeProtocolVersion;
   final Map<String, _RegisteredTool> _tools = {};
   final Map<String, _RegisteredResource> _resources = {};
   final Map<String, DiagnosticPrompt> _prompts = {};
@@ -110,9 +137,11 @@ class McpServer {
       _negotiatedProtocolVersion.compareTo('2025-06-18') >= 0;
 
   DaemonSessionLifecycle? _daemonSession;
+  Future<void>? _sessionDetach;
   bool _paused = false;
   final List<_DeferredFrame> _deferredFrames = <_DeferredFrame>[];
   Timer? _pauseAutoResumeTimer;
+  Future<void>? _toolCallGate;
 
   /// Daemon session currently bound to this server (or null if no
   /// `attach_app` tool has been invoked). Tool handlers read this via
@@ -124,6 +153,41 @@ class McpServer {
   /// prior one — callers must call `oldSession.detach()` first.
   void setDaemonSession(DaemonSessionLifecycle? session) {
     _daemonSession = session;
+    _sessionDetach = null;
+  }
+
+  /// Detaches the bound daemon session and unbinds it, waiting at most the
+  /// server's exit detach timeout. [shutdown] and the process exit path
+  /// both call it and share one detach, so the session is detached once
+  /// however the sidecar exits. Never throws.
+  Future<void> detachDaemonSession() {
+    final inFlight = _sessionDetach;
+    if (inFlight != null) return inFlight;
+    final session = _daemonSession;
+    if (session == null) return Future<void>.value();
+    _daemonSession = null;
+    final timeout = _exitDetachTimeout;
+    return _sessionDetach = Future<void>.sync(session.detach)
+        .timeout(
+          timeout,
+          onTimeout: () {
+            _log(
+              'daemon session detach did not finish within '
+              '${timeout.inSeconds} s; exiting anyway',
+            );
+          },
+        )
+        .catchError((Object e) {
+          _log('daemon session detach failed: $e');
+        });
+  }
+
+  /// Makes `tools/call` and `resources/read` wait for [ready] before they
+  /// run. The binary passes its startup `--uri` connect here, so the first
+  /// tool call sees the connected app while `initialize` and the list
+  /// methods answer at once. [ready] must complete; its error is ignored.
+  void holdToolCallsUntil(Future<void> ready) {
+    _toolCallGate = ready.then<void>((_) {}, onError: (Object _) {});
   }
 
   void registerDefaults() {
@@ -178,6 +242,11 @@ class McpServer {
   /// Drive the server over stdio. Returns when stdin closes, when
   /// [shutdown] is called, or when a write failure trips fatal shutdown.
   /// Drains pending dispatches + the write chain before returning.
+  ///
+  /// Closing stdin is how an MCP client ends a stdio server, so when serving
+  /// stops the server starts detaching the daemon session at once (see
+  /// [detachDaemonSession]), before it drains, instead of letting an
+  /// in-flight attach finish for a client that is gone.
   Future<void> serve({Stream<List<int>>? input, IOSink? output}) async {
     final codec = McpProtocolCodec();
     final out = output ?? stdout;
@@ -202,6 +271,7 @@ class McpServer {
       // Fire-and-forget cancel — `await sub.cancel()` blocks while the
       // upstream `await for` waits on a non-closed source.
       unawaited(sub.cancel());
+      unawaited(detachDaemonSession());
       await Future.wait(List.of(_pendingDispatches));
       await _writeChain;
     }
@@ -218,16 +288,16 @@ class McpServer {
 
   void _dispatchOrError(Object event, IOSink out, McpProtocolCodec codec) {
     if (event is DecodeError) {
-      if (event.id != null) {
-        _writeLocked(
-          out,
-          codec,
-          JsonRpcResponse.error(
-            id: event.id,
-            error: JsonRpcError(code: event.code, message: event.message),
-          ),
-        );
-      }
+      // JSON-RPC 2.0 answers a parse error or an invalid request with
+      // `id: null` when the id cannot be read.
+      _writeLocked(
+        out,
+        codec,
+        JsonRpcResponse.error(
+          id: event.id,
+          error: JsonRpcError(code: event.code, message: event.message),
+        ),
+      );
       return;
     }
     if (event is! JsonRpcMessage) return;
@@ -293,29 +363,14 @@ class McpServer {
   /// drains pending dispatches via its finally block. Callers await
   /// `server.serve(...)` to observe a fully-flushed pipe. Idempotent.
   ///
-  /// Also tears down any bound daemon session with a bounded timeout so
-  /// the flutter child can't survive sidecar exit.
+  /// Also starts detaching any bound daemon session (see
+  /// [detachDaemonSession]) so the flutter child or the iproxy tunnel
+  /// can't survive sidecar exit. The exit path awaits the same detach.
   void shutdown() {
     _shuttingDown = true;
     _pauseAutoResumeTimer?.cancel();
     _pauseAutoResumeTimer = null;
-    final session = _daemonSession;
-    if (session != null) {
-      _daemonSession = null;
-      unawaited(
-        session
-            .detach()
-            .timeout(
-              const Duration(seconds: 2),
-              onTimeout: () {
-                _log('daemon session detach timed out during shutdown');
-              },
-            )
-            .catchError((Object e) {
-              _log('daemon session detach failed during shutdown: $e');
-            }),
-      );
-    }
+    unawaited(detachDaemonSession());
     final done = _serveDone;
     if (done != null && !done.isCompleted) done.complete();
   }
@@ -395,6 +450,12 @@ class McpServer {
         return _handleToolsCall(msg);
       case 'resources/list':
         return _handleResourcesList(msg);
+      case 'resources/templates/list':
+        // The server advertises resources but has no templated ones.
+        return JsonRpcResponse.result(
+          id: msg.id,
+          result: const <String, Object?>{'resourceTemplates': <Object?>[]},
+        );
       case 'resources/read':
         return _handleResourcesRead(msg);
       case 'prompts/list':
@@ -421,13 +482,12 @@ class McpServer {
         supportedMcpProtocolVersions.contains(clientVersion)) {
       negotiated = clientVersion;
     } else {
+      // MCP spec: answer with the latest version the server supports.
       negotiated = mcpProtocolVersion;
-      if (clientVersion is String) {
-        _log(
-          'protocolVersion unsupported — client=$clientVersion '
-          'server-pin=$mcpProtocolVersion (supported: $supportedMcpProtocolVersions)',
-        );
-      }
+      _log(
+        'client protocolVersion $clientVersion is not supported; answering '
+        'with $mcpProtocolVersion (supported: $supportedMcpProtocolVersions)',
+      );
     }
     // Re-init may target a different session — drop cached resources.
     if (_initialized) {
@@ -446,6 +506,7 @@ class McpServer {
           'resources': const <String, Object?>{},
           'prompts': const <String, Object?>{},
         },
+        'instructions': mcpServerInstructions,
       },
     );
   }
@@ -501,6 +562,8 @@ class McpServer {
     // Snapshot the gate before awaiting: dispatch is pipelined, so a
     // concurrent `initialize` could otherwise flip the protocol mid-call.
     final supportsStructured = _supportsStructuredContent;
+    final startupGate = _toolCallGate;
+    if (startupGate != null) await startupGate;
     try {
       // Lifecycle tools own the bridge + their own deadlines — skip
       // the generic timeout to avoid racing the in-flight RPC.
@@ -530,28 +593,70 @@ class McpServer {
       }
       return JsonRpcResponse.result(id: msg.id, result: asResult.toJson());
     } on TimeoutException {
-      // Drain the bridge so orphan vm_service requests don't accumulate;
-      // client must re-invoke `connect` for the next tool call.
-      try {
-        await bridge.disconnect();
-      } catch (e) {
-        _log('post-timeout disconnect failed: $e');
-      }
+      // The bridge stays connected: a slow call on a janky app must not end
+      // the session. The bridge's own per-call timeout bounds each request
+      // still in flight, and its unanswered-call cap bounds the ones the app
+      // never answers.
       return JsonRpcResponse.result(
         id: msg.id,
         result: ToolCallResult.text(
-          'timeout_after_${_toolTimeout.inMilliseconds}ms — bridge disconnected; re-invoke connect',
+          'timeout_after_${_toolTimeout.inMilliseconds}ms: the tool did not '
+          'finish in time. The connection to the app is kept. The app may '
+          'be busy, for example while it janks; retry the call, or call '
+          'diagnose to check the session. If calls keep timing out, raise '
+          '--tool-timeout in the sidecar\'s MCP config.',
           isError: true,
         ).toJson(),
       );
     } on SessionChangedException catch (e) {
-      return JsonRpcResponse.result(
-        id: msg.id,
-        result: ToolCallResult.text(
-          'session_changed baseline=${e.baseline} current=${e.current}',
-          isError: true,
-        ).toJson(),
-      );
+      final result = bridge.isConnected
+          ? ToolCallResult.text(
+              'session_changed baseline=${e.baseline} current=${e.current}: '
+              'the app restarted or another app now answers, so results '
+              'from before this call came from the old session. The sidecar '
+              'now follows the new session; call the tool again.',
+              isError: true,
+            )
+          : ToolCallResult.text(
+              'session_changed baseline=${e.baseline} current=${e.current}: '
+              'the app restarted and the connection closed. Call attach_app '
+              'or connect to attach to the new session.',
+              isError: true,
+            );
+      return JsonRpcResponse.result(id: msg.id, result: result.toJson());
+    } on VmBridgeException catch (e, st) {
+      final ToolCallResult result;
+      switch (e.kind) {
+        case VmBridgeErrorKind.notConnected:
+          result = ToolCallResult.text(
+            'not_connected: ${e.message}. Call attach_app (with device, '
+            'debugUrl, or udid and bundle for an iOS device) or connect with '
+            'the VM service URI that flutter run prints, then retry.',
+            isError: true,
+          );
+        case VmBridgeErrorKind.timeout:
+          result = ToolCallResult.text(
+            'timeout_after_${(e.timeout ?? _toolTimeout).inMilliseconds}ms: '
+            '${e.message}. The connection to the app is kept. The app may '
+            'be busy, for example while it janks; retry the call, or call '
+            'diagnose to check the session.',
+            isError: true,
+          );
+        case VmBridgeErrorKind.busy:
+          result = ToolCallResult.text(
+            'app_busy: ${e.message}. The app\'s main isolate may be blocked. '
+            'Retry in a few seconds; if the app stays busy, call attach_app '
+            'or connect to open a new connection.',
+            isError: true,
+          );
+        case VmBridgeErrorKind.refused:
+          // A `version_skew_*` refusal; the bridge is already disconnected.
+          result = ToolCallResult.text(e.message, isError: true);
+        case VmBridgeErrorKind.other:
+          _log('tool "$name" threw: $e\n$st');
+          result = ToolCallResult.text('error: $e', isError: true);
+      }
+      return JsonRpcResponse.result(id: msg.id, result: result.toJson());
     } catch (e, st) {
       // Stack trace goes to the logger only — never to the MCP response.
       _log('tool "$name" threw: $e\n$st');
@@ -588,6 +693,8 @@ class McpServer {
         ),
       );
     }
+    final startupGate = _toolCallGate;
+    if (startupGate != null) await startupGate;
     try {
       final content = await res.read(bridge).timeout(_toolTimeout);
       return JsonRpcResponse.result(
@@ -603,26 +710,42 @@ class McpServer {
         },
       );
     } on TimeoutException {
-      try {
-        await bridge.disconnect();
-      } catch (e) {
-        _log('post-timeout disconnect failed: $e');
-      }
+      // The bridge stays connected, as for a tool timeout.
       return JsonRpcResponse.error(
         id: msg.id,
         error: JsonRpcError(
           code: JsonRpcError.internalError,
           message:
-              'resource $uri timed out after ${_toolTimeout.inMilliseconds}ms',
+              'resource $uri timed out after ${_toolTimeout.inMilliseconds}ms. '
+              'The connection to the app is kept; read it again.',
         ),
       );
     } on SessionChangedException catch (e) {
+      final next = bridge.isConnected
+          ? 'The sidecar now follows the new session; read it again.'
+          : 'Call attach_app or connect to attach to the new session.';
       return JsonRpcResponse.error(
         id: msg.id,
         error: JsonRpcError(
           code: JsonRpcError.internalError,
           message:
-              'session_changed baseline=${e.baseline} current=${e.current}',
+              'session_changed baseline=${e.baseline} current=${e.current}: '
+              'the app restarted. $next',
+        ),
+      );
+    } on VmBridgeException catch (e) {
+      final next = switch (e.kind) {
+        VmBridgeErrorKind.notConnected =>
+          ' Call attach_app or connect, then read it again.',
+        VmBridgeErrorKind.timeout || VmBridgeErrorKind.busy =>
+          ' The connection to the app is kept; read it again shortly.',
+        _ => '',
+      };
+      return JsonRpcResponse.error(
+        id: msg.id,
+        error: JsonRpcError(
+          code: JsonRpcError.internalError,
+          message: 'resource read failed: ${e.message}.$next',
         ),
       );
     } catch (e, st) {
@@ -717,6 +840,24 @@ class McpServer {
         final minLength = spec['minLength'];
         if (minLength is int && actual is String && actual.length < minLength) {
           return 'arg_min_length_violation: ${entry.key} must be at least $minLength chars';
+        }
+        final items = spec['items'];
+        if (actual is List && items is Map<String, Object?>) {
+          final itemType = items['type'];
+          final itemEnum = items['enum'];
+          for (var i = 0; i < actual.length; i++) {
+            final Object? item = actual[i];
+            final where = '${entry.key}[$i]';
+            final itemActualType = item == null ? 'null' : _jsonTypeOf(item);
+            if (itemType is String &&
+                itemActualType != itemType &&
+                !(itemType == 'number' && itemActualType == 'integer')) {
+              return 'arg_type_mismatch: $where expected $itemType got $itemActualType';
+            }
+            if (itemEnum is List && !itemEnum.contains(item)) {
+              return 'arg_enum_violation: $where=$item not in $itemEnum';
+            }
+          }
         }
       }
     }

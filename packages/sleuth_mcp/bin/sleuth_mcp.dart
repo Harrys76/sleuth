@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:args/args.dart';
 
 import 'package:sleuth_mcp/sleuth_mcp.dart';
 
-const _redactRegex = r'(ws[s]?://[^/]+/)[^=]+(=/)';
+const _redactRegex = r'((?:ws|http)s?://[^/]+/)[^=]+(=/)';
 
 String _redactUri(String s) =>
     s.replaceAll(RegExp(_redactRegex), r'$1<REDACTED>$2');
@@ -31,7 +30,8 @@ Future<void> main(List<String> argv) async {
     ..addOption(
       'uri',
       help:
-          'WebSocket URI of the target app VM service (from flutter run output).',
+          'VM service URI of the target app, as flutter run prints it (http '
+          'or ws). The server starts at once and connects in the background.',
     )
     ..addOption(
       'tool-timeout',
@@ -80,8 +80,11 @@ Future<void> main(List<String> argv) async {
   final logger = verbose ? _StderrLogger(redact: _redactUri) : null;
 
   final timeoutSeconds = int.tryParse(parsed['tool-timeout'] as String) ?? 10;
+  final toolTimeout = Duration(seconds: timeoutSeconds);
   final bridge = RealVmBridge(
-    callTimeout: Duration(seconds: timeoutSeconds),
+    // Shorter than the tool timeout, so a slow app call fails with the
+    // bridge's own error (naming the extension) and keeps the connection.
+    callTimeout: bridgeCallTimeoutWithin(toolTimeout),
     logger: logger,
     // Bridge-layer skew validator. Connect / reconnect paths funnel
     // through `_connectUnlocked` — putting refusal here closes the
@@ -89,56 +92,43 @@ Future<void> main(List<String> argv) async {
     // incompatible app between two tool calls.
     versionSkewValidator: defaultVersionSkewValidator,
   );
+  Uri? startupUri;
   final uri = parsed['uri'] as String?;
   if (uri != null && uri.isNotEmpty) {
-    logger?.add('connecting to ${_redactUri(uri)}');
     try {
-      await bridge.connect(Uri.parse(uri));
-      final uuid = bridge.baselineSessionUuid;
-      final shortUuid = uuid == null
-          ? '<none>'
-          : uuid.substring(0, math.min(8, uuid.length));
-      logger?.add('connected; sessionUuid=$shortUuid…');
-    } catch (e) {
-      stderr.writeln('initial --uri connect failed: $e');
-      stderr.writeln('continuing; MCP client should invoke `connect` tool.');
+      startupUri = Uri.parse(uri.trim());
+      logger?.add('connecting to ${_redactUri(uri)} in the background');
+    } on FormatException catch (e) {
+      stderr.writeln('ignoring --uri: ${e.message}');
+      stderr.writeln(
+        'continuing; the MCP client can call attach_app or connect instead.',
+      );
     }
   }
 
   final server = McpServer(
     bridge: bridge,
-    toolTimeout: Duration(seconds: timeoutSeconds),
+    toolTimeout: toolTimeout,
     logger: logger,
   )..registerDefaults();
   final session = DaemonSession(bridge: bridge, server: server, logger: logger);
   server.setDaemonSession(session);
 
-  // Cooperative exit — signal handlers ask the server to drain, then
-  // `serve()` returns once pending dispatches and the write chain settle.
-  void requestShutdown(String reason) {
-    logger?.add('$reason received, draining');
-    server.shutdown();
-  }
-
-  final sigintSub = ProcessSignal.sigint.watch().listen(
-    (_) => requestShutdown('SIGINT'),
+  // Serves at once, connects to --uri in the background, and on every exit
+  // path (stdin EOF, SIGINT, SIGTERM, a stdout write failure) detaches the
+  // daemon session with a bounded wait so a flutter attach child or an
+  // iproxy tunnel cannot outlive the sidecar.
+  await serveUntilExit(
+    server: server,
+    bridge: bridge,
+    handoff: snapshotDiskHandoff,
+    input: stdin,
+    output: stdout,
+    startupUri: startupUri,
+    signals: shutdownSignals(),
+    logger: logger,
+    errorSink: stderr,
   );
-  final sigtermSub = ProcessSignal.sigterm.watch().listen(
-    (_) => requestShutdown('SIGTERM'),
-  );
-
-  try {
-    await server.serve(input: stdin, output: stdout);
-  } finally {
-    await sigintSub.cancel();
-    await sigtermSub.cancel();
-    snapshotDiskHandoff.cleanupAll();
-    try {
-      await bridge.disconnect().timeout(const Duration(seconds: 2));
-    } catch (e) {
-      logger?.add('bridge disconnect failed: $e');
-    }
-  }
 }
 
 class _StderrLogger implements Sink<String> {

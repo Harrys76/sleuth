@@ -23,14 +23,16 @@ This file describes the return shapes of the 13 MCP tools that `sleuth_mcp` expo
 
 **Structured content.** A client that negotiates MCP protocol `2025-06-18` or later also gets a top-level `structuredContent` object on every successful `tools/call` result. It holds the same JSON as the text block, so the client does not need to parse the text. Clients on `2024-11-05` or `2025-03-26` get the text block only. Error results never carry `structuredContent`. No per-tool `data`, `args` or `errors` shape changes, so `schemaVersion` stays `2`.
 
+**Initialize.** The server speaks `2024-11-05`, `2025-03-26` and `2025-06-18`. It echoes a supported client version and answers any other version with the latest one, `2025-06-18`, as the MCP spec recommends. The `initialize` result carries `instructions`, a short description of the workflow: launch with `flutter run --profile --no-dds`, attach with `attach_app` or `connect`, then `get_issues`, `explain_issue`, `get_snapshot` and `check_budgets`. `resources/templates/list` returns an empty `resourceTemplates` list.
+
 ## connect
 
-Kind `direct`. Args: `uri` (String, required).
+Kind `direct`. Args: `uri` (String, required). It takes the http URI that `flutter run` and `flutter attach` print, such as `http://127.0.0.1:50000/AbCd=/`, or the WebSocket form. The sidecar converts `http` to `ws` and `https` to `wss`, and adds the `/ws` path when it is missing, so `ws://127.0.0.1:50000/AbCd=/` also works. `attach_app(debugUrl: …)` accepts the same forms.
 
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
 | `connected` | bool | yes | always `true` on success |
-| `vmServiceUri` | String | yes | echoes the arg |
+| `vmServiceUri` | String | yes | the WebSocket URI the sidecar connected to, after the conversion above |
 | `sessionUuid` | String | yes | from `ext.sleuth.diagnose` |
 | `connectionMode` | String | yes | one of `disconnected` / `warmup` / `basic` / `full` / `correlated` |
 | `vmConnected` | bool | yes (nullable) | the app's own VM link, from `ext.sleuth.diagnose` `data.vmConnected`; null when that envelope has no boolean flag. `basic` with `vmConnected: true` is a healthy session that has had no VM-tier frame verdict yet. |
@@ -42,7 +44,7 @@ Kind `direct`. Args: `uri` (String, required).
 **Errors:**
 
 - `missing_required_arg: uri`
-- `invalid_uri: <FormatException message>`
+- `invalid_uri: <reason>. Pass the VM service URI that flutter run prints, …`: the URI does not parse, its scheme is not `http`, `https`, `ws` or `wss`, or it has no host.
 - `version_skew_major: app=<v> sidecar-pin=<v> — refusing to serve; align sleuth dep with sidecar version. Bridge disconnected.`: the app's lineage is neither the pin's nor the accepted prior lineage.
 - `version_skew_unknown: diagnose envelope missing or malformed packageVersion stamp (got "<v>") — cannot verify wire contract. Bridge disconnected.`: `packageVersion` is absent, not a String, or not a semver `major.minor.patch`. An optional `-prerelease` or `+build` suffix keeps the version's lineage, so `0.37.0-dev.1` is in the 0.37 lineage. `(got "<v>")` appears only when the value is a String.
 
@@ -217,19 +219,35 @@ Apps on sleuth 0.36 do not report the keys added in sleuth 0.37.0: `effectiveFra
 
 ## get_snapshot
 
-Kind `passthrough` (`ext.sleuth.snapshot`). Args: `sections` (List\<String\>, optional; forwarded as a comma-joined string; an empty list or no value returns the full payload, not metadata only), `maxIssueCount` (int, optional), `maxRouteCount` (int, optional), `diskHandoff` (bool, optional) and `verbose` (bool, optional, default `false`).
+Kind `passthrough` (`ext.sleuth.snapshot`). Args: `sections` (List\<String\>, optional; each item one of the 14 `SnapshotSection` keys, which the input schema lists as an item `enum`; forwarded as a comma-joined string; an empty list counts as absent), `full` (bool, optional, default `false`), `maxIssueCount` (int, optional), `maxRouteCount` (int, optional), `diskHandoff` (bool, optional) and `verbose` (bool, optional, default `false`).
 
 An app error envelope (one with a top-level `error`) comes back inline and is never written to disk.
 
+**Shim `default_projection`.** An inline call that names no `sections` and does not pass `full: true` asks the app for the default set: `frameStatsSummary`, `currentIssues`, `widgetHeatMap`, `recurrenceTrends`, `sessionSummary`, `startupMetrics` and `routeSessions`. It leaves out the per-frame and raw sample sections: `capturedFrames`, `recentFrames`, `recentRequests`, `heapSamples`, `phaseEvents`, `gcEvents` and `platformChannelEvents`. Measured on an iPhone 12 against the example app, the full response was 87 KB right after launch and 528 KB after a few minutes on an animated screen, about 90 % of it `capturedFrames` and `recentFrames`, and a `2025-06-18` client receives the JSON twice (text and `structuredContent`). The default set is about 3 to 15 KB on the captured sessions.
+
+- The app stamps its usual projection metadata, `_projectedSections` (the default set, sorted) and `_projectionApplied: by_app`. The sidecar adds `data._omittedSections` (the seven sections above, whether or not the app had data for them) and `data._omittedSectionsHint`, which says how to get them.
+- Pass `full: true` for every section, or list exactly the sections you need in `sections`, for example `sections: ["recentFrames"]`. `full: true` together with `sections` returns `arg_conflict`. A `full` response can exceed a client's response budget on a long session; prefer `sections`, or `diskHandoff`.
+- `maxIssueCount` and `maxRouteCount` apply to the default set as well.
+- A `diskHandoff: true` call without `sections` writes every section, because a file has no response budget.
+- Two default snapshots carry the same `_projectedSections`, so `compare_snapshots` accepts them (`arg_section_mismatch` only fires when the two section sets or limits differ). The default set holds every section that `compare_snapshots` and `check_budgets` read: `currentIssues`, `frameStatsSummary` and the metadata keys.
+- An app that ignores the projection args (older than sleuth 0.35) gets the same cut applied by the sidecar, stamped `_projectionApplied: by_sidecar_fallback`.
+
 **Shim `compact_issues`.** Unless `verbose: true`, the sidecar trims every `data.currentIssues` entry to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`), copying only the keys that are present. It runs on both the inline and the disk-handoff path and builds a new map, so the bridge envelope is never changed. It does nothing when `sections` left out `currentIssues`, or when `currentIssues` is missing or not a list. It changes field shape only. `maxIssueCount` caps `currentIssues` in the app whether or not `verbose` is set.
 
-**Shim `disk_handoff`.** When `diskHandoff` is true, the sidecar writes the envelope to `Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json` and returns `{path, sizeBytes, sha256}`, plus any projection metadata, instead of the inline `data` block. Use it for snapshots larger than the client's response token cap. The file name is 128 random bits from `Random.secure()`. The sidecar creates the per-process directory with mode `0700` and the file with mode `0600`, and checks both with `FileStat`. On POSIX, if it cannot set and confirm owner-only permissions, it deletes the file and returns `disk_handoff_failed`. Windows has no POSIX modes, so the check is skipped there. The payload can hold sensitive data, such as query tokens in `recentRequests[].url`, which is why a permission failure stops the handoff. The sidecar deletes the files on `detach_app` and at shutdown, and each new write removes files older than 30 minutes from its own process directory. Each process has its own directory, so one sidecar never removes another's in-flight file. Without `diskHandoff` the envelope comes back inline.
+**Shim `disk_handoff`.** When `diskHandoff` is true, the sidecar writes the envelope to `Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json` and returns `{path, sizeBytes, sha256}`, plus any projection metadata, instead of the inline `data` block. Use it for snapshots larger than the client's response token cap. The file name is 128 random bits from `Random.secure()`. The sidecar creates the per-process directory with mode `0700` and the file with mode `0600`, and checks both with `FileStat`. On POSIX, if it cannot set and confirm owner-only permissions, it deletes the file and returns `disk_handoff_failed`. Windows has no POSIX modes, so the check is skipped there. The payload can hold sensitive data, such as query tokens in `recentRequests[].url`, which is why a permission failure stops the handoff. The sidecar deletes the files on `detach_app` and at shutdown, then removes its process directory once it is empty, and each new write removes files older than 30 minutes from its own process directory. Each process has its own directory, so one sidecar never removes another's in-flight file. At startup the sidecar removes the empty `sleuth_snapshot_<pid>` directories that earlier processes left behind, only when they are older than 30 minutes; it never deletes a file there. Without `diskHandoff` the envelope comes back inline.
 
-**Lineage fallback (an app older than sleuth 0.35).** Such an app ignores the projection args and returns the full payload. On the disk-handoff path the sidecar writes it and stamps `_projectionApplied: by_sidecar_fallback`. On the inline path it returns `projection_unsupported_by_app` instead, because the full inline payload would overflow the response cap that projection exists to avoid. Sidecar 0.8.0 refuses apps older than the 0.36 lineage when it connects, so a connected app does not reach this path.
+**Lineage fallback (an app older than sleuth 0.35).** Such an app ignores the projection args and returns the full payload. When the caller asked for a projection (`sections`, `maxIssueCount` or `maxRouteCount`), the disk-handoff path writes the payload and stamps `_projectionApplied: by_sidecar_fallback`, and the inline path returns `projection_unsupported_by_app` instead, because the full inline payload would overflow the response cap that projection exists to avoid. The default projection is applied by the sidecar instead (see above). Sidecar 0.8.0 refuses apps older than the 0.36 lineage when it connects, so a connected app does not reach this path.
 
 **Shim `launch_mode_advisory`.** On a degraded session (`connectionMode` `warmup` or `disconnected`, or `basic` with `isVmConnected: false`), the sidecar adds `data.launchModeAdvisory`. A client that reads data here, not only through `connect` or `diagnose`, learns that the VM-only detectors are off. On the disk-handoff path the advisory is in the written file's `data`.
 
-**Errors:** `arg_invalid_section`, `arg_invalid_int` and `arg_pagination_unused` come back as the app's `ext.sleuth.snapshot` error envelope. `projection_unsupported_by_app` is an inline projection request to an app older than sleuth 0.35. `disk_handoff_failed` means the sidecar could not lock the temp directory or file to owner-only permissions, or could not pick an unused file name, and wrote nothing.
+| `data` key | Type | Required | Notes |
+|---|---|---|---|
+| (all keys from `ext.sleuth.snapshot.data`) | | | passed through; see `mcp_schema.md` |
+| `launchModeAdvisory` | String | no | on a degraded session; see the shim above |
+| `_omittedSections` | List\<String\> | no | on a default call; the seven per-frame and raw sample sections left out |
+| `_omittedSectionsHint` | String | no | with `_omittedSections`; says to pass `full: true` or name the sections |
+
+**Errors:** `arg_conflict` means `full: true` was combined with `sections`. `arg_invalid_section`, `arg_invalid_int` and `arg_pagination_unused` come back as the app's `ext.sleuth.snapshot` error envelope; through `tools/call` the server's item enum check rejects an unknown section first with `arg_enum_violation: sections[<i>]=<value> not in [...]`. `projection_unsupported_by_app` is an inline projection request (`sections` or a cap) to an app older than sleuth 0.35. `disk_handoff_failed` means the sidecar could not lock the temp directory or file to owner-only permissions, or could not pick an unused file name, and wrote nothing.
 
 The underlying shape is in the `ext.sleuth.snapshot` section of `mcp_schema.md`.
 
@@ -274,14 +292,18 @@ The underlying shape is in the `ext.sleuth.explain` section of `mcp_schema.md`.
 
 - `missing_required_arg: <name>`: an arg in `inputSchema.required` is absent, or null (the message then ends in `(null)`).
 - `arg_unknown: <name> (allowed: …)`: an arg that `inputSchema.properties` does not declare.
-- `arg_type_mismatch: <name> expected <type> got <type>`: the JSON type differs from the declared type. An integer satisfies `number`.
-- `arg_enum_violation: <name>=<value> not in [...]`: a value outside the declared `enum`.
+- `arg_type_mismatch: <name> expected <type> got <type>`: the JSON type differs from the declared type. An integer satisfies `number`. For an array item the name is `<name>[<index>]`.
+- `arg_enum_violation: <name>=<value> not in [...]`: a value outside the declared `enum`, or an array item outside the declared `items.enum` (named `<name>[<index>]`).
 - `arg_min_length_violation: <name> must be at least <n> chars`: a string shorter than `minLength`.
 - `unknown_tool: <name>`: no tool is registered under that name.
 - `missing "name" arg` / `arguments must be a JSON object`: the `tools/call` params are malformed.
-- `timeout_after_<ms>ms — bridge disconnected; re-invoke connect`: a tool without its own deadlines exceeded the generic timeout (10 seconds by default, set with `--tool-timeout`). The server disconnects the bridge, so the client must connect again.
-- `session_changed baseline=<uuid> current=<uuid>`: the app's session changed during the call.
+- `timeout_after_<ms>ms: …`: a call took too long. Either one app call exceeded the bridge's per-call timeout, and the message names the extension, or a tool without its own deadlines exceeded the generic tool timeout (10 seconds by default, set with `--tool-timeout`). The bridge's per-call timeout is shorter than the tool timeout (8 seconds for the default), so it usually fires first. The connection to the app is kept, so the next call works once the app answers: retry, or call `diagnose` to check the session.
+- `not_connected: …`: no app is connected, or a connect is still running or was refused. The message says to call `attach_app` (with `device`, `debugUrl`, or `udid` and `bundle`) or `connect`.
+- `app_busy: …`: earlier calls timed out and the app has still not answered them. vm_service keeps each such request until the app answers or the connection closes, so at 8 unanswered calls the bridge sends no more and the connection is kept. Retry in a few seconds; if the app stays busy, call `attach_app` or `connect` to open a new connection, which drops the pending requests.
+- `session_changed baseline=<uuid> current=<uuid>: …`: the app answered from a different `sessionUuid` than the one the bridge follows, after a hot restart or because another app answers at the URI. Results from before this call came from the old session. The change is reported once: the bridge re-reads `ext.sleuth.diagnose`, runs the version check on it and follows the new session, so the message says to call the tool again, and the next call works. When the change came with a closed connection (a reconnect found a new session), the bridge disconnects and the message says to call `attach_app` or `connect`. When the new session runs a sleuth version the sidecar refuses, the call returns that `version_skew_*` error instead and the bridge disconnects.
 - `error: <exception>`: the handler threw. The stack trace goes to the log only.
+
+The bridge never disconnects on a timeout, so a slow call on a janky app does not end a session that `attach_app` set up.
 
 ## Recovery from a refused connection
 

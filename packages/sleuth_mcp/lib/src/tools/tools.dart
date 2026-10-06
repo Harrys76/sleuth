@@ -18,6 +18,7 @@ import 'compare_snapshots.dart';
 import 'issue_projection.dart';
 import 'launch_mode_advisory.dart';
 import 'snapshot_disk_handoff.dart';
+import 'snapshot_sections.dart';
 
 final Lock _listDevicesLock = Lock();
 
@@ -231,11 +232,17 @@ Future<Object> _connectHandler(
   if (uri is! String || uri.isEmpty) {
     return ToolCallResult.text('missing_required_arg: uri', isError: true);
   }
+  // `flutter run` prints an http URI; the bridge needs the ws form.
   Uri parsed;
   try {
-    parsed = Uri.parse(uri);
+    parsed = normalizeVmServiceUri(Uri.parse(uri.trim()));
   } on FormatException catch (e) {
-    return ToolCallResult.text('invalid_uri: $e', isError: true);
+    return ToolCallResult.text(
+      'invalid_uri: ${e.message}. Pass the VM service URI that flutter run '
+      'prints, such as http://127.0.0.1:50000/AbCd=/ or '
+      'ws://127.0.0.1:50000/AbCd=/ws.',
+      isError: true,
+    );
   }
   try {
     await bridge.connect(parsed);
@@ -262,7 +269,7 @@ Future<Object> _connectHandler(
   }
   final connectResult = <String, Object?>{
     'connected': true,
-    'vmServiceUri': uri,
+    'vmServiceUri': parsed.toString(),
     'sessionUuid': diag['sessionUuid'],
     'connectionMode': diag['connectionMode'],
     // `basic` also covers a healthy VM-connected session, so pass the app's
@@ -286,20 +293,46 @@ Future<Object> _connectHandler(
 /// `detach_app` and sidecar shutdown.
 final snapshotDiskHandoff = SnapshotDiskHandoff();
 
+/// `data._omittedSectionsHint` on a default `get_snapshot` result.
+const String _omittedSectionsHint =
+    'These sections are left out by default to keep the response small: '
+    'per-frame data and raw sample buffers. Pass full: true for every '
+    'section, or name the ones you need in sections.';
+
 Future<Object> _getSnapshotHandler(
   VmBridge bridge,
   Map<String, Object?> args,
 ) async {
   final extArgs = <String, dynamic>{};
 
-  // Empty list / blank string = full payload, NOT a projection request —
-  // forwarding an empty `sections` would make the fallback check below
-  // misread the resulting full payload as a stale-app response.
+  // An empty list or a blank string names no sections, so the call gets
+  // the default set, as if `sections` were absent.
   final rawSections = args['sections'];
+  String? requestedSections;
   if (rawSections is List && rawSections.isNotEmpty) {
-    extArgs['sections'] = rawSections.map((e) => '$e').join(',');
+    requestedSections = rawSections.map((e) => '$e').join(',');
   } else if (rawSections is String && rawSections.trim().isNotEmpty) {
-    extArgs['sections'] = rawSections;
+    requestedSections = rawSections;
+  }
+  final full = args['full'] == true;
+  if (full && requestedSections != null) {
+    return ToolCallResult.text(
+      'arg_conflict: full: true returns every section, so it cannot be '
+      'combined with sections. Pass full: true, or list the sections you '
+      'need.',
+      isError: true,
+    );
+  }
+  final diskHandoff = args['diskHandoff'] == true;
+  // An inline call that names no sections gets the default set, which
+  // leaves out the per-frame and raw sample sections so the response fits
+  // a client's budget. A disk handoff has no such budget, so it writes
+  // every section unless `sections` is set.
+  final defaultProjection = requestedSections == null && !full && !diskHandoff;
+  if (requestedSections != null) {
+    extArgs['sections'] = requestedSections;
+  } else if (defaultProjection) {
+    extArgs['sections'] = defaultSnapshotSections.join(',');
   }
   final maxIssueCount = args['maxIssueCount'];
   if (maxIssueCount != null) extArgs['maxIssueCount'] = '$maxIssueCount';
@@ -307,7 +340,10 @@ Future<Object> _getSnapshotHandler(
   if (maxRouteCount != null) extArgs['maxRouteCount'] = '$maxRouteCount';
 
   final projectionRequested = extArgs.isNotEmpty;
-  final diskHandoff = args['diskHandoff'] == true;
+  final callerProjection =
+      requestedSections != null ||
+      maxIssueCount != null ||
+      maxRouteCount != null;
   final envelope = await bridge.callExtension(
     'ext.sleuth.snapshot',
     args: extArgs,
@@ -324,7 +360,7 @@ Future<Object> _getSnapshotHandler(
       !rawData.containsKey('_projectedSections') &&
       !rawData.containsKey('_projectionApplied');
 
-  if (isFallback && !diskHandoff) {
+  if (isFallback && !diskHandoff && callerProjection) {
     // Pre-0.35 app ignored the projection args and returned the full
     // payload; inline it would overflow the response cap projection
     // exists to avoid. Refuse with guidance instead.
@@ -337,18 +373,36 @@ Future<Object> _getSnapshotHandler(
     );
   }
 
-  // Stamp fallback provenance so the on-disk payload is detectable as
-  // unprojected. Fresh map — never mutate the bridge-returned envelope
-  // (the fake bridge shares its instance across calls).
+  // Stamp fallback provenance so the payload is detectable as projected by
+  // the sidecar, not the app. Build a fresh map and never change the
+  // envelope the bridge returned (the fake bridge shares its instance
+  // across calls).
   var out = envelope;
   if (isFallback) {
     out = <String, Object?>{
       ...envelope,
-      'data': <String, Object?>{
-        ...rawData,
-        '_projectionApplied': 'by_sidecar_fallback',
-      },
+      'data': defaultProjection
+          // The default set was the sidecar's own choice, so apply it here.
+          ? _projectLocally(rawData, defaultSnapshotSections)
+          : <String, Object?>{
+              ...rawData,
+              '_projectionApplied': 'by_sidecar_fallback',
+            },
     };
+  }
+
+  if (defaultProjection) {
+    final data = out['data'];
+    if (data is Map<String, Object?>) {
+      out = <String, Object?>{
+        ...out,
+        'data': <String, Object?>{
+          ...data,
+          '_omittedSections': heavySnapshotSections,
+          '_omittedSectionsHint': _omittedSectionsHint,
+        },
+      };
+    }
   }
 
   // Compact each currentIssue unless verbose. Fresh map (never mutate the
@@ -391,6 +445,23 @@ Future<Object> _getSnapshotHandler(
       isError: true,
     );
   }
+}
+
+/// [data] cut down to [sections] plus the metadata keys, stamped the way
+/// the app stamps a projection, with `_projectionApplied:
+/// by_sidecar_fallback`. Used when an app ignored the default projection.
+Map<String, Object?> _projectLocally(
+  Map<String, Object?> data,
+  List<String> sections,
+) {
+  final keep = sections.toSet();
+  return <String, Object?>{
+    for (final entry in data.entries)
+      if (keep.contains(entry.key) || !snapshotSectionKeys.contains(entry.key))
+        entry.key: entry.value,
+    '_projectedSections': List<String>.of(sections)..sort(),
+    '_projectionApplied': 'by_sidecar_fallback',
+  };
 }
 
 Future<Object> _getIssuesHandler(
@@ -634,15 +705,19 @@ final Map<String, BuiltInTool> builtInTools = {
         openWorldHint: true,
       ),
       description:
-          'Attach to a running Flutter app via its VM service WebSocket URI. '
-          'Must be called before other tools.',
+          'Connect to a running Flutter app by its VM service URI, when you '
+          'already have the URI. attach_app also connects and can find the '
+          'app by device, so use either one before the other tools. Accepts '
+          'the http URI that flutter run prints and the ws form.',
       inputSchema: {
         'type': 'object',
         'properties': {
           'uri': {
             'type': 'string',
             'description':
-                'WebSocket URI from flutter run output, e.g. ws://127.0.0.1:55555/<token>=/ws',
+                'VM service URI from flutter run or flutter attach output, '
+                'e.g. http://127.0.0.1:55555/<token>=/ or '
+                'ws://127.0.0.1:55555/<token>=/ws',
           },
         },
         'required': ['uri'],
@@ -655,21 +730,38 @@ final Map<String, BuiltInTool> builtInTools = {
       name: 'get_snapshot',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
       description:
-          'Performance snapshot — issues, frame stats, route history. '
-          'Optional projection: `sections` (subset of payload), '
-          '`maxIssueCount`/`maxRouteCount` (caps), `diskHandoff` (write to '
-          'a temp file and return {path, sizeBytes, sha256} instead of '
-          'inline data — use for large snapshots that exceed the response '
-          'token cap).',
+          'Performance snapshot: issues, frame stats summary, route history, '
+          'session summary and recurrence trends. By default the per-frame '
+          'and raw sample sections (capturedFrames, recentFrames, '
+          'recentRequests, heapSamples, phaseEvents, gcEvents, '
+          'platformChannelEvents) are left out to keep the response small, '
+          'and data._omittedSections lists them. Pass full: true for every '
+          'section, or sections to pick exactly the ones you need. '
+          'maxIssueCount and maxRouteCount cap those lists. diskHandoff '
+          'writes the snapshot (every section unless sections is set) to a '
+          'temp file and returns {path, sizeBytes, sha256} instead.',
       inputSchema: <String, Object?>{
         'type': 'object',
         'properties': <String, Object?>{
           'sections': <String, Object?>{
             'type': 'array',
-            'items': <String, Object?>{'type': 'string'},
+            'items': <String, Object?>{
+              'type': 'string',
+              'enum': snapshotSectionKeys,
+            },
             'description':
-                'Subset of payload sections to include '
-                '(metadata always returns). Omit for full payload.',
+                'Sections to include; metadata always returns. Omit for '
+                'the default set, which leaves out the per-frame and raw '
+                'sample sections.',
+          },
+          'full': <String, Object?>{
+            'type': 'boolean',
+            'default': false,
+            'description':
+                'Return every section, including per-frame and raw sample '
+                'data. On a long session this can exceed a client\'s '
+                'response budget; prefer sections, or diskHandoff. Cannot '
+                'be combined with sections.',
           },
           'maxIssueCount': <String, Object?>{
             'type': 'integer',
@@ -682,8 +774,9 @@ final Map<String, BuiltInTool> builtInTools = {
           'diskHandoff': <String, Object?>{
             'type': 'boolean',
             'description':
-                'Write the envelope to a temp file; response '
-                'becomes {path, sizeBytes, sha256, _projectedSections?}.',
+                'Write the envelope to a temp file, with every section '
+                'unless sections is set; the response becomes {path, '
+                'sizeBytes, sha256, _projectedSections?}.',
           },
           'verbose': <String, Object?>{
             'type': 'boolean',
@@ -1223,11 +1316,9 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
       handler: hotReloadHandler,
       bypassesGenericTimeout: true,
     ),
-    // `hot_restart` deferred to v0.2.1: Android profile-mode VM service
-    // does not re-register the main isolate within the bridge's
-    // reconnect window after `app.restart`. Hot reload covers the common
-    // dev-loop path; full restart users can `detach_app` + `attach_app`
-    // manually until the underlying behavior is fully understood.
+    // There is no `hot_restart` tool: in Android profile mode the new main
+    // isolate does not register again within the bridge's reconnect window
+    // after `app.restart`. Use `detach_app` and then `attach_app`.
   };
 }
 

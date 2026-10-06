@@ -16,15 +16,17 @@ class SnapshotDiskHandoff {
     // Per-process subdir so a concurrent sidecar instance's age-sweep
     // can never delete this instance's in-flight handoff (each instance
     // only sweeps its own dir).
-    final base = tempDir ?? Directory.systemTemp;
-    _sessionDir = Directory('${base.path}/$_prefix$pid');
+    _baseDir = tempDir ?? Directory.systemTemp;
+    _sessionDir = Directory('${_baseDir.path}/$_prefix$pid');
   }
 
+  late final Directory _baseDir;
   late final Directory _sessionDir;
   final Duration _maxAge;
   final Set<String> _written = <String>{};
 
   static const _prefix = 'sleuth_snapshot_';
+  static final _processDirName = RegExp(r'^sleuth_snapshot_\d+$');
   final _rng = Random.secure();
 
   String _uuid() {
@@ -82,12 +84,57 @@ class SnapshotDiskHandoff {
     };
   }
 
-  /// Delete every file this instance wrote. Called on detach + shutdown.
+  /// Delete every file this instance wrote, then this process's directory
+  /// when nothing else is left in it. Called on detach + shutdown.
   void cleanupAll() {
     for (final path in _written.toList()) {
       _deleteQuietly(File(path));
     }
     _written.clear();
+    _deleteDirIfEmpty(_sessionDir);
+  }
+
+  /// Removes the empty `sleuth_snapshot_<pid>` directories that earlier
+  /// sidecar processes left in the temp directory. Only directories with
+  /// this prefix and a numeric pid, never this process's own, only when
+  /// empty, and only when last modified longer ago than the handoff max
+  /// age (30 minutes by default). Run once at startup. Never throws.
+  void sweepStaleProcessDirs() {
+    final now = DateTime.now();
+    final List<FileSystemEntity> entries;
+    try {
+      entries = _baseDir.listSync(followLinks: false);
+    } on FileSystemException {
+      return;
+    }
+    for (final entity in entries) {
+      if (entity is! Directory) continue;
+      final name = entity.uri.pathSegments.lastWhere(
+        (s) => s.isNotEmpty,
+        orElse: () => '',
+      );
+      if (!_processDirName.hasMatch(name)) continue;
+      if (entity.path == _sessionDir.path) continue;
+      try {
+        if (now.difference(entity.statSync().modified) <= _maxAge) continue;
+      } on FileSystemException {
+        continue;
+      }
+      _deleteDirIfEmpty(entity);
+    }
+  }
+
+  /// Deletes [dir] when it exists and holds nothing. A non-recursive
+  /// delete fails on a non-empty directory, so a file that lands between
+  /// the check and the delete is never removed.
+  void _deleteDirIfEmpty(Directory dir) {
+    try {
+      if (!dir.existsSync()) return;
+      if (dir.listSync(followLinks: false).isNotEmpty) return;
+      dir.deleteSync();
+    } on FileSystemException {
+      // Best effort: a directory that cannot be removed stays.
+    }
   }
 
   void _sweepAged() {

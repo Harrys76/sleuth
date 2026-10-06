@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:sleuth_mcp/sleuth_mcp.dart';
@@ -5,6 +6,7 @@ import 'package:sleuth_mcp/src/prompts/diagnostic_prompts.dart';
 import 'package:sleuth_mcp/src/tools/tools.dart';
 import 'package:test/test.dart';
 
+import 'helpers/counting_session.dart';
 import 'helpers/fake_vm_bridge.dart';
 
 JsonRpcMessage _req(
@@ -116,16 +118,111 @@ void main() {
       expect(result['protocolVersion'], '2025-06-18');
     });
 
-    test(
-      'initialize falls back to server pin on unsupported version',
-      () async {
+    for (final unsupported in ['1999-01-01', '2099-01-01', null]) {
+      test('initialize answers the latest supported version for client '
+          'version $unsupported', () async {
         final resp = await server.handleForTest(
-          _req('initialize', params: {'protocolVersion': '1999-01-01'}),
+          _req('initialize', params: {'protocolVersion': ?unsupported}),
         );
         final result = resp!.result as Map<String, Object?>;
-        expect(result['protocolVersion'], mcpProtocolVersion);
+        final latest = (supportedMcpProtocolVersions.toList()..sort()).last;
+        expect(result['protocolVersion'], latest);
+        expect(mcpProtocolVersion, latest);
+        expect(latest, '2025-06-18');
+      });
+    }
+
+    test('an unsupported client version still gets structuredContent from '
+        'the negotiated 2025-06-18', () async {
+      await server.handleForTest(
+        _req('initialize', params: {'protocolVersion': '2099-01-01'}),
+      );
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      expect(result.containsKey('structuredContent'), isTrue);
+    });
+
+    test(
+      'initialize carries instructions that describe the workflow',
+      () async {
+        final resp = await server.handleForTest(_req('initialize'));
+        final instructions =
+            (resp!.result as Map<String, Object?>)['instructions'] as String;
+        expect(instructions, mcpServerInstructions);
+        for (final needle in [
+          'flutter run --profile --no-dds',
+          'attach_app',
+          'debugUrl',
+          'udid',
+          'connect(uri)',
+          'get_issues',
+          'explain_issue',
+          'get_snapshot',
+          'full: true',
+          'check_budgets',
+        ]) {
+          expect(instructions, contains(needle));
+        }
+        expect(instructions.length, lessThan(1000), reason: 'keep it short');
       },
     );
+
+    test('resources/templates/list returns an empty list', () async {
+      await server.handleForTest(_req('initialize'));
+      final resp = await server.handleForTest(
+        _req('resources/templates/list', id: 2),
+      );
+      expect(resp!.isError, isFalse);
+      expect(resp.result, {'resourceTemplates': <Object?>[]});
+    });
+
+    test('a tool call before connecting says to attach first', () async {
+      await server.handleForTest(_req('initialize'));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'get_issues', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      expect(result['isError'], isTrue);
+      final text = ((result['content'] as List).first as Map)['text'] as String;
+      expect(text, startsWith('not_connected: '));
+      expect(text, contains('attach_app'));
+      expect(text, contains('connect'));
+      expect(text, isNot(contains('VmBridgeException')));
+    });
+
+    test('a version refusal while following a restart comes back as the '
+        'refusal text', () async {
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      bridge.setResponder(
+        'ext.sleuth.issues',
+        (_) => throw VmBridgeException(
+          'version_skew_major: app=0.99.0 sidecar-pin=0.37.0',
+          kind: VmBridgeErrorKind.refused,
+        ),
+      );
+      await server.handleForTest(_req('initialize'));
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'get_issues', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      final text = ((result['content'] as List).first as Map)['text'] as String;
+      expect(text, startsWith('version_skew_major:'));
+    });
 
     test('tools/call rejects non-object arguments', () async {
       await server.handleForTest(_req('initialize'));
@@ -225,6 +322,179 @@ void main() {
       final contents =
           (result['contents'] as List).first as Map<String, Object?>;
       expect((contents['text'] as String), contains('"count":99'));
+    });
+  });
+
+  group('generic tool timeout', () {
+    test('keeps the bridge connected and says what to do next', () async {
+      final bridge = defaultFakeBridge();
+      final server = McpServer(
+        bridge: bridge,
+        toolTimeout: const Duration(milliseconds: 50),
+      )..registerDefaults();
+      await server.handleForTest(_req('initialize'));
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final gate = bridge.gateExtension('ext.sleuth.diagnose');
+      final resp = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+          id: 2,
+        ),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      expect(result['isError'], isTrue);
+      final text = ((result['content'] as List).first as Map)['text'] as String;
+      expect(text, startsWith('timeout_after_50ms: '));
+      expect(text, contains('connection to the app is kept'));
+      expect(text, isNot(contains('re-invoke connect')));
+      expect(bridge.isConnected, isTrue);
+      gate.complete();
+      // The next call works on the same connection.
+      final next = await server.handleForTest(
+        _req(
+          'tools/call',
+          params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+          id: 3,
+        ),
+      );
+      expect((next!.result as Map<String, Object?>)['isError'], isNull);
+    });
+
+    test('a resource read timeout keeps the bridge connected', () async {
+      final bridge = defaultFakeBridge();
+      final server = McpServer(
+        bridge: bridge,
+        toolTimeout: const Duration(milliseconds: 50),
+      )..registerDefaults();
+      await server.handleForTest(_req('initialize'));
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final gate = bridge.gateExtension('ext.sleuth.encyclopedia');
+      final resp = await server.handleForTest(
+        _req('resources/read', params: {'uri': 'sleuth://encyclopedia'}, id: 2),
+      );
+      expect(resp!.isError, isTrue);
+      expect(resp.error!.message, contains('kept'));
+      expect(bridge.isConnected, isTrue);
+      gate.complete();
+    });
+
+    test('the bridge timeout fires before the tool timeout', () {
+      expect(
+        bridgeCallTimeoutWithin(const Duration(seconds: 10)),
+        const Duration(seconds: 8),
+      );
+      expect(
+        bridgeCallTimeoutWithin(const Duration(seconds: 60)),
+        const Duration(seconds: 58),
+      );
+      expect(
+        bridgeCallTimeoutWithin(const Duration(seconds: 1)),
+        const Duration(milliseconds: 800),
+      );
+      expect(RealVmBridge().callTimeout, const Duration(seconds: 8));
+    });
+  });
+
+  group('startup gate', () {
+    test(
+      'tools/call waits for holdToolCallsUntil; initialize does not',
+      () async {
+        final bridge = defaultFakeBridge();
+        final server = McpServer(bridge: bridge)..registerDefaults();
+        final ready = Completer<void>();
+        server.holdToolCallsUntil(ready.future);
+        final init = await server
+            .handleForTest(_req('initialize'))
+            .timeout(const Duration(seconds: 1));
+        expect(init!.isError, isFalse);
+        var answered = false;
+        final call = server
+            .handleForTest(
+              _req(
+                'tools/call',
+                params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+                id: 2,
+              ),
+            )
+            .then((r) {
+              answered = true;
+              return r;
+            });
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          answered,
+          isFalse,
+          reason: 'held until the startup connect ends',
+        );
+        await bridge.connect(Uri.parse('ws://localhost/ws'));
+        ready.complete();
+        final result = (await call)!.result as Map<String, Object?>;
+        expect(result['isError'], isNull);
+      },
+    );
+
+    test('a failed startup connect releases the gate', () async {
+      final bridge = defaultFakeBridge();
+      final server = McpServer(bridge: bridge)..registerDefaults();
+      server.holdToolCallsUntil(Future<void>.error(StateError('boom')));
+      await server.handleForTest(_req('initialize'));
+      final resp = await server
+          .handleForTest(
+            _req(
+              'tools/call',
+              params: {'name': 'diagnose', 'arguments': <String, Object?>{}},
+              id: 2,
+            ),
+          )
+          .timeout(const Duration(seconds: 1));
+      final text =
+          (((resp!.result as Map)['content'] as List).first as Map)['text']
+              as String;
+      expect(text, startsWith('not_connected: '));
+    });
+  });
+
+  group('session detach on exit', () {
+    test('shutdown and the exit path share one detach', () async {
+      final server = McpServer(bridge: defaultFakeBridge());
+      final session = CountingSession();
+      server.setDaemonSession(session);
+      server.shutdown();
+      await server.detachDaemonSession();
+      await server.detachDaemonSession();
+      expect(session.detachCalls, 1);
+      expect(server.daemonSession, isNull);
+    });
+
+    test('a detach that hangs is bounded by the exit detach timeout', () async {
+      final server = McpServer(
+        bridge: defaultFakeBridge(),
+        exitDetachTimeout: const Duration(milliseconds: 50),
+      );
+      final session = CountingSession(hang: true);
+      server.setDaemonSession(session);
+      final watch = Stopwatch()..start();
+      await server.detachDaemonSession();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(session.detachCalls, 1);
+    });
+
+    test('a detach that throws does not throw from the exit path', () async {
+      final server = McpServer(bridge: defaultFakeBridge());
+      server.setDaemonSession(CountingSession(fail: true));
+      await expectLater(server.detachDaemonSession(), completes);
+    });
+
+    test('stdin EOF starts the detach', () async {
+      final server = McpServer(bridge: defaultFakeBridge())..registerDefaults();
+      final session = CountingSession();
+      server.setDaemonSession(session);
+      await server.serve(
+        input: const Stream<List<int>>.empty(),
+        output: LineSink(),
+      );
+      expect(session.detachCalls, 1);
     });
   });
 
@@ -447,6 +717,29 @@ void main() {
         expect(prompts.map((p) => p['name']).toSet(), expectedNames);
       },
     );
+
+    test('triage_performance uses get_issues plus a projected snapshot', () {
+      final text = builtInPrompts['triage_performance']!.text;
+      expect(
+        text.indexOf('get_issues'),
+        lessThan(text.indexOf('get_snapshot')),
+      );
+      final sections = RegExp(r'sections \[([^\]]*)\]').firstMatch(text);
+      expect(sections, isNotNull, reason: 'get_snapshot must name sections');
+      final named = RegExp(
+        r'"([A-Za-z]+)"',
+      ).allMatches(sections!.group(1)!).map((m) => m.group(1)!).toList();
+      expect(named, isNotEmpty);
+      expect(snapshotSectionKeys, containsAll(named));
+      expect(
+        named,
+        isNot(contains('currentIssues')),
+        reason: 'get_issues already returns the issues',
+      );
+      for (final heavy in heavySnapshotSections) {
+        expect(named, isNot(contains(heavy)));
+      }
+    });
 
     test('prompt usesTools matches registered tools + text (drift guard)', () {
       final registered = {...builtInTools.keys, ...lifecycleTools(server).keys};

@@ -31,24 +31,21 @@ const _triagePerformance = DiagnosticPrompt(
         'Investigate a Flutter app\'s current runtime performance and report '
         'the top problems with concrete fixes.',
   ),
-  usesTools: {
-    'get_snapshot',
-    'get_issues',
-    'explain_issue',
-    'get_route_health',
-  },
+  usesTools: {'get_issues', 'get_snapshot', 'explain_issue'},
   text:
       'You are triaging a Flutter app\'s runtime performance using the '
       'Sleuth MCP tools. Work through these steps:\n'
-      '1. Call `get_snapshot` for the current picture — issues, frame stats, '
-      'route history.\n'
-      '2. Read the highest-priority entries from `get_issues` (they arrive '
-      'already ranked).\n'
-      '3. For the most severe issue, call `explain_issue` with its stableId to '
-      'get the cause and fix guidance.\n'
-      '4. Call `get_route_health` to find the worst-scoring route.\n'
-      'Then summarize the top problems, their likely causes, and concrete '
-      'fixes — ordered by severity.',
+      '1. Call `get_issues` for the current issues. They arrive ranked, '
+      'most important first.\n'
+      '2. Call `get_snapshot` with sections ["frameStatsSummary", '
+      '"sessionSummary", "recurrenceTrends", "routeSessions"] for frame '
+      'stats, the frame-time histogram, the memory trend, issues that are '
+      'getting worse, and the health score of each route. Leave out '
+      'currentIssues, because step 1 already returned the issues.\n'
+      '3. For the most severe issue, call `explain_issue` with its stableId '
+      'to get the cause and fix guidance.\n'
+      'Then summarize the top problems, their likely causes, the '
+      'worst-scoring route, and concrete fixes, ordered by severity.',
 );
 
 const _auditMemory = DiagnosticPrompt(

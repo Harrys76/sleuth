@@ -289,12 +289,31 @@ void main() {
           }),
         );
       });
+      // Answers only once the test completes `fixture.slowGate`, like an
+      // app whose main isolate is busy.
+      developer.registerExtension('ext.test.slow', (method, args) async {
+        await fixture.slowGate.future;
+        return developer.ServiceExtensionResponse.result(
+          jsonEncode({
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': fixture.diagnoseUuid,
+            'data': const <String, Object?>{'slow': 'ok'},
+          }),
+        );
+      });
     });
 
     setUp(() {
       // Reset between tests so each starts with predictable state.
       fixture.diagnoseUuid = 'shared-default-uuid';
       fixture.packageVersion = '0.33.0';
+      fixture.slowGate = Completer<void>();
+    });
+
+    tearDown(() {
+      // Let any slow call still pending answer before the next test.
+      if (!fixture.slowGate.isCompleted) fixture.slowGate.complete();
     });
 
     Future<Uri?> ensureWsUri() async {
@@ -952,6 +971,217 @@ void main() {
       );
       await bridge.disconnect();
     }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('connect accepts the http URI that flutter run prints', () async {
+      final info = await developer.Service.controlWebServer(
+        enable: true,
+        silenceOutput: true,
+      );
+      final httpUri = info.serverUri;
+      if (httpUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      expect(httpUri.scheme, 'http');
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(httpUri);
+      expect(bridge.isConnected, isTrue);
+      final echo = await bridge.callExtension('ext.test.echo');
+      expect((echo['data'] as Map)['echo'], 'ok');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a timed-out call keeps the connection, and unanswered calls are '
+        'capped', () async {
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(milliseconds: 200),
+        maxUnansweredCalls: 2,
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(wsUri);
+      for (var i = 1; i <= 2; i++) {
+        await expectLater(
+          bridge.callExtension('ext.test.slow'),
+          throwsA(
+            isA<VmBridgeException>()
+                .having((e) => e.kind, 'kind', VmBridgeErrorKind.timeout)
+                .having(
+                  (e) => e.timeout,
+                  'timeout',
+                  const Duration(milliseconds: 200),
+                ),
+          ),
+        );
+        expect(bridge.isConnected, isTrue);
+        expect(bridge.unansweredCalls, i);
+      }
+      // At the cap, nothing more is sent, not even a fast call.
+      await expectLater(
+        bridge.callExtension('ext.test.echo'),
+        throwsA(
+          isA<VmBridgeException>().having(
+            (e) => e.kind,
+            'kind',
+            VmBridgeErrorKind.busy,
+          ),
+        ),
+      );
+      expect(bridge.unansweredCalls, 2);
+      // The app answers the late calls; the count drains and calls work.
+      fixture.slowGate.complete();
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (bridge.unansweredCalls > 0 && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(bridge.unansweredCalls, 0);
+      final echo = await bridge.callExtension('ext.test.echo');
+      expect((echo['data'] as Map)['echo'], 'ok');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a new connect starts the unanswered count again', () async {
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(milliseconds: 200),
+        maxUnansweredCalls: 1,
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(wsUri);
+      await expectLater(
+        bridge.callExtension('ext.test.slow'),
+        throwsA(isA<VmBridgeException>()),
+      );
+      expect(bridge.unansweredCalls, 1);
+      await bridge.connect(wsUri);
+      expect(bridge.unansweredCalls, 0);
+      final echo = await bridge.callExtension('ext.test.echo');
+      expect((echo['data'] as Map)['echo'], 'ok');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a session change is reported once, then the bridge follows the '
+        'new session', () async {
+      fixture.diagnoseUuid = 'session-A';
+      final wsUri = await ensureWsUri();
+      if (wsUri == null) {
+        markTestSkipped('VM service not available');
+        return;
+      }
+      final bridge = RealVmBridge(
+        callTimeout: const Duration(seconds: 5),
+        targetIsolateIdOverride: currentIsolateId,
+      );
+      await bridge.connect(wsUri);
+      final generation = bridge.baselineGeneration;
+      fixture.diagnoseUuid = 'session-B';
+      await expectLater(
+        bridge.callExtension('ext.test.echo'),
+        throwsA(
+          isA<SessionChangedException>()
+              .having((e) => e.baseline, 'baseline', 'session-A')
+              .having((e) => e.current, 'current', 'session-B'),
+        ),
+      );
+      expect(bridge.isConnected, isTrue);
+      expect(bridge.baselineSessionUuid, 'session-B');
+      expect(bridge.lastDiagnoseEnvelope?['sessionUuid'], 'session-B');
+      expect(bridge.baselineGeneration, greaterThan(generation));
+      final echo = await bridge.callExtension('ext.test.echo');
+      expect(echo['sessionUuid'], 'session-B');
+      await bridge.disconnect();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test(
+      'a restart into a refused version disconnects with the refusal',
+      () async {
+        fixture.diagnoseUuid = 'session-ok';
+        final wsUri = await ensureWsUri();
+        if (wsUri == null) {
+          markTestSkipped('VM service not available');
+          return;
+        }
+        final bridge = RealVmBridge(
+          callTimeout: const Duration(seconds: 5),
+          targetIsolateIdOverride: currentIsolateId,
+          versionSkewValidator: (env) async {
+            final data = env['data'] as Map<String, Object?>?;
+            return data?['packageVersion'] == '0.33.0'
+                ? null
+                : 'version_skew_major: synthetic';
+          },
+        );
+        await bridge.connect(wsUri);
+        fixture.diagnoseUuid = 'session-new';
+        fixture.packageVersion = '0.99.0';
+        await expectLater(
+          bridge.callExtension('ext.test.echo'),
+          throwsA(
+            isA<VmBridgeException>()
+                .having((e) => e.kind, 'kind', VmBridgeErrorKind.refused)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  startsWith('version_skew_'),
+                ),
+          ),
+        );
+        expect(bridge.isConnected, isFalse);
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
+  });
+
+  group('normalizeVmServiceUri', () {
+    for (final (given, expected) in <(String, String)>[
+      ('http://127.0.0.1:50300/AbC-_d1=/', 'ws://127.0.0.1:50300/AbC-_d1=/ws'),
+      ('HTTP://127.0.0.1:50300/AbC=/', 'ws://127.0.0.1:50300/AbC=/ws'),
+      ('https://h:8443/t=/', 'wss://h:8443/t=/ws'),
+      ('ws://h:1/t=', 'ws://h:1/t=/ws'),
+      ('ws://h:1/t=/ws', 'ws://h:1/t=/ws'),
+      ('ws://h:1/t=/ws/', 'ws://h:1/t=/ws'),
+      ('wss://h:1/t=/ws', 'wss://h:1/t=/ws'),
+      ('http://h:1', 'ws://h:1/ws'),
+    ]) {
+      test('$given becomes $expected', () {
+        expect(normalizeVmServiceUri(Uri.parse(given)).toString(), expected);
+      });
+    }
+
+    for (final bad in ['ftp://h:1/t=/', 'h:1/t=/', 'file:///tmp/x']) {
+      test('$bad is rejected', () {
+        expect(
+          () => normalizeVmServiceUri(Uri.parse(bad)),
+          throwsFormatException,
+        );
+      });
+    }
+
+    test('RealVmBridge.connect reports a bad URI without connecting', () async {
+      final bridge = RealVmBridge();
+      await expectLater(
+        bridge.connect(Uri.parse('ftp://h:1/t=/')),
+        throwsA(
+          isA<VmBridgeException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('invalid VM service URI'),
+          ),
+        ),
+      );
+      expect(bridge.isConnected, isFalse);
+    });
   });
 }
 
@@ -962,4 +1192,5 @@ void main() {
 class _SharedDiagnoseFixture {
   String diagnoseUuid = 'shared-default-uuid';
   String packageVersion = '0.33.0';
+  Completer<void> slowGate = Completer<void>();
 }

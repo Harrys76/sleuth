@@ -72,6 +72,126 @@ Map<String, Object?> fakeSnapshotEnvelope({bool isVmConnected = false}) => {
   },
 };
 
+/// Snapshot `data` with every one of the 14 sections, the per-frame and raw
+/// sample ones included, so projection is observable.
+Map<String, Object?> fullFakeSnapshotData({bool isVmConnected = true}) => {
+  'schemaVersion': 5,
+  'exportedAt': '2026-05-17T00:00:00.000Z',
+  'packageVersion': '0.37.0',
+  'isVmConnected': isVmConnected,
+  'isDebugMode': false,
+  'frameStatsSummary': {'averageFps': 59.5, 'jankFrames': 0},
+  'capturedFrames': [
+    for (var i = 0; i < 3; i++) {'frameNumber': i, 'buildUs': 1200},
+  ],
+  'currentIssues': fullFakeIssues(),
+  'recentRequests': [
+    {'url': 'https://example.com/a?token=x', 'durationMs': 120},
+  ],
+  'heapSamples': [
+    {'timestampUs': 1, 'heapUsage': 1000},
+  ],
+  'phaseEvents': [
+    {'name': 'BUILD', 'durationUs': 900},
+  ],
+  'gcEvents': [
+    {'timestampUs': 2, 'gcType': 'Scavenge'},
+  ],
+  'platformChannelEvents': [
+    {'timestampUs': 3, 'durationUs': 40, 'name': 'flutter/platform'},
+  ],
+  'recentFrames': [
+    for (var i = 0; i < 5; i++) {'buildUs': 1000, 'rasterUs': 2000},
+  ],
+  'widgetHeatMap': [
+    {'widgetName': 'HomePage', 'score': 3},
+  ],
+  'recurrenceTrends': {
+    'jank_detected': {
+      'trend': 'stable',
+      'totalOccurrences': 2,
+      'totalObserved': 3,
+      'lastSeenCycle': 4,
+    },
+  },
+  'sessionSummary': {
+    'frameHistogram': {'<16ms': 5},
+  },
+  'startupMetrics': {'firstFrameMs': 420},
+  'routeSessions': [
+    {'routeName': '/home', 'healthScore': 80},
+  ],
+};
+
+/// Answers `ext.sleuth.snapshot` the way the app does: applies `sections`
+/// (comma-joined, case-insensitive), `maxIssueCount` and `maxRouteCount` to
+/// [data], and stamps `_projectedSections`, `_projectionLimits` and
+/// `_projectionApplied: by_app` when any of them is set.
+Map<String, Object?> Function(Map<String, dynamic> args)
+projectingSnapshotResponder(Map<String, Object?> data) {
+  return (args) {
+    final rawSections = args['sections'] as String?;
+    Set<String>? include;
+    if (rawSections != null && rawSections.trim().isNotEmpty) {
+      include = {};
+      for (final token in rawSections.split(',')) {
+        final t = token.trim();
+        if (t.isEmpty) continue;
+        final match = snapshotSectionKeys.where(
+          (k) => k.toLowerCase() == t.toLowerCase(),
+        );
+        if (match.isEmpty) {
+          return {
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': 'fake-uuid',
+            'error': 'arg_invalid_section: "$t" is not a known section',
+          };
+        }
+        include.add(match.first);
+      }
+    }
+    final maxIssueCount = int.tryParse('${args['maxIssueCount']}');
+    final maxRouteCount = int.tryParse('${args['maxRouteCount']}');
+    final projected =
+        include != null || maxIssueCount != null || maxRouteCount != null;
+    final out = <String, Object?>{
+      for (final entry in data.entries)
+        if (!snapshotSectionKeys.contains(entry.key) ||
+            include == null ||
+            include.contains(entry.key))
+          entry.key: entry.value,
+    };
+    if (maxIssueCount != null && out['currentIssues'] is List) {
+      out['currentIssues'] = (out['currentIssues'] as List)
+          .take(maxIssueCount)
+          .toList();
+    }
+    if (maxRouteCount != null && out['routeSessions'] is List) {
+      out['routeSessions'] = (out['routeSessions'] as List)
+          .take(maxRouteCount)
+          .toList();
+    }
+    if (projected) {
+      out['_projectedSections'] =
+          (include ?? snapshotSectionKeys.toSet()).toList()..sort();
+      if (maxIssueCount != null || maxRouteCount != null) {
+        out['_projectionLimits'] = {
+          'maxIssueCount': ?maxIssueCount,
+          'maxRouteCount': ?maxRouteCount,
+        };
+      }
+      out['_projectionApplied'] = 'by_app';
+    }
+    return {
+      'connectionMode': 'full',
+      'schemaVersion': 1,
+      'sessionUuid': 'fake-uuid',
+      'data': out,
+    };
+  };
+}
+
 /// Build a `FakeVmBridge` pre-populated with realistic envelopes for
 /// the seven `ext.sleuth.*` extensions.
 FakeVmBridge defaultFakeBridge() {
