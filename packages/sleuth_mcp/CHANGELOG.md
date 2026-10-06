@@ -1,44 +1,44 @@
 ## 0.8.0
 
-Pins sleuth 0.37.0; accepts the 0.36 lineage as the prior fallback, so 0.35
-apps are now refused (`version_skew_major`). SDK floor raised to Dart
-`^3.8.0`; `vm_service` constraint widened to `>=14.3.1 <16.0.0`.
+Pins sleuth 0.37.0 and accepts the 0.36 lineage as the prior fallback, so 0.35
+apps are now refused (`version_skew_major`). The SDK floor is Dart `^3.8.0`
+(was `>=3.5.0`), and the `vm_service` constraint widens to `>=14.3.1 <16.0.0`.
 
 - `compare_snapshots` refuses snapshots from different sleuth lineages, or
-  with a missing or non-semver `packageVersion` (`arg_lineage_mismatch`):
-  detector ids and defaults change between lineages. It refuses snapshots
-  whose VM coverage differs or is unknown (`arg_coverage_mismatch`, read from
-  `isVmConnected` and `launchModeAdvisory`) and adds `coverageWarning` when
-  neither had a VM link.
-- `compare_snapshots` aggregates issues per stableId (highest severity,
+  with a missing or non-semver `packageVersion` (`arg_lineage_mismatch`),
+  because detector ids and defaults change between lineages. It refuses
+  snapshots whose VM coverage differs or is unknown (`arg_coverage_mismatch`,
+  read from `isVmConnected` and `launchModeAdvisory`) and adds
+  `coverageWarning` when neither had a VM link.
+- `compare_snapshots` aggregates issues per stableId (highest severity and
   occurrence count), so a new critical occurrence beside a warning shows in
-  `elevatedSeverity`; new `countChanged` lists `{stableId, before, after}`
+  `elevatedSeverity`. The new `countChanged` lists `{stableId, before, after}`
   count changes.
 - `check_budgets` and `sleuth_check` refuse with `coverage_degraded` when the
-  snapshot's `isVmConnected` is false or unreadable (basic mode with the VM
-  connected still evaluates); `sleuth_check` exits `2`. The `release_check`
-  prompt reports NOT RUN on a refusal.
-- An app `packageVersion` must be semver `major.minor.patch` (a
-  `-prerelease` / `+build` suffix keeps its `major.minor` lineage); anything
-  else fails closed with `version_skew_unknown`. `versionLineage` returns
-  null for such strings.
+  snapshot's `isVmConnected` is false or unreadable. A basic-mode snapshot
+  with the VM connected is still evaluated. `sleuth_check` exits with code
+  `2` on the refusal, and the `release_check` prompt reports NOT RUN.
+- An app `packageVersion` must be semver `major.minor.patch`; a
+  `-prerelease` or `+build` suffix keeps its `major.minor` lineage. Anything
+  else fails closed with `version_skew_unknown`, and `versionLineage` returns
+  null for it.
 - `attach_app` returns the same version-skew `warning` as `connect`.
-- `explain_issue` is `openWorldHint:true`: sleuth 0.37 fills its text from the
-  matching live issue; 0.36 apps return raw `{widgetName}` / `{routeName}`
-  placeholders.
-- `get_route_health` passes the envelope through; the pre-0.33 inline-shape
-  wrapper is removed (no accepted lineage emits it).
+- `explain_issue` declares `openWorldHint:true`. On sleuth 0.37 it fills its
+  text from the matching live issue; 0.36 apps return raw `{widgetName}` /
+  `{routeName}` placeholders.
+- `get_route_health` passes the envelope through. The wrapper for the
+  pre-0.33 inline shape is removed, since no accepted lineage emits it.
 - Descriptors declare `default` for `verbose`, `maxIssueCount`,
   `forceRelaunch` and `mobileOnly`. `doc/mcp_tool_schema.json` lists the
-  server-level validation and dispatch errors (`serverErrors`); the audit
-  compares every descriptor's arguments with the doc both ways and checks
-  every error prefix in the source is documented.
+  server-level validation and dispatch errors (`serverErrors`). The audit
+  compares every descriptor's arguments with the doc in both directions and
+  checks that every error prefix in the source is documented.
 - `launchModeAdvisory` names the VM-only stableIds, including
   `shader_compilation` and `platform_channel_traffic`.
-- `diagnose` documents the passthrough keys `effectiveFrameRateHz`,
-  `frameBudgetUs`, `frameRateSource`, and the VM poll timings (`lastPoll*`,
-  `maxPoll*`, `pollDuplicatesDropped`, `pollWindowFallbacks`) (sleuth
-  0.37.0+).
+- `diagnose` documents the passthrough keys that sleuth 0.37.0 adds:
+  `effectiveFrameRateHz`, `frameBudgetUs`, `frameRateSource` and the VM poll
+  timings (`lastPoll*`, `maxPoll*`, `pollDuplicatesDropped`,
+  `pollWindowFallbacks`).
 
 ## 0.7.2
 
