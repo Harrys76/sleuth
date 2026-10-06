@@ -357,6 +357,9 @@ class _StreamResourceCaptureScreenState
 
       final observedDelta = monitor.lastObservedTopGrowthDelta;
       final samples = monitor.lastObservedSamplesInWindow;
+      // Show the final poll's values, the ones the leg is judged on.
+      _samplesInWindow.value = samples;
+      _lastObservedDelta.value = observedDelta;
       _appendLog(
         'final state: top-class Δ = ${observedDelta ?? "<null>"}, '
         'samples=$samples/4, matched_polls=$matchedAtLeastOnce',
