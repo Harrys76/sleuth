@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 /// Capture helper for the v0.19.4 `runtimeVerified` raise on
 /// `PlatformChannelDetector.platform_channel_traffic` **WARNING tier**
 /// (frequency axis only — `> 20` calls per 1 s evaluation window).
@@ -372,6 +374,8 @@ class _PlatformChannelCaptureScreenState
 
       String? stashed;
       try {
+        final provenance = captureProvenanceOrReport();
+        if (provenance == null) throw StateError('capture provenance');
         stashed = await Sleuth.exportCaptureJson(
           scenario: 'platform_channel_traffic_${leg.label}',
           role: leg.label,
@@ -381,12 +385,10 @@ class _PlatformChannelCaptureScreenState
           magnitudeObserved: operatorCps,
           magnitudeMax: leg.cpsMax.toDouble(),
           unit: 'events',
-          device: 'iPhone 12',
-          deviceOsVersion: 'iOS 17.5',
-          flutterVersion: '3.41.4',
-          captureCommand:
-              'fvm flutter run --profile -d "iPhone 12" '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true',
+          device: provenance.device,
+          deviceOsVersion: provenance.deviceOsVersion,
+          flutterVersion: provenance.flutterVersion,
+          captureCommand: provenance.captureCommand,
           // platform_channel_traffic's source events are
           // per-call `Platform Channel send …` async TimelineTask
           // events, not BUILDs — skip BUILD-derivation. The

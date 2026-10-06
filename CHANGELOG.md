@@ -269,8 +269,8 @@
   `ext.sleuthDemo.orientation value=portrait|landscape|all` forces the
   orientation for a hands-free rotation check. The example opts into
   Android predictive back (`android:enableOnBackInvokedCallback`). `ext.sleuthDemo.scroll` and
-  `fling` drive the largest scrollable outside the demo header, a route
-  below the current one and a hidden `IndexedStack` tab, preferring one
+  `fling` drive the largest scrollable outside the demo header, routes
+  below the current one and hidden `IndexedStack` tabs, preferring one
   a touch at its centre reaches, so a list on an open overlay page beats
   the app list behind it; `scroll ms=0` jumps. `tap` and `type` pick the
   foreground copy of a label or field (`type` takes the focused field
@@ -279,6 +279,21 @@
   `label`, or both `x` and `y`. Frame waits stop after 2 s while the app
   is in the background, where `a11y` and `screenshot` return
   `unavailable`; `orientation` reports the size once the rotation lands.
+- Example: Rebuild Hotspot, High-Level setState and Combined Chat
+  describe what Sleuth reports now: a rebuild card for the widget that
+  starts the rebuild (the dashboard's builders in Rebuild Hotspot, with
+  the widgets they rebuilt in its detail) and, in profile, the Rebuilds
+  banner with its "See all" drilldown, not the removed rollup card.
+  `FileSleuthStateStore` writes each save through its own temp file and
+  drops a late write older than the saved state, so a stalled save and
+  the next one cannot interleave; a file that is not UTF-8 reads as no
+  saved state. Capture legs bring their screen to the front (a covered
+  screen's workload never ran), fail when it is covered mid-leg, count
+  the in-band records the bracket needs (`minInBandSamples`) before
+  reporting done, and stamp the real device
+  (`--dart-define=SLEUTH_CAPTURE_DEVICE`), OS and Flutter version,
+  refusing a leg when one is unknown or not approved. The Tabbed Shell
+  note scrolls within a quarter of the screen.
 
 ### Verdicts, polling and detector fixes
 

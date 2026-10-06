@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 /// Capture helper for the runtimeVerified tier raise on three
 /// `NetworkMonitorDetector` warning families:
 ///
@@ -653,6 +655,8 @@ class _NetworkMonitorCaptureScreenState
 
     String? json;
     try {
+      final provenance = captureProvenanceOrReport();
+      if (provenance == null) throw StateError('capture provenance');
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg, // 'below' | 'at' | 'above'
@@ -660,12 +664,10 @@ class _NetworkMonitorCaptureScreenState
         magnitudeObserved: magnitude.$2,
         magnitudeMax: magnitude.$3,
         unit: magnitude.$4,
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterVersion: '3.41.4',
-        captureCommand:
-            'fvm flutter run --profile -d "iPhone 12" '
-            '--dart-define=SLEUTH_CAPTURE_MODE=true',
+        device: provenance.device,
+        deviceOsVersion: provenance.deviceOsVersion,
+        flutterVersion: provenance.flutterVersion,
+        captureCommand: provenance.captureCommand,
         // Magnitude is measured directly from request observations
         // (Stopwatch ms, response bytes, peak count). No matching
         // named timeline event the schema can derive from, so pass

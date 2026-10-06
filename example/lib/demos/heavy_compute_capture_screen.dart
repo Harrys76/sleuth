@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 /// Capture helper for the `runtimeVerified` tier raises on
 /// `HeavyComputeDetector.heavy_compute`.
 ///
@@ -310,6 +312,8 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
     });
     String? json;
     try {
+      final provenance = captureProvenanceOrReport();
+      if (provenance == null) throw StateError('capture provenance');
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg.label, // 'below' | 'at' | 'above'
@@ -320,12 +324,10 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
         magnitudeObserved: measured,
         magnitudeMax: measured + 1.0,
         unit: 'ms',
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterVersion: '3.41.4',
-        captureCommand:
-            'fvm flutter run --profile -d "iPhone 12" '
-            '--dart-define=SLEUTH_CAPTURE_MODE=true',
+        device: provenance.device,
+        deviceOsVersion: provenance.deviceOsVersion,
+        flutterVersion: provenance.flutterVersion,
+        captureCommand: provenance.captureCommand,
         // Skip BUILD-derivation. The workload BUILD's `ph: 'B'` event
         // fires at frame-start (BEFORE markScenarioBegin emits inside
         // build()), so it gets filtered out of the wrapped capture

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 /// Capture helper for `tracked_resource_concurrent.warning` (bracket
 /// threshold 6; live count > default `maxConcurrent` 5). The detector
 /// emits a parametric `tracked_resource_concurrent:<name>` stableId for
@@ -338,6 +340,8 @@ class _TrackedResourceCaptureScreenState
 
     String? json;
     try {
+      final provenance = captureProvenanceOrReport();
+      if (provenance == null) throw StateError('capture provenance');
       json = await Sleuth.exportCaptureJson(
         scenario: scenarioName,
         role: leg,
@@ -345,12 +349,10 @@ class _TrackedResourceCaptureScreenState
         magnitudeObserved: observed,
         magnitudeMax: magnitudeMax,
         unit: unitLabel,
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterVersion: '3.41.4',
-        captureCommand:
-            'fvm flutter run --profile -d "iPhone 12" '
-            '--dart-define=SLEUTH_CAPTURE_MODE=true',
+        device: provenance.device,
+        deviceOsVersion: provenance.deviceOsVersion,
+        flutterVersion: provenance.flutterVersion,
+        captureCommand: provenance.captureCommand,
         // Magnitude is the detector's per-name peak getter value — no
         // matching named timeline event the schema can derive from.
         // Empty string skips event-derivation.

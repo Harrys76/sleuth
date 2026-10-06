@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 /// Capture helper for `MemoryPressureDetector.heap_growing.warning`
 /// (threshold = 512 000 bytes/sec sustained ≥ 10 s; runtimeVerified via
 /// `perStableIdTier`).
@@ -409,6 +411,8 @@ class _MemoryPressureCaptureScreenState
       // judged against.
       String? stashed;
       try {
+        final provenance = captureProvenanceOrReport();
+        if (provenance == null) throw StateError('capture provenance');
         stashed = await Sleuth.exportCaptureJson(
           scenario: 'memory_pressure_heap_growing_${leg.label}',
           role: leg.label,
@@ -421,12 +425,10 @@ class _MemoryPressureCaptureScreenState
           magnitudeObserved: operatorBps,
           magnitudeMax: leg.bpsMax.toDouble(),
           unit: 'bytes/sec',
-          device: 'iPhone 12',
-          deviceOsVersion: 'iOS 17.5',
-          flutterVersion: '3.41.4',
-          captureCommand:
-              'fvm flutter run --profile -d "iPhone 12" '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true',
+          device: provenance.device,
+          deviceOsVersion: provenance.deviceOsVersion,
+          flutterVersion: provenance.flutterVersion,
+          captureCommand: provenance.captureCommand,
           // heap_growing's source event is the VM heap sample, not a
           // BUILD timeline event — skip BUILD-derivation. The
           // post-process step replaces the placeholder with detector

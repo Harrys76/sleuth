@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../demo_scaffold.dart';
+
 // ─────────────────────────────────────────
 // Demo 21: Tabbed Shell
 // Triggers: ListView, ImageMemory and LayoutBottleneck detectors, one per
@@ -67,6 +69,9 @@ class _TabNote extends StatelessWidget {
     return ColoredBox(
       color: scheme.surfaceContainerHighest,
       child: ConstrainedBox(
+        // Marked like DemoScaffold's header, so remote scrolls move the
+        // tab's content, not this note.
+        key: DemoScaffold.headerKey,
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height / 4,
         ),

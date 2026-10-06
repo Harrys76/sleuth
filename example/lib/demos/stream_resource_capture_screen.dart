@@ -23,6 +23,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'capture_driver.dart';
+
 class _Leg {
   const _Leg({
     required this.label,
@@ -317,6 +319,8 @@ class _StreamResourceCaptureScreenState
       String? stashed;
       String? rewriteError;
       try {
+        final provenance = captureProvenanceOrReport();
+        if (provenance == null) throw StateError('capture provenance');
         stashed = await Sleuth.exportCaptureJson(
           scenario: scenarioName,
           role: leg.label,
@@ -324,12 +328,10 @@ class _StreamResourceCaptureScreenState
           magnitudeObserved: observedDelta ?? 0,
           magnitudeMax: leg.topDeltaMax,
           unit: 'instances',
-          device: 'iPhone 12',
-          deviceOsVersion: 'iOS 17.5',
-          flutterVersion: '3.41.4',
-          captureCommand:
-              'fvm flutter run --profile -d "iPhone 12" '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true',
+          device: provenance.device,
+          deviceOsVersion: provenance.deviceOsVersion,
+          flutterVersion: provenance.flutterVersion,
+          captureCommand: provenance.captureCommand,
           magnitudeSourceEventName: '',
           bracketStableId: 'stream_resource_growth',
           bracketSeverityLabel: 'warning',

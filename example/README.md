@@ -95,17 +95,33 @@ The app passes `FileSleuthStateStore` (`lib/file_state_store.dart`) as
 issues and severity filter survive restarts. The file lives in the system
 temp directory, which the OS may clear.
 
-Service extensions for driving the overlay from a VM service client:
+Service extensions for driving the app from a VM service client (debug
+and profile builds). Each returns JSON; a failure returns `{error, ...}`.
+Lookups by text or label only consider what is on screen: the current
+route, the selected tab, and an overlay page in front of the app.
 
 | Extension | Effect |
 |-----------|--------|
+| `ext.sleuthDemo.open` | `demo` = a demo title as a slug (`gpu_pressure`); pushes that demo |
+| `ext.sleuthDemo.pop` | Pops the app's top route; returns `{popped}` |
 | `ext.sleuthDemo.back` | Sends a system back (as the Android back button does) and returns `{handled}`; with nothing open in the overlay or the app, Android leaves the app |
-| `ext.sleuthDemo.clipboard` | Returns `{text}`, the current clipboard text |
-| `ext.sleuthDemo.overlay` | `action` = `open` \| `close` \| `hide` (first visible card; returns its key) \| `undo` (most recently hidden key) \| `restoreAll` \| `toggleSeverity` (`severity` = `critical` \| `warning` \| `ok`); returns the state below |
+| `ext.sleuthDemo.tap` | `text` (substring of a Text), `label` (semantics label) or both `x` and `y` (logical px); scrolls the target into view (gives up after 2 s with `reveal_timeout`) and taps its centre, or returns `obscured` when something else is on top of it |
+| `ext.sleuthDemo.type` | `text`, optional `submit=true`; types into the focused field, else the last field on screen |
+| `ext.sleuthDemo.scroll` | Scrolls by `pixels` (default 600) over `ms` (default 600; `0` jumps), `axis=horizontal` for a horizontal list; picks the largest on-screen scrollable outside the demo's instructions; returns `{from, to, at}` |
+| `ext.sleuthDemo.fling` | `dx`, `dy` (logical px), optional `ms`; drags and releases on that scrollable |
+| `ext.sleuthDemo.orientation` | `value` = `portrait` \| `landscape` \| `all`; waits for the view to change and returns its size with `settled` |
+| `ext.sleuthDemo.theme` | `mode` = `system` \| `light` \| `dark`; sets the overlay's theme mode |
+| `ext.sleuthDemo.overlay` | `action` = `open` \| `close` \| `hide` (first visible card; returns its key) \| `undo` (most recently hidden key) \| `restoreAll` \| `toggleSeverity` (`severity` = `critical` \| `warning` \| `ok`) \| `setTheme` (`preset` = `hc_dark` \| `hc_light` \| `seed:<argb>` \| `none`); returns the state below |
 | `ext.sleuthDemo.overlayState` | Persisted overlay state plus `dashboardOpen`, `uiStateReady` and `visibleIssueCount` |
+| `ext.sleuthDemo.clipboard` | Returns `{text}`, the current clipboard text |
+| `ext.sleuthDemo.a11y` | Platform accessibility settings, the overlay's text scale, overflow reports and the labelled semantics nodes |
+| `ext.sleuthDemo.screenshot` | `{png}` (base64) of the whole screen, overlay included |
+| `ext.sleuthDemo.captureLeg`, `captureResult`, `vmAxes` | Hands-free capture legs for the time-share brackets; see `doc/capture_procedure.md` |
 
-Both overlay extensions return `{error: no_controller}` before Sleuth is
-initialised.
+The overlay extensions return `{error: no_controller}` before Sleuth is
+initialised. With the app in the background no frame is drawn:
+`screenshot` and `a11y` return `{error: unavailable}`, and the others stop
+waiting for a frame after 2 s.
 
 ## Before/After Toggle
 

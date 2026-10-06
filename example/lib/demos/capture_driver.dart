@@ -446,6 +446,17 @@ CaptureProvenanceCheck currentCaptureProvenance() => checkCaptureProvenance(
   flutterVersion: FlutterVersion.version,
 );
 
+/// This build's provenance for a capture export, or null after printing
+/// why it cannot be stamped (an export without approved provenance would
+/// fail the audit, or worse, pass it with a false label).
+CaptureProvenance? captureProvenanceOrReport() {
+  final check = currentCaptureProvenance();
+  if (check.provenance == null) {
+    debugPrint('Sleuth capture: not exporting: ${check.problem}');
+  }
+  return check.provenance;
+}
+
 // ── Bracket and bands ──
 
 /// The bracket a capture leg records evidence for, read from the
