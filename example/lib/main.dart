@@ -823,6 +823,35 @@ void _registerDemoExtensions() {
       jsonEncode(readVmAxes(reset: params['reset'] == 'true')),
     );
   });
+  // Keeps Sleuth's own allocation-profile reads out of a measurement run:
+  // `hold=true` switches StreamResourceDetector off, holds the reads and
+  // waits for one in flight; `hold=false` restores both. Repeating either
+  // call changes nothing. Capture mode only.
+  bool? streamDetectorWasEnabled;
+  developer.registerExtension('ext.sleuthDemo.allocationReads', (
+    method,
+    params,
+  ) async {
+    final hold = params['hold'] == 'true';
+    final streamDetector = Sleuth.streamResourceDetector;
+    bool? drained;
+    if (hold && streamDetectorWasEnabled == null) {
+      streamDetectorWasEnabled = streamDetector?.isEnabled ?? false;
+      streamDetector?.isEnabled = false;
+      drained = await Sleuth.holdAllocationProfileReads();
+    } else if (!hold && streamDetectorWasEnabled != null) {
+      Sleuth.releaseAllocationProfileReads();
+      if (streamDetectorWasEnabled!) streamDetector?.isEnabled = true;
+      streamDetectorWasEnabled = null;
+    }
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({
+        'held': streamDetectorWasEnabled != null,
+        'drained': ?drained,
+        'streamDetectorEnabled': streamDetector?.isEnabled,
+      }),
+    );
+  });
   // System back as the Android back button sends it: the Sleuth overlay
   // closes its innermost layer first; `handled: false` means the app
   // (or the OS) got it.
@@ -1228,21 +1257,31 @@ Future<Map<String, Object?>> startCaptureLeg({
   return {'started': true, 'leg': '$detector/$tier/$role'};
 }
 
-/// Detector last/peak time shares for `ext.sleuthDemo.vmAxes`. With
-/// [reset] both detectors' capture state is cleared after the read; a
-/// reset while a capture leg runs returns `{error: busy}` and leaves the
-/// leg's peak alone.
+/// Detector last/peak time shares and the memory detector's GC window
+/// for `ext.sleuthDemo.vmAxes`. With [reset] the rebuild and repaint
+/// capture state is cleared after the read (the GC window is a sliding
+/// window and is not reset); a reset while a capture leg runs returns
+/// `{error: busy}` and leaves the leg's peak alone.
 @visibleForTesting
 Map<String, Object?> readVmAxes({bool reset = false}) {
   if (reset && CaptureDriver.instance.isBusy) return {'error': 'busy'};
   final rebuild = Sleuth.rebuildDetector;
   final repaint = Sleuth.repaintDetector;
+  final gc = Sleuth.memoryPressureDetector?.gcWindowStats;
   final axes = <String, Object?>{
     'buildLast': rebuild?.lastObservedBuildPercent ?? 0.0,
     'buildPeak': rebuild?.peakObservedBuildPercent ?? 0.0,
     'paintLast': repaint?.lastObservedPaintPercent ?? 0.0,
     'paintPeak': repaint?.peakObservedPaintPercent ?? 0.0,
     'vmConnected': Sleuth.diagnoseCaptureState().vmConnected,
+    // GC events in the memory detector's 10 s window. The pause total is
+    // null unless every event in the window has a measured pause.
+    'gcEvents': gc?.events ?? 0,
+    'gcYoung': gc?.young ?? 0,
+    'gcOld': gc?.old ?? 0,
+    'gcMarkStarts': gc?.markStarts ?? 0,
+    'gcPauseAvailable': gc?.pauseAvailable ?? false,
+    'gcPauseMs': gc?.pauseMs,
   };
   if (reset) {
     rebuild?.resetCaptureState();

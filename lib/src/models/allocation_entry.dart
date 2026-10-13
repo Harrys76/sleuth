@@ -17,10 +17,10 @@ class AllocationEntry {
   /// Library URI (e.g. "package:my_app/models/item.dart").
   final String libraryUri;
 
-  /// Number of instances allocated since last reset.
+  /// Live instances of this class when the profile was read.
   final int instancesDelta;
 
-  /// Bytes allocated since last reset.
+  /// Bytes those live instances held when the profile was read.
   final int bytesDelta;
 
   /// Percentage of total allocation bytes, 0.0–100.0.

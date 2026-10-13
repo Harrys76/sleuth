@@ -1752,6 +1752,12 @@ class SleuthController {
   @visibleForTesting
   void feedGcEventForTest(Event event) => _onGcEvent(event);
 
+  /// Moves the allocation-enrichment cooldown start, so a test can
+  /// expire the 10 s cooldown without waiting.
+  @visibleForTesting
+  set lastAllocationEnrichmentTimeForTest(DateTime? value) =>
+      _lastAllocationEnrichmentTime = value;
+
   /// The currently-active [RouteSession], or `null` when the current route
   /// is in [SleuthConfig.routeIgnorePatterns] / no session has been created
   /// yet. Exposed so overlay surfaces (e.g. the rebuild stats drilldown
@@ -4094,29 +4100,31 @@ class SleuthController {
 
   void _onHeapSample(HeapSample sample) {
     if (_disposed) return;
-    final hadHeapGrowing = _memoryPressure.issues.any(
-      (i) => i.stableId == 'heap_growing',
-    );
+    _updateMemoryPressure(() => _memoryPressure.processHeapSample(sample));
+  }
 
-    _memoryPressure.processHeapSample(sample);
+  /// Runs [update] against the memory detector and starts allocation
+  /// enrichment when it turns `heap_growing` on. Both memory inputs (heap
+  /// samples and GC events) go through here, so the first transition
+  /// starts enrichment whichever input produced it.
+  void _updateMemoryPressure(void Function() update) {
+    final hadHeapGrowing = _hasHeapGrowingIssue();
+    update();
+    if (hadHeapGrowing || !_hasHeapGrowingIssue()) return;
 
-    final hasHeapGrowing = _memoryPressure.issues.any(
-      (i) => i.stableId == 'heap_growing',
-    );
-
-    // Trigger allocation profiling when heap growth is first detected.
     // Cooldown prevents repeated queries if slope oscillates near threshold.
-    if (!hadHeapGrowing && hasHeapGrowing) {
-      final now = DateTime.now();
-      final cooldownExpired =
-          _lastAllocationEnrichmentTime == null ||
-          now.difference(_lastAllocationEnrichmentTime!).inSeconds >= 10;
-      if (cooldownExpired) {
-        _lastAllocationEnrichmentTime = now;
-        _enrichWithAllocationProfile();
-      }
+    final now = DateTime.now();
+    final cooldownExpired =
+        _lastAllocationEnrichmentTime == null ||
+        now.difference(_lastAllocationEnrichmentTime!).inSeconds >= 10;
+    if (cooldownExpired) {
+      _lastAllocationEnrichmentTime = now;
+      _enrichWithAllocationProfile();
     }
   }
+
+  bool _hasHeapGrowingIssue() =>
+      _memoryPressure.issues.any((i) => i.stableId == 'heap_growing');
 
   void _onGcEvent(Event event) {
     // Authoritative per-cycle GC signal from EventStreams.kGC.
@@ -4135,9 +4143,34 @@ class SleuthController {
     //
     // `gcType` is read from the raw event map: the typed `Event.gcType`
     // accessor is not available on every supported `vm_service` major.
+    //
+    // The `new` and `old` heap-space maps carry `time`, the isolate
+    // group's cumulative GC pause seconds. Pause time is attributable to
+    // the app only when the client verified its own isolate: the client
+    // then drops events from every other isolate, so each event here
+    // belongs to the app's own group.
     if (_disposed) return;
-    final gcType = event.json?['gcType'];
-    _memoryPressure.recordGcCycle(gcType: gcType is String ? gcType : null);
+    final json = event.json;
+    final gcType = json?['gcType'];
+    _updateMemoryPressure(
+      () => _memoryPressure.recordGcCycle(
+        gcType: gcType is String ? gcType : null,
+        cumulativePauseSeconds: _cumulativeGcPauseSeconds(json),
+        pauseAttributable: _vmClient?.isOwnIsolateVerified ?? false,
+      ),
+    );
+  }
+
+  /// `new.time + old.time` from a raw GC event, or null when either is
+  /// missing.
+  static double? _cumulativeGcPauseSeconds(Map<String, dynamic>? json) {
+    final newSpace = json?['new'];
+    final oldSpace = json?['old'];
+    if (newSpace is! Map || oldSpace is! Map) return null;
+    final newTime = newSpace['time'];
+    final oldTime = oldSpace['time'];
+    if (newTime is! num || oldTime is! num) return null;
+    return newTime.toDouble() + oldTime.toDouble();
   }
 
   /// Attach pending-request context to a verdict if requests are in-flight.
@@ -4240,12 +4273,19 @@ class SleuthController {
         });
   }
 
-  /// Query allocation profile when heap growth is detected and re-emit
-  /// enriched issues with top allocators (phase 2).
+  /// How long allocation enrichment waits for the profile. An iPhone 12
+  /// lists several thousand classes, which takes longer than the
+  /// client's 500 ms default; StreamResourceDetector waits 5 s for the
+  /// same reason.
+  static const Duration allocationEnrichmentTimeout = Duration(seconds: 5);
+
+  /// Reads the allocation profile once when heap growth is detected and
+  /// re-emits the issue with its top allocators (phase 2).
   ///
-  /// Non-blocking — the heap_growing issue is already visible (phase 1).
-  /// When the profile arrives, the issue is re-emitted with [topAllocators].
-  /// If the query fails or times out, the original issue stands.
+  /// Non-blocking: the heap_growing issue is already visible (phase 1).
+  /// The ranking uses each class's current bytes and instances, so one
+  /// read is enough and it leaves the VM's accumulated counters alone.
+  /// If the read fails or times out, the original issue stands.
   Future<void> _enrichWithAllocationProfile() async {
     final client = _vmClient;
     if (client == null) return;
@@ -4259,16 +4299,9 @@ class SleuthController {
     bool generationStale() => _captureGeneration != myGeneration;
 
     try {
-      // Phase 1: establish baseline (reset accumulators)
-      await client.getAllocationProfile(reset: true);
-      if (_disposed || generationStale()) return;
-
-      // Brief delay to accumulate meaningful deltas
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      if (_disposed || generationStale()) return;
-
-      // Phase 2: get delta since reset
-      final profile = await client.getAllocationProfile(reset: true);
+      final profile = await client.getAllocationProfile(
+        timeout: allocationEnrichmentTimeout,
+      );
       if (_disposed || profile == null || generationStale()) return;
 
       final entries = _extractTopAllocators(profile);
@@ -4284,6 +4317,25 @@ class SleuthController {
       }());
     }
   }
+
+  /// Stops Sleuth's own `getAllocationProfile` reads (allocation
+  /// enrichment and the stream-resource poll) and waits up to [timeout]
+  /// for a read already in flight to finish. Returns true when no read is
+  /// in flight; false without a VM client, on timeout, or when the
+  /// session changed while waiting. The hold stays in place either way
+  /// until [releaseAllocationProfileReads].
+  Future<bool> holdAllocationProfileReads({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final client = _vmClient;
+    if (client == null) return false;
+    client.holdAllocationProfileReads();
+    return client.drainAllocationProfileReads(timeout: timeout);
+  }
+
+  /// Ends one [holdAllocationProfileReads].
+  void releaseAllocationProfileReads() =>
+      _vmClient?.releaseAllocationProfileReads();
 
   /// Extract top-5 allocating classes from allocation profile.
   ///
@@ -5675,8 +5727,10 @@ class SleuthConfig {
   /// 2 scavenges per second from the VM-service poll traffic alone
   /// (66 to 138 per minute measured on an iPhone 12); allocation churn
   /// runs at thousands per minute. Each `gc_pressure` emission stamps
-  /// the scavenge / old-generation split of its window
-  /// (`scavengeCount`, `oldGenCount`).
+  /// the young-generation / old-generation / marking-start split of its
+  /// window (`scavengeCount`, `oldGenCount`, `markStartCount`) and, when
+  /// every event in the window has a measured pause, the GC pause time
+  /// (`gcPauseMs`, `gcPausePercent`).
   ///
   /// **Lower this** (e.g. 60) for a stricter allocation audit on an app
   /// whose idle GC rate you have measured. **Raise this** if idle

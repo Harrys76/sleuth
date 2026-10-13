@@ -116,10 +116,10 @@ If the overlay shows unexpected FPS, check these causes:
 
 | Detector | Signal source | Can prove | Confidence | Known limitations |
 |----------|-------------|-----------|------------|-------------------|
-| Shader Jank | VM timeline begin/end pairs | Impeller Vulkan pipeline build or Skia shader compile of 100 ms or more | Likely | Silent on Impeller Metal, which precompiles pipelines |
+| Shader Jank | VM timeline begin/end pairs | Impeller Vulkan pipeline build, Impeller OpenGL ES program link or Skia shader compile of 100 ms or more | Likely | Silent on Impeller Metal, which precompiles pipelines |
 | Heavy Compute | VM timeline BUILD scopes | Build pass over 8 ms (half the frame budget when the measured rate is above `fpsTarget`); one issue per VM batch, the longest | Confirmed | Needs a VM connection |
 | Platform Channel | VM timeline | High call frequency (count-only trigger; per-call max and p95 duration recorded); the card stays 10 s after a burst | Confirmed | Needs `debugProfilePlatformChannels`: opt in with `SleuthConfig(profilePlatformChannels: true)`, which sets it after the VM connects. The framework then prints a stats table every second |
-| Memory Pressure | VM GC events, heap polling, process RSS | Elevated GC frequency (over 180/min, scavenge and old-gen split stamped), steady heap growth (linear regression), RSS at 80 % or more of an opt-in `memoryBudgetBytes` while the heap grows | Likely | The budget rule is off unless `DetectorThresholds.memoryBudgetBytes` is set, and it needs RSS, which web does not report |
+| Memory Pressure | VM GC events, heap polling, process RSS | Elevated GC frequency (over 180/min, young-generation / old-generation / marking-start split and GC pause time stamped; GC events from other isolates of the group are dropped once the client's own isolate id is verified), steady heap growth (linear regression), RSS at 80 % or more of an opt-in `memoryBudgetBytes` while the heap grows | Likely | The budget rule is off unless `DetectorThresholds.memoryBudgetBytes` is set, and it needs RSS, which web does not report |
 | Stream Resource | `getAllocationProfile` class-instance diff over a 4-sample window | Retained async resources (dart:async, dart:io, web_socket_channel, rxdart subjects) while `heap_growing` fires | Likely | Gated on `MemoryPressureDetector.isHeapGrowingActive` |
 
 ### Hybrid detectors (VM and tree scan, degrade without a VM)

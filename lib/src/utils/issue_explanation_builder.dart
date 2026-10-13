@@ -393,7 +393,8 @@ class IssueExplanationBuilder {
           'First-run sessions have more. Later launches should have '
           'fewer.\n\n'
           '• The data comes from VM timeline begin and end events '
-          '(`PipelineVK::Create`, `CreateComputePipeline`, Skia shader '
+          '(`PipelineVK::Create` and `CreateComputePipeline` on Impeller '
+          'Vulkan, `LinkProgram` on Impeller OpenGL ES, Skia shader '
           'events).',
       whyItMatters:
           'The build runs on a worker thread, but a frame that needs the '
@@ -494,9 +495,16 @@ class IssueExplanationBuilder {
           'SleuthConfig.gcRateThresholdPerMin), that is, more than 30 cycles '
           'in 10 seconds. Allocation churn runs at thousands per minute.\n\n'
           '• The title number (for example "240 GC/min") is the rate over '
-          'the last 10 seconds. The detail splits it into scavenges (young '
-          'generation, cheap) and old-generation collections (mark-sweep or '
-          'mark-compact, with longer pauses).\n\n'
+          'the last 10 seconds. The detail splits it into young-generation '
+          'collections (scavenges, cheap), old-generation collections '
+          '(mark-sweep or mark-compact, with longer pauses) and '
+          'concurrent-marking starts (the short pause that begins an '
+          'old-generation cycle; the cycle itself counts once, when it '
+          'finishes).\n\n'
+          '• When Sleuth can match every collection in the window to the '
+          'app\'s own isolate, the detail also gives the total time GC '
+          'paused the app in those 10 seconds, from the VM\'s running pause '
+          'counters.\n\n'
           '• The data comes from the VM service GC event stream, with one '
           'event per completed collection.',
       whyItMatters:

@@ -182,6 +182,45 @@ void main() {
         expect(detector.issues, hasStableId('shader_compilation'));
       });
 
+      test('Impeller OpenGL ES LinkProgram 120ms emits warning', () {
+        final parsed = parseAndAssertShape(
+          pipelineBuild(name: 'LinkProgram', dur: 120000, ts: 1000),
+          (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ),
+        );
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasStableId('shader_compilation'));
+        expect(detector.issues.single.severity.name, 'warning');
+      });
+
+      test('Impeller OpenGL ES LinkProgram 50ms is silent', () {
+        final parsed = parseAndAssertShape(
+          pipelineBuild(name: 'LinkProgram', dur: 50000, ts: 1000),
+          (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ),
+        );
+        detector.processTimelineData(parsed);
+        expect(detector.issues, isEmpty);
+      });
+
       test('Skia devtoolsTag: shaders pair 150ms emits', () {
         final parsed = parseAndAssertShape(
           pipelineBuild(

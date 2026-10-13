@@ -822,6 +822,41 @@ class Sleuth {
     await c.resumeAllTimelineStreams();
   }
 
+  /// Stops Sleuth's own `getAllocationProfile` reads for a capture leg
+  /// and waits up to [timeout] for a read already in flight to finish.
+  ///
+  /// Sleuth reads the allocation profile when `heap_growing` first
+  /// appears and every 10 s for [StreamResourceDetector]. Each response
+  /// is decoded on the app's UI isolate, and the GC activity that
+  /// follows lands in the heap samples of a memory capture leg. A
+  /// request whose caller timed out still runs until the VM answers, so
+  /// the hold also waits for those.
+  ///
+  /// Returns true when no read is in flight. Returns false when the VM
+  /// service is not connected, when [timeout] passes first, or when the
+  /// session changed while waiting; the leg should not start then. The
+  /// hold stays in place whatever the result and MUST be paired with
+  /// [releaseAllocationProfileReads].
+  ///
+  /// No-op returning false in release mode and when
+  /// [SleuthConfig.captureMode] is false.
+  static Future<bool> holdAllocationProfileReads({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    if (kReleaseMode) return false;
+    final c = _controller;
+    if (c == null || !c.config.captureMode) return false;
+    return c.holdAllocationProfileReads(timeout: timeout);
+  }
+
+  /// Ends one [holdAllocationProfileReads].
+  static void releaseAllocationProfileReads() {
+    if (kReleaseMode) return;
+    final c = _controller;
+    if (c == null || !c.config.captureMode) return;
+    c.releaseAllocationProfileReads();
+  }
+
   /// Composes a `runtimeVerified`-conformant capture JSON for the
   /// most recent scenario whose `markScenarioBegin` / `markScenarioEnd`
   /// markers are still in the VM timeline buffer. Used by capture

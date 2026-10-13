@@ -635,6 +635,17 @@ NetworkMonitor in two ways:
    screen narrows the VM timeline streams to `Dart` for the scenario
    span with `Sleuth.suspendNonEssentialTimelineStreams()` and restores
    them when the scenario ends.
+3. **Sleuth's own allocation-profile reads land in the heap samples.**
+   StreamResourceDetector reads `getAllocationProfile` every 10 s, and
+   the controller reads it when `heap_growing` first appears. Each
+   response is decoded on the UI isolate. On an iPhone 12 with Flutter
+   3.47.6, every poll was followed by a burst of collections and a heap
+   jump of several MB. The screen switches StreamResourceDetector off
+   for the leg and calls `Sleuth.holdAllocationProfileReads()`, which
+   blocks the reads and waits up to 10 s for one already in flight. A
+   leg that cannot drain aborts. Both are restored when the leg ends,
+   and the capture notes record the isolation and the measured
+   operator rate.
 
 **Procedure (`example/lib/demos/memory_pressure_capture_screen.dart`):**
 
@@ -651,9 +662,10 @@ NetworkMonitor in two ways:
 4. Tap **Calibrate**. A 1 s allocation warmup sets `_bytesPerMs`.
 5. For each leg (Below, At, Above):
    - Tap the leg button.
-   - Allocation runs for 30 s, followed by a 600 ms dwell before
-     `markScenarioEnd` and an 800 ms dwell after it, about 31.5 s per
-     attempt.
+   - After the isolation above and a 2.5 s settle, allocation runs for
+     45 s, followed by a 600 ms dwell before `markScenarioEnd` and an
+     800 ms dwell after it, about 50 s per attempt. The at leg starts at
+     600,000 bytes/s and the above leg at 820,000 bytes/s.
    - The leg logs `✓ IN-BAND` or `✗ OUT-OF-BAND`. The screen judges the
      at and above legs on the detector's slope. It reads
      `observedSlopeBytesPerSec` from the in-span record and writes it
@@ -669,7 +681,10 @@ NetworkMonitor in two ways:
 6. Paste the clipboard into Notes, Mail or AirDrop and send it to the
    Mac. Save it as `heap_growing_${leg}.json` under
    `test/validation/captures/memory_pressure/`.
-7. Repeat for all three legs. Each leg allows 5 attempts.
+7. Repeat for all three legs. Each leg allows 5 attempts. An
+   out-of-band attempt rescales the next one's rate; the at and above
+   legs never drop to 512,000 bytes/s or below, because a retained rate
+   at the threshold cannot read inside the at band.
 
 **Common failures and diagnostics:**
 

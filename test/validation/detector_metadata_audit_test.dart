@@ -1219,7 +1219,7 @@ void main() {
       // Anti-tautology anchor: heap_growing raised from base reproducerOnly
       // to runtimeVerified via perStableIdTier (warning tier, 512 KB/s
       // sustained ≥10s) backed by three on-device captures (iPhone 12 /
-      // iOS 17.5 / Flutter 3.41.x). Other 3 families (gc_pressure,
+      // iOS 17.5 / Flutter 3.47.6). Other 3 families (gc_pressure,
       // heap_near_capacity, native_memory_growing) stay at base
       // reproducerOnly — each requires a separate capture campaign with
       // multi-axis brackets the current single-bracket schema cannot

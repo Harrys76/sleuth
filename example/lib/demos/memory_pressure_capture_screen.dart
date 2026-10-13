@@ -48,9 +48,15 @@ import 'capture_driver.dart';
 ///      warmup elapse and the rolling sample window stabilize).
 ///   3. Tap **Calibrate** — runs a 1-second allocation warmup and pins
 ///      `_bytesPerMs` for the device's current GC + thermal state.
-///   4. Tap a leg (Below / At / Above). Workload runs ≥ 30 s allocation
-///      (fills the detector's 30 s regression window with ramp samples)
-///      followed by ≥ 600 ms dwell, then `markScenarioEnd`.
+///   4. Tap a leg (Below / At / Above). The screen switches
+///      StreamResourceDetector off, holds Sleuth's allocation-profile
+///      reads and waits up to 10 s for one in flight (the leg aborts if
+///      it does not finish). After a 2.5 s settle the workload runs 45 s
+///      of allocation (fills the detector's 30 s regression window with
+///      ramp samples and leaves room for the 10 s sustained check),
+///      followed by ≥ 600 ms dwell, then `markScenarioEnd`. An
+///      out-of-band attempt rescales the next attempt's rate; the at and
+///      above legs never drop to 512 000 B/s or below.
 ///   5. Wait for "ready to Export" log line.
 ///   6. Tap **Export last leg**. The wrapped capture JSON is parsed to
 ///      verify EXACTLY ONE `sleuth.issue.heap_growing.warning` trace
@@ -92,39 +98,33 @@ class MemoryPressureCaptureScreen extends StatefulWidget {
 // Detector threshold (warning tier).
 const _warningThresholdBytesPerSec = 512000;
 
-// Per-leg target *operator-allocator* rates (bytes/sec). The screen
-// gates each at + above leg on the DETECTOR-stamped slope (parsed back
-// out of the wrapped capture and re-injected into the JSON's
-// `expectedMagnitude.observed`), not on the operator rate. Operator
-// rate is the wheel the operator turns; detector slope is what the
-// role band is judged against. iPhone 12 / iOS 17.5 / Flutter 3.41.x
-// captures show detector slope tracks ~25–55 % above operator rate
-// because the allocator chunk overhead, GC compactor moves, and
-// ambient framework allocations all contribute to the regression
-// slope but not to `totalAllocated / elapsed`. Initial targets pick
-// operator rates that LAND THE DETECTOR mid-band on a typical
-// iPhone 12 — adaptive recalibration after each leg refines the next
-// attempt.
+// Per-leg target *operator-allocator* rates (bytes/sec), the rate at
+// which the workload retains buffers. The at and above legs are judged
+// on the DETECTOR-stamped slope (parsed back out of the wrapped capture
+// and re-injected into the JSON's `expectedMagnitude.observed`); the
+// below leg is judged on the operator rate.
 //
-//   below band (detector silent <512 KB/s) → operator 350 000 KB/s
-//                                            (detector typically
-//                                            ~400–470, well under
-//                                            threshold)
-//   at    band [512 000, 768 000] (detector slope) → operator 420 000
-//                                                    KB/s (~+50 %
-//                                                    drift → detector
-//                                                    ~600–680, mid-band)
-//   above band (768 000, 1 024 000] (detector slope) → operator 820 000
-//                                                      KB/s (~+12 %
-//                                                      drift on hotter
-//                                                      allocator →
-//                                                      detector
-//                                                      ~880–940, in
-//                                                      band, well
-//                                                      under 1024 ceiling)
+// The detector's slope is a regression over every heap sample, so it
+// also counts allocation that the next collection frees. On Flutter
+// 3.41.x that added about 25 to 55 % to the operator rate. On Flutter
+// 3.47.6 the first stretch without a collection after the scenario
+// begins has run at about 1.16 MB/s for a 400 KB/s workload, and the
+// detector decides there, so the stamped slope can sit well above the
+// operator rate. The at and above targets therefore start inside
+// their bands and above the threshold: a retained rate at or below
+// 512 000 B/s cannot produce an in-band at leg once that extra
+// allocation is gone.
+//
+//   below: operator 350 000 B/s (detector silent).
+//   at:    operator 600 000 B/s, inside [512 000, 768 000].
+//   above: operator 820 000 B/s, inside (768 000, 1 024 000].
 const _belowTargetBps = 350000;
-const _atTargetBps = 420000;
+const _atTargetBps = 600000;
 const _aboveTargetBps = 820000;
+
+// Lowest target a rescale may give the at and above legs. Strictly
+// above the threshold because the detector's comparison is strict.
+const _minDetectedLegTargetBps = 520000;
 
 // Allocation runs in 50 ms ticks. Per-tick byte count =
 // `_bytesPerMs * _allocationTickMs`. Smaller ticks give smoother slope;
@@ -139,12 +139,30 @@ const _allocationTickMs = 50;
 // idle baseline and the regression dilutes the 640 KB/s allocator
 // rate to ~200–300 KB/s, never crossing the 512 KB/s threshold.
 //
-// 30 s of allocation fills the entire regression window with ramp
-// samples so detector slope ≈ allocator rate. Detector then sets
-// `_sustainedGrowthStart` once enough ramp samples accumulate (slope
-// crosses threshold around the 15–20 s mark inside the scenario) and
-// the 10 s sustained-window completes by scenario end.
-const _allocationDurationSec = 30;
+// 45 s of allocation fills the regression window with ramp samples and
+// leaves room for the 10 s sustained check after a late crossing. Each
+// old-generation GC inside the window drops heapUsage and can pull the
+// regression slope back under the threshold, which restarts the
+// sustained clock. On an iPhone 12 with Flutter 3.47.6 the lasting
+// crossing landed about 23 s into the scenario, so a 30 s phase ended
+// with 8.5 s sustained and no emission.
+const _allocationDurationSec = 45;
+// Pause between clearing the previous attempt's buffers and
+// `markScenarioBegin`. The idle GC reclaims those buffers here instead
+// of inside the detector's window, where the drop would drag the
+// regression slope negative for the first samples.
+const _preScenarioSettleMs = 2500;
+// Longest wait for Sleuth's in-flight allocation-profile reads to finish
+// before a leg starts. A leg that cannot drain is aborted.
+const _profileDrainTimeoutSec = 10;
+// Retry rescaling. A silent detector raises the next attempt's rate by
+// this factor; a slope outside the band rescales the rate toward the
+// band middle, by at most these factors per attempt and overall.
+const _silentRetryScale = 1.25;
+const _minStepScale = 0.6;
+const _maxStepScale = 1.6;
+const _minTargetScale = 0.5;
+const _maxTargetScale = 2.5;
 
 // Dwell after allocation ends. 600 ms is one heap-poll cycle (500 ms) +
 // 100 ms emission landing margin. Without this, markScenarioEnd may
@@ -176,6 +194,33 @@ class _MemoryPressureCaptureScreenState
   // operator switches to a different leg).
   _MemoryLeg? _activeRetryLeg;
   int _retryCount = 0;
+
+  // Multiplier on each leg's starting target, adjusted after every
+  // out-of-band attempt so the next one aims for the band.
+  final Map<_MemoryLeg, double> _targetScale = {};
+
+  double _targetBpsFor(_MemoryLeg leg) =>
+      leg.targetBps * (_targetScale[leg] ?? 1.0);
+
+  /// Sets [leg]'s next target from this attempt's result and returns
+  /// the new target in bytes per second. The at and above legs never go
+  /// below [_minDetectedLegTargetBps].
+  double _rescaleTarget(_MemoryLeg leg, double? detectorBps) {
+    final current = _targetScale[leg] ?? 1.0;
+    final step = detectorBps == null
+        ? _silentRetryScale
+        : ((leg.bpsMin + leg.bpsMax) / 2 / detectorBps).clamp(
+            _minStepScale,
+            _maxStepScale,
+          );
+    var scale = (current * step).clamp(_minTargetScale, _maxTargetScale);
+    if (leg != _MemoryLeg.below &&
+        leg.targetBps * scale < _minDetectedLegTargetBps) {
+      scale = _minDetectedLegTargetBps / leg.targetBps;
+    }
+    _targetScale[leg] = scale;
+    return _targetBpsFor(leg);
+  }
 
   // Cross-leg gate. Set when any leg's catch-block sees a persistent
   // post-process `rewriteError` (i.e. `_replaceExpectedObserved` shape
@@ -327,7 +372,7 @@ class _MemoryPressureCaptureScreenState
       _stashedCaptureJson = null;
       _log.add(
         '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg: '
-        'target ${(leg.targetBps / 1024).toStringAsFixed(0)} KB/s, '
+        'target ${(_targetBpsFor(leg) / 1024).toStringAsFixed(0)} KB/s, '
         'band [${(leg.bpsMin / 1024).toStringAsFixed(0)}, '
         '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s',
       );
@@ -345,12 +390,42 @@ class _MemoryPressureCaptureScreenState
     // Restored on every exit path via the try/finally below.
     await Sleuth.suspendNonEssentialTimelineStreams();
     var streamsSuspended = true;
+    // Sleuth's own allocation-profile reads stay out of the leg. Each
+    // response is decoded on the UI isolate; on an iPhone 12 every
+    // StreamResourceDetector poll (every 10 s) was followed by a burst of
+    // collections and a heap jump of several MB, which swings the
+    // regression slope. The detector is switched off for the leg, the
+    // hold blocks the controller's enrichment read, and the drain waits
+    // for a read already in flight, whose caller may have timed out
+    // while the VM still answers. Both are restored in `finally`.
+    final streamDetector = Sleuth.streamResourceDetector;
+    final streamDetectorWasEnabled = streamDetector?.isEnabled ?? false;
+    streamDetector?.isEnabled = false;
     try {
+      final drained = await Sleuth.holdAllocationProfileReads(
+        timeout: const Duration(seconds: _profileDrainTimeoutSec),
+      );
+      if (!mounted) return;
+      if (!drained) {
+        setState(() {
+          _log.add(
+            '[${leg.label}] ABORT: Sleuth could not hold its '
+            'allocation-profile reads. The VM service is not connected '
+            '(FRAME mode: relaunch with --no-dds), its session changed, or '
+            'a read was still in flight after $_profileDrainTimeoutSec s. '
+            'Re-tap the leg.',
+          );
+        });
+        return;
+      }
+      await Future<void>.delayed(
+        const Duration(milliseconds: _preScenarioSettleMs),
+      );
       if (!mounted) return;
 
       Sleuth.markScenarioBegin('memory_pressure_heap_growing_${leg.label}');
 
-      final scaledTickBytes = (leg.targetBps * _allocationTickMs / 1000)
+      final scaledTickBytes = (_targetBpsFor(leg) * _allocationTickMs / 1000)
           .round();
 
       final sw = Stopwatch()..start();
@@ -444,6 +519,12 @@ class _MemoryPressureCaptureScreenState
           // post-process step replaces the placeholder with detector
           // slope.
           magnitudeSourceEventName: '',
+          // `expectedMagnitude.observed` becomes the detector's slope
+          // below, so the measured operator rate is kept here.
+          captureNotes:
+              'StreamResourceDetector off and Sleuth allocation-profile '
+              'reads held for the leg, none in flight at scenario begin. '
+              'Operator retained rate ${operatorBps.round()} bytes/sec.',
         );
         if (stashed == null) {
           final reason =
@@ -483,7 +564,9 @@ class _MemoryPressureCaptureScreenState
       // run is unusable — surface as out-of-band and keep nothing.
       bool inBand;
       if (leg == _MemoryLeg.below) {
-        inBand = leg.isBpsInBand(operatorBps);
+        // The below leg also needs a silent detector: an emission inside
+        // the span makes the capture unusable whatever the operator rate.
+        inBand = leg.isBpsInBand(operatorBps) && detectorBps == null;
       } else {
         inBand = detectorBps != null && leg.isBpsInBand(detectorBps);
       }
@@ -541,24 +624,25 @@ class _MemoryPressureCaptureScreenState
               'Restart the screen after fixing.',
             );
           } else if (leg != _MemoryLeg.below && detectorBps == null) {
+            final next = _rescaleTarget(leg, null);
             _log.add(
-              '[${leg.label}] capture has no detector slope arg in any '
-              'in-span heap_growing.warning event. Detector did not '
-              'fire in scenario span. Likely cause: pre-scenario flat '
-              'heap samples in the 30 s regression window dampened '
-              'slope below threshold. Allocate longer or at higher '
-              'rate. Re-tap.',
+              '[${leg.label}] no in-span heap_growing.warning: the '
+              'detector slope did not stay above 500 KB/s for 10 s '
+              'inside the scenario. Next attempt targets '
+              '${(next / 1024).toStringAsFixed(0)} KB/s. Re-tap.',
             );
           } else {
+            final next = leg == _MemoryLeg.below
+                ? _targetBpsFor(leg)
+                : _rescaleTarget(leg, detectorBps);
             _log.add(
               '[${leg.label}] retry: detector slope '
               '${detectorBps == null ? '?' : (detectorBps / 1024).toStringAsFixed(0)} '
-              'KB/s missed band. Adjust target rate (current operator '
-              '${_bytesPerMs!.toStringAsFixed(0)} bytes/ms) so the '
-              'detector slope lands in '
+              'KB/s missed band '
               '[${(leg.bpsMin / 1024).toStringAsFixed(0)}, '
-              '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s. Do NOT '
-              'export an out-of-band run.',
+              '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s. Next '
+              'attempt targets ${(next / 1024).toStringAsFixed(0)} KB/s. '
+              'Do NOT export an out-of-band run.',
             );
           }
         }
@@ -571,6 +655,8 @@ class _MemoryPressureCaptureScreenState
       if (streamsSuspended) {
         await Sleuth.resumeAllTimelineStreams();
       }
+      Sleuth.releaseAllocationProfileReads();
+      if (streamDetectorWasEnabled) streamDetector?.isEnabled = true;
       // Safety net for `_busy`: the happy-path setState already cleared
       // it. Early-exit paths never reach that setState, so reset here
       // so the next leg tap is not silently blocked.
@@ -738,14 +824,18 @@ class _MemoryPressureCaptureScreenState
     if (heapGrowingCount != expected) {
       final cause = heapGrowingCount == 0
           ? 'Detector did not fire. Likely causes: (1) The regression '
-                'slope never crossed the 512 KB/s threshold. Flat '
-                'pre-scenario heap samples in the 30 s regression window '
-                'held the slope below the allocator rate. Allocate longer '
-                '(30 s minimum) so ramp samples fill the whole regression '
-                'window. (2) The detector warmup had not elapsed. Wait at '
+                'slope did not stay above the 512 KB/s threshold for 10 s '
+                'inside the scenario. An old-generation GC inside the 30 s '
+                'regression window drops the heap and can restart the '
+                'sustained clock. Re-tap: the next attempt runs at a '
+                'higher rate. (2) The detector warmup had not elapsed. Wait at '
                 'least 5 s after app launch before tapping a leg. '
                 '(3) The allocator rate is too low for this leg. '
                 'Recalibrate.'
+          : leg == _MemoryLeg.below
+          ? 'The detector fired on a leg whose retained rate is below '
+                'the threshold, so allocation the next collection frees '
+                'pushed the slope over it. Retry the leg.'
           : 'The sustained window broke and re-engaged mid-leg: the '
                 'slope dipped below the threshold, then rose again. '
                 'Retry the leg.';

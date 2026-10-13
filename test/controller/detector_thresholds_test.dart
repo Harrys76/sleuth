@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/detector_thresholds.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/vm/vm_service_client.dart';
 import 'package:vm_service/vm_service.dart' as vm;
+
+import '../helpers/fake_vm_service.dart';
 
 void main() {
   group('DetectorThresholds', () {
@@ -113,6 +116,72 @@ void main() {
     expect(args['observedGcEvents'], '10');
     expect(args['oldGenCount'], '4');
     expect(args['scavengeCount'], '6');
+  });
+
+  group('GC pause time from the controller', () {
+    vm.Event pauseEvent(num newTime, num oldTime) => vm.Event.parse({
+      'type': 'Event',
+      'kind': 'GC',
+      'timestamp': 0,
+      'gcType': 'Scavenge',
+      'isolate': {
+        'type': '@Isolate',
+        'id': 'isolates/1',
+        'number': '1',
+        'name': 'main',
+        'isSystemIsolate': false,
+        'isolateGroupId': 'isolateGroups/1',
+      },
+      'new': {'type': 'HeapSpace', 'time': newTime},
+      'old': {'type': 'HeapSpace', 'time': oldTime},
+    })!;
+
+    Future<SleuthController> controllerWith({required bool verified}) async {
+      final controller = SleuthController(
+        config: const SleuthConfig(gcRateThresholdPerMin: 30),
+      );
+      addTearDown(controller.dispose);
+      controller.initializeDetectorsForTest();
+      final client = VmServiceClient(
+        ownIsolateIdResolver: () => verified ? 'isolates/1' : null,
+      );
+      addTearDown(client.dispose);
+      await client.startSessionForTest(FakeVmService());
+      controller.setVmClientForTest(client);
+      return controller;
+    }
+
+    test('sums new and old time, integer-encoded values included, when the '
+        'client verified its own isolate', () async {
+      final controller = await controllerWith(verified: true);
+      final memory = controller.memoryPressureDetector!;
+      controller.feedGcEventForTest(pauseEvent(0, 1));
+      // Clears the window but keeps the pause baseline.
+      memory.reset();
+      for (var i = 1; i <= 6; i++) {
+        controller.feedGcEventForTest(pauseEvent(i * 0.001, 1));
+      }
+      final args = memory.issues
+          .singleWhere((i) => i.stableId == 'gc_pressure')
+          .extraTraceArgs!;
+      expect(args['gcPauseMs'], '6.0');
+    });
+
+    test('stamps nothing when the client did not verify its own '
+        'isolate', () async {
+      final controller = await controllerWith(verified: false);
+      final memory = controller.memoryPressureDetector!;
+      controller.feedGcEventForTest(pauseEvent(0, 1));
+      memory.reset();
+      for (var i = 1; i <= 6; i++) {
+        controller.feedGcEventForTest(pauseEvent(i * 0.001, 1));
+      }
+      final args = memory.issues
+          .singleWhere((i) => i.stableId == 'gc_pressure')
+          .extraTraceArgs!;
+      expect(args.containsKey('gcPauseMs'), isFalse);
+      expect(memory.gcWindowStats.pauseAvailable, isFalse);
+    });
   });
 
   group('time-share thresholds', () {
