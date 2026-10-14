@@ -180,11 +180,11 @@
   calls/s read 74 on a Galaxy A07 and the iPhone capture's 45 calls/s read
   36. The method counts, call durations and trace args on the card come
   from the same span. Calls the VM client delivers again after a reconnect,
-  and calls made before a capture scenario began, do not count, and a
-  check sees a poll that covers more than 2 s of calls before its early
-  calls age out. A poll with more calls than the detector keeps (4096)
-  still reports its busiest span, and a call that arrives late still counts
-  if it began less than 10 s before the newest call. New
+  and calls made before a capture scenario began, do not count. The
+  detector keeps the last 10 s of calls, so a check sees a poll that
+  covers several seconds, and a call that arrives late counts with the
+  calls around it. A poll with more calls than the detector keeps (4096)
+  still reports its busiest span. New
   `PlatformChannelCall.tid` holds the thread of the call's begin, so two
   calls that begin in the same microsecond on different threads keep both
   durations. The triad was re-recorded on Flutter 3.47.6 (iPhone 12,
