@@ -766,8 +766,8 @@ HeavyCompute and MemoryPressure in three ways:
    to 80 ms over wireless, so sequential awaits would cap the send
    rate. The screen sends one call every 1/rate s on a fixed schedule
    (15, 25 and 35 calls/s for below, at and above) and collects the
-   replies after the call phase, so any 1 s span holds the rate or one
-   more call. Batches of parallel calls per 200 ms tick, waited for one
+   replies after the call phase, so any 1 s span holds the rate, give or
+   take one call. Batches of parallel calls per 200 ms tick, waited for one
    batch at a time, stretched the tick to about 250 ms and made the
    count jump in whole batches.
 3. **The `debugProfilePlatformChannels` framework flag.**

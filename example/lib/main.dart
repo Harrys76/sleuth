@@ -847,9 +847,9 @@ void _registerDemoExtensions() {
   // Retains memory from a timer on whatever screen is in front, for the
   // heap_growing controls: `bytesPerSec=N seconds=S` starts (or replaces)
   // a run that adds a buffer every 50 ms; `clear=true` stops it and drops
-  // what it retained. Byte buffers hold exactly the bytes counted: a
+  // what it retained. Byte buffers hold exactly the bytes counted. A
   // `List<int>` of large ints holds 4-byte references on Android, where
-  // Dart compresses pointers, and the count would read double.
+  // Dart compresses pointers, so counting 8 bytes per element read double.
   developer.registerExtension('ext.sleuthDemo.retain', (method, params) async {
     _retainTimer?.cancel();
     _retainTimer = null;

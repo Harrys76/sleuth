@@ -793,7 +793,8 @@ void main() {
         detector.processTimelineData(
           calls(spaced(s + 20000, 10, 1000), method: 'ping'),
         );
-        // Outside the busiest span: must not reach the method line.
+        // These calls lie outside the busiest span and must not reach the
+        // method line.
         detector.processTimelineData(
           calls(spaced(s + 1500000, 5, 1000), method: 'late'),
         );

@@ -613,8 +613,8 @@ void main() {
     });
 
     test('server errors alone do not make the spike critical', () {
-      // Nine 5xx errors in the peak window: warning, with the 5xx count
-      // in the detail. Critical needs 10 errors of any kind.
+      // Nine 5xx errors in the peak window read warning, with the 5xx
+      // count in the detail. Critical needs 10 errors of any kind.
       for (int i = 0; i < 9; i++) {
         detector.processRecord(
           makeRecord(
@@ -648,7 +648,7 @@ void main() {
     });
 
     test('error spike severity uses peak window counts, not buffer-wide', () {
-      // 6 server errors spread over 25s: the peak 5s window holds 2 of
+      // 6 server errors spread over 25s. The peak 5s window holds 2 of
       // them plus 1 transport failure, 3 errors in all, so warning.
       detector.processRecord(makeRecord(statusCode: 500, startedAt: fakeNow));
       detector.processRecord(

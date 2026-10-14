@@ -83,8 +83,8 @@ class NetworkMonitorDetector extends BaseDetector
   @visibleForTesting
   static const int errorSpikeCriticalThreshold = 10;
 
-  /// `high_frequency_same_path` window, threshold and critical count, for
-  /// the explanation drift test.
+  /// The `high_frequency_same_path` window, threshold and critical count,
+  /// exposed for the explanation drift test.
   @visibleForTesting
   static const int duplicateWindowMs = _duplicateWindowMs;
   @visibleForTesting
@@ -462,7 +462,7 @@ class NetworkMonitorDetector extends BaseDetector
         .length;
     final serverErrors = peakRecords.where((r) => r.statusCode >= 500).length;
 
-    // Critical by count alone; the 5xx share stays in the detail.
+    // Severity counts errors only; the detail still reports the 5xx share.
     final severity = peakCount >= errorSpikeCriticalThreshold
         ? IssueSeverity.critical
         : IssueSeverity.warning;

@@ -184,8 +184,8 @@ class MemoryPressureDetector extends BaseDetector
   // its rate threshold. Pinned for the full overage episode so
   // re-emissions across consecutive evaluations share dedup identity
   // and CaptureHelper collapses them to one trace record per episode.
-  // Cleared whenever the rate is at or under the threshold, including
-  // an empty window, so a new overage produces a distinct identity.
+  // Evaluation clears it whenever the rate is at or under the threshold,
+  // including an empty window, so a new overage gets a distinct identity.
   DateTime? _gcOverageStart;
 
   // -- heap_near_capacity (RSS against memoryBudgetBytes) --
@@ -478,8 +478,8 @@ class MemoryPressureDetector extends BaseDetector
     _issues.clear();
 
     _evictExpiredGcBatches();
-    // Runs on an empty window too, so the overage identity clears when a
-    // burst ages out between two evaluations.
+    // This runs on an empty window too, so the overage identity clears
+    // when a burst ages out between two evaluations.
     _evaluateGcPressure();
 
     _evaluateHeapTrend();
@@ -853,10 +853,10 @@ class MemoryPressureDetector extends BaseDetector
       if (sinceFirst.inMilliseconds < warmupDurationMs) return;
     }
 
-    // Native growth must show in the RSS itself. The Dart heap's
-    // collections move RSS minus heap without moving RSS: on a Galaxy
-    // A07 the heap climbed and fell by about 10 MB every GC cycle while
-    // RSS stayed flat, which read as native growth after each drop.
+    // Native growth must show in the RSS itself. When RSS keeps the pages
+    // of freed Dart objects, a heap drop raises RSS minus the heap without
+    // moving RSS; a drop of about 25 MB or more read above 1 MiB/s for
+    // longer than 10 s.
     final slope = math.min(
       _slopeBytesPerSec(nativeSamples, (s) => s.nativeBytes!),
       _slopeBytesPerSec(nativeSamples, (s) => s.rssBytes!),

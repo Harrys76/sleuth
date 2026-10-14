@@ -86,10 +86,10 @@ import 'capture_driver.dart';
 ///
 /// **Even spacing.** Calls go out one at a time on a fixed schedule (one
 /// every 1/rate s) and are not awaited one by one, so a round trip never
-/// stretches the spacing and any 1 s span holds the rate or one more
+/// stretches the spacing and any 1 s span holds the rate, give or take one
 /// call. Batches of parallel calls per 200 ms tick made the count jump in
-/// whole batches: waiting for each batch stretched the tick to about
-/// 250 ms, and a 7-call batch read 28 instead of 35.
+/// whole batches. Waiting for each batch stretched the tick to about
+/// 250 ms, so a 7-call batch read 28 instead of 35.
 ///
 /// **Cooldown.** The detector emits once per fire, then holds the same
 /// issue for the next 3 checks. A check can see part of the call phase
@@ -111,7 +111,7 @@ class PlatformChannelCaptureScreen extends StatefulWidget {
 // Detector threshold (warning tier).
 const _warningThresholdCallsPerSec = 20;
 
-// Per-leg send rates (calls/sec) and batch geometry. In-band gating uses
+// Per-leg send rates (calls/sec). In-band gating uses
 // the detector-stamped count (the capture's in-span `args.observedCount`,
 // re-injected into the JSON's `expectedMagnitude.observed`). The detector
 // counts by event time, so that count matches the send rate:
@@ -125,8 +125,8 @@ const _belowTargetCps = 15;
 const _atTargetCps = 25;
 const _aboveTargetCps = 35;
 
-// Wall-clock budget for the call-emission phase: more than 1 s, so the
-// detector's busiest 1 s span holds a full second of calls.
+// The call phase runs longer than 1 s, so the detector's busiest 1 s span
+// holds a full second of calls.
 const _callPhaseDurationMs = 1500;
 
 // Dwell after the call phase ends. The detector checks once per second
@@ -293,8 +293,8 @@ class _PlatformChannelCaptureScreenState
       var totalCallsSent = 0;
       var callFailures = 0;
       while (sw.elapsedMilliseconds < _callPhaseDurationMs) {
-        // Call k goes out at k / rate s from the start, whatever the
-        // round trips take; replies are collected after the phase.
+        // Call k goes out k / rate seconds after the start, whatever the
+        // round trips take; the loop collects the replies after the phase.
         inFlight.add(
           _channel.invokeMethod<void>(_channelMethod).catchError((Object _) {
             callFailures++;
@@ -311,8 +311,8 @@ class _PlatformChannelCaptureScreenState
         }
       }
       sw.stop();
-      // The rate covers the sends: the phase ends one interval after the
-      // last call went out.
+      // The phase ends one interval after the last call, so calls sent
+      // divided by the phase length is the send rate.
       final callPhaseElapsedMs = sw.elapsedMilliseconds;
       await Future.wait(inFlight);
 
@@ -338,12 +338,12 @@ class _PlatformChannelCaptureScreenState
       );
       if (!mounted) return;
 
-      // `operatorCps` is the send rate (calls sent / wall clock). The
-      // detector-stamped `observedCount` (parsed back out of the wrapped
-      // capture and re-injected into `expectedMagnitude.observed`) is the
-      // number the role band is judged against; missed `b` events or a
-      // `debugProfilePlatformChannels` flag race open a gap between the
-      // two.
+      // `operatorCps` is the send rate (calls sent divided by the phase
+      // length). The audit judges the role band against the
+      // detector-stamped `observedCount`, which the export parses back out
+      // of the wrapped capture into `expectedMagnitude.observed`. Missed
+      // `b` events or a `debugProfilePlatformChannels` flag race open a
+      // gap between the two.
       final operatorCps = totalCallsSent / (callPhaseElapsedMs / 1000.0);
 
       String? stashed;

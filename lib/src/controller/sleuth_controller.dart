@@ -3873,8 +3873,8 @@ class SleuthController {
       }
 
       detectorsUs = segmentWatch.elapsedMicroseconds;
-      // The same detectors the published issues leave out
-      // (`_getAllIssues`), so the capture trace and the overlay agree.
+      // Skips the detectors that `_getAllIssues` leaves out, so the
+      // capture trace and the overlay agree.
       _recordIssuesForCapture(_lastScanFailedDetectors);
 
       // Invalidate _getAllIssues cache — detectors have fresh issues.
