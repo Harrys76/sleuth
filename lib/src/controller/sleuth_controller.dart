@@ -1098,6 +1098,7 @@ class SleuthController {
       capacityThresholdPercent: config.thresholds.memoryCapacityPercent,
       memoryBudgetBytes: config.thresholds.memoryBudgetBytes,
       gcRateThresholdPerMin: config.gcRateThresholdPerMin,
+      captureMode: config.captureMode,
     )..isEnabled = enabled.contains(DetectorType.memoryPressure);
 
     _streamResource = StreamResourceDetector(
@@ -1110,6 +1111,7 @@ class SleuthController {
       heapGrowingStateProvider: () => _memoryPressure.isHeapGrowingActive(
         config.thresholds.streamResourceHeapGrowingRecencyMicros,
       ),
+      heapGrowingEpisodeProvider: () => _memoryPressure.heapGrowingEpisode,
       sampleSeconds: config.thresholds.streamResourceSampleSeconds,
       minDelta: config.thresholds.streamResourceMinDelta,
       warmupSeconds: config.thresholds.streamResourceWarmupSeconds,
@@ -2026,6 +2028,7 @@ class SleuthController {
     // async enrichment from the prior scenario discards its results
     // before writing back to detector state.
     _captureGeneration++;
+    _cancelDeferredEnrichment();
     _networkMonitor.clearRecords();
     // Clear MemoryPressureDetector's rolling windows so the next
     // scenario's heap_growing regression starts fresh on scenario
@@ -4109,18 +4112,50 @@ class SleuthController {
   /// starts enrichment whichever input produced it.
   void _updateMemoryPressure(void Function() update) {
     final hadHeapGrowing = _hasHeapGrowingIssue();
+    final episodeBefore = _memoryPressure.heapGrowingEpisode;
     update();
-    if (hadHeapGrowing || !_hasHeapGrowingIssue()) return;
+    if (!_hasHeapGrowingIssue()) {
+      _cancelDeferredEnrichment();
+      return;
+    }
+    // A new episode needs its own allocators, also when the issue stayed
+    // visible across the switch.
+    final episode = _memoryPressure.heapGrowingEpisode;
+    if (hadHeapGrowing && episode == episodeBefore) return;
+    _cancelDeferredEnrichment();
 
     // Cooldown prevents repeated queries if slope oscillates near threshold.
+    // A read the cooldown blocks runs once it expires, if the episode is
+    // still the current one.
     final now = DateTime.now();
-    final cooldownExpired =
-        _lastAllocationEnrichmentTime == null ||
-        now.difference(_lastAllocationEnrichmentTime!).inSeconds >= 10;
-    if (cooldownExpired) {
+    final last = _lastAllocationEnrichmentTime;
+    final wait = last == null
+        ? Duration.zero
+        : _allocationEnrichmentCooldown - now.difference(last);
+    if (wait <= Duration.zero) {
       _lastAllocationEnrichmentTime = now;
       _enrichWithAllocationProfile();
+      return;
     }
+    _deferredEnrichment = Timer(wait, () {
+      _deferredEnrichment = null;
+      if (_disposed ||
+          _memoryPressure.heapGrowingEpisode != episode ||
+          !_hasHeapGrowingIssue()) {
+        return;
+      }
+      _lastAllocationEnrichmentTime = DateTime.now();
+      _enrichWithAllocationProfile();
+    });
+  }
+
+  static const Duration _allocationEnrichmentCooldown = Duration(seconds: 10);
+
+  Timer? _deferredEnrichment;
+
+  void _cancelDeferredEnrichment() {
+    _deferredEnrichment?.cancel();
+    _deferredEnrichment = null;
   }
 
   bool _hasHeapGrowingIssue() =>
@@ -4152,13 +4187,29 @@ class SleuthController {
     if (_disposed) return;
     final json = event.json;
     final gcType = json?['gcType'];
+    final reason = json?['reason'];
     _updateMemoryPressure(
       () => _memoryPressure.recordGcCycle(
         gcType: gcType is String ? gcType : null,
         cumulativePauseSeconds: _cumulativeGcPauseSeconds(json),
         pauseAttributable: _vmClient?.isOwnIsolateVerified ?? false,
+        reason: reason is String ? reason : null,
+        heapUsedBytes: _gcHeapUsedBytes(json),
+        eventTimestampMs: event.timestamp,
       ),
     );
+  }
+
+  /// `new.used + old.used` from a raw GC event: the heap left after the
+  /// collection. Null when either is missing.
+  static int? _gcHeapUsedBytes(Map<String, dynamic>? json) {
+    final newSpace = json?['new'];
+    final oldSpace = json?['old'];
+    if (newSpace is! Map || oldSpace is! Map) return null;
+    final newUsed = newSpace['used'];
+    final oldUsed = oldSpace['used'];
+    if (newUsed is! num || oldUsed is! num) return null;
+    return newUsed.toInt() + oldUsed.toInt();
   }
 
   /// `new.time + old.time` from a raw GC event, or null when either is
@@ -4296,7 +4347,12 @@ class SleuthController {
     // late results are discarded before they can write stale prior-
     // scenario allocators back to `MemoryPressureDetector`.
     final myGeneration = _captureGeneration;
-    bool generationStale() => _captureGeneration != myGeneration;
+    final myEpisode = _memoryPressure.heapGrowingEpisode;
+    final mySession = client.sessionGeneration;
+    bool generationStale() =>
+        _captureGeneration != myGeneration ||
+        _memoryPressure.heapGrowingEpisode != myEpisode ||
+        client.sessionGeneration != mySession;
 
     try {
       final profile = await client.getAllocationProfile(
@@ -4336,6 +4392,18 @@ class SleuthController {
   /// Ends one [holdAllocationProfileReads].
   void releaseAllocationProfileReads() =>
       _vmClient?.releaseAllocationProfileReads();
+
+  /// Switches `heap_growing`'s floor and sample legs for a capture leg.
+  /// Does nothing outside capture mode.
+  void setHeapGrowingLegsForCapture({bool? floor, bool? sample}) {
+    if (!config.captureMode) return;
+    _updateMemoryPressure(
+      () => _memoryPressure.setLegsEnabledForCapture(
+        floor: floor,
+        sample: sample,
+      ),
+    );
+  }
 
   /// Extract top-5 allocating classes from allocation profile.
   ///
@@ -4421,6 +4489,7 @@ class SleuthController {
   void _onVmConnectionChanged(bool connected) {
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
+    if (!connected) _cancelDeferredEnrichment();
     if (connected) _enablePlatformChannelProfiling();
     // Mid-session VM death: VmServiceClient._pollTimeline's catch path runs
     // its own 3-attempt reconnect loop. If that internal loop exhausts, we
@@ -5164,6 +5233,7 @@ class SleuthController {
   /// Dispose all resources.
   void dispose() {
     _disposed = true;
+    _cancelDeferredEnrichment();
     _extensionRegistry?.markDisposed();
     _extensionRegistry = null;
     _initializedAt = null;

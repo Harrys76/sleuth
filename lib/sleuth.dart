@@ -826,9 +826,10 @@ class Sleuth {
   /// and waits up to [timeout] for a read already in flight to finish.
   ///
   /// Sleuth reads the allocation profile when `heap_growing` first
-  /// appears and every 10 s for [StreamResourceDetector]. Each response
-  /// is decoded on the app's UI isolate, and the GC activity that
-  /// follows lands in the heap samples of a memory capture leg. A
+  /// appears, and every 10 s while it stays active for
+  /// [StreamResourceDetector]. Each response is decoded on the app's UI
+  /// isolate, and the GC activity that follows lands in the heap samples
+  /// of a memory capture leg. A
   /// request whose caller timed out still runs until the VM answers, so
   /// the hold also waits for those.
   ///
@@ -847,6 +848,21 @@ class Sleuth {
     final c = _controller;
     if (c == null || !c.config.captureMode) return false;
     return c.holdAllocationProfileReads(timeout: timeout);
+  }
+
+  /// Switches the two legs of `heap_growing` for a capture leg, so each
+  /// leg's evidence is recorded alone: the floor leg (heap level right
+  /// after idle full collections) and the sample leg (the 500 ms
+  /// heap-sample regression). Pass null to leave a leg as it is, and turn
+  /// both back on when the leg ends.
+  ///
+  /// No-op in release mode and when [SleuthConfig.captureMode] is false;
+  /// a normal session always runs both legs.
+  static void setHeapGrowingLegsForCapture({bool? floor, bool? sample}) {
+    if (kReleaseMode) return;
+    final c = _controller;
+    if (c == null || !c.config.captureMode) return;
+    c.setHeapGrowingLegsForCapture(floor: floor, sample: sample);
   }
 
   /// Ends one [holdAllocationProfileReads].

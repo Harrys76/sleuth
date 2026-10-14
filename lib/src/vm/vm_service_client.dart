@@ -1428,6 +1428,10 @@ class VmServiceClient {
     }
   }
 
+  /// Changes whenever a VM service session ends or a new one starts, so a
+  /// caller can tell whether a reply belongs to the session it asked in.
+  int get sessionGeneration => _sessionGeneration;
+
   /// Whether [getAllocationProfile] refuses new requests.
   bool get allocationProfileReadsHeld => _allocationReadHolds > 0;
 

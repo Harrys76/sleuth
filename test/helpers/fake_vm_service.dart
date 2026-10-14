@@ -185,19 +185,25 @@ IsolateRef isolateRef(String id, {String group = 'isolateGroups/1'}) {
 }
 
 /// A kGC event posted for [isolateId]. Omit [isolateId] for an event
-/// without an isolate ref.
+/// without an isolate ref. [newUsed] and [oldUsed] are the bytes left in
+/// each space after the collection.
 Event gcEvent({
   String? isolateId,
   String gcType = 'Scavenge',
   double? newTime,
   double? oldTime,
   String group = 'isolateGroups/1',
+  String? reason,
+  int? newUsed,
+  int? oldUsed,
+  int timestampMs = 0,
 }) {
   return Event.parse({
     'type': 'Event',
     'kind': 'GC',
-    'timestamp': 0,
+    'timestamp': timestampMs,
     'gcType': gcType,
+    'reason': ?reason,
     if (isolateId != null)
       'isolate': {
         'type': '@Isolate',
@@ -207,7 +213,9 @@ Event gcEvent({
         'isSystemIsolate': false,
         'isolateGroupId': group,
       },
-    if (newTime != null) 'new': {'type': 'HeapSpace', 'time': newTime},
-    if (oldTime != null) 'old': {'type': 'HeapSpace', 'time': oldTime},
+    if (newTime != null || newUsed != null)
+      'new': {'type': 'HeapSpace', 'time': ?newTime, 'used': ?newUsed},
+    if (oldTime != null || oldUsed != null)
+      'old': {'type': 'HeapSpace', 'time': ?oldTime, 'used': ?oldUsed},
   })!;
 }

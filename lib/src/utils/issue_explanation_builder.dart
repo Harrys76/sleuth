@@ -539,19 +539,33 @@ class IssueExplanationBuilder {
       displayName: 'Heap growing',
       category: IssueCategory.memory,
       whatItIs:
-          'The Dart heap keeps growing over time. Sleuth detects this with a '
-          'linear regression on heap usage samples. It suggests the app '
-          'allocates objects faster than GC reclaims them.',
+          'The Dart heap keeps growing over time: the app keeps more '
+          'objects alive than garbage collection frees. Sleuth measures '
+          'it two ways. The first is the heap left right after the idle '
+          'full collections the VM runs between frames, which leaves out '
+          'garbage the next collection would free. The second, used when '
+          'there are no recent idle collections, is a linear regression on '
+          'heap usage samples taken every 500ms.',
       readingTheData:
           'Like a bathtub filling faster than it drains. Eventually the '
           'water overflows unless you fix the imbalance.\n\n'
-          '• Growth rate KB/s is the heap increase per second, from a linear '
-          'regression over a 30-second window. 0 (stable) is normal. Sleuth '
-          'raises the issue above 512 KB/s for 10 seconds or more (default, '
-          'configurable).\n\n'
-          '• Sustained duration is how long the growth trend has lasted. A '
-          'longer duration raises confidence that it is a leak.\n\n'
-          '• The data comes from VM service heap samples every 500ms.',
+          '• Growth rate KB/s is the heap increase per second. 0 (stable) '
+          'is normal. Sleuth raises the issue above 512 KB/s (default, '
+          'configurable). From idle collections, it is the regression over '
+          'at least 3 collections spanning at least 10 seconds since the '
+          'heap last stopped growing, and the title gives that span. From '
+          'heap samples, it is the regression over a 30-second window that '
+          'stayed above the threshold for 10 seconds or more, and the title '
+          'gives that duration.\n\n'
+          '• Confidence is "confirmed" once the idle-collection measurement '
+          'has shown the growth in the current episode, and "likely" while '
+          'only the heap-sample regression has, or after the heap fell '
+          'between two idle collections. The sample regression also '
+          'counts garbage that has not been collected yet, so it can read '
+          'well above the real rate.\n\n'
+          '• When fresh idle collections show a flat heap, the '
+          'issue is withdrawn even if the heap-sample regression is still '
+          'above the threshold.',
       whyItMatters:
           'Sustained heap growth is often a memory leak. Objects that should '
           'be freed stay alive through lingering references: undisposed '
@@ -576,8 +590,15 @@ class IssueExplanationBuilder {
           'the real cost of the leak.',
       whenToIgnore:
           'Heap growth during app startup or while loading large datasets is '
-          'expected. The concern is growth that continues after the app '
-          'reaches steady state.',
+          'expected; the idle-collection measurement ignores the first 30 '
+          'seconds after Sleuth starts. The concern is growth that continues '
+          'after the app reaches steady state.\n\n'
+          'Limits: growth close to 512 KB/s can come and go as collection '
+          'timing varies. After the heap drops (a cache flush), a leak that '
+          'resumes is reported again only once enough new collections show '
+          'it, up to about a minute. After growth slows, the rate shown is '
+          'the average over the span in the title, so it can stay above the '
+          'current rate for up to a minute.',
       relatedIssues: [
         'excessive_keep_alive',
         'gc_pressure',

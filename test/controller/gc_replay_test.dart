@@ -106,4 +106,59 @@ void main() {
     expect(args['observedGcEvents'], '${counted.length}');
     expect(args.containsKey('gcPauseMs'), isTrue);
   });
+
+  test('an at-leg dump publishes the floor leg through the client and '
+      'controller, within 1 % of the operator rate', () async {
+    final dump =
+        jsonDecode(
+              File(
+                'test/detectors/_fixtures/heap_floor/at1.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final replay = dump['replay'] as Map<String, dynamic>;
+    final own =
+        (dump['provenance'] as Map<String, dynamic>)['appIsolateId'] as String;
+    // The controller's detector reads the wall clock and ignores its first
+    // 30 s, so the dump is shifted to start 35 s from now.
+    final beginMs =
+        (replay['tapMs'] as int) +
+        ((replay['scenarioBeginSec'] as num) * 1000).round();
+    final shift = DateTime.now().millisecondsSinceEpoch + 35000 - beginMs;
+    final shifted = [
+      for (final e in (dump['events'] as List).cast<Map<String, dynamic>>())
+        if ((e['timestamp'] as int) >= beginMs)
+          vm.Event.parse({...e, 'timestamp': (e['timestamp'] as int) + shift})!,
+    ];
+
+    final controller = SleuthController(
+      config: const SleuthConfig(memoryWarmupDurationMs: 0),
+    );
+    addTearDown(controller.dispose);
+    controller.initializeDetectorsForTest();
+    final service = FakeVmService(isolates: [isolateRef(own)]);
+    final client = VmServiceClient(
+      ownIsolateIdResolver: () => own,
+      onGcEvent: controller.feedGcEventForTest,
+    );
+    addTearDown(client.dispose);
+    await client.startSessionForTest(service);
+    controller.setVmClientForTest(client);
+
+    String? firstSlope;
+    for (final e in shifted) {
+      service.gcController.add(e);
+      final issue = controller.memoryPressureDetector!.issues
+          .where((i) => i.stableId == 'heap_growing')
+          .firstOrNull;
+      if (issue != null) {
+        expect(issue.extraTraceArgs!['heapGrowingLeg'], 'floor');
+        firstSlope = issue.extraTraceArgs!['observedFloorSlopeBytesPerSec'];
+        break;
+      }
+    }
+    final operator = replay['operatorBytesPerSec'] as int;
+    expect(firstSlope, isNotNull);
+    expect(double.parse(firstSlope!), closeTo(operator, operator * 0.01));
+  });
 }

@@ -39,6 +39,9 @@ class _ProfileClient extends VmServiceClient {
   bool get isConnected => true;
 
   @override
+  bool get isOwnIsolateVerified => true;
+
+  @override
   Future<AllocationProfile?> getAllocationProfile({
     bool reset = false,
     Duration timeout = const Duration(milliseconds: 500),
@@ -69,6 +72,23 @@ void _growHeap(SleuthController controller, {int from = 0, int count = 30}) {
       ),
     );
   }
+}
+
+/// Idle full collections for the floor leg. The controller's detector
+/// ignores the first 30 s after construction, so event times start 35 s
+/// ahead of the wall clock; freshness only bounds how old points are.
+final int _floorBaseMs = DateTime.now().millisecondsSinceEpoch + 35000;
+
+void _floorPoint(SleuthController controller, double sec, double mb) {
+  controller.feedGcEventForTest(
+    gcEvent(
+      gcType: 'MarkSweep',
+      reason: 'idle',
+      newUsed: 0,
+      oldUsed: (mb * 1000000).round(),
+      timestampMs: _floorBaseMs + (sec * 1000).round(),
+    ),
+  );
 }
 
 PerformanceIssue? _heapGrowing(SleuthController controller) => controller
@@ -195,6 +215,89 @@ void main() {
           .firstOrNull;
       expect(issue?.topAllocators, isNull);
     });
+    group('floor leg and episodes', () {
+      test('a GC event that completes a growing floor verdict starts one '
+          'read', () async {
+        _floorPoint(controller, 0, 10);
+        _floorPoint(controller, 10, 17);
+        expect(client.calls, isEmpty);
+        _floorPoint(controller, 20, 24);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          _heapGrowing(controller)!.extraTraceArgs!['heapGrowingLeg'],
+          'floor',
+        );
+        expect(client.calls, hasLength(1));
+      });
+
+      test(
+        'a new episode inside the cooldown gets one deferred read',
+        () async {
+          _floorPoint(controller, 0, 10);
+          _floorPoint(controller, 10, 17);
+          _floorPoint(controller, 20, 24);
+          expect(client.calls, hasLength(1));
+          _floorPoint(controller, 30, 24);
+          expect(_heapGrowing(controller), isNull);
+
+          // The next episode comes from the sample leg 9.9 s after the read.
+          controller.lastAllocationEnrichmentTimeForTest = DateTime.now()
+              .subtract(const Duration(milliseconds: 9900));
+          controller.resetCaptureState();
+          _growHeap(controller);
+          expect(_heapGrowing(controller), isNotNull);
+          expect(client.calls, hasLength(1));
+
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          expect(client.calls, hasLength(2));
+        },
+      );
+
+      test(
+        'a deferred read is dropped when the capture state resets',
+        () async {
+          controller.lastAllocationEnrichmentTimeForTest = DateTime.now()
+              .subtract(const Duration(milliseconds: 9900));
+          _growHeap(controller);
+          expect(client.calls, isEmpty);
+          controller.resetCaptureState();
+
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          expect(client.calls, isEmpty);
+        },
+      );
+
+      test(
+        'a reply that lands after its episode ended labels nothing',
+        () async {
+          final pending = client.gate = Completer<AllocationProfile?>();
+          _floorPoint(controller, 0, 10);
+          _floorPoint(controller, 10, 17);
+          _floorPoint(controller, 20, 24);
+          _floorPoint(controller, 30, 24);
+          pending.complete(_profile());
+          await Future<void>.delayed(Duration.zero);
+
+          controller.lastAllocationEnrichmentTimeForTest = DateTime.now();
+          controller.resetCaptureState();
+          _growHeap(controller);
+          expect(_heapGrowing(controller)!.topAllocators, isNull);
+        },
+      );
+
+      test('leg switches are ignored outside capture mode', () {
+        _floorPoint(controller, 0, 10);
+        _floorPoint(controller, 10, 17);
+        _floorPoint(controller, 20, 24);
+        controller.setHeapGrowingLegsForCapture(floor: false);
+        expect(
+          _heapGrowing(controller)!.extraTraceArgs!['heapGrowingLeg'],
+          'floor',
+        );
+      });
+    });
+
     group('allocation-profile hold', () {
       late VmServiceClient realClient;
       late FakeVmService service;

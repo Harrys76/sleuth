@@ -7,6 +7,7 @@ import '../validation/evidence_tier.dart';
 import '../models/heap_sample.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
+import 'heap_floor_tracker.dart';
 
 /// Detects memory pressure using VM GC events and heap growth trends.
 ///
@@ -16,9 +17,9 @@ import '../utils/fix_hint_builder.dart';
 ///
 /// **Capture-mode timing.** Calling [reset] (auto-invoked by
 /// `Sleuth.markScenarioBegin` via `SleuthController.resetCaptureState`)
-/// clears `_heapSamples`, `_firstHeapSampleTime`, and
-/// `_sustainedGrowthStart`, so the heap-trend evaluation window starts
-/// fresh on every scenario. Effective first-fire latency post-reset:
+/// clears `_heapSamples`, `_firstHeapSampleTime`, the sample leg's
+/// sustain start and the floor leg's points, so the heap-trend
+/// evaluation starts fresh on every scenario. Effective first-fire latency post-reset:
 /// ~3 s warmup + ~2 s sample-accumulation (4-sample minimum) + slope-
 /// cross + 10 s sustained = ~14-15 s of scenario allocation before the
 /// first `heap_growing` issue can fire. Capture procedures should
@@ -32,6 +33,13 @@ class MemoryPressureDetector extends BaseDetector
     this.capacityThresholdPercent = 0.80,
     this.memoryBudgetBytes,
     this.gcRateThresholdPerMin = _defaultGcRateThresholdPerMin,
+    this.captureMode = false,
+    this.floorStartupWindowMs = 30000,
+    int floorCycleGapMs = 100,
+    int floorWindowMs = 60000,
+    int floorMinPoints = 3,
+    int floorMinSpanMs = 10000,
+    int floorFreshnessMs = 30000,
   }) : assert(
          memoryBudgetBytes == null || memoryBudgetBytes > 0,
          'memoryBudgetBytes must be positive when set.',
@@ -43,7 +51,19 @@ class MemoryPressureDetector extends BaseDetector
          name: 'Memory Pressure',
          description:
              'Detects memory pressure from GC frequency and heap trends',
-       );
+       ) {
+    _floor = HeapFloorTracker(
+      thresholdBytesPerSec: growthThresholdBytesPerSec,
+      cycleGapMs: floorCycleGapMs,
+      windowMs: floorWindowMs,
+      minPoints: floorMinPoints,
+      minSpanMs: floorMinSpanMs,
+      freshnessMs: floorFreshnessMs,
+    );
+    _floorStartupBoundaryMs =
+        _clock().millisecondsSinceEpoch + floorStartupWindowMs;
+    _floor.clear(notBeforeMs: _floorStartupBoundaryMs);
+  }
 
   /// Duration in milliseconds to suppress heap trend alerts after first sample.
   /// Prevents false positives from normal startup allocation.
@@ -76,6 +96,37 @@ class MemoryPressureDetector extends BaseDetector
   final int gcRateThresholdPerMin;
 
   static const int _defaultGcRateThresholdPerMin = 180;
+
+  /// Whether this detector runs in a capture session. Only then does
+  /// [setLegsEnabledForCapture] change anything.
+  final bool captureMode;
+
+  /// Idle-collection points whose event time falls within this many
+  /// milliseconds of the detector's construction are ignored, so the
+  /// floor leg does not report the retention of app startup as growth.
+  /// [reset] does not move this boundary.
+  final int floorStartupWindowMs;
+
+  late final HeapFloorTracker _floor;
+  late final int _floorStartupBoundaryMs;
+  bool _floorLegEnabled = true;
+  bool _sampleLegEnabled = true;
+
+  // -- heap_growing episodes --
+  //
+  // An episode starts at the first `heap_growing` publication from either
+  // leg and ends at the first evaluation that publishes nothing. Each leg
+  // has its own capture identity within the episode, so a leg switch
+  // records one trace record per leg; confidence is `confirmed` while the
+  // floor leg has published in the episode and no drop has followed.
+  int _episode = 0;
+  int? _episodeStartMicros;
+  // The floor tracker's drop count when the floor leg last published in
+  // this episode; null until it does. A drop since then means the heap
+  // fell after the evidence, so a sample-leg publication is `likely`.
+  int? _floorConfirmedDropCount;
+  int? _sampleIdentityMicros;
+  int? _floorIdentityMicros;
 
   final DateTime Function() _clock;
   final List<PerformanceIssue> _issues = [];
@@ -123,7 +174,10 @@ class MemoryPressureDetector extends BaseDetector
   static const int _nativeGrowthThresholdBytesPerSec = 1048576; // 1 MB/sec
 
   final Queue<HeapSample> _heapSamples = Queue<HeapSample>();
-  DateTime? _sustainedGrowthStart;
+  // Sample leg: when the sample regression first crossed the threshold in
+  // the current run of evaluations. Owned by the sample leg only; the
+  // episode outlives it while the floor leg publishes.
+  DateTime? _sampleSustainedStart;
   DateTime? _sustainedNativeGrowthStart;
   // First in-window event timestamp at the moment gc_pressure crossed
   // the >10/window threshold. Pinned for the full overage episode so
@@ -186,6 +240,39 @@ class MemoryPressureDetector extends BaseDetector
     return now - last <= window;
   }
 
+  /// Number of `heap_growing` episodes started so far. Changes when a new
+  /// episode starts, also while the issue stays visible across the
+  /// switch, so readers can tell one episode from the next.
+  int get heapGrowingEpisode => _episode;
+
+  /// The floor leg's verdict now: the heap measured right after idle full
+  /// collections.
+  HeapFloorVerdict get floorVerdict => _floorLegEnabled
+      ? _floor.verdict(_clock().millisecondsSinceEpoch)
+      : HeapFloorTracker.unknownVerdict;
+
+  /// Switches the two `heap_growing` legs on or off, so a capture can
+  /// record each leg's evidence alone. Does nothing unless [captureMode]
+  /// is true; a normal session always runs both legs.
+  void setLegsEnabledForCapture({bool? floor, bool? sample}) {
+    if (!captureMode) return;
+    if (floor != null && floor != _floorLegEnabled) {
+      _floorLegEnabled = floor;
+      _floor.clear(notBeforeMs: _floorNotBeforeNow());
+    }
+    if (sample != null && sample != _sampleLegEnabled) {
+      _sampleLegEnabled = sample;
+      _sampleSustainedStart = null;
+    }
+    _evaluate();
+  }
+
+  int _floorNotBeforeMs(int nowMs) =>
+      nowMs > _floorStartupBoundaryMs ? nowMs : _floorStartupBoundaryMs;
+
+  int _floorNotBeforeNow() =>
+      _floorNotBeforeMs(_clock().millisecondsSinceEpoch);
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -203,7 +290,7 @@ class MemoryPressureDetector extends BaseDetector
   ///   freshly reconnected app that has not actually GC'd yet.
   /// - Heap samples preserve a slope from the prior session, causing
   ///   `heap_growing` to fire on the first post-reconnect sample.
-  /// - `_sustainedGrowthStart` survives, so a heap_growing issue emitted
+  /// - The sample leg's sustain start survives, so a heap_growing issue emitted
   ///   post-reconnect carries a `dedupIdentityMicros` derived from a
   ///   prior-session timestamp — corrupting the producer-side dedup
   ///   composite key and the runtimeVerified audit trail.
@@ -224,15 +311,18 @@ class MemoryPressureDetector extends BaseDetector
     // during its backoff (up to 16 s) would otherwise all be booked into
     // the first event of the new session.
     _lastCumulativePauseSeconds = null;
+    // Collections from before the change belong to another session.
+    _floor.clear(notBeforeMs: _floorNotBeforeNow());
     if (!value) {
       _gcWindow.clear();
       _heapSamples.clear();
       _budgetCrossingStart = null;
-      _sustainedGrowthStart = null;
+      _sampleSustainedStart = null;
       _sustainedNativeGrowthStart = null;
       _gcOverageStart = null;
       _firstHeapSampleTime = null;
       _lastHeapGrowingEmittedAtMicros = null;
+      _endEpisode();
       _evaluate();
     }
     super.vmConnected = value;
@@ -273,20 +363,34 @@ class MemoryPressureDetector extends BaseDetector
   /// baseline. The baseline is kept while the detector is disabled, so
   /// re-enabling it does not book the disabled interval's pauses into
   /// the current window.
+  ///
+  /// [reason], [heapUsedBytes] (`new.used + old.used` after the
+  /// collection) and [eventTimestampMs] (the event's `timestamp`) feed the
+  /// `heap_growing` floor leg, which only uses events that
+  /// [pauseAttributable] marks as the app's own.
   void recordGcCycle({
     String? gcType,
     double? cumulativePauseSeconds,
     bool pauseAttributable = false,
+    String? reason,
+    int? heapUsedBytes,
+    int? eventTimestampMs,
   }) {
     final pauseUs = _advancePauseBaseline(
       pauseAttributable ? cumulativePauseSeconds : null,
     );
     if (!_isEnabled) return;
-    _gcWindow.add((
-      ts: _clock(),
-      gcClass: _classifyGc(gcType),
-      pauseUs: pauseUs,
-    ));
+    final now = _clock();
+    _gcWindow.add((ts: now, gcClass: _classifyGc(gcType), pauseUs: pauseUs));
+    if (_floorLegEnabled && pauseAttributable) {
+      _floor.addCollection(
+        gcType: gcType,
+        reason: reason,
+        heapUsedBytes: heapUsedBytes,
+        eventMs: eventTimestampMs,
+        arrivalMs: now.millisecondsSinceEpoch,
+      );
+    }
     _evaluate();
   }
 
@@ -472,73 +576,181 @@ class MemoryPressureDetector extends BaseDetector
     }
   }
 
+  /// Publishes `heap_growing` from one of two legs.
+  ///
+  /// The floor leg (`confirmed` evidence) reads the heap right after idle
+  /// full collections. While its verdict is fresh it decides: growing
+  /// publishes the floor leg; not growing publishes nothing and clears the
+  /// recency stamp. Without a fresh verdict the sample leg (the 500 ms
+  /// heap-sample regression, sustained 10 s) decides as before.
   void _evaluateHeapTrend() {
-    if (_heapSamples.length < 4) return;
+    final sample = _sampleLegEnabled ? _evaluateSampleLeg() : null;
+    final floor = floorVerdict;
+    switch (floor.state) {
+      case HeapFloorState.growing:
+        _publishFloorLeg(floor);
+      case HeapFloorState.notGrowing:
+        _endEpisode();
+        _lastHeapGrowingEmittedAtMicros = null;
+      case HeapFloorState.unknown:
+        if (sample == null) {
+          _endEpisode();
+        } else {
+          _publishSampleLeg(sample.slope, sample.sustained);
+        }
+    }
+  }
 
+  /// The sample leg's current reading: the regression slope when it has
+  /// stayed above the threshold for the sustain period, else null. Keeps
+  /// its sustain state current even while the floor leg decides.
+  ({double slope, Duration sustained})? _evaluateSampleLeg() {
+    if (_heapSamples.length < 4) {
+      _sampleSustainedStart = null;
+      return null;
+    }
     // Suppress heap trend alerts during warmup to avoid false positives
     // from normal startup allocation (class loading, widget tree, images).
     if (_firstHeapSampleTime != null) {
       final sinceFirst = _clock().difference(_firstHeapSampleTime!);
-      if (sinceFirst.inMilliseconds < warmupDurationMs) return;
+      if (sinceFirst.inMilliseconds < warmupDurationMs) return null;
     }
-
     final slope = _computeSlopeBytesPerSec();
+    if (slope <= growthThresholdBytesPerSec) {
+      _sampleSustainedStart = null;
+      return null;
+    }
+    _sampleSustainedStart ??= _heapSamples.last.timestamp;
+    final sustained = _heapSamples.last.timestamp.difference(
+      _sampleSustainedStart!,
+    );
+    if (sustained.inSeconds < _sustainedGrowthDurationSec) return null;
+    return (slope: slope, sustained: sustained);
+  }
 
-    if (slope > growthThresholdBytesPerSec) {
-      _sustainedGrowthStart ??= _heapSamples.last.timestamp;
-      final sustained = _heapSamples.last.timestamp.difference(
-        _sustainedGrowthStart!,
-      );
-      if (sustained.inSeconds >= _sustainedGrowthDurationSec) {
-        final slopeKbSec = slope / 1024;
-        final (hint, effort) = FixHintBuilder.heapGrowing();
-        _issues.add(
-          PerformanceIssue(
-            stableId: 'heap_growing',
-            severity: IssueSeverity.warning,
-            category: IssueCategory.memory,
-            confidence: IssueConfidence.likely,
-            title:
-                'Heap Growing: +${slopeKbSec.toStringAsFixed(0)} KB/s '
-                'for ${sustained.inSeconds}s',
-            detail:
-                'The heap has grown at ${slopeKbSec.toStringAsFixed(1)} KB/sec '
-                'for ${sustained.inSeconds} seconds. It now holds '
-                '${_formatBytes(_heapSamples.last.heapUsage)}. The window has '
-                '${_heapSamples.length} samples over '
-                '${_heapSamples.last.timestamp.difference(_heapSamples.first.timestamp).inSeconds}s.',
-            fixHint: hint,
-            fixEffort: effort,
-            observationSource: ObservationSource.vmTimeline,
-            detectedAt: _clock(),
-            // Stable per-trigger identity for capture-mode producer-side
-            // dedup. `_sustainedGrowthStart` is set once when the slope
-            // first crosses threshold (above) and persists until the slope
-            // drops below, so multiple polls during one sustained-growth
-            // episode emit issues with the same `dedupIdentityMicros` →
-            // the controller's composite-key dedup collapses them to a
-            // single trace record. A scenario that observes ≥2 records
-            // with distinct identities means the sustained window broke
-            // and re-engaged — capture-procedure validator catches that.
-            dedupIdentityMicros: _sustainedGrowthStart!.microsecondsSinceEpoch,
-            // Stringified per the wire-format contract for VM timeline args
-            // (see also HeavyComputeDetector.observedDurationMs,
-            // RebuildDetector.observedBuildPercent). Schema's `args` parser
-            // accepts both string and num and round-trips via num.tryParse.
-            extraTraceArgs: {
-              'observedSlopeBytesPerSec': slope.toStringAsFixed(0),
-            },
-            topAllocators: _lastTopAllocators,
-            confidenceReason:
-                'Heap trend analysis and a sustained growth regression',
-          ),
-        );
-        _lastHeapGrowingEmittedAtMicros = _clock().microsecondsSinceEpoch;
-      }
-    } else {
-      _sustainedGrowthStart = null;
+  /// Starts an episode if none is open and returns this leg's capture
+  /// identity for it. A leg keeps its identity for the whole episode;
+  /// the two legs never share one, so each records its own trace record.
+  int _publishIdentity({required bool floorLeg}) {
+    final nowMicros = _clock().microsecondsSinceEpoch;
+    if (_episodeStartMicros == null) {
+      _episode++;
+      _episodeStartMicros = nowMicros;
+      _floorConfirmedDropCount = null;
+      _sampleIdentityMicros = null;
+      _floorIdentityMicros = null;
       _lastTopAllocators = null;
     }
+    if (floorLeg) _floorConfirmedDropCount = _floor.dropCount;
+    _lastHeapGrowingEmittedAtMicros = nowMicros;
+    final own = floorLeg ? _floorIdentityMicros : _sampleIdentityMicros;
+    if (own != null) return own;
+    final other = floorLeg ? _sampleIdentityMicros : _floorIdentityMicros;
+    final identity = nowMicros == other ? nowMicros + 1 : nowMicros;
+    if (floorLeg) {
+      _floorIdentityMicros = identity;
+    } else {
+      _sampleIdentityMicros = identity;
+    }
+    return identity;
+  }
+
+  void _endEpisode() {
+    _episodeStartMicros = null;
+    _floorConfirmedDropCount = null;
+    _sampleIdentityMicros = null;
+    _floorIdentityMicros = null;
+    _lastTopAllocators = null;
+  }
+
+  IssueConfidence get _episodeConfidence =>
+      _floorConfirmedDropCount != null &&
+          _floorConfirmedDropCount == _floor.dropCount
+      ? IssueConfidence.confirmed
+      : IssueConfidence.likely;
+
+  void _publishFloorLeg(HeapFloorVerdict floor) {
+    final identity = _publishIdentity(floorLeg: true);
+    final slope = floor.slopeBytesPerSec ?? 0;
+    final slopeKbSec = slope / 1024;
+    final spanSec = (floor.runSpanMs / 1000).round();
+    final ageSec = floor.newestEventMs == null
+        ? 0
+        : ((_clock().millisecondsSinceEpoch - floor.newestEventMs!) / 1000)
+              .round();
+    final (hint, effort) = FixHintBuilder.heapGrowing();
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'heap_growing',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.memory,
+        confidence: _episodeConfidence,
+        title:
+            'Heap Growing: +${slopeKbSec.toStringAsFixed(0)} KB/s '
+            'over ${spanSec}s',
+        detail:
+            'Measured right after idle garbage collections, the heap grew '
+            'at ${slopeKbSec.toStringAsFixed(1)} KB/sec across '
+            '${floor.runPoints} collections spanning $spanSec seconds. The '
+            'newest collection, ${ageSec}s ago, left '
+            '${_formatBytes(floor.newestBytes ?? 0)} in use.',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.vmTimeline,
+        detectedAt: _clock(),
+        dedupIdentityMicros: identity,
+        extraTraceArgs: {
+          'heapGrowingLeg': 'floor',
+          'observedFloorSlopeBytesPerSec': slope.toStringAsFixed(0),
+          'floorPointCount': floor.runPoints.toString(),
+        },
+        topAllocators: _lastTopAllocators,
+        confidenceReason:
+            'Heap level measured right after idle full collections, which '
+            'leaves out garbage the next collection would free',
+      ),
+    );
+  }
+
+  void _publishSampleLeg(double slope, Duration sustained) {
+    final identity = _publishIdentity(floorLeg: false);
+    final slopeKbSec = slope / 1024;
+    final (hint, effort) = FixHintBuilder.heapGrowing();
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'heap_growing',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.memory,
+        confidence: _episodeConfidence,
+        title:
+            'Heap Growing: +${slopeKbSec.toStringAsFixed(0)} KB/s '
+            'for ${sustained.inSeconds}s',
+        detail:
+            'The heap has grown at ${slopeKbSec.toStringAsFixed(1)} KB/sec '
+            'for ${sustained.inSeconds} seconds. It now holds '
+            '${_formatBytes(_heapSamples.last.heapUsage)}. The window has '
+            '${_heapSamples.length} samples over '
+            '${_heapSamples.last.timestamp.difference(_heapSamples.first.timestamp).inSeconds}s.',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.vmTimeline,
+        detectedAt: _clock(),
+        // Stable per-leg identity for the episode, so the controller's
+        // composite-key dedup records one trace record per leg per episode.
+        dedupIdentityMicros: identity,
+        // Stringified per the wire-format contract for VM timeline args
+        // (see also HeavyComputeDetector.observedDurationMs,
+        // RebuildDetector.observedBuildPercent). Schema's `args` parser
+        // accepts both string and num and round-trips via num.tryParse.
+        extraTraceArgs: {
+          'heapGrowingLeg': 'sample',
+          'observedSlopeBytesPerSec': slope.toStringAsFixed(0),
+        },
+        topAllocators: _lastTopAllocators,
+        confidenceReason:
+            'Heap trend analysis and a sustained growth regression',
+      ),
+    );
   }
 
   /// Compute heap growth rate in bytes/sec via least-squares linear regression.
@@ -719,13 +931,15 @@ class MemoryPressureDetector extends BaseDetector
   void reset() {
     _gcWindow.clear();
     _heapSamples.clear();
-    _sustainedGrowthStart = null;
+    _sampleSustainedStart = null;
     _sustainedNativeGrowthStart = null;
     _gcOverageStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
     _lastHeapGrowingEmittedAtMicros = null;
     _budgetCrossingStart = null;
+    _floor.clear(notBeforeMs: _floorNotBeforeNow());
+    _endEpisode();
     _issues.clear();
   }
 
@@ -734,13 +948,15 @@ class MemoryPressureDetector extends BaseDetector
     _gcWindow.clear();
     _lastCumulativePauseSeconds = null;
     _heapSamples.clear();
-    _sustainedGrowthStart = null;
+    _sampleSustainedStart = null;
     _sustainedNativeGrowthStart = null;
     _gcOverageStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
     _lastHeapGrowingEmittedAtMicros = null;
     _budgetCrossingStart = null;
+    _floor.clear(notBeforeMs: _floorNotBeforeNow());
+    _endEpisode();
     _issues.clear();
   }
 
