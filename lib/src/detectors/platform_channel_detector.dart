@@ -34,18 +34,20 @@ typedef PlatformChannelWindowStats = ({
 /// (500 ms polls put two or three batches in one wall-clock second). A
 /// burst whose events arrive in two polls reads partial at one check and
 /// complete at the next, so it can escalate from warning to critical.
-/// After each check the detector keeps the calls of the last 2 s of event
-/// time, so a check sees the whole of a poll that covers more than 2 s. It
-/// keeps at most [maxRetainedCalls]. When one poll brings more, it notes
-/// the busiest unchecked span among the calls it drops, and the next check
+/// After each check the detector keeps the calls of the last 10 s of event
+/// time, so a check sees the whole of a poll that covers several seconds,
+/// and a call that arrives late counts with the calls around it. It keeps
+/// at most [maxRetainedCalls] begins; above about 400 calls/s the oldest
+/// go first. When one poll brings more than that, the detector notes the
+/// busiest unchecked span among the begins it drops, and the next check
 /// reports that span if no kept span is busier.
 ///
 /// **Repeats and late calls.** A reconnect makes the VM client read its
 /// whole timeline buffer again, so the detector skips calls it has already
-/// seen: a held call by its identity, and a dropped one by the latest
-/// begin time its thread has dropped. A call that arrives late still
-/// counts, unless it began more than 10 s before the newest call at the
-/// last check or before a dropped call of its own thread.
+/// seen: a held call by its identity, a begin the count cap dropped by the
+/// latest dropped begin time on its thread, and anything more than 10 s
+/// behind the newest begin at the last check by its time. That last rule
+/// also skips a call that arrives more than 10 s late.
 ///
 /// **Retention.** Windows are 1 s long. After an emission the issue is
 /// re-added for 3 cooldown windows (same identity, so a sustained overload
@@ -99,12 +101,9 @@ class PlatformChannelDetector extends BaseDetector
   /// The most call begins kept for span counting.
   static const int maxRetainedCalls = 4096;
 
-  /// How far behind the newest call begin, in event time, calls are kept.
-  static const int _retainUs = 2000000;
-
-  /// How far behind the newest call begin, in event time, a call that
-  /// arrives late still counts.
-  static const int _lateUs = 10000000;
+  /// How far behind the newest call begin, in event time, calls are kept,
+  /// and how late a call can arrive and still count.
+  static const int _retainUs = 10000000;
 
   /// The most threads whose dropped-begin marks are kept.
   static const int _maxThreadMarks = 256;
@@ -121,8 +120,8 @@ class PlatformChannelDetector extends BaseDetector
   final List<int> _callDurationsUs = [];
   late DateTime _windowStart;
 
-  // Call begins sorted by event time, and completed calls by begin time,
-  // both kept for [_retainUs] of event time behind the newest begin.
+  // Call begins sorted by event time, and completed calls in arrival
+  // order, both kept for [_retainUs] of event time behind the newest begin.
   final List<_ChannelBegin> _begins = [];
   final List<PlatformChannelCall> _calls = [];
   // Identities of the held begins and calls. A reconnect resets the VM
@@ -131,13 +130,13 @@ class PlatformChannelDetector extends BaseDetector
   // detector skips those.
   final Set<String> _beginKeys = {};
   final Set<String> _callKeys = {};
-  // For each thread, the latest begin time among the begins that pruning
-  // dropped and the calls that aged out. A repeat of a dropped one is at or
-  // below its thread's mark and is skipped. A call from another thread
-  // that arrives late is not, and still counts.
+  // For each thread, the latest begin time among the begins the count cap
+  // dropped. A repeat of one is at or below its thread's mark and is
+  // skipped, while a begin from another thread that arrives late is not.
+  // Begins that age out by time fall below [_floorUs] instead.
   final Map<int, int> _droppedUpToByTid = {};
   // The detector skips begins and calls before this event time, which is
-  // [_lateUs] behind the newest begin at the last check, and forgets
+  // [_retainUs] behind the newest begin at the last check, and forgets
   // thread marks below it.
   int? _floorUs;
   int _arrivalSeq = 0;
@@ -146,8 +145,10 @@ class PlatformChannelDetector extends BaseDetector
   int _checkSeq = 0;
   // The busiest span among begins that the count cap evicted before a
   // check saw them; the next check reports it when it beats the live
-  // spans.
+  // spans. Its call durations, by call key, are the ones held at the
+  // eviction plus the ones held at the check.
   _SpanStats? _evictedPeak;
+  Map<String, int> _evictedPeakDurations = const {};
   int? _newestBeginUs;
   // [reset] sets this to the newest begin seen, and the detector drops
   // later begins at or before it, so a retained-buffer replay from before
@@ -181,8 +182,8 @@ class PlatformChannelDetector extends BaseDetector
       _checkSeq = _arrivalSeq;
       _windowStart = now;
       // Age out only after a check, so the check sees a batch that spans
-      // more than 2 s of event time (a delayed poll) before its early calls
-      // go.
+      // more than 10 s of event time (a delayed poll) before its early
+      // calls go.
       _prune(byTime: true);
     }
 
@@ -199,7 +200,7 @@ class PlatformChannelDetector extends BaseDetector
       if (ts is! int) continue;
       final rawTid = json!['tid'];
       final tid = rawTid is int ? rawTid : 0;
-      if (_skipped(ts, tid)) continue;
+      if (_skipped(ts) || _droppedBefore(ts, tid)) continue;
       final name = json['name'] as String?;
       final key = '$ts|$tid|${json['ph']}|${json['id'] ?? ''}|$name';
       if (!_beginKeys.add(key)) continue;
@@ -216,7 +217,9 @@ class PlatformChannelDetector extends BaseDetector
     }
     if (outOfOrder) _begins.sort((a, b) => a.ts.compareTo(b.ts));
     for (final call in data.platformChannelCalls) {
-      if (_skipped(call.beginTs, call.tid ?? 0)) continue;
+      // A call is not checked against the thread marks: the begin of an
+      // async call the cap dropped can still end, and its duration counts.
+      if (_skipped(call.beginTs)) continue;
       if (!_callKeys.add(_callKey(call))) continue;
       _callDurationsUs.add(call.durationUs);
       _calls.add(call);
@@ -224,13 +227,17 @@ class PlatformChannelDetector extends BaseDetector
     _prune(byTime: false);
   }
 
-  /// Whether a begin at [ts] on thread [tid] is before the scenario
-  /// boundary, too late, or a repeat of one that pruning dropped.
-  bool _skipped(int ts, int tid) {
+  /// Whether an event at [ts] is before the scenario boundary or too late.
+  bool _skipped(int ts) {
     final horizon = _horizonUs;
     if (horizon != null && ts <= horizon) return true;
     final floor = _floorUs;
-    if (floor != null && ts < floor) return true;
+    return floor != null && ts < floor;
+  }
+
+  /// Whether a begin at [ts] on thread [tid] repeats one the count cap
+  /// dropped.
+  bool _droppedBefore(int ts, int tid) {
     final droppedUpTo = _droppedUpToByTid[tid];
     return droppedUpTo != null && ts <= droppedUpTo;
   }
@@ -251,22 +258,17 @@ class PlatformChannelDetector extends BaseDetector
   }
 
   /// Keeps at most [maxRetainedCalls] begins and calls and, with [byTime],
-  /// drops those more than 2 s of event time behind the newest begin.
+  /// drops those more than 10 s of event time behind the newest begin.
   void _prune({required bool byTime}) {
     if (_begins.length > maxRetainedCalls) {
       final evicted = _begins.length - maxRetainedCalls;
       // A check may not have seen these begins yet, so the busiest
       // unchecked span that starts among them is kept for the next check.
-      // This runs before the calls go so the span keeps its durations.
       _keepEvictedPeak(evicted);
       _dropBegins(evicted);
     }
     if (_calls.length > maxRetainedCalls) {
       final evicted = _calls.length - maxRetainedCalls;
-      // Calls are held in completion order, so a call evicted here can
-      // have begun after a held begin whose call has not ended yet. These
-      // evictions leave the thread marks alone, so that call still counts
-      // when it ends.
       for (final call in _calls.take(evicted)) {
         _callKeys.remove(_callKey(call));
       }
@@ -282,10 +284,10 @@ class PlatformChannelDetector extends BaseDetector
       _dropBegins(drop);
       _calls.removeWhere((c) {
         final old = c.beginTs < cutoff;
-        if (old) _forgetCall(c);
+        if (old) _callKeys.remove(_callKey(c));
         return old;
       });
-      _raiseFloor(newest - _lateUs);
+      _raiseFloor(cutoff);
     }
     if (_droppedUpToByTid.length > _maxThreadMarks) {
       // Raise the floor to the oldest mark kept, which forgets the older
@@ -303,11 +305,6 @@ class PlatformChannelDetector extends BaseDetector
       _markDropped(begin.tid, begin.ts);
     }
     _begins.removeRange(0, count);
-  }
-
-  void _forgetCall(PlatformChannelCall call) {
-    _callKeys.remove(_callKey(call));
-    _markDropped(call.tid ?? 0, call.beginTs);
   }
 
   /// Drops the held calls and ignores later begins at or before the newest
@@ -328,6 +325,7 @@ class PlatformChannelDetector extends BaseDetector
     _callDurationsUs.clear();
     _checkSeq = _arrivalSeq;
     _evictedPeak = null;
+    _evictedPeakDurations = const {};
   }
 
   /// The busiest half-open 1 s span of event time that holds at least one
@@ -397,8 +395,8 @@ class PlatformChannelDetector extends BaseDetector
   static String _ms(int us) =>
       us % 1000 == 0 ? '${us ~/ 1000}' : (us / 1000).toStringAsFixed(1);
 
-  /// The count, method counts and call durations of the span from index
-  /// `first` to index `last` of [_begins].
+  /// The start, count and method counts of the span from index `first` to
+  /// index `last` of [_begins].
   _SpanStats _spanStats((int, int) span) {
     final (first, last) = span;
     final methodCounts = <String, int>{};
@@ -406,24 +404,30 @@ class PlatformChannelDetector extends BaseDetector
       final method = _begins[i].method;
       methodCounts[method] = (methodCounts[method] ?? 0) + 1;
     }
-    final startUs = _begins[first].ts;
     return (
+      startUs: _begins[first].ts,
       count: last - first + 1,
       methodCounts: methodCounts,
-      durationsUs: [
-        for (final call in _calls)
-          if (call.beginTs >= startUs && call.beginTs < startUs + _spanUs)
-            call.durationUs,
-      ],
     );
   }
+
+  /// The durations of the held calls that began in the 1 s span from
+  /// [startUs], by call key.
+  Map<String, int> _durationsByCall(int startUs) => {
+    for (final call in _calls)
+      if (call.beginTs >= startUs && call.beginTs < startUs + _spanUs)
+        _callKey(call): call.durationUs,
+  };
 
   void _keepEvictedPeak(int evicted) {
     final span = _busiestNewSpan(startBefore: evicted);
     if (span == null) return;
     final stats = _spanStats(span);
     final kept = _evictedPeak;
-    if (kept == null || stats.count > kept.count) _evictedPeak = stats;
+    if (kept == null || stats.count > kept.count) {
+      _evictedPeak = stats;
+      _evictedPeakDurations = _durationsByCall(stats.startUs);
+    }
   }
 
   void _evaluateWindow() {
@@ -432,15 +436,23 @@ class PlatformChannelDetector extends BaseDetector
     // calls.
     final span = _busiestNewSpan();
     var stats = span == null ? null : _spanStats(span);
+    var durationsByCall = const <String, int>{};
     final evictedPeak = _evictedPeak;
-    _evictedPeak = null;
     if (evictedPeak != null &&
         (stats == null || evictedPeak.count > stats.count)) {
       stats = evictedPeak;
+      durationsByCall = _evictedPeakDurations;
     }
+    _evictedPeak = null;
+    _evictedPeakDurations = const {};
     final count = stats?.count ?? 0;
     final methodCounts = stats?.methodCounts ?? const <String, int>{};
-    final durationsUs = stats?.durationsUs ?? const <int>[];
+    final durationsUs = stats == null
+        ? const <int>[]
+        : {
+            ...durationsByCall,
+            ..._durationsByCall(stats.startUs),
+          }.values.toList();
     final maxUs = durationsUs.isEmpty
         ? 0
         : durationsUs.reduce((a, b) => a > b ? a : b);
@@ -588,6 +600,7 @@ class PlatformChannelDetector extends BaseDetector
     _callKeys.clear();
     _droppedUpToByTid.clear();
     _evictedPeak = null;
+    _evictedPeakDurations = const {};
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
@@ -722,12 +735,8 @@ class PlatformChannelDetector extends BaseDetector
   );
 }
 
-/// Count, method counts and call durations of one span of call begins.
-typedef _SpanStats = ({
-  int count,
-  Map<String, int> methodCounts,
-  List<int> durationsUs,
-});
+/// Start time, count and method counts of one span of call begins.
+typedef _SpanStats = ({int startUs, int count, Map<String, int> methodCounts});
 
 /// A platform channel call begin kept for span counting.
 class _ChannelBegin {
