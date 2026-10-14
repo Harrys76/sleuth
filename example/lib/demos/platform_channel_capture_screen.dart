@@ -55,7 +55,7 @@ import 'capture_driver.dart';
 ///      and the parser's per-tid cursor map initialize).
 ///   3. Tap a leg (Below / At / Above). Workload runs ≥ 1.5 s of
 ///      `MethodChannel.invokeMethod('ping')` calls in parallel batches
-///      followed by ≥ 1500 ms dwell, then `markScenarioEnd`.
+///      followed by a 2.5 s dwell, then `markScenarioEnd`.
 ///   4. Wait for "ready to Export" log line.
 ///   5. Tap **Export last leg**. The wrapped capture JSON is parsed
 ///      to verify EXACTLY ONE
@@ -81,29 +81,27 @@ import 'capture_driver.dart';
 ///                                above-leg cannot ambiently bracket
 ///                                the critical tier)
 ///
-/// Per-leg send rates aim the detector count at the middle of each band.
-/// The above leg sends more than its band because coalescing lowers the
-/// detector count (see the constants below):
+/// The detector counts call begins by event time, so its count matches
+/// the send rate, and each leg's rate sits in the middle of its band:
 ///
 ///   below:  3 calls / 200 ms tick = 15/sec
 ///   at:     5 calls / 200 ms tick = 25/sec
-///   above:  9 calls / 200 ms tick = 45/sec
+///   above:  7 calls / 200 ms tick = 35/sec
 ///
 /// **Parallel send.** Each tick fires K parallel `invokeMethod` Futures
 /// via `Future.wait` rather than sequential awaits, so the per-tick cost
 /// is the slowest single round trip, not the sum. Sequential awaits would
 /// cap the send rate at one call per round trip.
 ///
-/// **Cooldown.** The detector emits ONCE per fire then suppresses for
-/// the next 3 evaluation cycles. With a 1.5 s call phase and 1 s
-/// evaluation windows, exactly one emission lands per leg — the
-/// cooldown only matters as a guard against the second second
-/// firing again, which it does not under the chosen budget.
+/// **Cooldown.** The detector emits once per fire, then holds the same
+/// issue for the next 3 checks. A check can see part of the call phase
+/// and the next one all of it; both read the same severity, so one
+/// emission lands per leg.
 ///
 /// **Retry budget**: 5 retries per leg before the screen surfaces
 /// abort-with-diagnostic. Send-rate variance is tighter than GC
-/// variance but iOS may still drop or coalesce events under
-/// thermal pressure.
+/// variance, but a leg can still miss events, for example when the
+/// profiling flag is not on in time.
 class PlatformChannelCaptureScreen extends StatefulWidget {
   const PlatformChannelCaptureScreen({super.key});
 
@@ -115,50 +113,36 @@ class PlatformChannelCaptureScreen extends StatefulWidget {
 // Detector threshold (warning tier).
 const _warningThresholdCallsPerSec = 20;
 
-// Per-leg target *operator-send* rates (calls/sec) and batch geometry.
-// In-band gating uses the DETECTOR-stamped count (parsed from the
-// capture's in-span `args.observedCount` and re-injected into the
-// JSON's `expectedMagnitude.observed`), not the operator send rate.
-// iOS scheduling and `MethodChannel` coalescing skew detector count
-// vs. operator send count by ±10–20 % depending on thermal state.
-// Operator targets pick rates that LAND THE DETECTOR mid-band on a
-// typical iPhone 12; retries refine.
+// Per-leg send rates (calls/sec) and batch geometry. In-band gating uses
+// the detector-stamped count (the capture's in-span `args.observedCount`,
+// re-injected into the JSON's `expectedMagnitude.observed`). The detector
+// counts by event time, so that count matches the send rate:
 //
-//   below band (operator < 20/sec, detector silent) →
-//                                     3 calls / 200 ms = 15/sec
-//   at    band (detector ∈ [20, 30]) → 5 calls / 200 ms = 25/sec
-//   above band (detector ∈ [31, 39]) → 9 calls / 200 ms = 45/sec
-//                                     (operator overshoots ~+30 %
-//                                     above-band so coalescing leaves
-//                                     detector count in band; previous
-//                                     7/200ms produced detector ~28 in
-//                                     at-band, mislabeling above-leg)
+//   below band (detector silent, under 20)  3 calls / 200 ms = 15/sec
+//   at    band (detector in [20, 30])       5 calls / 200 ms = 25/sec
+//   above band (detector in [31, 39])       7 calls / 200 ms = 35/sec
+//
+// The above leg stays under the critical boundary (more than 40).
 const _belowCallsPerBatch = 3;
 const _atCallsPerBatch = 5;
-const _aboveCallsPerBatch = 9;
+const _aboveCallsPerBatch = 7;
 const _batchTickMs = 200;
 
 const _belowTargetCps = _belowCallsPerBatch * 1000 ~/ _batchTickMs;
 const _atTargetCps = _atCallsPerBatch * 1000 ~/ _batchTickMs;
 const _aboveTargetCps = _aboveCallsPerBatch * 1000 ~/ _batchTickMs;
 
-// Wall-clock budget for the call-emission phase. The detector evaluates
-// on a 1 s window boundary; 1500 ms covers exactly one evaluation
-// crossing plus a partial second of margin so the firing window's count
-// is fully accumulated before the next evaluation triggers.
+// Wall-clock budget for the call-emission phase: more than 1 s, so the
+// detector's busiest 1 s span holds a full second of calls.
 const _callPhaseDurationMs = 1500;
 
-// Dwell after call phase ends. The detector evaluates on a wall-clock
-// 1 s window boundary, NOT aligned to scenario start — depending on
-// boundary phase, the firing window's emission can land anywhere up
-// to ~1 s after allocation ends. 1500 ms covers three detector poll
-// cycles (500 ms cadence) plus emission landing margin so the trace
-// record lands inside the scenario span even when the eval boundary
-// falls at the unfortunate end of the allocation phase. Recorded
-// captures with 800 ms had only 43 ms scenario-end headroom on the
-// at-leg — bumped here so future re-captures on warmer/throttled
-// devices stay inside the span without retry churn.
-const _postCallDwellMs = 1500;
+// Dwell after the call phase ends. The detector checks once per second
+// of wall time, not aligned to the scenario, and counts a span only
+// once the polls have delivered all of it (events arrive up to about
+// 1 s late). The check that sees the full span can therefore land up to
+// about 2 s after the last call; 2.5 s keeps the trace record inside
+// the scenario span.
+const _postCallDwellMs = 2500;
 
 // Extra barrier after markScenarioEnd before exportCaptureJson reads
 // the VM trace buffer. Without it the RPC may observe a snapshot that
@@ -368,15 +352,12 @@ class _PlatformChannelCaptureScreenState
       );
       if (!mounted) return;
 
-      // `operatorCps` is the SEND rate (per-iteration counter / wall
-      // clock), NOT the rate the detector observed at parser entry.
-      // iOS coalescing, missed `b` events under thermal pressure, or
-      // a `debugProfilePlatformChannels` flag race produces a gap
-      // between sent and observed counts. Detector-stamped
-      // `observedCount` (parsed back out of the wrapped capture and
-      // re-injected into `expectedMagnitude.observed`) is the
-      // authoritative number the role band is judged against. Operator
-      // rate is the wheel the operator turns.
+      // `operatorCps` is the send rate (calls sent / wall clock). The
+      // detector-stamped `observedCount` (parsed back out of the wrapped
+      // capture and re-injected into `expectedMagnitude.observed`) is the
+      // number the role band is judged against; missed `b` events or a
+      // `debugProfilePlatformChannels` flag race open a gap between the
+      // two.
       final operatorCps = totalCallsSent / (callPhaseElapsedMs / 1000.0);
 
       String? stashed;
@@ -502,8 +483,7 @@ class _PlatformChannelCaptureScreenState
               'in-span platform_channel_traffic.warning event. Detector '
               'did not fire in scenario span. Likely cause: parser '
               'dropped channel events because '
-              'debugProfilePlatformChannels was not enabled, or iOS '
-              'coalesced parallel calls. Re-tap.',
+              'debugProfilePlatformChannels was not enabled. Re-tap.',
             );
           } else {
             _log.add(
@@ -679,8 +659,8 @@ class _PlatformChannelCaptureScreenState
                 'dropped channel events because '
                 'debugProfilePlatformChannels was not enabled. Check '
                 'that the framework flag is true at leg start. '
-                '(2) iOS coalesced parallel calls and the rate stayed '
-                'below 20/sec. Recheck the batch geometry.'
+                '(2) The send rate stayed at or below 20/sec. Recheck '
+                'the batch geometry.'
           : 'Detector fired more than once inside the scenario span, '
                 'so the cooldown failed. Likely cause: the scenario span '
                 'reached a second 1 s evaluation cycle and the cooldown '
@@ -899,8 +879,7 @@ class _PlatformChannelCaptureScreenState
               label: 'Above (op $_aboveTargetCps calls/sec), warning',
               subtitle:
                   'Detector count must land in [31, 39] '
-                  '(operator overshoots; iOS coalescing reduces detector '
-                  'count by ~20%; under critical=41)',
+                  '(under critical=41)',
               enabled: ready,
               onTap: () => _runLeg(_ChannelLeg.above),
             ),

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
+import 'package:vm_service/vm_service.dart' show TimelineEvent;
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -693,6 +694,142 @@ void main() {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(emptyTimelineData());
         expect(detector.issues.first.sourceRoute, isNull);
+      });
+    });
+
+    group('counting by event time', () {
+      // One call begin per entry of [tsUs], each with a 100 µs duration.
+      ParsedTimelineData calls(List<int> tsUs, {String method = 'tick'}) =>
+          ParsedTimelineData(
+            platformChannelEvents: [
+              for (final ts in tsUs)
+                TimelineEvent.parse({
+                  'name': 'PlatformChannel',
+                  'cat': '',
+                  'ph': 'X',
+                  'dur': 100,
+                  'ts': ts,
+                  'pid': 1,
+                  'tid': 1,
+                  'args': {'method': method},
+                })!,
+            ],
+            platformChannelCalls: [
+              for (final ts in tsUs)
+                PlatformChannelCall(name: method, beginTs: ts, durationUs: 100),
+            ],
+          );
+
+      List<int> spaced(int startUs, int count, int stepUs) => [
+        for (var i = 0; i < count; i++) startUs + i * stepUs,
+      ];
+
+      void check() {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+        detector.processTimelineData(emptyTimelineData());
+      }
+
+      const s = 50000000;
+
+      test('a second of calls split across two polls counts once, in '
+          'full', () {
+        // 25 calls 40 ms apart: 13 in the first poll, 12 in the next.
+        final all = spaced(s, 25, 40000);
+        detector.processTimelineData(calls(all.sublist(0, 13)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 13);
+        expect(detector.issues, isEmpty);
+
+        detector.processTimelineData(calls(all.sublist(13)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 25);
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+        expect(detector.issues.single.title, contains('25 calls/sec'));
+      });
+
+      test('a burst split across two polls escalates at the second check', () {
+        final all = spaced(s, 50, 10000);
+        detector.processTimelineData(calls(all.sublist(0, 30)));
+        check();
+        final first = detector.issues.single;
+        expect(first.severity, IssueSeverity.warning);
+
+        detector.processTimelineData(calls(all.sublist(30)));
+        check();
+        final second = detector.issues.single;
+        expect(second.severity, IssueSeverity.critical);
+        expect(second.dedupIdentityMicros, isNot(first.dedupIdentityMicros));
+      });
+
+      test('a check with no new calls counts 0', () {
+        detector.processTimelineData(calls(spaced(s, 25, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 25);
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('out-of-order calls count as if sorted', () {
+        detector.processTimelineData(
+          calls(spaced(s, 25, 30000).reversed.toList()),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 25);
+      });
+
+      test('calls more than 1 s apart do not share a span', () {
+        detector.processTimelineData(
+          calls([...spaced(s, 15, 1000), ...spaced(s + 1000000, 15, 1000)]),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 15);
+        expect(detector.issues, isEmpty);
+      });
+
+      test('the method counts and durations describe the counted span', () {
+        detector.processTimelineData(
+          calls(spaced(s, 15, 1000), method: 'tick'),
+        );
+        detector.processTimelineData(
+          calls(spaced(s + 20000, 10, 1000), method: 'ping'),
+        );
+        // Outside the busiest span: must not reach the method line.
+        detector.processTimelineData(
+          calls(spaced(s + 1500000, 5, 1000), method: 'late'),
+        );
+        check();
+        final issue = detector.issues.single;
+        expect(issue.title, contains('25 calls/sec'));
+        expect(issue.detail, contains('tick: 15 calls'));
+        expect(issue.detail, contains('ping: 10 calls'));
+        expect(issue.detail, isNot(contains('late')));
+        expect(issue.extraTraceArgs!['observedCount'], '25');
+      });
+
+      test('calls replayed after reset with earlier times are dropped', () {
+        detector.processTimelineData(calls(spaced(s, 5, 1000)));
+        detector.reset();
+        detector.processTimelineData(calls(spaced(s - 500000, 25, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+        expect(detector.issues, isEmpty);
+      });
+
+      test('dispose drops retained calls', () {
+        detector.processTimelineData(calls(spaced(s, 25, 1000)));
+        detector.dispose();
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('retention keeps at most maxRetainedCalls', () {
+        final n = PlatformChannelDetector.maxRetainedCalls + 500;
+        detector.processTimelineData(calls(spaced(s, n, 100)));
+        check();
+        expect(
+          detector.lastWindowStats!.callCount,
+          PlatformChannelDetector.maxRetainedCalls,
+        );
       });
     });
   });

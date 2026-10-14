@@ -5,8 +5,9 @@ import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
-/// Per-window platform channel call stats. Durations are in
-/// microseconds and cover calls that completed in the window.
+/// Stats of one evaluated window: the busiest 1 s span of event time.
+/// Durations are in microseconds and cover the completed calls that began
+/// in that span.
 typedef PlatformChannelWindowStats = ({
   int callCount,
   int maxCallDurationUs,
@@ -21,6 +22,17 @@ typedef PlatformChannelWindowStats = ({
 /// it the timeline carries no platform-channel events. Opt in with
 /// `SleuthConfig(profilePlatformChannels: true)`, which sets the flag
 /// once the VM connects.
+///
+/// **Counting.** Every second of wall time the detector checks the calls
+/// received so far. The count is the largest number of call begins whose
+/// event times fall in one half-open 1 s span `[t, t + 1 s)` that holds at
+/// least one call received since the previous check. Counting by event
+/// time keeps the rate independent of how VM polls batch the events
+/// (500 ms polls put two or three batches in one wall-clock second). A
+/// burst whose events arrive in two polls reads partial at one check and
+/// complete at the next, so it can escalate from warning to critical.
+/// Calls are kept for 2 s of event time, at most [maxRetainedCalls]; above
+/// about 2,000 calls/s the oldest are dropped and the count reads low.
 ///
 /// **Retention.** Windows are 1 s long. After an emission the issue is
 /// re-added for 3 cooldown windows (same identity, so a sustained overload
@@ -71,6 +83,14 @@ class PlatformChannelDetector extends BaseDetector
   /// calls is critical.
   static const int criticalMultiplier = 2;
 
+  /// Most call begins kept for span counting.
+  static const int maxRetainedCalls = 4096;
+
+  /// How much event time behind the newest call begin is kept.
+  static const int _retainUs = 2000000;
+
+  static const int _spanUs = 1000000;
+
   /// Reads the controller's interaction state at emission so a
   /// cooldown-retained issue keeps the context it fired in.
   final InteractionContext Function()? _interactionContextProvider;
@@ -79,8 +99,21 @@ class PlatformChannelDetector extends BaseDetector
 
   int _recentCallCount = 0;
   final List<int> _callDurationsUs = [];
-  final Map<String, int> _methodCounts = {};
   late DateTime _windowStart;
+
+  // Call begins sorted by event time, and completed calls by begin time,
+  // both kept for [_retainUs] of event time behind the newest begin.
+  final List<_ChannelBegin> _begins = [];
+  final List<PlatformChannelCall> _calls = [];
+  int _arrivalSeq = 0;
+  // Begins with a sequence number at or above this arrived since the last
+  // window check.
+  int _checkSeq = 0;
+  int? _newestBeginUs;
+  // Begins at or before this event time are dropped: set by [reset], so a
+  // retained-buffer replay from before a capture scenario cannot count in
+  // it.
+  int? _horizonUs;
   int _cooldownCyclesRemaining = 0;
   PerformanceIssue? _lastEmittedIssue;
   DateTime? _lastEmittedAt;
@@ -101,52 +134,112 @@ class PlatformChannelDetector extends BaseDetector
     final now = _clock();
     final windowDuration = now.difference(_windowStart);
 
-    // Reset window every second
+    // Check once per second of wall time, before this batch is added.
     if (windowDuration.inMilliseconds >= 1000) {
       _evaluateWindow();
       _recentCallCount = 0;
       _callDurationsUs.clear();
-      _methodCounts.clear();
+      _checkSeq = _arrivalSeq;
       _windowStart = now;
-    }
-
-    _recentCallCount += data.platformChannelEvents.length;
-    for (final call in data.platformChannelCalls) {
-      _callDurationsUs.add(call.durationUs);
     }
 
     for (final event in data.platformChannelEvents) {
       final json = event.json;
-      if (json != null) {
-        final method =
-            (json['args'] as Map<String, dynamic>?)?['method'] as String? ??
-            json['name'] as String? ??
-            'unknown';
-        _methodCounts[method] = (_methodCounts[method] ?? 0) + 1;
-      }
+      final ts = json?['ts'];
+      // A begin without a timestamp cannot be placed in a span.
+      if (ts is! int) continue;
+      final horizon = _horizonUs;
+      if (horizon != null && ts <= horizon) continue;
+      final method =
+          (json!['args'] as Map<String, dynamic>?)?['method'] as String? ??
+          json['name'] as String? ??
+          'unknown';
+      _insertBegin(_ChannelBegin(ts, method, _arrivalSeq++));
+      _recentCallCount++;
     }
+    for (final call in data.platformChannelCalls) {
+      final horizon = _horizonUs;
+      if (horizon != null && call.beginTs <= horizon) continue;
+      _callDurationsUs.add(call.durationUs);
+      _calls.add(call);
+    }
+    _prune();
   }
 
-  /// Longest completed call in the current window (µs); 0 when none.
+  void _insertBegin(_ChannelBegin begin) {
+    var i = _begins.length;
+    while (i > 0 && _begins[i - 1].ts > begin.ts) {
+      i--;
+    }
+    _begins.insert(i, begin);
+    final newest = _newestBeginUs;
+    if (newest == null || begin.ts > newest) _newestBeginUs = begin.ts;
+  }
+
+  void _prune() {
+    final newest = _newestBeginUs;
+    if (newest == null) return;
+    final cutoff = newest - _retainUs;
+    var drop = 0;
+    while (drop < _begins.length &&
+        (_begins[drop].ts < cutoff ||
+            _begins.length - drop > maxRetainedCalls)) {
+      drop++;
+    }
+    if (drop > 0) _begins.removeRange(0, drop);
+    _calls.removeWhere((c) => c.beginTs < cutoff);
+  }
+
+  /// The busiest half-open 1 s span of event time that holds at least one
+  /// begin received since the last check, as `(first, last)` indexes into
+  /// [_begins]; null when no begin arrived since then.
+  (int, int)? _busiestNewSpan() {
+    if (_begins.isEmpty) return null;
+    // newBefore[i]: begins received since the last check among [0, i).
+    final newBefore = List<int>.filled(_begins.length + 1, 0);
+    for (var i = 0; i < _begins.length; i++) {
+      newBefore[i + 1] = newBefore[i] + (_begins[i].seq >= _checkSeq ? 1 : 0);
+    }
+    if (newBefore.last == 0) return null;
+    (int, int)? best;
+    var right = 0;
+    for (var left = 0; left < _begins.length; left++) {
+      if (right < left) right = left;
+      while (right + 1 < _begins.length &&
+          _begins[right + 1].ts < _begins[left].ts + _spanUs) {
+        right++;
+      }
+      final hasNew = newBefore[right + 1] - newBefore[left] > 0;
+      if (hasNew && (best == null || right - left > best.$2 - best.$1)) {
+        best = (left, right);
+      }
+    }
+    return best;
+  }
+
+  /// Longest call completed since the last window check (µs); 0 when
+  /// none.
   int get maxCallDurationUs => _callDurationsUs.isEmpty
       ? 0
       : _callDurationsUs.reduce((a, b) => a > b ? a : b);
 
-  /// Nearest-rank 95th-percentile call duration in the current window
-  /// (µs); 0 when no call completed.
-  int get p95CallDurationUs {
-    if (_callDurationsUs.isEmpty) return 0;
-    final sorted = [..._callDurationsUs]..sort();
-    final rank = (sorted.length * 95 + 99) ~/ 100;
-    return sorted[rank - 1];
-  }
+  /// Nearest-rank 95th-percentile duration of the calls completed since
+  /// the last window check (µs); 0 when none completed.
+  int get p95CallDurationUs => _p95(_callDurationsUs);
 
-  /// Completed calls in the current window longer than
+  /// Calls completed since the last window check that ran longer than
   /// [durationThresholdUs].
   int get callsOverThreshold =>
       _callDurationsUs.where((d) => d > durationThresholdUs).length;
 
-  /// Count of call begins in the current window.
+  static int _p95(List<int> durationsUs) {
+    if (durationsUs.isEmpty) return 0;
+    final sorted = [...durationsUs]..sort();
+    final rank = (sorted.length * 95 + 99) ~/ 100;
+    return sorted[rank - 1];
+  }
+
+  /// Count of call begins received since the last window check.
   int get windowCallCount => _recentCallCount;
 
   /// Stats of the most recently evaluated 1 s window; null before the
@@ -158,16 +251,41 @@ class PlatformChannelDetector extends BaseDetector
       us % 1000 == 0 ? '${us ~/ 1000}' : (us / 1000).toStringAsFixed(1);
 
   void _evaluateWindow() {
+    // Every number the issue shows comes from one span, so the title, the
+    // method counts, the durations and the trace args describe the same
+    // calls.
+    final span = _busiestNewSpan();
+    var count = 0;
+    final methodCounts = <String, int>{};
+    final durationsUs = <int>[];
+    if (span != null) {
+      final (first, last) = span;
+      count = last - first + 1;
+      for (var i = first; i <= last; i++) {
+        final method = _begins[i].method;
+        methodCounts[method] = (methodCounts[method] ?? 0) + 1;
+      }
+      final startUs = _begins[first].ts;
+      for (final call in _calls) {
+        if (call.beginTs >= startUs && call.beginTs < startUs + _spanUs) {
+          durationsUs.add(call.durationUs);
+        }
+      }
+    }
+    final maxUs = durationsUs.isEmpty
+        ? 0
+        : durationsUs.reduce((a, b) => a > b ? a : b);
     _lastWindowStats = (
-      callCount: _recentCallCount,
-      maxCallDurationUs: maxCallDurationUs,
-      p95CallDurationUs: p95CallDurationUs,
-      callsOverThreshold: callsOverThreshold,
+      callCount: count,
+      maxCallDurationUs: maxUs,
+      p95CallDurationUs: _p95(durationsUs),
+      callsOverThreshold: durationsUs
+          .where((d) => d > durationThresholdUs)
+          .length,
     );
     // Emission is count-only; call durations annotate the issue.
-    if (_recentCallCount > callsPerSecThreshold) {
-      final wouldBeCritical =
-          _recentCallCount > callsPerSecThreshold * criticalMultiplier;
+    if (count > callsPerSecThreshold) {
+      final wouldBeCritical = count > callsPerSecThreshold * criticalMultiplier;
       // Cooldown semantics: suppress fresh emissions during the
       // 3-cycle drain after a fire so sustained overload collapses
       // to a single trace record per cooldown window (composite-key
@@ -203,12 +321,12 @@ class PlatformChannelDetector extends BaseDetector
       final maxUs = _lastWindowStats!.maxCallDurationUs;
       final p95Us = _lastWindowStats!.p95CallDurationUs;
       final overCount = _lastWindowStats!.callsOverThreshold;
-      final timing = _callDurationsUs.isEmpty
+      final timing = durationsUs.isEmpty
           ? 'no call durations observed'
           : 'max call ${_ms(maxUs)} ms, p95 ${_ms(p95Us)} ms, '
                 '$overCount ${overCount == 1 ? 'call' : 'calls'} over '
                 '${_ms(durationThresholdUs)} ms';
-      final topMethods = _methodCounts.entries.toList()
+      final topMethods = methodCounts.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
       final methodSummary = topMethods
           .take(3)
@@ -226,9 +344,9 @@ class PlatformChannelDetector extends BaseDetector
             : IssueSeverity.warning,
         category: IssueCategory.channel,
         confidence: IssueConfidence.confirmed,
-        title: 'High Platform Channel Traffic: $_recentCallCount calls/sec',
+        title: 'High Platform Channel Traffic: $count calls/sec',
         detail:
-            '$_recentCallCount calls in the last second ($timing).'
+            '$count calls in one second ($timing).'
             '${methodSummary.isNotEmpty ? '\nTop methods: $methodSummary' : ''}'
             '\nThreshold: $callsPerSecThreshold calls/sec.',
         fixHint: hint,
@@ -246,14 +364,15 @@ class PlatformChannelDetector extends BaseDetector
         // args so the audit-gate can cross-check the operator's
         // reported `magnitudeObserved` (which is a SEND-rate computed
         // by the capture screen) against what the parser actually fed
-        // the detector at fire time. iOS coalescing or dropped `b`
-        // events can produce a gap between sent and observed counts;
+        // the detector at fire time. Dropped `b` events or a late
+        // profiling flag can produce a gap between sent and observed
+        // counts;
         // without this cross-check, a future capture mislabeled `at`
         // while the detector saw an above-band count (or vice versa)
         // would still satisfy the schema as long as severity matches.
         // Stringified per Timeline arg-encoding contract.
         extraTraceArgs: {
-          'observedCount': _recentCallCount.toString(),
+          'observedCount': count.toString(),
           'maxCallDurationUs': maxUs.toString(),
           'p95CallDurationUs': p95Us.toString(),
           'callsOverThreshold': overCount.toString(),
@@ -292,8 +411,10 @@ class PlatformChannelDetector extends BaseDetector
   @override
   void dispose() {
     _issues.clear();
-    _methodCounts.clear();
+    _recentCallCount = 0;
     _callDurationsUs.clear();
+    _begins.clear();
+    _calls.clear();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
@@ -316,7 +437,11 @@ class PlatformChannelDetector extends BaseDetector
   void reset() {
     _recentCallCount = 0;
     _callDurationsUs.clear();
-    _methodCounts.clear();
+    final newest = _newestBeginUs;
+    if (newest != null) _horizonUs = newest;
+    _begins.clear();
+    _calls.clear();
+    _checkSeq = _arrivalSeq;
     _windowStart = _clock();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
@@ -329,8 +454,9 @@ class PlatformChannelDetector extends BaseDetector
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.runtimeVerified,
     rationale:
-        'VM-only detector. The emission axis is the call count per 1s '
-        'window. A hermetic reproducer pins it by feeding events through '
+        'VM-only detector. The emission axis is the largest number of call '
+        'begins in one 1 s span of event time, checked once per second of '
+        'wall time. A hermetic reproducer pins it by feeding events through '
         '`TimelineParser.parse()` into the detector. It fires above 20/sec '
         '(strict) and is critical at 2 times that, at 41 calls. 40 calls '
         'stay at warning to pin the critical-escalation inequality. Call '
@@ -406,11 +532,10 @@ class PlatformChannelDetector extends BaseDetector
     // future capture whose in-span trace records share a
     // `detectedAtMicros` (forgery / replay protection).
     bracketRequireUniqueDetectedAtMicros: true,
-    // Detector exports `_recentCallCount` into the trace event
-    // args via PerformanceIssue.extraTraceArgs. The audit gate
-    // cross-checks this against `expectedMagnitude.observed`
-    // (operator's send-side estimate) within ±25% so iOS
-    // coalescing can absorb measurement variance, but a
+    // Detector exports its span count into the trace event args via
+    // PerformanceIssue.extraTraceArgs. The audit gate cross-checks it
+    // against `expectedMagnitude.observed` within ±25% so a few missed
+    // events can be absorbed, but a
     // mislabeled-leg capture (operator reports at-band rate while
     // detector saw above-band count, or vice versa) is rejected.
     // Backward compatible: pre-v0.19.5 captures recorded before
@@ -419,4 +544,16 @@ class PlatformChannelDetector extends BaseDetector
     observedAxisArgKey: 'observedCount',
     observedAxisTolerance: 0.25,
   );
+}
+
+/// A platform channel call begin kept for span counting.
+class _ChannelBegin {
+  const _ChannelBegin(this.ts, this.method, this.seq);
+
+  /// Event time in microseconds.
+  final int ts;
+  final String method;
+
+  /// Arrival order.
+  final int seq;
 }
