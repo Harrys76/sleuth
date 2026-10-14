@@ -246,6 +246,7 @@ class IssueExplanationBuilder {
           'sustained jank appears only on the first navigation, consider '
           'shader warm-up strategies.',
       relatedIssues: [
+        'event_loop_stall',
         'gc_pressure',
         'layout_bottleneck',
         'multiple_custom_fonts',
@@ -298,6 +299,7 @@ class IssueExplanationBuilder {
           'first renders are normal. Focus on sustained patterns, not '
           'isolated spikes.',
       relatedIssues: [
+        'event_loop_stall',
         'layout_bottleneck',
         'multiple_custom_fonts',
         'non_lazy_shrinkwrap',
@@ -472,6 +474,7 @@ class IssueExplanationBuilder {
           'frames.',
       whenToIgnore: null,
       relatedIssues: [
+        'event_loop_stall',
         'large_response',
         'non_lazy_list',
         'platform_channel_traffic',
@@ -480,6 +483,55 @@ class IssueExplanationBuilder {
         'slow_request',
         'slow_startup_ttff',
       ],
+    ),
+    'event_loop_stall': (
+      displayName: 'Event loop stall',
+      category: IssueCategory.build,
+      whatItIs:
+          'The UI isolate in {routeName} ran work for 100 ms or more '
+          'without returning to its event loop. The Dart VM reports it when '
+          'a timer fires that late. Frames, input and other timers all wait '
+          'until the work ends, so the app looks frozen even if no single '
+          'frame shows it, for example when a tap handler runs synchronous '
+          'work before the next frame is scheduled.',
+      readingTheData:
+          'Like a cashier who stops serving the queue to count the till: '
+          'nothing moves until the count is done.\n\n'
+          '• Stall ms is how late the first waiting timer fired, less any '
+          'debugger pause, hot reload or Sleuth work inside it. It is a '
+          'lower bound: the work may have started before that timer was '
+          'due. Sleuth reports 100 ms or more (warning) and 700 ms or more '
+          '(critical); both are configurable.\n\n'
+          '• Stall count is the number of separate stalls in this episode. '
+          'The issue stays for 10 seconds after the latest one.\n\n'
+          '• The data comes from the VM Timer stream, available from '
+          'Flutter 3.35. A stall is seen only if a timer was due during it; '
+          'while it listens, Sleuth keeps a 50 ms timer running, so every '
+          'stall longer than 150 ms is seen.',
+      whyItMatters:
+          'A stall freezes everything the isolate does: animations stop, '
+          'scrolling does not respond and taps get no feedback. Users notice '
+          'delays from about 100 ms, and a freeze of 700 ms or more is what '
+          'Android vitals counts as a frozen frame.',
+      howToFix:
+          'Find the synchronous work that ran when the app froze: a widget '
+          'build (which also shows as heavy compute), a tap handler, a '
+          'timer, a stream listener or a platform message handler. Typical causes are decoding large JSON, reading '
+          'files or databases synchronously, sorting large lists and image '
+          'processing. Move it to a background isolate:\n\n'
+          '  final data = await Isolate.run(\n'
+          '    () => jsonDecode(hugeJsonString),\n'
+          '  );\n\n'
+          'If it has to stay on the UI isolate, split it into smaller '
+          'pieces and await between them so frames can run.',
+      whenToIgnore:
+          'Time while the app was in the background, debugger pauses and '
+          'hot reloads are already left out. A stall that starts while the '
+          'app is coming back counts from the first lifecycle change Dart '
+          'handles, so slow resume handlers are reported. On Android, work '
+          'for an activity result that reaches Dart before any lifecycle '
+          'change is left out up to the first change after it.',
+      relatedIssues: ['heavy_compute', 'jank_detected', 'sustained_jank'],
     ),
 
     // ── Memory ────────────────────────────────────────────────────────────

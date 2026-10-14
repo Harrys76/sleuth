@@ -51,6 +51,8 @@ class VmServiceClient {
     this.idleHeartbeat = const Duration(seconds: 1),
     this.onHeapSample,
     this.onExtensionEvent,
+    this.onTimerEvent,
+    this.onPauseEvent,
     this.onConnectionChanged,
     this.onStartupTimelineEvents,
     this.retainTimeline = false,
@@ -108,6 +110,24 @@ class VmServiceClient {
   DateTime? _lastTimelineDispatchAt;
   final HeapSampleCallback? onHeapSample;
   final VmEventCallback? onExtensionEvent;
+
+  /// Receives the VM's `Timer` stream events (`TimerSignificantlyOverdue`,
+  /// posted when a timer fires 100 ms or more late, Dart 3.9 / Flutter
+  /// 3.35 and later) from this client's own isolate. Null leaves the
+  /// stream unsubscribed.
+  final VmEventCallback? onTimerEvent;
+
+  /// Receives this client's own isolate's debugger pauses and resumes
+  /// (`Debug` stream `Pause*` and `Resume`) and its hot reloads (`Isolate`
+  /// stream `IsolateReload`), which make timers late without the app being
+  /// busy. Subscribed only together with [onTimerEvent].
+  final VmEventCallback? onPauseEvent;
+
+  /// Whether the VM has a `Timer` stream. Null until a session tried to
+  /// subscribe, false on Dart before 3.9, where `streamListen('Timer')`
+  /// fails.
+  bool? get timerStreamAvailable => _timerStreamAvailable;
+  bool? _timerStreamAvailable;
   final void Function(bool connected)? onConnectionChanged;
 
   /// One-shot callback for engine-level startup events extracted from the
@@ -131,6 +151,9 @@ class VmServiceClient {
   StreamSubscription<Event>? _timelineSub;
   StreamSubscription<Event>? _gcSub;
   StreamSubscription<Event>? _extensionSub;
+  StreamSubscription<Event>? _timerSub;
+  StreamSubscription<Event>? _debugSub;
+  StreamSubscription<Event>? _isolateSub;
   Timer? _pollTimer;
   bool _disposed = false;
   bool _connected = false;
@@ -443,6 +466,56 @@ class VmServiceClient {
       });
     } catch (_) {
       // GC stream may not be available on all platforms
+    }
+
+    // Event-loop stalls. The stream id and event kind are strings because
+    // `EventStreams.kTimer` and `onTimerEvent` need vm_service 15.0.1, and
+    // the 3.32 floor resolves 15.0.0. A VM before Dart 3.9 rejects the
+    // stream id (RPC error -32602).
+    final timerCallback = onTimerEvent;
+    if (timerCallback != null) {
+      try {
+        await service.streamListen('Timer');
+        _timerStreamAvailable = true;
+        _timerSub = service.onEvent('Timer').listen((event) {
+          final own = _verifiedOwnIsolateId;
+          final eventIsolate = event.isolate?.id;
+          if (own != null && eventIsolate != null && eventIsolate != own) {
+            return;
+          }
+          timerCallback(event);
+        });
+      } catch (_) {
+        _timerStreamAvailable = false;
+      }
+      final pauseCallback = onPauseEvent;
+      if (_timerStreamAvailable == true && pauseCallback != null) {
+        bool own(Event event) {
+          final ownId = _verifiedOwnIsolateId;
+          final eventIsolate = event.isolate?.id;
+          return ownId == null || eventIsolate == null || eventIsolate == ownId;
+        }
+
+        try {
+          await service.streamListen(EventStreams.kDebug);
+          _debugSub = service.onDebugEvent.listen((event) {
+            if (own(event)) pauseCallback(event);
+          });
+        } catch (_) {
+          // Another client may hold the stream, or the VM refuses it; pauses
+          // then count toward stalls.
+        }
+        try {
+          await service.streamListen(EventStreams.kIsolate);
+          _isolateSub = service.onIsolateEvent.listen((event) {
+            if (event.kind == EventKind.kIsolateReload && own(event)) {
+              pauseCallback(event);
+            }
+          });
+        } catch (_) {
+          // As above, for reloads.
+        }
+      }
     }
 
     // Outside release builds the framework posts a `Flutter.Frame`
@@ -1452,6 +1525,13 @@ class VmServiceClient {
     _gcSub = null;
     _extensionSub?.cancel();
     _extensionSub = null;
+    _timerSub?.cancel();
+    _timerSub = null;
+    _debugSub?.cancel();
+    _debugSub = null;
+    _isolateSub?.cancel();
+    _isolateSub = null;
+    _timerStreamAvailable = null;
     _requestWindows.clear();
     _timelineWindow = null;
     _mainIsolateId = null;

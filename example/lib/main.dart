@@ -877,6 +877,24 @@ void _registerDemoExtensions() {
       }),
     );
   });
+  // Blocks the UI isolate for `ms=N` milliseconds from a timer callback,
+  // so the VM reports the timers that fire late after it.
+  developer.registerExtension('ext.sleuthDemo.uiBlock', (method, params) async {
+    final ms = int.tryParse(params['ms'] ?? '') ?? 0;
+    if (ms <= 0 || ms > 5000) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        'ms must be between 1 and 5000',
+      );
+    }
+    Timer(Duration.zero, () {
+      final sw = Stopwatch()..start();
+      while (sw.elapsedMilliseconds < ms) {}
+    });
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'scheduledMs': ms}),
+    );
+  });
   // Lists every BackdropFilter on screen with the blur sigma Sleuth's
   // reader returns (null when unknown), its filter class and whether it
   // draws.

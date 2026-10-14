@@ -451,6 +451,9 @@ FutureOr<Map<String, Object?>> extDiagnoseHandler(
       'maxPollDispatchMicros': controller.maxPollDispatchMicros,
       'pollDuplicatesDropped': controller.pollDuplicatesDropped,
       'pollWindowFallbacks': controller.pollWindowFallbacks,
+      'eventLoopStallTimerStream': controller.eventLoopStallTimerStream,
+      'eventLoopStallExcused': controller.eventLoopStallExcused,
+      'eventLoopStallIgnored': controller.eventLoopStallIgnored,
     },
   );
 }

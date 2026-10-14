@@ -115,6 +115,7 @@ DetectorLifecycle _lifecycleOf(DetectorType type) {
     case DetectorType.platformChannel:
     case DetectorType.memoryPressure:
     case DetectorType.streamResource:
+    case DetectorType.eventLoopStall:
       return DetectorLifecycle.vmOnly;
     case DetectorType.repaint:
     case DetectorType.rebuild:

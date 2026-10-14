@@ -258,6 +258,22 @@ class FixHintBuilder {
   // HeavyComputeDetector
   // ---------------------------------------------------------------------------
 
+  /// A stall of the UI isolate's event loop, in which one synchronous piece
+  /// of work ran for [worstMs] (null when unknown).
+  static (String, FixEffort) eventLoopStall({int? worstMs}) {
+    final length = worstMs == null ? '' : ' (${worstMs}ms)';
+    return (
+      'Find the synchronous work that held the UI isolate$length: a long '
+          'loop, JSON decoding, file or database reads, or image processing '
+          'in a widget build or a callback (a tap handler, a timer, a stream '
+          'listener). A slow build also shows as heavy_compute. Move the work '
+          'off the UI isolate:\n'
+          'final result = await Isolate.run(() => parseJson(data));\n'
+          'or split it into smaller pieces that yield between them.',
+      FixEffort.medium,
+    );
+  }
+
   static (String, FixEffort) heavyCompute({
     double? durationMs,
     List<String>? dirtyWidgets,

@@ -58,7 +58,10 @@
         "maxPollParseMicros": {"type": "int", "required": true, "nullable": true},
         "maxPollDispatchMicros": {"type": "int", "required": true, "nullable": true},
         "pollDuplicatesDropped": {"type": "int", "required": true, "nullable": true},
-        "pollWindowFallbacks": {"type": "int", "required": true, "nullable": true}
+        "pollWindowFallbacks": {"type": "int", "required": true, "nullable": true},
+        "eventLoopStallTimerStream": {"type": "bool", "required": true, "nullable": true},
+        "eventLoopStallExcused": {"type": "int", "required": true, "nullable": true},
+        "eventLoopStallIgnored": {"type": "int", "required": true, "nullable": true}
       }
     },
     "ext.sleuth.snapshot": {

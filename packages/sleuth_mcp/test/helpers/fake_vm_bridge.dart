@@ -230,6 +230,9 @@ FakeVmBridge defaultFakeBridge() {
       'maxPollDispatchMicros': 780,
       'pollDuplicatesDropped': 0,
       'pollWindowFallbacks': 0,
+      'eventLoopStallTimerStream': true,
+      'eventLoopStallExcused': 0,
+      'eventLoopStallIgnored': 0,
     },
   });
   bridge.setEnvelope('ext.sleuth.snapshot', fakeSnapshotEnvelope());

@@ -73,6 +73,9 @@ Reports the package version, the VM link, unbound extensions, the frame budget a
 | `maxPollDispatchMicros` | int | yes | yes |
 | `pollDuplicatesDropped` | int | yes | yes |
 | `pollWindowFallbacks` | int | yes | yes |
+| `eventLoopStallTimerStream` | bool | yes | yes |
+| `eventLoopStallExcused` | int | yes | yes |
+| `eventLoopStallIgnored` | int | yes | yes |
 
 The `*Poll*` keys describe the VM timeline poll loop. They are null until the first poll of the current VM session.
 
@@ -83,6 +86,7 @@ The `*Poll*` keys describe the VM timeline poll loop. They are null until the fi
 - `lastPollEventCount` is the raw event count. `lastPollResponseChars` is the raw response length, or null when Sleuth could not match the response.
 - `maxPoll*Micros` are maxima over the last 32 polls. `maxPollDecodeMicros` is null when Sleuth matched none of those polls.
 - `pollDuplicatesDropped` sums the events skipped as already processed. `pollWindowFallbacks` counts the polls that read the whole timeline buffer because the timeline clock could not bound a fetch window.
+- `eventLoopStallTimerStream` is whether the VM has a `Timer` stream for `event_loop_stall`: null until a VM session tried it, false on Flutter 3.32 to 3.34. `eventLoopStallExcused` counts stalls that debugger pauses, hot reloads or Sleuth's own work explained, and `eventLoopStallIgnored` counts timer events ignored because the app was hidden or paused; both are null when the detector is off.
 
 ### `ext.sleuth.snapshot`
 

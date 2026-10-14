@@ -8,7 +8,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show debugProfilePlatformChannels;
 import 'package:flutter/widgets.dart';
-import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
+import 'package:vm_service/vm_service.dart'
+    show AllocationProfile, Event, EventKind;
 
 import '../validation/profile_capture_schema.dart';
 import '../ui/floating_issues_card.dart';
@@ -30,6 +31,7 @@ import '../debug/debug_snapshot.dart';
 import '../detectors/frame_timing_detector.dart';
 import '../detectors/shader_jank_detector.dart';
 import '../detectors/heavy_compute_detector.dart';
+import '../detectors/event_loop_stall_detector.dart';
 import '../detectors/platform_channel_detector.dart';
 import '../detectors/memory_pressure_detector.dart';
 import '../detectors/stream_resource_detector.dart';
@@ -849,6 +851,22 @@ class SleuthController {
   /// the first poll.
   int? get pollWindowFallbacks => _vmClient?.pollWindowFallbacks;
 
+  EventLoopStallDetector? get _stallDetector => _detectorsReady
+      ? _detectors.whereType<EventLoopStallDetector>().firstOrNull
+      : null;
+
+  /// Whether the VM has a `Timer` stream for `event_loop_stall`. Null until
+  /// a VM session tried it, false on Flutter 3.32 to 3.34.
+  bool? get eventLoopStallTimerStream => _vmClient?.timerStreamAvailable;
+
+  /// Stalls that debugger pauses, reloads or Sleuth's own work explained;
+  /// null without the detector.
+  int? get eventLoopStallExcused => _stallDetector?.excusedStallCount;
+
+  /// Timer events ignored because the app was hidden or paused; null
+  /// without the detector.
+  int? get eventLoopStallIgnored => _stallDetector?.ignoredForLifecycleCount;
+
   /// Whether VM service is connected.
   bool get isVmConnected =>
       _vmConnectedOverride ?? _vmClient?.isConnected ?? false;
@@ -935,6 +953,8 @@ class SleuthController {
       onTimelineData: _onTimelineData,
       onGcEvent: _onGcEvent,
       onHeapSample: _onHeapSample,
+      onTimerEvent: _onTimerEvent,
+      onPauseEvent: _onPauseEvent,
       onConnectionChanged: _onVmConnectionChanged,
       onStartupTimelineEvents: _onStartupTimelineEvents,
       retainTimeline: config.captureMode,
@@ -1063,6 +1083,9 @@ class SleuthController {
 
     final ok = await client.reconnect();
     if (_disposed) return false;
+    // The reconnect replaced the session, and with it what the VM said
+    // about its Timer stream.
+    _syncStallProbe();
     if (ok) {
       _backgroundReconnectAttempt = 0;
       vmConnectedNotifier.value = true;
@@ -1197,6 +1220,18 @@ class SleuthController {
         ttffWarningMs: config.thresholds.startupTtffWarningMs,
         ttffCriticalMs: config.thresholds.startupTtffCriticalMs,
       ),
+      DetectorType.eventLoopStall: () {
+        final detector = EventLoopStallDetector(
+          warningMs: config.thresholds.stallWarningMs,
+          criticalMs: config.thresholds.stallCriticalMs,
+          sourceRouteProvider: _currentRouteName,
+        );
+        // A detector created while the app is in the background (a
+        // background launch, or enableDetector then) starts suspended.
+        final state = _currentLifecycleState();
+        if (state != null) detector.onAppLifecycleChanged(state);
+        return detector;
+      },
     };
 
     // Persist factory map for runtime enable/disable (enableDetector).
@@ -1372,12 +1407,13 @@ class SleuthController {
     // Non-typed: construct if not already in the list.
     if (_detectors.any((d) => d.type == type)) {
       _detectors.firstWhere((d) => d.type == type).isEnabled = true;
-      return;
+    } else {
+      final factory = _detectorFactories[type];
+      if (factory != null) {
+        _detectors.add(factory()..isEnabled = true);
+      }
     }
-    final factory = _detectorFactories[type];
-    if (factory != null) {
-      _detectors.add(factory()..isEnabled = true);
-    }
+    if (type == DetectorType.eventLoopStall) _syncStallProbe();
   }
 
   /// Removes a non-typed detector at runtime, freeing its internal buffers.
@@ -1417,6 +1453,7 @@ class SleuthController {
       return;
     }
     _detectors.removeWhere((d) => d.type == type);
+    if (type == DetectorType.eventLoopStall) _syncStallProbe();
   }
 
   /// Initialize detectors without VM client or SchedulerBinding.
@@ -1754,6 +1791,14 @@ class SleuthController {
   @visibleForTesting
   void feedGcEventForTest(Event event) => _onGcEvent(event);
 
+  /// Feeds a VM `Timer` stream event through the production handler.
+  @visibleForTesting
+  void feedTimerEventForTest(Event event) => _onTimerEvent(event);
+
+  /// Routes a `Debug` or `Isolate` stream event as the VM client would.
+  @visibleForTesting
+  void feedPauseEventForTest(Event event) => _onPauseEvent(event);
+
   /// Moves the allocation-enrichment cooldown start, so a test can
   /// expire the 10 s cooldown without waiting.
   @visibleForTesting
@@ -2052,6 +2097,8 @@ class SleuthController {
     // in-span trace records on a back-to-back leg.
     for (final detector in _detectors) {
       if (detector is PlatformChannelDetector) {
+        detector.reset();
+      } else if (detector is EventLoopStallDetector) {
         detector.reset();
       } else if (detector is RepaintDetector) {
         // Clear paint accumulator + last/peak observables + pending
@@ -2510,6 +2557,7 @@ class SleuthController {
       'slow_startup': 'startup',
       'stream_resource_growth': 'streamResource',
       'tracked_resource_': 'trackedResource',
+      'event_loop_stall': 'eventLoopStall',
     };
 
     for (final entry in prefixMap.entries) {
@@ -3492,6 +3540,16 @@ class SleuthController {
         state == AppLifecycleState.hidden) {
       _flushPendingOverlayUiStateWrite();
     }
+    for (final detector in _detectors) {
+      if (detector is EventLoopStallDetector) {
+        detector.onAppLifecycleChanged(state);
+      }
+    }
+    _appInBackground =
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
+    _syncStallProbe();
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _interactionState = InteractionContext.appLifecycle;
@@ -4212,6 +4270,101 @@ class SleuthController {
     );
   }
 
+  /// A no-op timer due every [_stallProbeInterval] while event-loop stalls
+  /// are watched.
+  ///
+  /// The VM measures a stall from the moment the first pending timer was
+  /// due, so the report is short by the gap between the stall's start and
+  /// that moment. Without this probe the nearest due timer is Sleuth's
+  /// 500 ms VM poll, and an 800 ms freeze measured 562 ms on an iPhone 12.
+  /// With it the report is short by at most the interval. The VM reports
+  /// only timers 100 ms or more late, so every stall longer than 150 ms
+  /// is seen (the first tick is due 51 ms after the timer starts) and a
+  /// shorter one only when a timer was due near its start.
+  Timer? _stallProbeTimer;
+
+  static const Duration _stallProbeInterval = Duration(milliseconds: 50);
+
+  /// Whether the app is paused, hidden or detached; the stall detector
+  /// ignores those times, so the probe stops (Android keeps running a
+  /// backgrounded app's timers).
+  bool _appInBackground = false;
+
+  /// Runs the probe while the app is in the foreground, the VM is
+  /// connected, its `Timer` stream exists and an enabled
+  /// [EventLoopStallDetector] listens.
+  void _syncStallProbe() {
+    final wanted =
+        !_disposed &&
+        !_appInBackground &&
+        vmConnectedNotifier.value &&
+        (_vmClient?.timerStreamAvailable ?? false) &&
+        _detectorsReady &&
+        _detectors.any((d) => d is EventLoopStallDetector && d.isEnabled);
+    if (wanted) {
+      _stallProbeTimer ??= Timer.periodic(_stallProbeInterval, (_) {});
+    } else {
+      _stallProbeTimer?.cancel();
+      _stallProbeTimer = null;
+    }
+  }
+
+  /// Whether the event-loop stall probe timer runs.
+  @visibleForTesting
+  bool get stallProbeRunningForTest => _stallProbeTimer != null;
+
+  /// How far before the `IsolateReload` event or the reassemble a hot
+  /// reload's stall can start. This covers the VM reload itself.
+  static const int _reloadLeadMs = 3000;
+
+  /// How far after them it can end. This covers the asset eviction and
+  /// the reassemble frame.
+  static const int _reloadTailMs = 2000;
+
+  /// The app's lifecycle state, or null before a binding exists.
+  AppLifecycleState? _currentLifecycleState() {
+    try {
+      return SchedulerBinding.instance.lifecycleState;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// A debugger pause or resume, or a hot reload, of the own isolate.
+  void _onPauseEvent(Event event) {
+    if (_disposed || !_detectorsReady) return;
+    final ms = event.timestamp ?? DateTime.now().millisecondsSinceEpoch;
+    for (final detector in _detectors) {
+      if (detector is! EventLoopStallDetector) continue;
+      switch (event.kind) {
+        case EventKind.kPauseBreakpoint ||
+            EventKind.kPauseException ||
+            EventKind.kPauseInterrupted ||
+            EventKind.kPausePostRequest:
+          detector.onDebuggerPaused(ms);
+        case EventKind.kResume:
+          detector.onDebuggerResumed(ms);
+        case EventKind.kIsolateReload:
+          detector.excludeWindow(ms - _reloadLeadMs, ms + _reloadTailMs);
+      }
+    }
+  }
+
+  /// A `TimerSignificantlyOverdue` event from the VM's `Timer` stream.
+  void _onTimerEvent(Event event) {
+    if (_disposed || !_detectorsReady) return;
+    if (event.kind != 'TimerSignificantlyOverdue') return;
+    final details = event.json?['details'];
+    for (final detector in _detectors) {
+      if (detector is EventLoopStallDetector && detector.isEnabled) {
+        detector.recordOverdueTimer(
+          details: details is String ? details : null,
+          eventTimestampMs: event.timestamp,
+        );
+      }
+    }
+  }
+
   /// `new.used + old.used` from a raw GC event: the heap left after the
   /// collection. Null when either is missing.
   static int? _gcHeapUsedBytes(Map<String, dynamic>? json) {
@@ -4506,6 +4659,7 @@ class SleuthController {
     _syncVmState(connected);
     if (!connected) _cancelDeferredEnrichment();
     if (connected) _enablePlatformChannelProfiling();
+    _syncStallProbe();
     // Mid-session VM death: VmServiceClient._pollTimeline's catch path runs
     // its own 3-attempt reconnect loop. If that internal loop exhausts, we
     // previously had no recovery — the controller sat in BASIC until the
@@ -4647,6 +4801,14 @@ class SleuthController {
     // Hot reload can redefine widget types; drop cached names.
     typeNameCache.clear();
     _debugCoordinator?.invalidatePaintAttribution();
+    // The reload made timers late; the VM reload ran before this, and the
+    // reassemble frame runs after it.
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    for (final detector in _detectorsReady ? _detectors : const []) {
+      if (detector is EventLoopStallDetector) {
+        detector.excludeWindow(nowMs - _reloadLeadMs, nowMs + _reloadTailMs);
+      }
+    }
     // The reload frame rebuilds every element and repaints every render
     // object once; that burst is not the app's activity.
     SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -5256,6 +5418,7 @@ class SleuthController {
   void dispose() {
     _disposed = true;
     _cancelDeferredEnrichment();
+    _syncStallProbe();
     _extensionRegistry?.markDisposed();
     _extensionRegistry = null;
     _initializedAt = null;
