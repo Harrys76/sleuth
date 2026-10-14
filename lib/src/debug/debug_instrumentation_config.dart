@@ -65,9 +65,10 @@ class DebugInstrumentationConfig {
   /// and paint counts ([rebuildAttribution], [paintAttribution]).
   ///
   /// A widget counts when the framework's creation tracking (on in debug
-  /// builds) places it outside the Flutter SDK, which includes widgets
-  /// other packages create; once DevTools has set the project's root
-  /// directories, only widgets created in the project count. Without
+  /// builds) places it outside the Flutter SDK and outside the
+  /// `material_ui` and `cupertino_ui` packages, which still includes
+  /// widgets other packages create; once DevTools has set the project's
+  /// root directories, only widgets created in the project count. Without
   /// creation tracking every widget counts.
   ///
   /// A paint is counted for the widget that created the painting render

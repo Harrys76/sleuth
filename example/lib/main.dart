@@ -31,6 +31,7 @@ import 'demos/intrinsic_height_demo.dart';
 import 'demos/keepalive_demo.dart';
 import 'demos/memory_pressure_capture_screen.dart';
 import 'demos/memory_pressure_demo.dart';
+import 'demos/migrated_app_demo.dart';
 import 'demos/network_monitor_capture_screen.dart';
 import 'demos/network_stress_demo.dart';
 import 'demos/non_lazy_list_demo.dart';
@@ -498,6 +499,13 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
         subtitle: 'IndexedStack tabs: one pattern each',
         color: Colors.cyan,
         builder: (_) => const TabbedShellDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.swap_horiz,
+        title: 'Migrated App (material_ui)',
+        subtitle: 'Package widgets read as framework',
+        color: Colors.teal,
+        builder: (_) => const MigratedAppDemo(),
       ),
     ],
   ),

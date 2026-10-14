@@ -172,10 +172,14 @@ class CpuSampleAggregator {
     return _excludedVmTags.contains(tag);
   }
 
-  /// Check if a library URI belongs to the Dart/Flutter framework.
+  /// Check if a library URI belongs to the Dart/Flutter framework,
+  /// including the `material_ui` and `cupertino_ui` packages that hold the
+  /// design libraries apps migrate to.
   bool _isFrameworkFunction(String libraryUri) {
     return libraryUri.startsWith('dart:') ||
-        libraryUri.startsWith('package:flutter/');
+        libraryUri.startsWith('package:flutter/') ||
+        libraryUri.startsWith('package:material_ui/') ||
+        libraryUri.startsWith('package:cupertino_ui/');
   }
 
   /// Extract function name, class name, and library URI from a ProfileFunction.

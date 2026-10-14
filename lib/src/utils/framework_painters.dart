@@ -1,6 +1,6 @@
-import 'package:flutter/cupertino.dart' show CupertinoActivityIndicator;
 import 'package:flutter/material.dart';
 
+import 'framework_types.dart';
 import 'type_name_cache.dart';
 
 /// Whether the [CustomPaint] at [element] is drawn by a framework painter
@@ -30,7 +30,7 @@ bool isFrameworkPainterPaint(Element element) {
 
 /// Whether the [ClipPath] at [element] is the one [Material] builds for
 /// `MaterialType.transparency`: its parent element's widget is the
-/// [Material] itself.
+/// [Material] itself (the SDK's or the `material_ui` package's).
 ///
 /// A user `ClipPath` placed as a Material's `child` sits below Material's
 /// own clip, shape-border paint, and ink layers, so its parent is never
@@ -39,7 +39,7 @@ bool isMaterialOwnClip(Element element) {
   if (element.widget is! ClipPath) return false;
   var parentIsMaterial = false;
   element.visitAncestorElements((ancestor) {
-    parentIsMaterial = ancestor.widget is Material;
+    parentIsMaterial = isMaterial(ancestor.widget);
     return false;
   });
   return parentIsMaterial;
@@ -60,8 +60,10 @@ bool _isFrameworkPainter(CustomPainter? painter, Element element) {
 class _PainterOwner {
   const _PainterOwner(this.isOwner, this.maxHops, {this.parentName});
 
-  /// Matches the owner widget. Public owners use a type check; private
-  /// owners and owners missing from the oldest supported SDK use a name.
+  /// Matches the owner widget. Material and Cupertino owners use the
+  /// type-or-name checks of `framework_types.dart`, so the `material_ui` /
+  /// `cupertino_ui` copies match; private owners and owners missing from the
+  /// oldest supported SDK use a name.
   final bool Function(Widget widget) isOwner;
 
   /// Maximum ancestor hops from the [CustomPaint] element to the owner.
@@ -92,14 +94,8 @@ class _PainterOwner {
   }
 }
 
-bool _isMaterial(Widget w) => w is Material;
-bool _isInputDecorator(Widget w) => w is InputDecorator;
-bool _isTabBar(Widget w) => w is TabBar;
-bool _isProgressIndicator(Widget w) => w is ProgressIndicator;
-bool _isCupertinoActivityIndicator(Widget w) => w is CupertinoActivityIndicator;
 bool _isGlowingOverscroll(Widget w) => w is GlowingOverscrollIndicator;
 bool _isStretchingOverscroll(Widget w) => w is StretchingOverscrollIndicator;
-bool _isAnimatedIcon(Widget w) => w is AnimatedIcon;
 bool _isPlaceholder(Widget w) => w is Placeholder;
 bool _isGridPaper(Widget w) => w is GridPaper;
 
@@ -132,20 +128,24 @@ bool _isDropdownMenu(Widget w) =>
 /// - `_DropdownMenuPainter`: `_DropdownMenu` 2.
 /// - `_PlaceholderPainter`: `Placeholder` 2. `_GridPaperPainter`:
 ///   `GridPaper` 1.
+///
+/// The `material_ui` 1.6.0 package builds the same trees: tab indicator 11
+/// on a fixed tab bar, input border 4, linear and circular progress 4 and
+/// 5, shape border 4 (`example/test/migrated_app_demo_test.dart`).
 const _ownedPainters = <String, _PainterOwner>{
   '_ShapeBorderPainter': _PainterOwner(
-    _isMaterial,
+    isMaterial,
     4,
     parentName: '_ShapeBorderPaint',
   ),
-  '_InputBorderPainter': _PainterOwner(_isInputDecorator, 5),
-  '_IndicatorPainter': _PainterOwner(_isTabBar, 28),
-  '_DividerPainter': _PainterOwner(_isTabBar, 11),
-  '_LinearProgressIndicatorPainter': _PainterOwner(_isProgressIndicator, 5),
-  '_CircularProgressIndicatorPainter': _PainterOwner(_isProgressIndicator, 6),
-  '_RefreshProgressIndicatorPainter': _PainterOwner(_isProgressIndicator, 18),
+  '_InputBorderPainter': _PainterOwner(isInputDecorator, 5),
+  '_IndicatorPainter': _PainterOwner(isTabBar, 28),
+  '_DividerPainter': _PainterOwner(isTabBar, 11),
+  '_LinearProgressIndicatorPainter': _PainterOwner(isProgressIndicator, 5),
+  '_CircularProgressIndicatorPainter': _PainterOwner(isProgressIndicator, 6),
+  '_RefreshProgressIndicatorPainter': _PainterOwner(isProgressIndicator, 18),
   '_CupertinoActivityIndicatorPainter': _PainterOwner(
-    _isCupertinoActivityIndicator,
+    isCupertinoActivityIndicator,
     3,
   ),
   '_CupertinoLinearActivityIndicator': _PainterOwner(
@@ -154,7 +154,7 @@ const _ownedPainters = <String, _PainterOwner>{
   ),
   '_GlowingOverscrollIndicatorPainter': _PainterOwner(_isGlowingOverscroll, 4),
   '_StretchEffectPainter': _PainterOwner(_isStretchingOverscroll, 8),
-  '_AnimatedIconPainter': _PainterOwner(_isAnimatedIcon, 3),
+  '_AnimatedIconPainter': _PainterOwner(isAnimatedIcon, 3),
   '_DropdownMenuPainter': _PainterOwner(_isDropdownMenu, 3),
   '_PlaceholderPainter': _PainterOwner(_isPlaceholder, 3),
   '_GridPaperPainter': _PainterOwner(_isGridPaper, 2),

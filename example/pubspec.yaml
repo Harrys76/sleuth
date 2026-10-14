@@ -13,6 +13,8 @@ dependencies:
   ffi: ^2.1.0
   sleuth:
     path: ../
+  material_ui: ^1.6.0
+  cupertino_ui: ^1.1.2
 
 dev_dependencies:
   flutter_test:

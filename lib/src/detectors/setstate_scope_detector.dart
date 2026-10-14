@@ -9,6 +9,8 @@ import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/framework_types.dart'
+    show isScaffoldElement, movedFrameworkOwnerNames;
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
@@ -175,7 +177,7 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
       final widget = element.widget;
       final name = typeNameCache.lookup(widget);
       if (!name.startsWith('_') &&
-          !isFrameworkWidget(widget) &&
+          !isFrameworkElement(element) &&
           !_isTransparentBuilderOwner(name)) {
         // --- Rebuild detection (merged from _detectRebuilds) ---
         Widget? firstChildWidget;
@@ -227,7 +229,7 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     if (element is StatefulElement && subtreeSize > _maxSubtreeSize) {
       final name = typeNameCache.lookup(element.widget);
       if (!name.startsWith('_') &&
-          !isFrameworkWidget(element.widget) &&
+          !isFrameworkElement(element) &&
           !_isTransparentBuilderOwner(name)) {
         _maxSubtreeSize = subtreeSize;
         _maxStableCount = totalStable;
@@ -459,6 +461,13 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
   static bool _isTransparentBuilderOwner(String typeName) =>
       _transparentBuilderOwners.contains(baseTypeName(typeName));
 
+  /// [isFrameworkWidget] for [element]'s widget, or a Material or
+  /// Cupertino page scaffold checked with its state class
+  /// ([isScaffoldElement]), so an app widget named `Scaffold` is not taken
+  /// for the framework's.
+  static bool isFrameworkElement(Element element) =>
+      isFrameworkWidget(element.widget) || isScaffoldElement(element);
+
   /// Returns true if the widget is a framework StatefulWidget that naturally
   /// owns large subtrees but is not a user anti-pattern.
   static bool isFrameworkWidget(Widget widget) {
@@ -490,6 +499,10 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     // _ModalScope<T> runtimeType includes the generic parameter
     // (e.g. '_ModalScope<dynamic>'), so use startsWith.
     if (name.startsWith('_ModalScope')) return true;
+    // The material_ui copies of AppBar, Material, TabBar and TabBarView are
+    // distinct types with the SDK's names; Scaffold goes through
+    // isFrameworkElement.
+    if (movedFrameworkOwnerNames.contains(baseTypeName(name))) return true;
     return _frameworkWidgetNames.contains(name);
   }
 

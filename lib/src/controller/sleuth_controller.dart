@@ -3,9 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:flutter/cupertino.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show Scaffold, TabBarView;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show debugProfilePlatformChannels;
@@ -75,6 +73,7 @@ import '../vm/poll_timings.dart';
 import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
+import '../utils/framework_types.dart' show isScaffoldElement, isTabBarView;
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
@@ -3028,12 +3027,16 @@ class SleuthController {
       // RenderIndexedStack branch below (Flutter 3.47+), and
       // StatefulShellRoute.indexedStack / CupertinoTabScaffold gate inactive
       // tabs with Offstage + TickerMode, which the earlier guards skip.
-      if (widget is TabBarView || widget is PageView) {
+      // `TabBarView` is a StatefulWidget, so the name check (for the
+      // `material_ui` copy) only runs on stateful elements.
+      if (widget is PageView ||
+          (element is StatefulElement && isTabBarView(widget))) {
         return;
       }
 
-      // Collect all visible Scaffolds (Material + Cupertino)
-      if (widget is Scaffold || widget is CupertinoPageScaffold) {
+      // Collect all visible Scaffolds (Material + Cupertino, SDK or the
+      // material_ui / cupertino_ui packages).
+      if (isScaffoldElement(element)) {
         scaffolds.add(element);
       }
 
@@ -3123,7 +3126,7 @@ class SleuthController {
       if (ancestor is StatefulElement) {
         final name = ancestor.widget.runtimeType.toString();
         if (name.startsWith('_')) return false;
-        if (SetStateScopeDetector.isFrameworkWidget(ancestor.widget)) {
+        if (SetStateScopeDetector.isFrameworkElement(ancestor)) {
           return false;
         }
         foundUserWidget = true;
