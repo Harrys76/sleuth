@@ -1743,7 +1743,7 @@ class SleuthController {
       );
     }
     final result = await _streamResource.pollAllocationProfileNow();
-    _recordIssuesForCapture(const <BaseDetector>{});
+    _recordIssuesForCapture(_lastScanFailedDetectors);
     return result;
   }
 
@@ -3873,7 +3873,9 @@ class SleuthController {
       }
 
       detectorsUs = segmentWatch.elapsedMicroseconds;
-      _recordIssuesForCapture(const <BaseDetector>{});
+      // The same detectors the published issues leave out
+      // (`_getAllIssues`), so the capture trace and the overlay agree.
+      _recordIssuesForCapture(_lastScanFailedDetectors);
 
       // Invalidate _getAllIssues cache — detectors have fresh issues.
       _issueGeneration++;
@@ -4140,7 +4142,7 @@ class SleuthController {
       }
     }
 
-    _recordIssuesForCapture(const <BaseDetector>{});
+    _recordIssuesForCapture(_lastScanFailedDetectors);
 
     // FrameTimingDetector may have updated its issues — invalidate cache.
     _issueGeneration++;
@@ -5224,6 +5226,11 @@ class SleuthController {
   /// scenario can still sit in the retained VM timeline buffer, and they
   /// must not emit again during the next scenario's polls or flush.
   final Set<String> _captureEmittedKeys = <String>{};
+
+  /// The capture-mode keys recorded so far (see [_captureEmittedKeys]).
+  @visibleForTesting
+  Set<String> get captureEmittedKeysForTest =>
+      Set.unmodifiable(_captureEmittedKeys);
 
   // -- Debug instrumentation helpers --
 
