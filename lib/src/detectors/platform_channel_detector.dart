@@ -452,7 +452,10 @@ class PlatformChannelDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-    tier: EvidenceTier.runtimeVerified,
+    tier: EvidenceTier.reproducerOnly,
+    // Only the warning tier has a capture bracket; the per-family raise
+    // with a severity-aware `effectiveTierFor` keeps critical at the base.
+    perStableIdTier: {'platform_channel_traffic': EvidenceTier.runtimeVerified},
     rationale:
         'VM-only detector. The emission axis is the largest number of call '
         'begins in one 1 s span of event time, checked once per second of '
@@ -495,10 +498,11 @@ class PlatformChannelDetector extends BaseDetector
         'cooldown the detector keeps the issue, without re-emitting, until '
         '`emissionPersistence` (10 s) has passed since the emission, so '
         'each leg still records exactly one trace event. The critical tier '
-        'at 2 times the threshold (41 calls/sec) also remains implicitly '
-        'reproducer-pinned in this metadata. `DetectorMetadata` carries one '
-        '`tier` per detector instance, so this declaration covers '
-        '`platform_channel_traffic.warning` only. The '
+        'at 2 times the threshold (41 calls/sec) is reproducer-pinned: the '
+        'base tier is reproducerOnly, `perStableIdTier` raises the family, '
+        'and only `platform_channel_traffic.warning` has a bracket, so '
+        '`effectiveTierFor` with severity `critical` reads reproducerOnly. '
+        'The '
         'aboveCeilingMultiplier is 1.95, which puts the above-band ceiling '
         'at 39 calls/sec, under the 41-call critical-escalation boundary, '
         'so the above leg cannot reach the critical tier by accident.',

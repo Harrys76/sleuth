@@ -558,8 +558,27 @@ class DetectorMetadata {
   /// Returns the effective evidence tier for a specific stable ID,
   /// applying any [perStableIdTier] override on top of the detector's
   /// base [tier]. Returns [tier] when no override is set.
-  EvidenceTier effectiveTierFor(String stableId) =>
-      perStableIdTier?[stableId] ?? tier;
+  ///
+  /// With [severity] (`'warning'`, `'critical'`), a runtimeVerified result
+  /// stands only when a bracket covers `'<stableId>.<severity>'`, through
+  /// the canonical [coveredThresholds] or an [additionalBrackets] spec.
+  /// Otherwise the result is the base [tier], or
+  /// [EvidenceTier.reproducerOnly] when the base itself is runtimeVerified.
+  EvidenceTier effectiveTierFor(String stableId, {String? severity}) {
+    final effective = perStableIdTier?[stableId] ?? tier;
+    if (severity == null || effective != EvidenceTier.runtimeVerified) {
+      return effective;
+    }
+    final key = '$stableId.$severity';
+    final covered =
+        (coveredThresholds?.contains(key) ?? false) ||
+        (additionalBrackets?.any((b) => b.coveredThresholds.contains(key)) ??
+            false);
+    if (covered) return effective;
+    return tier == EvidenceTier.runtimeVerified
+        ? EvidenceTier.reproducerOnly
+        : tier;
+  }
 
   /// The strongest effective tier across the base [tier] and all
   /// [perStableIdTier] entries. Drives the audit gate's
