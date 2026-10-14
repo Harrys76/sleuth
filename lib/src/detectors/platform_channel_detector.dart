@@ -5,7 +5,8 @@ import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
-/// Stats of one evaluated window: the busiest 1 s span of event time.
+/// Stats of one evaluated window, which is the busiest 1 s span of event
+/// time.
 /// Durations are in microseconds and cover the completed calls that began
 /// in that span.
 typedef PlatformChannelWindowStats = ({
@@ -31,8 +32,9 @@ typedef PlatformChannelWindowStats = ({
 /// (500 ms polls put two or three batches in one wall-clock second). A
 /// burst whose events arrive in two polls reads partial at one check and
 /// complete at the next, so it can escalate from warning to critical.
-/// Calls are kept for 2 s of event time, at most [maxRetainedCalls]; above
-/// about 2,000 calls/s the oldest are dropped and the count reads low.
+/// The detector keeps calls for 2 s of event time, at most
+/// [maxRetainedCalls]; above about 2,000 calls/s it drops the oldest and
+/// the count reads low.
 ///
 /// **Retention.** Windows are 1 s long. After an emission the issue is
 /// re-added for 3 cooldown windows (same identity, so a sustained overload
@@ -83,10 +85,10 @@ class PlatformChannelDetector extends BaseDetector
   /// calls is critical.
   static const int criticalMultiplier = 2;
 
-  /// Most call begins kept for span counting.
+  /// The most call begins kept for span counting.
   static const int maxRetainedCalls = 4096;
 
-  /// How much event time behind the newest call begin is kept.
+  /// How far behind the newest call begin, in event time, calls are kept.
   static const int _retainUs = 2000000;
 
   static const int _spanUs = 1000000;
@@ -110,9 +112,9 @@ class PlatformChannelDetector extends BaseDetector
   // window check.
   int _checkSeq = 0;
   int? _newestBeginUs;
-  // Begins at or before this event time are dropped: set by [reset], so a
-  // retained-buffer replay from before a capture scenario cannot count in
-  // it.
+  // [reset] sets this to the newest begin seen, and the detector drops
+  // later begins at or before it, so a retained-buffer replay from before
+  // a capture scenario cannot count in the scenario.
   int? _horizonUs;
   int _cooldownCyclesRemaining = 0;
   PerformanceIssue? _lastEmittedIssue;
@@ -134,7 +136,7 @@ class PlatformChannelDetector extends BaseDetector
     final now = _clock();
     final windowDuration = now.difference(_windowStart);
 
-    // Check once per second of wall time, before this batch is added.
+    // Check once per second of wall time, before adding this batch.
     if (windowDuration.inMilliseconds >= 1000) {
       _evaluateWindow();
       _recentCallCount = 0;
@@ -143,10 +145,16 @@ class PlatformChannelDetector extends BaseDetector
       _windowStart = now;
     }
 
+    // The VM returns events grouped by thread block, not in time order, so
+    // this appends the batch and sorts once if it reached back before the
+    // tail.
+    final tailUs = _begins.isEmpty ? null : _begins.last.ts;
+    var outOfOrder = false;
+    var previousUs = tailUs;
     for (final event in data.platformChannelEvents) {
       final json = event.json;
       final ts = json?['ts'];
-      // A begin without a timestamp cannot be placed in a span.
+      // A begin without a timestamp has no place in a span.
       if (ts is! int) continue;
       final horizon = _horizonUs;
       if (horizon != null && ts <= horizon) continue;
@@ -154,9 +162,14 @@ class PlatformChannelDetector extends BaseDetector
           (json!['args'] as Map<String, dynamic>?)?['method'] as String? ??
           json['name'] as String? ??
           'unknown';
-      _insertBegin(_ChannelBegin(ts, method, _arrivalSeq++));
+      if (previousUs != null && ts < previousUs) outOfOrder = true;
+      previousUs = ts;
+      _begins.add(_ChannelBegin(ts, method, _arrivalSeq++));
+      final newest = _newestBeginUs;
+      if (newest == null || ts > newest) _newestBeginUs = ts;
       _recentCallCount++;
     }
+    if (outOfOrder) _begins.sort((a, b) => a.ts.compareTo(b.ts));
     for (final call in data.platformChannelCalls) {
       final horizon = _horizonUs;
       if (horizon != null && call.beginTs <= horizon) continue;
@@ -166,17 +179,10 @@ class PlatformChannelDetector extends BaseDetector
     _prune();
   }
 
-  void _insertBegin(_ChannelBegin begin) {
-    var i = _begins.length;
-    while (i > 0 && _begins[i - 1].ts > begin.ts) {
-      i--;
-    }
-    _begins.insert(i, begin);
-    final newest = _newestBeginUs;
-    if (newest == null || begin.ts > newest) _newestBeginUs = begin.ts;
-  }
-
   void _prune() {
+    if (_calls.length > maxRetainedCalls) {
+      _calls.removeRange(0, _calls.length - maxRetainedCalls);
+    }
     final newest = _newestBeginUs;
     if (newest == null) return;
     final cutoff = newest - _retainUs;
@@ -195,7 +201,8 @@ class PlatformChannelDetector extends BaseDetector
   /// [_begins]; null when no begin arrived since then.
   (int, int)? _busiestNewSpan() {
     if (_begins.isEmpty) return null;
-    // newBefore[i]: begins received since the last check among [0, i).
+    // newBefore[i] counts the begins received since the last check among
+    // the first i.
     final newBefore = List<int>.filled(_begins.length + 1, 0);
     for (var i = 0; i < _begins.length; i++) {
       newBefore[i + 1] = newBefore[i] + (_begins[i].seq >= _checkSeq ? 1 : 0);
@@ -538,8 +545,8 @@ class PlatformChannelDetector extends BaseDetector
     bracketRequireUniqueDetectedAtMicros: true,
     // Detector exports its span count into the trace event args via
     // PerformanceIssue.extraTraceArgs. The audit gate cross-checks it
-    // against `expectedMagnitude.observed` within ±25% so a few missed
-    // events can be absorbed, but a
+    // against `expectedMagnitude.observed` within ±25%, which absorbs a
+    // few missed events, but a
     // mislabeled-leg capture (operator reports at-band rate while
     // detector saw above-band count, or vice versa) is rejected.
     // Backward compatible: pre-v0.19.5 captures recorded before

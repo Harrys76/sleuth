@@ -1827,8 +1827,8 @@ void main() {
     });
 
     test('PlatformChannelDetector raises its warning to runtimeVerified', () {
-      // Anti-tautology anchor for the platform_channel_traffic raise:
-      // the warning tier (20 calls/sec, counted by event time) is backed
+      // Anti-tautology anchor for the platform_channel_traffic raise. The
+      // warning tier (20 calls/sec, counted by event time) is backed
       // by three on-device captures (iPhone 12 / iOS 17.5 / Flutter
       // 3.47.6) with stable per-window dedupIdentityMicros derived from
       // `_windowStart.microsecondsSinceEpoch`. The critical tier (41
@@ -2101,6 +2101,24 @@ void main() {
       );
       expect(
         synthetic.effectiveTierFor('family', severity: 'critical'),
+        EvidenceTier.reproducerOnly,
+      );
+
+      // A citation covers severities the same way.
+      const cited = DetectorMetadata(
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'synthetic',
+        citationUrl: 'https://example.com',
+        coveredStableIds: {'family'},
+        perStableIdTier: {'family': EvidenceTier.externallyCited},
+        coveredThresholds: {'family.warning'},
+      );
+      expect(
+        cited.effectiveTierFor('family', severity: 'warning'),
+        EvidenceTier.externallyCited,
+      );
+      expect(
+        cited.effectiveTierFor('family', severity: 'critical'),
         EvidenceTier.reproducerOnly,
       );
     });

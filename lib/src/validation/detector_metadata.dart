@@ -559,14 +559,16 @@ class DetectorMetadata {
   /// applying any [perStableIdTier] override on top of the detector's
   /// base [tier]. Returns [tier] when no override is set.
   ///
-  /// With [severity] (`'warning'`, `'critical'`), a runtimeVerified result
-  /// stands only when a bracket covers `'<stableId>.<severity>'`, through
-  /// the canonical [coveredThresholds] or an [additionalBrackets] spec.
-  /// Otherwise the result is the base [tier], or
-  /// [EvidenceTier.reproducerOnly] when the base itself is runtimeVerified.
+  /// With [severity] (`'warning'`, `'critical'`), a result of
+  /// runtimeVerified or above stands only when `'<stableId>.<severity>'` is
+  /// covered, through the canonical [coveredThresholds] or an
+  /// [additionalBrackets] spec. Otherwise the result is the base [tier], or
+  /// [EvidenceTier.reproducerOnly] when the base itself is runtimeVerified
+  /// or above.
   EvidenceTier effectiveTierFor(String stableId, {String? severity}) {
     final effective = perStableIdTier?[stableId] ?? tier;
-    if (severity == null || effective != EvidenceTier.runtimeVerified) {
+    if (severity == null ||
+        effective.index < EvidenceTier.runtimeVerified.index) {
       return effective;
     }
     final key = '$stableId.$severity';
@@ -575,7 +577,7 @@ class DetectorMetadata {
         (additionalBrackets?.any((b) => b.coveredThresholds.contains(key)) ??
             false);
     if (covered) return effective;
-    return tier == EvidenceTier.runtimeVerified
+    return tier.index >= EvidenceTier.runtimeVerified.index
         ? EvidenceTier.reproducerOnly
         : tier;
   }
