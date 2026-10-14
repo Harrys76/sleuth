@@ -513,20 +513,21 @@ class NetworkMonitorDetector extends BaseDetector
       final method = entry.key.split(' ').first;
       if (method != 'GET' && method != 'HEAD' && method != 'OPTIONS') continue;
 
-      // Check if at least _duplicateThreshold records cluster within 500ms
+      // Largest number of requests whose start times lie within 500 ms of
+      // each other (inclusive). The left edge slides, so a cluster that
+      // begins after an earlier request is still counted in full.
       records.sort((a, b) => a.startedAt.compareTo(b.startedAt));
       int maxCluster = 1;
       int clusterStart = 0;
       for (var i = 1; i < records.length; i++) {
-        if (records[i].startedAt
+        while (records[i].startedAt
                 .difference(records[clusterStart].startedAt)
-                .inMilliseconds <=
+                .inMilliseconds >
             _duplicateWindowMs) {
-          final clusterSize = i - clusterStart + 1;
-          if (clusterSize > maxCluster) maxCluster = clusterSize;
-        } else {
-          clusterStart = i;
+          clusterStart++;
         }
+        final clusterSize = i - clusterStart + 1;
+        if (clusterSize > maxCluster) maxCluster = clusterSize;
       }
 
       if (maxCluster < _duplicateThreshold) continue;

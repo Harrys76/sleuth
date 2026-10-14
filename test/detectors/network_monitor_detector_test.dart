@@ -930,6 +930,35 @@ void main() {
       expect(dupIssues, isEmpty, reason: '501ms span exceeds 500ms window');
     });
 
+    void sendAt(List<int> offsetsMs) {
+      for (final ms in offsetsMs) {
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/users',
+            method: 'GET',
+            startedAt: fakeNow.add(Duration(milliseconds: ms)),
+          ),
+        );
+      }
+    }
+
+    Iterable<PerformanceIssue> samePathIssues() => detector.issues.where(
+      (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+    );
+
+    test('a cluster that starts after an earlier request counts in full', () {
+      // 300, 600 and 700 ms lie within 500 ms of each other; a window
+      // anchored at 0 ms would restart at 600 ms and count 2.
+      sendAt([0, 300, 600, 700]);
+      expect(samePathIssues(), hasLength(1));
+      expect(samePathIssues().single.title, contains('×3 in 500ms'));
+    });
+
+    test('no three requests within 500 ms means no issue', () {
+      sendAt([0, 300, 600]);
+      expect(samePathIssues(), isEmpty);
+    });
+
     test('severity critical at 10+ duplicate requests', () {
       final base = fakeNow;
       for (int i = 0; i < 10; i++) {
