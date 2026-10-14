@@ -980,10 +980,15 @@ class MemoryPressureDetector extends BaseDetector
         'RSS-heap gap is above 1MB/s sustained for at least 10s. The '
         'reproducer asserts that null rssBytes (web) and the zero-heap and '
         'zero-capacity null-coalesce edges emit nothing.\n\n'
-        'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s sustained '
-        'for at least 10 s) to runtimeVerified via `perStableIdTier`. Three '
-        'on-device captures (iPhone 12, iOS 17.5, Flutter 3.47.6) back the '
-        'raise, recorded with the in-app capture procedure. '
+        'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s) to '
+        'runtimeVerified via `perStableIdTier`, with one bracket per leg: '
+        'the canonical bracket reads the sample leg '
+        '(`observedSlopeBytesPerSec`, 10 s sustained regression) and '
+        '`additionalBrackets[0]` the floor leg '
+        '(`observedFloorSlopeBytesPerSec`, idle full collections). Each leg '
+        'has three on-device captures (iPhone 12, iOS 17.5, Flutter 3.47.6) '
+        'recorded with the other leg switched off, because every in-span '
+        'record must carry its bracket\'s key. '
         '`MemoryPressureCaptureScreen` calibrates an allocation-loop rate '
         'and narrows VM timeline streams to `Dart` only, so heavy '
         'allocation does not overflow the ring buffer. It switches '
@@ -996,10 +1001,10 @@ class MemoryPressureDetector extends BaseDetector
         'the iOS clipboard. `markScenarioBegin` resets the detector window '
         'so the regression slope covers scenario allocation only. Flat '
         'samples from before the scenario would otherwise dilute the slope '
-        'below the threshold. Producer-side dedup keys on '
-        '`_sustainedGrowthStart.microsecondsSinceEpoch` for a stable '
-        'per-trigger identity, so `requireUniqueDetectedAtMicros: true` '
-        'locks single-issue replay protection. The other 3 families '
+        'below the threshold. Producer-side dedup keys on each leg\'s '
+        'first publication time in the growth episode, a stable per-leg '
+        'identity, so `requireUniqueDetectedAtMicros: true` locks '
+        'single-issue replay protection. The other 3 families '
         '(`gc_pressure`, `heap_near_capacity`, `native_memory_growing`) '
         'stay reproducerOnly. Each needs a separate capture campaign with '
         'multi-axis brackets that the current single-bracket schema cannot '
@@ -1049,6 +1054,29 @@ class MemoryPressureDetector extends BaseDetector
     perStableIdTier: {'heap_growing': EvidenceTier.runtimeVerified},
     coveredThresholds: {'heap_growing.warning'},
     bracketRequireUniqueDetectedAtMicros: true,
+    // The floor leg's bracket. Its records carry
+    // `observedFloorSlopeBytesPerSec` and never the sample leg's key, so
+    // each bracket reads only its own leg; each triad was recorded with
+    // the other leg switched off.
+    additionalBrackets: [
+      BracketSpec(
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        threshold: 512000,
+        unit: 'bytes/sec',
+        coveredThresholds: {'heap_growing.warning'},
+        profileCapturePaths: [
+          'test/validation/captures/memory_pressure_floor/heap_growing_floor_below.json',
+          'test/validation/captures/memory_pressure_floor/heap_growing_floor_at.json',
+          'test/validation/captures/memory_pressure_floor/heap_growing_floor_above.json',
+        ],
+        atTolerance: 0.50,
+        aboveCeilingMultiplier: 2.0,
+        observedAxisArgKey: 'observedFloorSlopeBytesPerSec',
+        observedAxisTolerance: 0.10,
+        requireUniqueDetectedAtMicros: true,
+      ),
+    ],
   );
 }
 

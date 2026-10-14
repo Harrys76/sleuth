@@ -1398,15 +1398,34 @@ void main() {
             'detector emits only warning severity. Adding this entry '
             'requires a critical-tier capture campaign + bracket triad.',
       );
+      // heap_growing has two legs, each with its own bracket and triad:
+      // the canonical bracket reads the sample leg
+      // (`observedSlopeBytesPerSec`), the one additional bracket reads
+      // the floor leg (`observedFloorSlopeBytesPerSec`). The other 3
+      // families stay base reproducerOnly.
+      final floorSpec = meta.additionalBrackets?.single;
+      expect(floorSpec, isNotNull);
+      expect(floorSpec!.stableId, 'heap_growing');
+      expect(floorSpec.severityLabel, 'warning');
+      expect(floorSpec.threshold, 512000);
+      expect(floorSpec.observedAxisArgKey, 'observedFloorSlopeBytesPerSec');
+      expect(floorSpec.observedAxisTolerance, 0.10);
       expect(
-        meta.additionalBrackets,
-        isNull,
+        floorSpec.requireUniqueDetectedAtMicros,
+        isTrue,
         reason:
-            'heap_growing brackets a single axis (slope bytes/sec); '
-            'other 3 families (gc_pressure, heap_near_capacity, '
-            'native_memory_growing) stay base reproducerOnly. Multi-axis '
-            'raises across families would populate additionalBrackets.',
+            'BracketSpec defaults the uniqueness check off; the floor '
+            'bracket sets it explicitly like the canonical one.',
       );
+      expect(
+        floorSpec.profileCapturePaths,
+        equals(const [
+          'test/validation/captures/memory_pressure_floor/heap_growing_floor_below.json',
+          'test/validation/captures/memory_pressure_floor/heap_growing_floor_at.json',
+          'test/validation/captures/memory_pressure_floor/heap_growing_floor_above.json',
+        ]),
+      );
+      expect(meta.observedAxisArgKey, 'observedSlopeBytesPerSec');
       expect(
         meta.perStableIdTier?['gc_pressure'],
         isNull,
