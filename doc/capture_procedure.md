@@ -619,14 +619,27 @@ background isolate or a dropped wireless debugging link.
 
 ## MemoryPressure heap_growing capture (v0.19.3)
 
-`MemoryPressureDetector.heap_growing` differs from HeavyCompute and
-NetworkMonitor in two ways:
+`MemoryPressureDetector.heap_growing` has two legs, and each leg has
+its own bracket and its own triad:
 
-1. **Emission waits on wall-clock time.** The detector needs a
+- the floor leg reads the heap left after idle full collections and
+  stamps `observedFloorSlopeBytesPerSec`; its triad lives in
+  `test/validation/captures/memory_pressure_floor/`;
+- the sample leg is the 500 ms heap-sample regression and stamps
+  `observedSlopeBytesPerSec`; its triad lives in
+  `test/validation/captures/memory_pressure/`.
+
+The audit requires every in-span record to carry its bracket's key, so a
+run records one leg with the other switched off
+(`Sleuth.setHeapGrowingLegsForCapture`, capture mode only). The capture
+differs from HeavyCompute and NetworkMonitor in these ways:
+
+1. **Emission waits on wall-clock time.** The sample leg needs a
    regression slope above 512,000 bytes/s held for at least 10 s
    across `_heapSamples` (a 60-entry queue at the 500 ms heap-poll
-   cadence, so a 30 s window). `flushTimelineNow` cannot shorten the
-   sustained window; wall-clock time is the limiting axis.
+   cadence, so a 30 s window). The floor leg needs at least 3 idle
+   collections spanning at least 10 s. `flushTimelineNow` cannot
+   shorten either; wall-clock time is the limiting axis.
 2. **The VM trace ring buffer can overflow.** 30 s of heavy allocation
    under the default `Dart`, `Embedder` and `GC` streams writes tens of
    thousands of paint, raster, frame and GC events and overflows the
@@ -657,31 +670,45 @@ NetworkMonitor in two ways:
    ```
    Without `--no-dds` Sleuth stays in FRAME mode; see the VM-service
    requirement above.
-2. Wait at least 5 s after launch so the detector's 3 s warmup passes.
+2. Wait at least 35 s after launch: the floor leg ignores idle
+   collections from its first 30 s, and the sample leg needs its 3 s
+   warmup.
 3. Open Capture Helpers, then MemoryPressure.
 4. Tap **Calibrate**. A 1 s allocation warmup sets `_bytesPerMs`.
-5. For each leg (Below, At, Above):
-   - Tap the leg button.
+5. Pick **Floor leg** or **Sample leg**. Then, for each role (Below,
+   At, Above):
+   - Tap the role button. The run switches the other leg off and
+     restores both when it ends.
    - After the isolation above and a 2.5 s settle, allocation runs for
      45 s, followed by a 600 ms dwell before `markScenarioEnd` and an
      800 ms dwell after it, about 50 s per attempt. The at leg starts at
      600,000 bytes/s and the above leg at 820,000 bytes/s.
-   - The leg logs `✓ IN-BAND` or `✗ OUT-OF-BAND`. The screen judges the
-     at and above legs on the detector's slope. It reads
-     `observedSlopeBytesPerSec` from the in-span record and writes it
-     into `expectedMagnitude.observed`. It judges the below leg on the
-     allocator rate.
+   - The run logs `✓ IN-BAND` or `✗ OUT-OF-BAND`. The screen judges the
+     at and above roles on the chosen leg's slope, read from the
+     in-span records, and the below role on the allocator rate with no
+     record at all. `expectedMagnitude.observed` stays the measured
+     allocator rate, so the audit cross-checks the detector's slope
+     against an independent reading.
    - On success the leg logs `[<leg>] capture stashed (N chars)`.
      `Sleuth.exportCaptureJson` already wrapped the JSON right after
      `markScenarioEnd`.
-   - Tap **Export last leg**. The validator parses the stashed JSON,
-     checks the number of `sleuth.issue.heap_growing.warning` records
-     inside the scenario span (0 for below, exactly 1 for at and
-     above), and copies the JSON to the iOS clipboard when it passes.
+   - Tap **Export last leg**. The validator re-checks the stashed JSON
+     the way the audit reads it: no `sleuth.issue.heap_growing.warning`
+     record for below; for at and above, at least one, each carrying
+     the leg's key, each in band. It copies the JSON to the iOS
+     clipboard when it passes.
 6. Paste the clipboard into Notes, Mail or AirDrop and send it to the
-   Mac. Save it as `heap_growing_${leg}.json` under
-   `test/validation/captures/memory_pressure/`.
-7. Repeat for all three legs. Each leg allows 5 attempts. An
+   Mac. Save it under the name the log gives:
+   `heap_growing_floor_${role}.json` in `memory_pressure_floor/` for the
+   floor leg, `heap_growing_${role}.json` in `memory_pressure/` for the
+   sample leg.
+7. Repeat for all three roles and both legs. The screen keeps every run's
+   buffers until it closes: buffers freed between runs are collected
+   inside the next run, and that heap drop pulls the sample leg's
+   regression down. Reopen the screen to start from a clean heap, and do
+   not run other retaining workloads (for example
+   `ext.sleuthDemo.retain`) just before a sample-leg run. Each role allows
+   5 attempts. An
    out-of-band attempt rescales the next one's rate; the at and above
    legs never drop to 512,000 bytes/s or below, because a retained rate
    at the threshold cannot read inside the at band.

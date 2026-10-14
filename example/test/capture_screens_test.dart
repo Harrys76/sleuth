@@ -570,6 +570,11 @@ void main() {
         'gcMarkStarts': 0,
         'gcPauseAvailable': false,
         'gcPauseMs': null,
+        'floorState': 'unknown',
+        'floorPoints': 0,
+        'floorSlope': null,
+        'heapGrowingLeg': null,
+        'heapGrowingEpisode': 0,
       });
     });
 

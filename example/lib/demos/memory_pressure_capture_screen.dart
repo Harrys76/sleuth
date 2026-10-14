@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
 import 'capture_driver.dart';
+import 'heap_growing_capture_check.dart';
 
 /// Capture helper for `MemoryPressureDetector.heap_growing.warning`
 /// (threshold = 512 000 bytes/sec sustained ≥ 10 s; runtimeVerified via
@@ -44,11 +44,14 @@ import 'capture_driver.dart';
 ///   1. `cd example && fvm flutter run --profile --no-dds -d DEVICE \
 ///         --dart-define=SLEUTH_CAPTURE_MODE=true \
 ///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
-///   2. Wait ≥ 5 s after app launch (lets the detector's 3 s heap-trend
-///      warmup elapse and the rolling sample window stabilize).
+///   2. Wait ≥ 35 s after app launch. The floor leg ignores idle
+///      collections from the detector's first 30 s, and the sample leg
+///      needs its 3 s warmup.
 ///   3. Tap **Calibrate** — runs a 1-second allocation warmup and pins
 ///      `_bytesPerMs` for the device's current GC + thermal state.
-///   4. Tap a leg (Below / At / Above). The screen switches
+///   4. Pick the heap_growing leg to record (floor or sample; each has
+///      its own triad), then tap a leg (Below / At / Above). The screen
+///      switches the other heap_growing leg off for the run, switches
 ///      StreamResourceDetector off, holds Sleuth's allocation-profile
 ///      reads and waits up to 10 s for one in flight (the leg aborts if
 ///      it does not finish). After a 2.5 s settle the workload runs 45 s
@@ -58,14 +61,16 @@ import 'capture_driver.dart';
 ///      out-of-band attempt rescales the next attempt's rate; the at and
 ///      above legs never drop to 512 000 B/s or below.
 ///   5. Wait for "ready to Export" log line.
-///   6. Tap **Export last leg**. The wrapped capture JSON is parsed to
-///      verify EXACTLY ONE `sleuth.issue.heap_growing.warning` trace
-///      record exists inside the scenario span (zero or two are both
-///      capture-quality failures and abort export). On success, JSON is
-///      copied to the iOS clipboard.
-///   7. Paste into Notes / Mail / AirDrop, save as
-///      `heap_growing_${leg}.json` under
-///      `test/validation/captures/memory_pressure/`.
+///   6. Tap **Export last leg**. The wrapped capture JSON is re-checked
+///      the way the audit reads it: a below run holds no
+///      `sleuth.issue.heap_growing.warning` record; an at or above run
+///      holds at least one, each carrying the leg's slope key, each in
+///      band. On success, JSON is copied to the iOS clipboard.
+///   7. Paste into Notes / Mail / AirDrop and save it under the name and
+///      directory the log line gives: `heap_growing_floor_${leg}.json`
+///      in `test/validation/captures/memory_pressure_floor/` for the floor
+///      leg, `heap_growing_${leg}.json` in
+///      `test/validation/captures/memory_pressure/` for the sample leg.
 ///
 /// **Bands enforced by this screen** (tied to the schema settings the
 /// `MemoryPressureDetector` metadata declares once `runtimeVerified`):
@@ -77,12 +82,14 @@ import 'capture_driver.dart';
 /// The above-band floor (768 001) sits one above the at-band's upper
 /// (768 000), so at and above magnitudes stay disjoint.
 ///
-/// **Retention reset between legs.** Each leg's allocation runs into a
-/// fresh `_retainedAllocations` list — the prior leg's retained bytes are
-/// released so the heap pre-state is consistent across captures. Without
-/// this reset, leg N's regression starts on an inflated pre-allocated
-/// heap and the detector's slope measurement reflects accumulated
-/// allocation, not the current leg's rate.
+/// **Retention across runs.** The buffers a run retains stay alive until
+/// the screen closes (or the total passes [_maxRetainedBytes]). Freed
+/// buffers are old-space garbage, and the VM only starts the idle full
+/// collection that frees them once old space grows again, which is
+/// inside the next run. Their collection then drops the heap by tens of
+/// MB mid-scenario and pulls the sample leg's regression under the
+/// threshold. A larger, flat starting heap does not change any slope,
+/// because `markScenarioBegin` resets the detector's samples.
 ///
 /// **Retry budget**: 5 retries per leg before the screen surfaces an
 /// abort-with-diagnostic. iPhone GC variance is wider than the
@@ -152,6 +159,13 @@ const _allocationDurationSec = 45;
 // of inside the detector's window, where the drop would drag the
 // regression slope negative for the first samples.
 const _preScenarioSettleMs = 2500;
+// Retained bytes past which the screen releases its buffers before a run.
+const _maxRetainedBytes = 256 * 1024 * 1024;
+// Released buffers worth waiting for: their collection drops the heap by
+// this much or more.
+const _minReleaseToAwaitBytes = 4 * 1024 * 1024;
+// Longest wait for that collection before a run goes ahead.
+const _releaseCollectTimeoutSec = 20;
 // Longest wait for Sleuth's in-flight allocation-profile reads to finish
 // before a leg starts. A leg that cannot drain is aborted.
 const _profileDrainTimeoutSec = 10;
@@ -186,8 +200,8 @@ class _MemoryPressureCaptureScreenState
   // run so subsequent legs adapt to current device state.
   double? _bytesPerMs;
 
-  // Active retain buffer. Cleared at the start of every leg so prior
-  // retained allocations do not contaminate the new leg's slope.
+  // Buffers retained by the runs on this screen. Kept across runs (see
+  // the class doc) and released when the screen closes.
   final List<List<int>> _retainedAllocations = [];
 
   // Retry counter per leg (resets when the leg lands in-band or the
@@ -201,6 +215,44 @@ class _MemoryPressureCaptureScreenState
 
   double _targetBpsFor(_MemoryLeg leg) =>
       leg.targetBps * (_targetScale[leg] ?? 1.0);
+
+  int? _latestHeapUsage() =>
+      Sleuth.memoryPressureDetector?.heapSamples.lastOrNull?.heapUsage;
+
+  /// Waits until buffers released past [_maxRetainedBytes] are collected,
+  /// so the heap drop of their collection lands before the scenario
+  /// begins.
+  /// A drop inside the scenario pulls the sample leg's regression under
+  /// the threshold for 30 s. The wait redraws the screen, because the VM
+  /// collects old space in idle time after frames. Gives up after
+  /// [_releaseCollectTimeoutSec] and lets the run go ahead.
+  Future<void> _awaitReleasedBuffersCollected(
+    int releasedBytes,
+    int? heapBeforeRelease,
+  ) async {
+    if (releasedBytes < _minReleaseToAwaitBytes || heapBeforeRelease == null) {
+      return;
+    }
+    final target = heapBeforeRelease - releasedBytes ~/ 2;
+    final waited = Stopwatch()..start();
+    while (waited.elapsed.inSeconds < _releaseCollectTimeoutSec) {
+      final heap = _latestHeapUsage();
+      if (heap != null && heap <= target) return;
+      if (!mounted) return;
+      setState(() {});
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    if (!mounted) return;
+    setState(() {
+      _log.add(
+        'The ${(releasedBytes / 1048576).toStringAsFixed(0)} MB released '
+        'at the retention cap were not collected within '
+        '$_releaseCollectTimeoutSec s; the run goes ahead, and a heap drop '
+        'inside it can silence the sample leg. Reopen the screen to start '
+        'clean.',
+      );
+    });
+  }
 
   /// Sets [leg]'s next target from this attempt's result and returns
   /// the new target in bytes per second. The at and above legs never go
@@ -222,15 +274,13 @@ class _MemoryPressureCaptureScreenState
     return _targetBpsFor(leg);
   }
 
-  // Cross-leg gate. Set when any leg's catch-block sees a persistent
-  // post-process `rewriteError` (i.e. `_replaceExpectedObserved` shape
-  // drift). Same shape-drift bug breaks every leg, so once one leg has
-  // exhausted its retry budget on it, the other legs short-circuit
-  // instead of burning their own budgets on identical failures.
-  // Restart-screen is the only recovery path: clear-log button does
-  // NOT reset this flag, because operator must re-prove the wrapped
-  // capture shape after fixing `_replaceExpectedObserved`.
-  bool _persistentRewriteError = false;
+  // The heap_growing leg the next run records. Each leg has its own
+  // triad; a run switches the other leg off so its records never mix
+  // with this leg's.
+  HeapGrowingCaptureLeg _legMode = HeapGrowingCaptureLeg.floor;
+
+  // The leg mode of the last completed run, for Export.
+  HeapGrowingCaptureLeg? _lastLegMode;
 
   // Last completed scenario, captured at the end of the leg run so the
   // Export button knows what scenario name + measured magnitude to pass
@@ -267,8 +317,8 @@ class _MemoryPressureCaptureScreenState
       );
     }
     _log.add(
-      'Wait at least 5 s after app launch before calibrating, so '
-      'the detector warmup can elapse.',
+      'Wait at least 35 s after app launch before tapping a leg: the '
+      'floor leg ignores idle collections from the first 30 s.',
     );
   }
 
@@ -324,16 +374,6 @@ class _MemoryPressureCaptureScreenState
 
   Future<void> _runLeg(_MemoryLeg leg) async {
     if (_busy || _bytesPerMs == null) return;
-    if (_persistentRewriteError) {
-      setState(() {
-        _log.add(
-          '[${leg.label}] persistent rewriteError on a prior leg. '
-          'Restart the screen to retry. The same shape-drift bug breaks '
-          'every leg, so another scenario would waste 30 s.',
-        );
-      });
-      return;
-    }
     // Capture mode and provenance are properties of the build, so a leg
     // that could never be exported is refused before its 30 s workload.
     // Both are reported so one relaunch can fix both.
@@ -365,22 +405,32 @@ class _MemoryPressureCaptureScreenState
       return;
     }
     _retryCount++;
+    final legMode = _legMode;
+    final scenario = '${legMode.scenarioPrefix}${leg.label}';
     setState(() {
       _busy = true;
       _lastCompletedLeg = null;
       _lastMeasuredBps = null;
       _stashedCaptureJson = null;
       _log.add(
-        '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg: '
+        '[${leg.label}] ${legMode.name} leg, attempt '
+        '$_retryCount/$_maxRetriesPerLeg: '
         'target ${(_targetBpsFor(leg) / 1024).toStringAsFixed(0)} KB/s, '
         'band [${(leg.bpsMin / 1024).toStringAsFixed(0)}, '
         '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s',
       );
     });
 
-    // Reset retention buffer so this leg's slope reflects current
-    // allocation only — not residue from prior leg attempts.
-    _retainedAllocations.clear();
+    // Keep earlier runs' buffers alive: freeing them would move their
+    // collection into this run. Past the cap they are released, and the
+    // run waits for their collection.
+    final retainedBytes = _retainedAllocations.fold<int>(
+      0,
+      (sum, b) => sum + b.length * 8,
+    );
+    final releasedBytes = retainedBytes > _maxRetainedBytes ? retainedBytes : 0;
+    final heapBeforeRelease = _latestHeapUsage();
+    if (releasedBytes > 0) _retainedAllocations.clear();
 
     // Narrow VM timeline streams to `Dart` only for the scenario span.
     // 30 s of heavy allocation under default streams (Dart + Embedder +
@@ -418,12 +468,20 @@ class _MemoryPressureCaptureScreenState
         });
         return;
       }
+      await _awaitReleasedBuffersCollected(releasedBytes, heapBeforeRelease);
+      if (!mounted) return;
+      // Record one leg alone: the other leg's records would fail this
+      // leg's bracket in the audit. Restored in `finally`.
+      Sleuth.setHeapGrowingLegsForCapture(
+        floor: legMode == HeapGrowingCaptureLeg.floor,
+        sample: legMode == HeapGrowingCaptureLeg.sample,
+      );
       await Future<void>.delayed(
         const Duration(milliseconds: _preScenarioSettleMs),
       );
       if (!mounted) return;
 
-      Sleuth.markScenarioBegin('memory_pressure_heap_growing_${leg.label}');
+      Sleuth.markScenarioBegin(scenario);
 
       final scaledTickBytes = (_targetBpsFor(leg) * _allocationTickMs / 1000)
           .round();
@@ -454,7 +512,7 @@ class _MemoryPressureCaptureScreenState
       );
       if (!mounted) return;
 
-      Sleuth.markScenarioEnd('memory_pressure_heap_growing_${leg.label}');
+      Sleuth.markScenarioEnd(scenario);
 
       // Post-end barrier before exportCaptureJson: VM service buffer
       // needs to flush the just-emitted scenario.end marker before
@@ -482,15 +540,9 @@ class _MemoryPressureCaptureScreenState
         _bytesPerMs = totalAllocated / allocationElapsedMs;
       }
 
-      // Compose first against the operator-measured rate so the wrapped
-      // JSON shape is valid. The post-process step below replaces
-      // `expectedMagnitude.observed` with the detector-stamped slope so
-      // the bracket-band check, the schema's per-record cross-check, and
-      // the audit's `checkDetectorAxisInRoleBand` invariant all reduce
-      // to the same authoritative number — the value the detector
-      // itself observed at firing time. Operator rate is the wheel the
-      // operator turns; detector slope is the value the role band is
-      // judged against.
+      // `expectedMagnitude.observed` is the measured operator rate, the
+      // independent reading; the audit cross-checks the detector's
+      // stamped slope against it.
       String? stashed;
       // Why the capture did not compose: the export's own reason when it
       // returned null, or the text of a failure before or inside the call.
@@ -499,7 +551,7 @@ class _MemoryPressureCaptureScreenState
         // Checked when the leg started; this is a safety net.
         final provenance = requireCaptureProvenance();
         stashed = await Sleuth.exportCaptureJson(
-          scenario: 'memory_pressure_heap_growing_${leg.label}',
+          scenario: scenario,
           role: leg.label,
           // Schema requires magnitudeMin > 0. Below leg's bpsMin is
           // 0, so clamp to a small positive epsilon (1 byte/sec) —
@@ -515,16 +567,14 @@ class _MemoryPressureCaptureScreenState
           flutterVersion: provenance.flutterVersion,
           captureCommand: provenance.captureCommand,
           // heap_growing's source event is the VM heap sample, not a
-          // BUILD timeline event — skip BUILD-derivation. The
-          // post-process step replaces the placeholder with detector
-          // slope.
+          // BUILD timeline event — skip BUILD-derivation.
           magnitudeSourceEventName: '',
-          // `expectedMagnitude.observed` becomes the detector's slope
-          // below, so the measured operator rate is kept here.
           captureNotes:
-              'StreamResourceDetector off and Sleuth allocation-profile '
-              'reads held for the leg, none in flight at scenario begin. '
-              'Operator retained rate ${operatorBps.round()} bytes/sec.',
+              'heap_growing ${legMode.name} leg only (the other leg '
+              'switched off). StreamResourceDetector off and Sleuth '
+              'allocation-profile reads held for the leg, none in flight '
+              'at scenario begin. Operator retained rate '
+              '${operatorBps.round()} bytes/sec.',
         );
         if (stashed == null) {
           final reason =
@@ -539,37 +589,24 @@ class _MemoryPressureCaptureScreenState
         composeFailure = '$e';
       }
 
-      double? detectorBps;
-      String? rewrittenJson;
-      String? rewriteError;
-      if (stashed != null) {
-        detectorBps = _extractDetectorSlopeFromCapture(stashed, leg);
-        if (detectorBps != null) {
-          try {
-            rewrittenJson = _replaceExpectedObserved(stashed, detectorBps);
-          } on StateError catch (e) {
-            rewriteError = e.message;
-          }
-        } else if (leg == _MemoryLeg.below) {
-          // Below leg: detector is silent by design (no in-span issue
-          // event). Authoritative value is the operator-measured
-          // sub-threshold rate.
-          rewrittenJson = stashed;
-        }
-      }
-
-      // For at + above: in-band uses detector slope (the value the role
-      // band is enforced against). For below: operator rate (detector
-      // silent). When the detector value is missing from at/above the
-      // run is unusable — surface as out-of-band and keep nothing.
-      bool inBand;
-      if (leg == _MemoryLeg.below) {
-        // The below leg also needs a silent detector: an emission inside
-        // the span makes the capture unusable whatever the operator rate.
-        inBand = leg.isBpsInBand(operatorBps) && detectorBps == null;
-      } else {
-        inBand = detectorBps != null && leg.isBpsInBand(detectorBps);
-      }
+      // The run's own leg decides: its slope must land in the band for at
+      // and above, and a below run must hold no record at all.
+      final detectorBps = stashed == null
+          ? null
+          : heapGrowingCaptureSlope(stashed, leg: legMode, role: leg.label);
+      final problem = stashed == null
+          ? null
+          : checkHeapGrowingCapture(
+              stashed,
+              leg: legMode,
+              role: leg.label,
+              bandMin: leg.bpsMin.toDouble(),
+              bandMax: leg.bpsMax.toDouble(),
+            );
+      final inBand =
+          stashed != null &&
+          problem == null &&
+          (leg != _MemoryLeg.below || leg.isBpsInBand(operatorBps));
 
       if (!mounted) return;
       final marker = inBand ? '✓ IN-BAND' : '✗ OUT-OF-BAND';
@@ -577,12 +614,13 @@ class _MemoryPressureCaptureScreenState
           ? operatorBps
           : (detectorBps ?? operatorBps));
       // A leg is offered for export only with an in-band value and a
-      // composed capture. An in-band leg whose export or rewrite failed
+      // composed capture. An in-band leg whose export failed
       // logs the failure after its band verdict.
-      final stashedJson = inBand ? rewrittenJson : null;
+      final stashedJson = inBand ? stashed : null;
       setState(() {
         _busy = false;
         _lastCompletedLeg = stashedJson != null ? leg : null;
+        _lastLegMode = legMode;
         _lastMeasuredBps = stashedJson != null ? reportedBps : null;
         _stashedCaptureJson = stashedJson;
         final ratio = (detectorBps != null && operatorBps > 0)
@@ -591,9 +629,9 @@ class _MemoryPressureCaptureScreenState
         _log.add(
           '[${leg.label}] $marker: '
           'operator ${(operatorBps / 1024).toStringAsFixed(0)} KB/s, '
-          'detector ${detectorBps == null ? '(silent)' : '${(detectorBps / 1024).toStringAsFixed(0)} KB/s'}'
+          '${legMode.name} slope ${detectorBps == null ? '(silent)' : '${(detectorBps / 1024).toStringAsFixed(0)} KB/s'}'
           '${ratio == null ? '' : ' (det/op ratio $ratio)'} '
-          '(role-band uses ${leg == _MemoryLeg.below ? 'operator' : 'detector'}: '
+          '(role-band uses ${leg == _MemoryLeg.below ? 'operator' : 'the ${legMode.name} slope'}: '
           '[${(leg.bpsMin / 1024).toStringAsFixed(0)}, '
           '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s)',
         );
@@ -609,36 +647,22 @@ class _MemoryPressureCaptureScreenState
               '[${leg.label}] capture FAILED to compose: $composeFailure. '
               'Re-tap after fixing.',
             );
-          } else if (rewriteError != null) {
-            // Persistent shape change: every retry on this leg AND
-            // every other leg will throw the same StateError. Exhaust
-            // this leg's budget AND set the cross-leg gate so the next
-            // tap on any leg short-circuits at the top of _runLeg.
-            _retryCount = _maxRetriesPerLeg;
-            _persistentRewriteError = true;
-            _log.add(
-              '[${leg.label}] post-process FAILED: $rewriteError. '
-              'The wrapped capture shape changed; update '
-              '_replaceExpectedObserved before retrying. The screen used '
-              'up the retry budget so the same failure does not repeat. '
-              'Restart the screen after fixing.',
-            );
           } else if (leg != _MemoryLeg.below && detectorBps == null) {
             final next = _rescaleTarget(leg, null);
             _log.add(
-              '[${leg.label}] no in-span heap_growing.warning: the '
-              'detector slope did not stay above 500 KB/s for 10 s '
-              'inside the scenario. Next attempt targets '
-              '${(next / 1024).toStringAsFixed(0)} KB/s. Re-tap.',
+              '[${leg.label}] ${problem ?? 'no in-span heap_growing.warning'} '
+              'Next attempt targets ${(next / 1024).toStringAsFixed(0)} '
+              'KB/s. Re-tap.',
             );
           } else {
             final next = leg == _MemoryLeg.below
                 ? _targetBpsFor(leg)
                 : _rescaleTarget(leg, detectorBps);
             _log.add(
-              '[${leg.label}] retry: detector slope '
+              '[${leg.label}] retry: ${problem ?? 'out of band'} '
+              '${legMode.name} slope '
               '${detectorBps == null ? '?' : (detectorBps / 1024).toStringAsFixed(0)} '
-              'KB/s missed band '
+              'KB/s, band '
               '[${(leg.bpsMin / 1024).toStringAsFixed(0)}, '
               '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s. Next '
               'attempt targets ${(next / 1024).toStringAsFixed(0)} KB/s. '
@@ -655,6 +679,7 @@ class _MemoryPressureCaptureScreenState
       if (streamsSuspended) {
         await Sleuth.resumeAllTimelineStreams();
       }
+      Sleuth.setHeapGrowingLegsForCapture(floor: true, sample: true);
       Sleuth.releaseAllocationProfileReads();
       if (streamDetectorWasEnabled) streamDetector?.isEnabled = true;
       // Safety net for `_busy`: the happy-path setState already cleared
@@ -669,7 +694,8 @@ class _MemoryPressureCaptureScreenState
   /// Reads the wrapped capture JSON stashed by `_runLeg` immediately
   /// after `markScenarioEnd`, parses it to verify the expected
   /// `sleuth.issue.heap_growing.warning` trace-record count inside the
-  /// scenario span (zero for below; exactly one for at / above), and
+  /// scenario span (none for below; at least one of the leg's for at and
+  /// above), and
   /// copies it to the iOS clipboard.
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
@@ -706,13 +732,15 @@ class _MemoryPressureCaptureScreenState
       _log.add('[${leg.label}] Export: validating stashed capture…');
     });
 
-    // Post-capture validator: parse the wrapped JSON and count
-    // `sleuth.issue.heap_growing.warning` events inside the scenario
-    // span. The below-leg requires zero (sub-threshold detector
-    // silence); at and above legs require exactly one. Two or more
-    // means the sustained window broke and re-engaged mid-leg —
-    // capture quality failure, abort export.
-    final validation = _validateTraceRecords(json, leg);
+    // Re-check the stashed capture the way the audit will read it.
+    final legMode = _lastLegMode ?? HeapGrowingCaptureLeg.floor;
+    final validation = checkHeapGrowingCapture(
+      json,
+      leg: legMode,
+      role: leg.label,
+      bandMin: leg.bpsMin.toDouble(),
+      bandMax: leg.bpsMax.toDouble(),
+    );
     if (validation != null) {
       setState(() {
         _busy = false;
@@ -734,8 +762,8 @@ class _MemoryPressureCaptureScreenState
         _log.add(
           '[${leg.label}] Paste it into Notes, Mail or an AirDrop note '
           'and send it to the Mac. Save the pasted JSON as '
-          'heap_growing_${leg.label}.json under '
-          'test/validation/captures/memory_pressure/.',
+          '${legMode.fileStem}${leg.label}.json under '
+          '${legMode.directory}.',
         );
       });
       messenger.showSnackBar(
@@ -753,207 +781,6 @@ class _MemoryPressureCaptureScreenState
         _log.add('[${leg.label}] Clipboard copy FAILED: $e');
       });
     }
-  }
-
-  /// Validates that the exported capture JSON contains the expected
-  /// number of `sleuth.issue.heap_growing.warning` trace events:
-  /// zero for `below`, exactly one for `at` / `above`. Returns null on
-  /// success or a human-readable failure reason.
-  String? _validateTraceRecords(String json, _MemoryLeg leg) {
-    Map<String, dynamic> wrapped;
-    try {
-      wrapped = jsonDecode(json) as Map<String, dynamic>;
-    } catch (e) {
-      return 'capture JSON is not valid JSON: $e';
-    }
-    final traceEvents = wrapped['traceEvents'];
-    if (traceEvents is! List) {
-      return 'capture has no traceEvents array; check that '
-          'retainTimeline is enabled and scenario markers landed.';
-    }
-
-    // Sleuth.markScenarioBegin/End emits `Timeline.instantSync(
-    // 'sleuth.scenario.begin', arguments: {'name': scenarioName})` —
-    // event NAME is plain `sleuth.scenario.begin`, the leg-specific
-    // scenario name lives in `args.name`. Some VM service exports nest
-    // the args under `Dart Arguments` so check both shapes.
-    int? scenarioBeginTs;
-    int? scenarioEndTs;
-    final scenarioName = 'memory_pressure_heap_growing_${leg.label}';
-    for (final raw in traceEvents) {
-      if (raw is! Map<String, dynamic>) continue;
-      final name = raw['name'];
-      final ts = raw['ts'];
-      if (ts is! num) continue;
-      if (name != 'sleuth.scenario.begin' && name != 'sleuth.scenario.end') {
-        continue;
-      }
-      String? markerName;
-      final args = raw['args'];
-      if (args is Map) {
-        final direct = args['name'];
-        if (direct is String) markerName = direct;
-        final dartArgs = args['Dart Arguments'];
-        if (markerName == null && dartArgs is Map) {
-          final inner = dartArgs['name'];
-          if (inner is String) markerName = inner;
-        }
-      }
-      if (markerName != scenarioName) continue;
-      if (name == 'sleuth.scenario.begin') scenarioBeginTs = ts.toInt();
-      if (name == 'sleuth.scenario.end') scenarioEndTs = ts.toInt();
-    }
-    if (scenarioBeginTs == null || scenarioEndTs == null) {
-      return 'scenario markers missing from trace (begin=$scenarioBeginTs, '
-          'end=$scenarioEndTs). Re-tap the leg.';
-    }
-
-    var heapGrowingCount = 0;
-    const heapGrowingEventName = 'sleuth.issue.heap_growing.warning';
-    for (final raw in traceEvents) {
-      if (raw is! Map<String, dynamic>) continue;
-      if (raw['name'] != heapGrowingEventName) continue;
-      final ts = raw['ts'];
-      if (ts is! num) continue;
-      if (ts.toInt() < scenarioBeginTs) continue;
-      if (ts.toInt() > scenarioEndTs) continue;
-      heapGrowingCount++;
-    }
-
-    final expected = leg == _MemoryLeg.below ? 0 : 1;
-    if (heapGrowingCount != expected) {
-      final cause = heapGrowingCount == 0
-          ? 'Detector did not fire. Likely causes: (1) The regression '
-                'slope did not stay above the 512 KB/s threshold for 10 s '
-                'inside the scenario. An old-generation GC inside the 30 s '
-                'regression window drops the heap and can restart the '
-                'sustained clock. Re-tap: the next attempt runs at a '
-                'higher rate. (2) The detector warmup had not elapsed. Wait at '
-                'least 5 s after app launch before tapping a leg. '
-                '(3) The allocator rate is too low for this leg. '
-                'Recalibrate.'
-          : leg == _MemoryLeg.below
-          ? 'The detector fired on a leg whose retained rate is below '
-                'the threshold, so allocation the next collection frees '
-                'pushed the slope over it. Retry the leg.'
-          : 'The sustained window broke and re-engaged mid-leg: the '
-                'slope dipped below the threshold, then rose again. '
-                'Retry the leg.';
-      return 'expected $expected `$heapGrowingEventName` events inside '
-          'scenario span, found $heapGrowingCount. $cause';
-    }
-    return null;
-  }
-
-  /// Walks the wrapped capture's `traceEvents` for in-span
-  /// `sleuth.issue.heap_growing.warning` events and returns the maximum
-  /// `args.observedSlopeBytesPerSec` value the detector stamped during
-  /// the scenario. Returns null when the detector did not fire (below
-  /// leg) or the arg is missing/unparseable. Reduction strategy `'max'`
-  /// matches the schema's per-record cross-check on this stableId.
-  double? _extractDetectorSlopeFromCapture(String json, _MemoryLeg leg) {
-    Map<String, dynamic> wrapped;
-    try {
-      wrapped = jsonDecode(json) as Map<String, dynamic>;
-    } catch (_) {
-      return null;
-    }
-    final traceEvents = wrapped['traceEvents'];
-    if (traceEvents is! List) return null;
-    final scenarioName = 'memory_pressure_heap_growing_${leg.label}';
-    int? beginTs;
-    int? endTs;
-    for (final raw in traceEvents) {
-      if (raw is! Map<String, dynamic>) continue;
-      final name = raw['name'];
-      final ts = raw['ts'];
-      if (ts is! num) continue;
-      if (name != 'sleuth.scenario.begin' && name != 'sleuth.scenario.end') {
-        continue;
-      }
-      String? markerName;
-      final args = raw['args'];
-      if (args is Map) {
-        final direct = args['name'];
-        if (direct is String) markerName = direct;
-        final dartArgs = args['Dart Arguments'];
-        if (markerName == null && dartArgs is Map) {
-          final inner = dartArgs['name'];
-          if (inner is String) markerName = inner;
-        }
-      }
-      if (markerName != scenarioName) continue;
-      if (name == 'sleuth.scenario.begin') beginTs = ts.toInt();
-      if (name == 'sleuth.scenario.end') endTs = ts.toInt();
-    }
-    if (beginTs == null || endTs == null) return null;
-    const eventName = 'sleuth.issue.heap_growing.warning';
-    double? max;
-    for (final raw in traceEvents) {
-      if (raw is! Map<String, dynamic>) continue;
-      if (raw['name'] != eventName) continue;
-      final ts = raw['ts'];
-      if (ts is! num) continue;
-      final tsInt = ts.toInt();
-      if (tsInt < beginTs || tsInt > endTs) continue;
-      final args = raw['args'];
-      if (args is! Map) continue;
-      // Some VM service exports nest user-supplied trace args under
-      // a top-level `Dart Arguments` map. Mirror the scenario-marker
-      // name lookup so detector slope extraction stays active under
-      // either shape.
-      Object? axis = args['observedSlopeBytesPerSec'];
-      if (axis == null) {
-        final dartArgs = args['Dart Arguments'];
-        if (dartArgs is Map) axis = dartArgs['observedSlopeBytesPerSec'];
-      }
-      double? parsed;
-      if (axis is String && axis.isNotEmpty) {
-        parsed = double.tryParse(axis);
-      } else if (axis is num) {
-        parsed = axis.toDouble();
-      }
-      if (parsed == null) continue;
-      if (max == null || parsed > max) max = parsed;
-    }
-    return max;
-  }
-
-  /// Returns a copy of [json] with `sleuthMetadata.expectedMagnitude.observed`
-  /// rewritten to [observed]. Eliminates the operator-vs-detector
-  /// divergence by construction so the schema bracket-band check, the
-  /// per-record cross-check, and `checkDetectorAxisInRoleBand` all
-  /// reduce to the same authoritative number.
-  ///
-  /// Throws [StateError] when the target field is missing — a silent
-  /// no-op would let an exported capture keep the operator-value
-  /// placeholder in `expectedMagnitude.observed`, regressing the
-  /// schema bracket-band check on a future schema-shape change.
-  String _replaceExpectedObserved(String json, double observed) {
-    final root = jsonDecode(json) as Map<String, dynamic>;
-    final meta = root['sleuthMetadata'];
-    if (meta is! Map<String, dynamic>) {
-      throw StateError(
-        'sleuthMetadata is missing or not a Map in stashed capture; '
-        'wrapped capture shape may have changed in a Sleuth release. '
-        'Update _replaceExpectedObserved before exporting captures.',
-      );
-    }
-    final expected = meta['expectedMagnitude'];
-    if (expected is! Map<String, dynamic>) {
-      throw StateError(
-        'sleuthMetadata.expectedMagnitude is missing or not a Map in '
-        'stashed capture; wrapped capture shape may have changed.',
-      );
-    }
-    if (!expected.containsKey('observed')) {
-      throw StateError(
-        'sleuthMetadata.expectedMagnitude.observed is missing in stashed '
-        'capture; wrapped capture shape may have changed.',
-      );
-    }
-    expected['observed'] = observed;
-    return const JsonEncoder.withIndent('  ').convert(root);
   }
 
   @override
@@ -976,7 +803,27 @@ class _MemoryPressureCaptureScreenState
               'protocol.',
               style: TextStyle(fontSize: 13),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            SegmentedButton<HeapGrowingCaptureLeg>(
+              segments: const [
+                ButtonSegment(
+                  value: HeapGrowingCaptureLeg.floor,
+                  label: Text('Floor leg'),
+                ),
+                ButtonSegment(
+                  value: HeapGrowingCaptureLeg.sample,
+                  label: Text('Sample leg'),
+                ),
+              ],
+              selected: {_legMode},
+              onSelectionChanged: _busy
+                  ? null
+                  : (selection) => setState(() {
+                      _legMode = selection.single;
+                      _activeRetryLeg = null;
+                    }),
+            ),
+            const SizedBox(height: 12),
             _CaptureButton(
               label: 'Below (${_belowTargetBps ~/ 1024} KB/s), passes',
               subtitle:
@@ -989,8 +836,8 @@ class _MemoryPressureCaptureScreenState
             _CaptureButton(
               label: 'At (op ${_atTargetBps ~/ 1024} KB/s), warning',
               subtitle:
-                  'Detector slope must land in [512, 768] KB/s '
-                  '(operator rate adjusted for ~+50% allocator drift)',
+                  'The ${_legMode.name} leg slope must land in '
+                  '[500, 750] KB/s',
               enabled: ready,
               onTap: () => _runLeg(_MemoryLeg.at),
             ),
@@ -998,8 +845,8 @@ class _MemoryPressureCaptureScreenState
             _CaptureButton(
               label: 'Above (op ${_aboveTargetBps ~/ 1024} KB/s), warning',
               subtitle:
-                  'Detector slope must land in [769, 1024] KB/s '
-                  '(operator rate adjusted for ~+12% allocator drift)',
+                  'The ${_legMode.name} leg slope must land in '
+                  '[751, 1000] KB/s',
               enabled: ready,
               onTap: () => _runLeg(_MemoryLeg.above),
             ),
