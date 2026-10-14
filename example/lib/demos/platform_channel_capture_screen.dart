@@ -372,6 +372,12 @@ class _PlatformChannelCaptureScreenState
           // post-process step replaces the placeholder with detector
           // count.
           magnitudeSourceEventName: '',
+          // The observed value is the detector's count; the notes keep the
+          // send rate so a later check can compare the two.
+          captureNotes:
+              'Operator send rate ${operatorCps.toStringAsFixed(1)} '
+              'calls/sec ($totalCallsSent calls over $callPhaseElapsedMs ms, '
+              'evenly spaced).',
         );
         if (stashed == null) {
           final reason =

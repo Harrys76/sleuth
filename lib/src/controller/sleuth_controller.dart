@@ -2097,7 +2097,9 @@ class SleuthController {
     // in-span trace records on a back-to-back leg.
     for (final detector in _detectors) {
       if (detector is PlatformChannelDetector) {
-        detector.reset();
+        // Calls made before the scenario but delivered by a later poll
+        // stay out of it.
+        detector.reset(horizonUs: OwnWorkLog.now());
       } else if (detector is EventLoopStallDetector) {
         detector.reset();
       } else if (detector is RepaintDetector) {

@@ -179,7 +179,10 @@
   poll batches arrived within one second of wall time, so a steady 50
   calls/s read 74 on a Galaxy A07 and the iPhone capture's 45 calls/s read
   36. The method counts, call durations and trace args on the card come
-  from the same span. The triad was re-recorded on Flutter 3.47.6 (iPhone 12,
+  from the same span. Calls the VM client delivers again after a reconnect,
+  and calls made before a capture scenario began, do not count; a poll
+  that covers more than 2 s of calls is checked before the early ones age
+  out. The triad was re-recorded on Flutter 3.47.6 (iPhone 12,
   iOS 17.5) with evenly spaced calls: below 15 calls/s silent, at 26,
   above 34.
 - Evidence tiers by severity: `DetectorMetadata.effectiveTierFor` takes an

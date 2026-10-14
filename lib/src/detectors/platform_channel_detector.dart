@@ -32,9 +32,10 @@ typedef PlatformChannelWindowStats = ({
 /// (500 ms polls put two or three batches in one wall-clock second). A
 /// burst whose events arrive in two polls reads partial at one check and
 /// complete at the next, so it can escalate from warning to critical.
-/// The detector keeps calls for 2 s of event time, at most
-/// [maxRetainedCalls]; above about 2,000 calls/s it drops the oldest and
-/// the count reads low.
+/// After each check the detector keeps the calls of the last 2 s of event
+/// time, so a check sees the whole of a poll that covers more than 2 s. It
+/// keeps at most [maxRetainedCalls]; above about 2,000 calls/s it drops the
+/// oldest and the count reads low.
 ///
 /// **Retention.** Windows are 1 s long. After an emission the issue is
 /// re-added for 3 cooldown windows (same identity, so a sustained overload
@@ -129,6 +130,19 @@ class PlatformChannelDetector extends BaseDetector
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
+  bool? _vmConnected;
+
+  /// A reconnect resets the VM client's timeline cursors, so its first poll
+  /// repeats events this detector already holds. A connection change drops
+  /// the held calls and ignores later begins at or before the newest one
+  /// seen.
+  @override
+  set vmConnected(bool value) {
+    if (_vmConnected == value) return;
+    _vmConnected = value;
+    _dropRetained();
+  }
+
   @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
@@ -143,6 +157,10 @@ class PlatformChannelDetector extends BaseDetector
       _callDurationsUs.clear();
       _checkSeq = _arrivalSeq;
       _windowStart = now;
+      // Age out only after a check, so the check sees a batch that spans
+      // more than 2 s of event time (a delayed poll) before its early calls
+      // go.
+      _prune(byTime: true);
     }
 
     // The VM returns events grouped by thread block, not in time order, so
@@ -176,24 +194,42 @@ class PlatformChannelDetector extends BaseDetector
       _callDurationsUs.add(call.durationUs);
       _calls.add(call);
     }
-    _prune();
+    _prune(byTime: false);
   }
 
-  void _prune() {
+  /// Keeps at most [maxRetainedCalls] begins and calls and, with [byTime],
+  /// drops those more than 2 s of event time behind the newest begin.
+  void _prune({required bool byTime}) {
     if (_calls.length > maxRetainedCalls) {
       _calls.removeRange(0, _calls.length - maxRetainedCalls);
     }
+    if (_begins.length > maxRetainedCalls) {
+      _begins.removeRange(0, _begins.length - maxRetainedCalls);
+    }
     final newest = _newestBeginUs;
-    if (newest == null) return;
+    if (!byTime || newest == null) return;
     final cutoff = newest - _retainUs;
     var drop = 0;
-    while (drop < _begins.length &&
-        (_begins[drop].ts < cutoff ||
-            _begins.length - drop > maxRetainedCalls)) {
+    while (drop < _begins.length && _begins[drop].ts < cutoff) {
       drop++;
     }
     if (drop > 0) _begins.removeRange(0, drop);
     _calls.removeWhere((c) => c.beginTs < cutoff);
+  }
+
+  /// Drops the held calls and ignores later begins at or before the newest
+  /// one seen, or at or before [horizonUs] when that is later.
+  void _dropRetained({int? horizonUs}) {
+    var horizon = _newestBeginUs;
+    if (horizonUs != null && (horizon == null || horizonUs > horizon)) {
+      horizon = horizonUs;
+    }
+    if (horizon != null) _horizonUs = horizon;
+    _begins.clear();
+    _calls.clear();
+    _recentCallCount = 0;
+    _callDurationsUs.clear();
+    _checkSeq = _arrivalSeq;
   }
 
   /// The busiest half-open 1 s span of event time that holds at least one
@@ -441,14 +477,13 @@ class PlatformChannelDetector extends BaseDetector
   /// controller's `_captureEmittedKeys` set deliberately stays
   /// persistent across scenarios so that retained-buffer replays
   /// (under `retainTimeline: true`) cannot re-record stale issues.
-  void reset() {
-    _recentCallCount = 0;
-    _callDurationsUs.clear();
-    final newest = _newestBeginUs;
-    if (newest != null) _horizonUs = newest;
-    _begins.clear();
-    _calls.clear();
-    _checkSeq = _arrivalSeq;
+  ///
+  /// [horizonUs] is the scenario boundary in event time, `Timeline.now` at
+  /// the reset. Begins at or before it that a later poll delivers do not
+  /// count in the scenario. Without it the boundary is the newest begin
+  /// seen.
+  void reset({int? horizonUs}) {
+    _dropRetained(horizonUs: horizonUs);
     _windowStart = _clock();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;

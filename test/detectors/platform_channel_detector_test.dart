@@ -823,6 +823,58 @@ void main() {
         expect(detector.lastWindowStats!.callCount, 0);
       });
 
+      test('a reconnect does not count re-delivered calls again', () {
+        final burst = spaced(s, 25, 1000);
+        detector.processTimelineData(calls(burst));
+        check();
+        final first = detector.issues.single;
+        expect(first.severity, IssueSeverity.warning);
+
+        // The client's first poll after reconnecting delivers the same
+        // events again.
+        detector.vmConnected = false;
+        detector.vmConnected = true;
+        detector.processTimelineData(calls(burst));
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+        expect(
+          detector.issues.single.dedupIdentityMicros,
+          first.dedupIdentityMicros,
+        );
+      });
+
+      test('calls after a reconnect still count', () {
+        detector.processTimelineData(calls(spaced(s, 5, 1000)));
+        detector.vmConnected = false;
+        detector.vmConnected = true;
+        detector.processTimelineData(calls(spaced(s + 2000000, 25, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 25);
+      });
+
+      test('a reset boundary keeps earlier calls out of the scenario', () {
+        detector.reset(horizonUs: s);
+        // The app made these calls before the boundary; a later poll
+        // delivers them.
+        detector.processTimelineData(calls(spaced(s - 500000, 25, 1000)));
+        // The app made these after it.
+        detector.processTimelineData(calls(spaced(s + 100000, 5, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 5);
+        expect(detector.issues, isEmpty);
+      });
+
+      test('a delayed batch spanning more than 2 s keeps its burst for '
+          'the check', () {
+        // One poll delivers a 45-call burst and a call 3 s later.
+        detector.processTimelineData(
+          calls([...spaced(s, 45, 10000), s + 3000000]),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 45);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+      });
+
       test('retention keeps at most maxRetainedCalls', () {
         final n = PlatformChannelDetector.maxRetainedCalls + 500;
         detector.processTimelineData(calls(spaced(s, n, 100)));
