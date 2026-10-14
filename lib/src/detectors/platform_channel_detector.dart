@@ -480,7 +480,7 @@ class PlatformChannelDetector extends BaseDetector
         'and the reproducer asserts that they do not emit. This is the '
         'canonical format-boundary trap for channel observers. The '
         'runtimeVerified tier rests on three on-device captures (iPhone 12, '
-        'iOS 17.5, Flutter 3.41.x) whose legs sit below, at and above the '
+        'iOS 17.5, Flutter 3.47.6) whose legs sit below, at and above the '
         '20 calls/sec warning threshold. They use '
         '`Sleuth.markScenarioBegin/End` and `flushTimelineNow` to drive '
         'synchronous emission inside the scenario span. The capture screen '

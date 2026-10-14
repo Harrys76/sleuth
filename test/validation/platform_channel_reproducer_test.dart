@@ -474,12 +474,49 @@ void main() {
           .toSet()
           .length;
 
+      // The count the device recorded in the leg's trace record.
+      int recordedCount(String leg) {
+        final raw =
+            jsonDecode(
+                  File(
+                    'test/validation/captures/platform_channel/'
+                    'platform_channel_traffic_$leg.json',
+                  ).readAsStringSync(),
+                )
+                as Map<String, dynamic>;
+        final record = (raw['traceEvents'] as List)
+            .cast<Map<String, dynamic>>()
+            .singleWhere(
+              (e) =>
+                  e['name'] == 'sleuth.issue.platform_channel_traffic.warning',
+            );
+        return int.parse(
+          (record['args'] as Map<String, dynamic>)['observedCount'] as String,
+        );
+      }
+
+      // Replaying the recorded sends through the detector gives the
+      // count and severity the device recorded.
+      void expectReplayMatches(String leg, int min, int max) {
+        final r = replay(leg);
+        final emitted = r.issues
+            .where((i) => i.stableId == 'platform_channel_traffic')
+            .toList();
+        expect(emitted.map((i) => i.severity).toSet(), {IssueSeverity.warning});
+        final count = int.parse(
+          emitted.first.extraTraceArgs!['observedCount']!,
+        );
+        expect(count, inInclusiveRange(min, max));
+        expect((count - recordedCount(leg)).abs(), lessThanOrEqualTo(1));
+      }
+
       test('at leg emits exactly one record, then clears', () {
         final r = replay('at');
         expect(r.maxCallDurationUs, greaterThan(0));
         expect(r.issues, hasStableId('platform_channel_traffic'));
         expect(records(r.issues), 1);
         expect(r.finalIssues, isEmpty);
+        expectReplayMatches('at', 20, 30);
       });
 
       test('above leg emits exactly one record, then clears', () {
@@ -488,6 +525,7 @@ void main() {
         expect(r.issues, hasStableId('platform_channel_traffic'));
         expect(records(r.issues), 1);
         expect(r.finalIssues, isEmpty);
+        expectReplayMatches('above', 31, 39);
       });
     });
 

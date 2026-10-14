@@ -29,9 +29,8 @@ import 'capture_driver.dart';
 /// regression. Three differences from the heap_growing screen:
 ///
 ///   - **No calibration phase.** The send rate is set directly by the
-///     batch size and tick interval — no GC / thermal variance to
-///     calibrate around. The loop fires K parallel `invokeMethod`
-///     calls per 200 ms tick, so the per-second rate is `K * 5`.
+///     call spacing, with no GC or thermal variance to calibrate
+///     around.
 ///   - **No stream narrowing.** The 30 s heap_growing scenario
 ///     overflows the VM ring buffer under default streams, so its
 ///     screen narrows to `Dart` only. The 3.2 s platform-channel
@@ -83,15 +82,14 @@ import 'capture_driver.dart';
 ///
 /// The detector counts call begins by event time, so its count matches
 /// the send rate, and each leg's rate sits in the middle of its band:
+/// below 15/sec, at 25/sec, above 35/sec.
 ///
-///   below:  3 calls / 200 ms tick = 15/sec
-///   at:     5 calls / 200 ms tick = 25/sec
-///   above:  7 calls / 200 ms tick = 35/sec
-///
-/// **Parallel send.** Each tick fires K parallel `invokeMethod` Futures
-/// via `Future.wait` rather than sequential awaits, so the per-tick cost
-/// is the slowest single round trip, not the sum. Sequential awaits would
-/// cap the send rate at one call per round trip.
+/// **Even spacing.** Calls go out one at a time on a fixed schedule (one
+/// every 1/rate s) and are not awaited one by one, so a round trip never
+/// stretches the spacing and any 1 s span holds the rate or one more
+/// call. Batches of parallel calls per 200 ms tick made the count jump in
+/// whole batches: waiting for each batch stretched the tick to about
+/// 250 ms, and a 7-call batch read 28 instead of 35.
 ///
 /// **Cooldown.** The detector emits once per fire, then holds the same
 /// issue for the next 3 checks. A check can see part of the call phase
@@ -118,19 +116,14 @@ const _warningThresholdCallsPerSec = 20;
 // re-injected into the JSON's `expectedMagnitude.observed`). The detector
 // counts by event time, so that count matches the send rate:
 //
-//   below band (detector silent, under 20)  3 calls / 200 ms = 15/sec
-//   at    band (detector in [20, 30])       5 calls / 200 ms = 25/sec
-//   above band (detector in [31, 39])       7 calls / 200 ms = 35/sec
+//   below band (detector silent, under 20)  15/sec
+//   at    band (detector in [20, 30])       25/sec
+//   above band (detector in [31, 39])       35/sec
 //
 // The above leg stays under the critical boundary (more than 40).
-const _belowCallsPerBatch = 3;
-const _atCallsPerBatch = 5;
-const _aboveCallsPerBatch = 7;
-const _batchTickMs = 200;
-
-const _belowTargetCps = _belowCallsPerBatch * 1000 ~/ _batchTickMs;
-const _atTargetCps = _atCallsPerBatch * 1000 ~/ _batchTickMs;
-const _aboveTargetCps = _aboveCallsPerBatch * 1000 ~/ _batchTickMs;
+const _belowTargetCps = 15;
+const _atTargetCps = 25;
+const _aboveTargetCps = 35;
 
 // Wall-clock budget for the call-emission phase: more than 1 s, so the
 // detector's busiest 1 s span holds a full second of calls.
@@ -273,8 +266,8 @@ class _PlatformChannelCaptureScreenState
       _stashedCaptureJson = null;
       _log.add(
         '[${leg.label}] attempt $_retryCount/$_maxRetriesPerLeg: '
-        'target ${leg.targetCps} calls/sec '
-        '(${leg.callsPerBatch} per ${_batchTickMs}ms tick), '
+        'target ${leg.targetCps} calls/sec (one every '
+        '${(1000 / leg.targetCps).toStringAsFixed(1)} ms), '
         'band [${leg.cpsMin}, ${leg.cpsMax}] calls/sec',
       );
     });
@@ -295,40 +288,33 @@ class _PlatformChannelCaptureScreenState
       Sleuth.markScenarioBegin('platform_channel_traffic_${leg.label}');
 
       final sw = Stopwatch()..start();
+      final intervalUs = 1000000 ~/ leg.targetCps;
+      final inFlight = <Future<void>>[];
       var totalCallsSent = 0;
-      var batchFailures = 0;
+      var callFailures = 0;
       while (sw.elapsedMilliseconds < _callPhaseDurationMs) {
-        // Parallel send: K invokeMethod Futures fire concurrently per
-        // tick. Sequential awaits would serialize the round-trips and
-        // cap the send rate at one call per round trip, which can leave
-        // the above band unreachable. Future.wait completes
-        // when the slowest single round-trip completes, so per-tick
-        // cost ≈ slowest RT not sum-of-RTs.
-        final batch = <Future<void>>[];
-        for (var i = 0; i < leg.callsPerBatch; i++) {
-          batch.add(
-            _channel.invokeMethod<void>(_channelMethod).catchError((Object _) {
-              batchFailures++;
-            }),
-          );
+        // Call k goes out at k / rate s from the start, whatever the
+        // round trips take; replies are collected after the phase.
+        inFlight.add(
+          _channel.invokeMethod<void>(_channelMethod).catchError((Object _) {
+            callFailures++;
+          }),
+        );
+        totalCallsSent++;
+        final waitUs = totalCallsSent * intervalUs - sw.elapsedMicroseconds;
+        if (waitUs > 0) {
+          await Future<void>.delayed(Duration(microseconds: waitUs));
         }
-        try {
-          await Future.wait(batch);
-        } catch (_) {
-          // Defense-in-depth — individual call failures are absorbed
-          // by per-call .catchError above; this catch handles the
-          // unexpected case where Future.wait itself rejects.
-          batchFailures += leg.callsPerBatch;
-        }
-        totalCallsSent += leg.callsPerBatch;
-        await Future<void>.delayed(const Duration(milliseconds: _batchTickMs));
         if (!mounted) {
           sw.stop();
           return;
         }
       }
       sw.stop();
+      // The rate covers the sends: the phase ends one interval after the
+      // last call went out.
       final callPhaseElapsedMs = sw.elapsedMilliseconds;
+      await Future.wait(inFlight);
 
       // Dwell so the detector poll cycle that observes the
       // post-threshold window emits the issue AND
@@ -447,7 +433,7 @@ class _PlatformChannelCaptureScreenState
           '${ratio == null ? '' : ' (det/op ratio $ratio)'} '
           '($totalCallsSent sent over '
           '${(callPhaseElapsedMs / 1000).toStringAsFixed(2)} s, '
-          '$batchFailures failures; role-band uses '
+          '$callFailures failures; role-band uses '
           '${leg == _ChannelLeg.below ? 'operator' : 'detector'}: '
           '[${leg.cpsMin}, ${leg.cpsMax}] calls/sec)',
         );
@@ -931,38 +917,18 @@ enum _ChannelLeg {
   //   above: 31 ≤ calls/sec ≤ 39   (above-ceiling 1.95×T = 39, kept
   //                                  strictly under the 41-call
   //                                  critical-escalation boundary).
-  below(
-    label: 'below',
-    targetCps: _belowTargetCps,
-    callsPerBatch: _belowCallsPerBatch,
-    cpsMin: 1,
-    cpsMax: 19,
-  ),
-  at(
-    label: 'at',
-    targetCps: _atTargetCps,
-    callsPerBatch: _atCallsPerBatch,
-    cpsMin: 20,
-    cpsMax: 30,
-  ),
-  above(
-    label: 'above',
-    targetCps: _aboveTargetCps,
-    callsPerBatch: _aboveCallsPerBatch,
-    cpsMin: 31,
-    cpsMax: 39,
-  );
+  below(label: 'below', targetCps: _belowTargetCps, cpsMin: 1, cpsMax: 19),
+  at(label: 'at', targetCps: _atTargetCps, cpsMin: 20, cpsMax: 30),
+  above(label: 'above', targetCps: _aboveTargetCps, cpsMin: 31, cpsMax: 39);
 
   const _ChannelLeg({
     required this.label,
     required this.targetCps,
-    required this.callsPerBatch,
     required this.cpsMin,
     required this.cpsMax,
   });
   final String label;
   final int targetCps;
-  final int callsPerBatch;
   final int cpsMin;
   final int cpsMax;
 

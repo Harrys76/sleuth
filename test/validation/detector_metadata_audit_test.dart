@@ -1827,17 +1827,15 @@ void main() {
     });
 
     test('PlatformChannelDetector raises its warning to runtimeVerified', () {
-      // Anti-tautology anchor for the v0.19.4 raise. PlatformChannel
-      // moved from `reproducerOnly` to `runtimeVerified` (warning tier,
-      // 20 calls/sec frequency axis) backed by three on-device captures
-      // (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded under v0.19.4
-      // producer-side dedup with stable per-window dedupIdentityMicros
-      // derived from `_windowStart.microsecondsSinceEpoch`. Critical
-      // tier (41 calls/sec) AND the 8 ms cumulative-duration axis stay
-      // implicitly reproducerOnly — neither has a checked-in capture
-      // bracket. The above-band ceiling 1.95× → 39 calls/sec stays
-      // strictly under the 41-call critical-escalation boundary so the
-      // above-leg cannot ambiently bracket the critical tier.
+      // Anti-tautology anchor for the platform_channel_traffic raise:
+      // the warning tier (20 calls/sec, counted by event time) is backed
+      // by three on-device captures (iPhone 12 / iOS 17.5 / Flutter
+      // 3.47.6) with stable per-window dedupIdentityMicros derived from
+      // `_windowStart.microsecondsSinceEpoch`. The critical tier (41
+      // calls/sec) has no capture bracket and reads reproducerOnly. The
+      // above-band ceiling 1.95 × 20 = 39 calls/sec stays under the
+      // 41-call critical boundary, so the above leg cannot also bracket
+      // the critical tier.
       final BaseDetector? pc = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.platformChannel)
           .cast<BaseDetector?>()
