@@ -25,14 +25,14 @@ Where Sleuth helps more than DevTools:
 - **Always on.** Sleuth runs inside the app, so there is no tool window or connection to set up, and it stays visible while you use the app.
 - **Structural checks.** It flags problems DevTools does not: non-lazy lists, images decoded above display size, missing `RepaintBoundary`, intrinsic layout and retained stream subscriptions.
 - **Explained issues.** Each card names the widget and its source line (`file.dart:42`), gives a fix hint, and says what evidence it is based on and how confident it is: confirmed, likely or possible.
-- **Causes linked to effects.** 41 causal rules link a root cause to the issues it causes, so a card shows why an issue matters.
+- **Causes linked to effects.** 42 causal rules link a root cause to the issues it causes, so a card shows why an issue matters.
 - **Fix verification and trends.** Capture a baseline, apply the fix and compare. A `Seen X/Y` badge and a trend label show whether an issue is getting better or worse across scans.
 - **AI help.** Ask the AI provider of your choice about any issue from its card, or let an assistant query the running app through the `sleuth_mcp` sidecar.
 
 What DevTools still does better:
 
 - **Heap snapshots and the object graph.** DevTools can browse every object in the heap and inspect retention paths. Sleuth watches heap trends and GC pressure, not single objects.
-- **Full flame charts.** DevTools has zoomable per-frame timelines with the complete call tree. For a jank frame Sleuth requests only the top five functions by CPU time, at most once every 10 s.
+- **Full flame charts.** DevTools has zoomable per-frame timelines with the complete call tree. With `SleuthConfig(cpuAttribution: true)` Sleuth adds the top five functions by CPU time to a jank frame's verdict, at most once every 10 s; it is off by default because each request freezes the UI isolate for about 300 ms.
 
 Use Sleuth to find a problem and its category inside the app, then DevTools to dig deeper.
 
@@ -56,9 +56,9 @@ Tap the trigger button to open the dashboard. The overlay appears in debug and p
 
 ## What Sleuth finds
 
-Sleuth has 20 detectors:
+Sleuth has 21 detectors:
 
-- **Frames and rendering.** Jank against the measured frame budget, raster-thread dominance, shader compilation, expensive render nodes such as `BackdropFilter`, and missing `RepaintBoundary`.
+- **Frames and rendering.** Frames that miss their deadline against the measured frame budget (minus start delay Sleuth itself caused), UI isolate stalls of 100 ms or more, raster-thread dominance, shader compilation, expensive render nodes such as `BackdropFilter`, and missing `RepaintBoundary`.
 - **Build and paint.** The share of UI-thread time spent building and painting, wide `setState` scopes, custom painters that always repaint, and per-widget rebuild and repaint rates in debug builds.
 - **Layout and lists.** `IntrinsicHeight` and `IntrinsicWidth`, non-lazy and shrink-wrapped lists, and `Wrap` widgets with too many children.
 - **Memory.** Heap growth, GC pressure, process memory against a budget you set, images decoded above display size, retained stream subscriptions, keep-alive pages, and objects you register with `Sleuth.trackResource`.
@@ -78,7 +78,7 @@ Sleuth reads four sources:
 
 ## Debug, profile and the VM link
 
-Both modes run the full overlay, all 20 detectors and the AI chat. They differ in what data each mode can read and how accurate the timing is.
+Both modes run the full overlay, all 21 detectors and the AI chat. They differ in what data each mode can read and how accurate the timing is.
 
 | Capability | Debug | Profile | Release |
 |------------|:-----:|:-------:|:-------:|
@@ -103,7 +103,7 @@ SleuthConfig(
 
 `flutter run` starts DDS (Dart Development Service) by default, and DDS becomes the only client of the app's VM service, so Sleuth cannot connect. Run with `--no-dds` and Sleuth connects on the first launch. Hot reload and hot restart still work.
 
-Without a VM link the VM-only detectors (Shader Jank, Heavy Compute, Platform Channel, Memory Pressure, Stream Resource) stay silent, and so do the time-share issues `rebuild_activity` and `excessive_repaint`. The issue list is real but incomplete. Before you read "no memory or repaint issues" as a clean result, check that `vmConnected` is `true` in `ext.sleuth.diagnose` (the `sleuth_mcp` `diagnose` tool shows it) or in `Sleuth.diagnoseCaptureState()`. `connectionMode` alone does not tell you. It reads `basic` until a jank frame gets a VM-tier verdict, so a connected session on a smooth screen also reads `basic`.
+Without a VM link the VM-only detectors (Shader Jank, Heavy Compute, Platform Channel, Memory Pressure, Stream Resource, Event Loop Stall) stay silent, and so do the time-share issues `rebuild_activity` and `excessive_repaint`. The issue list is real but incomplete. Before you read "no memory or repaint issues" as a clean result, check that `vmConnected` is `true` in `ext.sleuth.diagnose` (the `sleuth_mcp` `diagnose` tool shows it) or in `Sleuth.diagnoseCaptureState()`. `connectionMode` alone does not tell you. It reads `basic` until a jank frame gets a VM-tier verdict, so a connected session on a smooth screen also reads `basic`.
 
 | Platform | Frame timing | VM full mode |
 |----------|:---:|:---:|
@@ -165,7 +165,7 @@ The [`sleuth_mcp`](https://pub.dev/packages/sleuth_mcp) sidecar lets an AI assis
 
 ## Custom detectors
 
-Add your own detectors alongside the 20 built-in ones. A structural detector inspects widgets during the tree walk:
+Add your own detectors alongside the 21 built-in ones. A structural detector inspects widgets during the tree walk:
 
 ```dart
 class TooltipUsageDetector extends SimpleStructuralDetector {
@@ -236,7 +236,7 @@ Every detector declares the evidence behind its thresholds, and a CI audit enfor
 - Per-widget attribution depends on the mode. Debug mode gives per-widget rebuild and paint counts. Profile mode gives per-widget rebuild counts only in the Rebuild stats panel, and its rebuild and repaint issues measure the share of UI-thread time, not single widgets.
 - VM full mode depends on the platform and on how the app was launched.
 - Memory detection watches GC frequency, heap growth and, when you set a budget, process memory. When the heap grows it adds per-class allocation deltas to the issue, but it does not track individual object leaks or retention paths.
-- CPU attribution samples at about 1 kHz, so functions that run for less than 1 ms may not appear.
+- CPU attribution of jank frames is off by default (`SleuthConfig(cpuAttribution: true)` turns it on): the VM builds each answer on the app's UI isolate, which froze the UI for about 300 ms per request on an iPhone 12. It samples at about 1 kHz, so functions that run for less than 1 ms may not appear.
 - iOS profile builds made with `flutter build ios` or `flutter build ipa` show issues without source locations. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#ios-builds-from-flutter-build-ios-lose-source-locations) has a build step that keeps them.
 
 ## Example app

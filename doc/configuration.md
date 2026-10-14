@@ -49,6 +49,8 @@ Sleuth.track(
       gpuPressureRatio: 1.5,         // raster/UI time ratio for GPU pressure
       buildTimePercentThreshold: 10, // rebuild_activity: % of UI-thread time in BUILD, critical at 3×
       paintTimePercentThreshold: 10, // excessive_repaint: % of UI-thread time in PAINT, critical at 3×
+      stallWarningMs: 100,           // event_loop_stall: UI isolate stall warning (the VM reports 100 ms or more)
+      stallCriticalMs: 700,          // event_loop_stall: critical at this length (must be >= stallWarningMs)
     ),
     customDetectors: [MyCustomDetector()], // plug in domain-specific detectors
     disabledCustomDetectorKeys: {'my_heavy_detector'}, // gate custom detectors by key
@@ -59,6 +61,7 @@ Sleuth.track(
     routeIgnorePatterns: {'/dialog*'}, // routes to exclude from tracking (exact or trailing *)
     routeHistoryCapacity: 20,          // max route sessions retained (FIFO)
     profilePlatformChannels: false,    // opt-in: profile platform-channel sends after the VM connects
+    cpuAttribution: false,             // opt-in: Dart functions on the CPU for jank verdicts; each request freezes the UI about 300 ms
     stateStore: null,                  // optional: persist overlay UI state across restarts (see below)
   ),
 );
@@ -99,7 +102,7 @@ The Platform Channel detector sees calls only when the framework's `debugProfile
 
 `enableDebugCallbacks` installs the `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds", and only one of them can be active at a time, so the default is `false` to avoid surprising DevTools users.
 
-Per-widget counts keep only widgets your code creates. A rebuild counts for the widget that started it, and its detail gives the number of widgets below it that its builds updated. A repaint card names the likely origin: the deepest widget marked as needing paint in its layer, mapped to the nearest widget your code creates. Widgets that only repaint because they share that layer get no card. The rate is the busiest instance's, not a sum over instances. Sleuth does not credit scrolling, framework control painters or Material ink splashes. `advanced: DebugInstrumentationConfig(userWidgetsOnly: false)` also counts framework widgets.
+Per-widget counts keep only widgets created outside the Flutter SDK and the `material_ui` and `cupertino_ui` packages. Widgets that other packages create still count until DevTools sets the project's root directories. A rebuild counts for the widget that started it, and its detail gives the number of widgets below it that its builds updated. A repaint card names the likely origin: the deepest widget marked as needing paint in its layer, mapped to the nearest widget your code creates. Widgets that only repaint because they share that layer get no card. The rate is the busiest instance's, not a sum over instances. Sleuth does not credit scrolling, framework control painters or Material ink splashes. `advanced: DebugInstrumentationConfig(userWidgetsOnly: false)` also counts framework widgets.
 
 A widget's card appears when one scan's rate reaches the threshold, and it stays until the rate over the last two scans falls below three quarters of the threshold, or until a scan sees no rebuild or paint of that widget. Sleuth's own overlay is never counted. [Internals](internals.md#debug-rebuild-and-paint-counts) has the full attribution rules.
 

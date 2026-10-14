@@ -73,6 +73,106 @@
 - Example: the CSV Import demo's `Isolate.run` path spawns from a synchronous
   helper. A closure created inside the `async` handler captured the
   handler's completer and failed to send.
+- Behaviour change: a frame is jank when it misses its deadline. Its build
+  must end within the frame budget counted from vsync, start delay
+  included, and its raster must fit in the budget. The wait between the end
+  of the build and the start of the raster no longer counts; 0.37.0 counted
+  the whole span from vsync to the end of the raster. `FrameStats.isJank`
+  and `isSevereJank` follow the new rule, so jank counts and percentages are
+  not comparable with earlier versions.
+- Frame start delay caused by Sleuth is subtracted before the deadline
+  check: its tree scans, VM response decoding, profile reads and
+  service-extension work, and the time its VM timeline request is in flight
+  (at most 25 ms per poll, 60 ms for a full read). The VM holds its timeline
+  lock while it writes that response, and on iOS and Android, where the UI
+  and platform threads are one thread, a frame whose vsync lands in that
+  wait starts late with nothing traced in the gap. An iPhone 12 showed 5 to
+  20 ms of such delay on every 500 ms poll. A frame late only because of
+  Sleuth counts as Sleuth overhead (`FrameStats.isSleuthOverhead`, new
+  `FrameStats.ownStartDelayUs` and `appStartDelayUs`,
+  `FrameStatsSummary.sleuthOverheadFrames`, `sleuthOverheadFrames` in route
+  sessions' `frameStats` and in the trace args) and is left out of the jank
+  percentage and of route health. The cap is a first guess made before the
+  response arrives; the next timeline poll measures the stall itself (the
+  stretch in which the UI thread recorded no event while Sleuth's request
+  was in flight) and the frames still in the buffer are judged again. On a
+  Galaxy A07 (Helio G99, Android 16) the stall reached 22 ms at the median
+  and 70 ms at most, past the cap. Sleuth keeps its record of its own work
+  for 10 s, so a burst of VM messages cannot push it out.
+- `jank_detected` details name the bottleneck as UI-bound, raster-bound or
+  late start, and a late start gives the delay and Sleuth's share of it.
+- Verdicts take their phase from the frame's own threads in every tier. A
+  jank frame whose build and raster both fit in the budget started late,
+  and its cause is `schedulerDelay`; otherwise the thread that ran over
+  decides, and its largest phase names it. The Full tier no longer reads
+  the poll batch's phase totals, which add up about 500 ms of frames, as
+  the frame's own. `PipelinePhase.pipelineStall` is no longer produced for
+  jank frames. The verdict reason gives the start delay with Sleuth's
+  share; the per-frame `Bottleneck:` line and the ranking's jank boost
+  follow the same rule.
+- Behaviour change: CPU attribution of jank verdicts
+  (`FrameVerdict.topFunctions`) is off by default; new
+  `SleuthConfig.cpuAttribution` turns it on. The VM builds a
+  `getCpuSamples` answer on the app's UI isolate: on an iPhone 12 every
+  request froze the UI for 250 to 410 ms, even for one frame's window, so
+  Sleuth froze the app every 10 s while frames janked. With the option on,
+  the first 600 ms of each request count as Sleuth's own work where they
+  delay a frame's start or a timer.
+- New `event_loop_stall` detector (VM only, Flutter 3.35 and later). The VM
+  posts a `Timer` stream event when a timer fires 100 ms or more late.
+  Events within 50 ms merge into one stall. Before it is judged, each stall
+  is clipped to the first lifecycle change after the app was hidden or
+  paused, and debugger pauses (`Debug` stream), hot reloads
+  (`IsolateReload` and the reassemble) and Sleuth's own work are taken off
+  it. What is left is a warning from 100 ms and critical from 700 ms
+  (`DetectorThresholds.stallWarningMs` / `stallCriticalMs`). Events while
+  the app is hidden or paused are ignored. The issue holds 10 s after the
+  latest stall, a stall on another route starts a new one, and it stamps
+  `observedStallMs` and `stallCount`. While it listens, Sleuth runs an
+  empty 50 ms timer, because the VM measures a stall from the moment the
+  first waiting timer was due: without one an 800 ms freeze read 562 ms on
+  an iPhone 12, with a 100 ms timer 750 ms and with the 50 ms timer 757 ms;
+  five 150 ms freezes read 115 to 143 ms. `ext.sleuth.diagnose` gains
+  `eventLoopStallTimerStream`, `eventLoopStallExcused` and
+  `eventLoopStallIgnored`. Causal rule: `event_loop_stall` leads to
+  `sustained_jank` (42 rules).
+- `expensive_gpu_nodes` reads blur sigma from the filter's fields. Profile
+  builds strip `toString`, which the old text match parsed, so every blur
+  had an unknown sigma there and a sigma 2 blur was reported. `ImageFilter`
+  and `ImageFilterConfig` blurs and compositions are read: two blurs in a
+  row draw one of sqrt(a² + b²), a colour filter adds none (so a
+  `BackdropFilter` with only a colour filter is no longer reported), a NaN
+  or infinite sigma draws nothing, and a composition with a matrix has no
+  known sigma and still counts.
+- A `BackdropFilter` with `enabled: false` no longer counts as an expensive
+  GPU node or toward `missing_repaint_boundary`.
+- `missing_repaint_boundary` skips a `CustomPaint` without painters. On
+  Android, Flutter 3.47's scroll stretch keeps one around every scrollable
+  and sets its painter only while the stretch runs, so every list was
+  reported.
+- A blur drawn by a Cupertino bar, popup surface or action sheet names its
+  owner in the node detail ("drawn by CupertinoTabBar") and does not count
+  toward `missing_repaint_boundary`. The fix hint tells the app to give a
+  bar an opaque `backgroundColor` (or, for a navigation bar,
+  `enableBackgroundFilterBlur: false`) and says a popup's blur lasts only
+  while it is shown; a card of only such blurs leaves out the
+  RepaintBoundary advice.
+- Apps that use the `material_ui` and `cupertino_ui` packages get the same
+  treatment as apps that use Material and Cupertino from the SDK: their
+  `Scaffold` and `CupertinoPageScaffold` start route sessions, their
+  `TabBarView` keeps tab sessions, `setstate_scope` treats their widgets as
+  framework widgets, their control painters are framework painters, CPU
+  samples in those packages count as framework time, and debug per-widget
+  rebuild and paint counts leave out the widgets they build internally
+  (Flutter counts every widget created outside the SDK as the app's until
+  DevTools sets the project's root directories, so the `AnimatedBuilder`
+  inside a `material_ui` progress indicator reported 115 rebuilds per
+  second on an iPhone 12). Names are matched exactly, so an app subclass of
+  a `material_ui` widget is not recognised. An app widget named `Scaffold`
+  is not mistaken for one, in the scan root or in `setstate_scope`: the
+  match needs the framework's `ScaffoldState`.
+- Example: a migrated-app demo (`material_ui`), a Cupertino blur demo, and
+  `ext.sleuthDemo.uiBlock` / `blurProbe` extensions.
 
 ## 0.37.0
 
