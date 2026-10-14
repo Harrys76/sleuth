@@ -1,3 +1,7 @@
+import 'dart:ui' show ImageFilter;
+
+import 'package:flutter/cupertino.dart'
+    show CupertinoApp, CupertinoNavigationBar, CupertinoPageScaffold;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
@@ -116,6 +120,66 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.title, contains('1 expensive'));
+    });
+
+    testWidgets('skips a disabled BackdropFilter, flags an enabled one', (
+      tester,
+    ) async {
+      Widget tree({required bool enabled}) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: BackdropFilter(
+          enabled: enabled,
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: const SizedBox(width: 10, height: 10),
+        ),
+      );
+      await tester.pumpWidget(tree(enabled: false));
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty);
+
+      await tester.pumpWidget(tree(enabled: true));
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, hasLength(1));
+    });
+
+    // Android's scroll stretch (StretchEffect, Flutter 3.47) keeps a
+    // CustomPaint without a painter around every scrollable where shader
+    // filters are supported, which the test engine lacks.
+    testWidgets('skips a CustomPaint without painters', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: CustomPaint(child: SizedBox(width: 10, height: 10)),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('skips the blur a translucent Cupertino bar draws itself', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: CupertinoPageScaffold(
+            navigationBar: const CupertinoNavigationBar(
+              middle: Text('Title'),
+              automaticBackgroundVisibility: false,
+            ),
+            child: ListView(
+              children: [
+                for (var i = 0; i < 20; i++) const SizedBox(height: 40),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(find.byType(BackdropFilter), findsWidgets);
+      detector.scanTree(tester.element(find.byType(CupertinoApp)));
+      expect(
+        detector.issues.where((i) => i.detail.contains('BackdropFilter')),
+        isEmpty,
+      );
     });
 
     testWidgets('skips Opacity when opacity is 1.0', (tester) async {

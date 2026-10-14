@@ -1,12 +1,26 @@
 import 'dart:developer' show Timeline;
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart' show Material, MaterialType;
+import 'package:flutter/cupertino.dart'
+    show
+        CupertinoActionSheet,
+        CupertinoActionSheetAction,
+        CupertinoApp,
+        CupertinoIcons,
+        CupertinoNavigationBar,
+        CupertinoPageScaffold,
+        CupertinoPopupSurface,
+        CupertinoSliverNavigationBar,
+        CupertinoTabBar;
+import 'package:flutter/material.dart'
+    show BottomNavigationBarItem, Material, MaterialType;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/utils/fix_hint_builder.dart';
+import 'package:sleuth/src/utils/framework_types.dart' show cupertinoBlurOwner;
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -1001,6 +1015,194 @@ void main() {
         // No sigma in detail since it's not a blur filter.
         expect(detector.issues.first.detail, isNot(contains('σ=')));
       });
+
+      testWidgets('a disabled BackdropFilter draws nothing and is not '
+          'reported', (tester) async {
+        await tester.pumpWidget(
+          const _BackdropFilterTree(sigma: 20, enabled: false),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('a blur composed with a matrix has an unknown sigma and '
+          'is reported without one', (tester) async {
+        await tester.pumpWidget(
+          _BackdropFilterTree.withFilter(
+            ui.ImageFilter.compose(
+              outer: ui.ImageFilter.blur(sigmaX: 1, sigmaY: 1),
+              inner: ui.ImageFilter.matrix(
+                Matrix4.diagonal3Values(2, 2, 1).storage,
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues, isNotEmpty);
+        expect(detector.issues.first.detail, isNot(contains('σ=')));
+      });
+
+      testWidgets('two weak blurs composed add up: 1 and 1 stay below the '
+          'threshold, 1 and 2 (2.24) cross it', (tester) async {
+        await tester.pumpWidget(
+          _BackdropFilterTree.withFilter(
+            ui.ImageFilter.compose(
+              outer: ui.ImageFilter.blur(sigmaX: 1, sigmaY: 1),
+              inner: ui.ImageFilter.blur(sigmaX: 1, sigmaY: 1),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues, isEmpty);
+
+        await tester.pumpWidget(
+          _BackdropFilterTree.withFilter(
+            ui.ImageFilter.compose(
+              outer: ui.ImageFilter.blur(sigmaX: 1, sigmaY: 1),
+              inner: ui.ImageFilter.blur(sigmaX: 2, sigmaY: 2),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues, isNotEmpty);
+      });
+    });
+
+    group('Cupertino chrome blur', () {
+      Widget page({Color? barColor}) => CupertinoApp(
+        home: CupertinoPageScaffold(
+          navigationBar: CupertinoNavigationBar(
+            middle: const Text('Title'),
+            backgroundColor: barColor,
+            automaticBackgroundVisibility: false,
+          ),
+          child: ListView(
+            children: List.generate(
+              30,
+              (i) => SizedBox(key: ValueKey(i), height: 40),
+            ),
+          ),
+        ),
+      );
+
+      testWidgets('a translucent navigation bar is reported as the bar\'s '
+          'own blur, with a fix the app can make', (tester) async {
+        await tester.pumpWidget(page());
+        detector.scanTree(tester.element(find.byType(CupertinoApp)));
+        expect(detector.issues, hasLength(1));
+        final issue = detector.issues.single;
+        expect(issue.detail, contains('σ=10.0'));
+        expect(issue.detail, contains('drawn by CupertinoNavigationBar'));
+        expect(issue.fixHint, contains('opaque backgroundColor'));
+        expect(issue.fixHint, contains('enableBackgroundFilterBlur: false'));
+      });
+
+      testWidgets('an opaque navigation bar is not reported', (tester) async {
+        await tester.pumpWidget(page(barColor: const Color(0xFFFFFFFF)));
+        detector.scanTree(tester.element(find.byType(CupertinoApp)));
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('a card of chrome blurs only leaves out the '
+          'RepaintBoundary advice', (tester) async {
+        await tester.pumpWidget(page());
+        detector.scanTree(tester.element(find.byType(CupertinoApp)));
+        expect(
+          detector.issues.single.fixHint,
+          isNot(contains('Wrap expensive subtrees')),
+        );
+      });
+
+      test('two bars read as one sentence in the plural', () {
+        final (hint, _) = FixHintBuilder.expensiveGpuNodes(
+          blurChromeOwners: {'CupertinoTabBar', 'CupertinoNavigationBar'},
+          onlyChrome: true,
+        );
+        expect(
+          hint,
+          contains(
+            'CupertinoNavigationBar and CupertinoTabBar blur the content '
+            'behind them while their background is translucent. Give them',
+          ),
+        );
+      });
+
+      testWidgets('every SDK chrome widget owns its blur within its hop '
+          'budget', (tester) async {
+        final cases = <String, Widget>{
+          'CupertinoNavigationBar': const CupertinoNavigationBar(
+            middle: Text('Title'),
+            automaticBackgroundVisibility: false,
+          ),
+          'CupertinoTabBar': CupertinoTabBar(
+            items: const [
+              BottomNavigationBarItem(icon: Icon(CupertinoIcons.home)),
+              BottomNavigationBarItem(icon: Icon(CupertinoIcons.search)),
+            ],
+          ),
+          'CupertinoSliverNavigationBar': const SizedBox(
+            height: 300,
+            child: CustomScrollView(
+              slivers: [CupertinoSliverNavigationBar(largeTitle: Text('T'))],
+            ),
+          ),
+          'CupertinoPopupSurface': const CupertinoPopupSurface(
+            child: SizedBox(width: 100, height: 100),
+          ),
+          'CupertinoActionSheet': CupertinoActionSheet(
+            actions: [
+              CupertinoActionSheetAction(
+                onPressed: () {},
+                child: const Text('A'),
+              ),
+            ],
+          ),
+        };
+        for (final MapEntry(key: owner, value: widget) in cases.entries) {
+          await tester.pumpWidget(
+            CupertinoApp(
+              home: CupertinoPageScaffold(
+                child: SafeArea(child: SingleChildScrollView(child: widget)),
+              ),
+            ),
+          );
+          final owners = {
+            for (final e in find.byType(BackdropFilter).evaluate())
+              cupertinoBlurOwner(e),
+          };
+          expect(owners, contains(owner), reason: owner);
+        }
+      });
+
+      testWidgets('an app blur inside an unpainted popup surface is the '
+          'app\'s', (tester) async {
+        await tester.pumpWidget(
+          CupertinoApp(
+            home: CupertinoPopupSurface(
+              isSurfacePainted: false,
+              child: BackdropFilter(
+                key: const ValueKey('app'),
+                filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: const SizedBox(width: 100, height: 100),
+              ),
+            ),
+          ),
+        );
+        expect(
+          cupertinoBlurOwner(tester.element(find.byKey(const ValueKey('app')))),
+          isNull,
+        );
+      });
+
+      testWidgets('an app blur keeps the plain fix hint', (tester) async {
+        await tester.pumpWidget(const _BackdropFilterTree(sigma: 20));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues.single.detail, isNot(contains('drawn by')));
+        expect(
+          detector.issues.single.fixHint,
+          isNot(contains('enableBackgroundFilterBlur')),
+        );
+      });
     });
   });
 }
@@ -1108,8 +1310,14 @@ class _ColorFilteredDeepTree extends StatelessWidget {
 
 /// Widget tree with BackdropFilter wrapping many descendants at a given sigma.
 class _BackdropFilterTree extends StatelessWidget {
-  const _BackdropFilterTree({required this.sigma});
-  final double sigma;
+  const _BackdropFilterTree({required double this.sigma, this.enabled = true})
+    : filter = null;
+  const _BackdropFilterTree.withFilter(ui.ImageFilter this.filter)
+    : sigma = null,
+      enabled = true;
+  final double? sigma;
+  final ui.ImageFilter? filter;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -1118,7 +1326,9 @@ class _BackdropFilterTree extends StatelessWidget {
       child: Stack(
         children: [
           BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+            enabled: enabled,
+            filter:
+                filter ?? ui.ImageFilter.blur(sigmaX: sigma!, sigmaY: sigma!),
             child: Column(
               children: List.generate(
                 10,

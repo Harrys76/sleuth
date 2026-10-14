@@ -1234,6 +1234,13 @@ class IssueExplanationBuilder {
           '• Descendant count is the subtree size under each expensive node. '
           'Sleuth raises the issue above 5 descendants under specific node '
           'types.\n\n'
+          '• A BackdropFilter blur counts by its sigma, read from the '
+          'filter: 2 or less is ignored and above 10 is heavy. A colour '
+          'filter adds no blur, two blurs in a row draw one of sqrt(a² + '
+          'b²), and a blur combined with a matrix (a scale) has no known '
+          'sigma and counts. A disabled BackdropFilter is ignored.\n\n'
+          '• A blur drawn by a Cupertino bar, popup surface or action sheet '
+          'is named in the node detail ("drawn by CupertinoTabBar").\n\n'
           '• Sleuth finds this with a structural render tree walk, '
           'corroborated by raster-dominant frames (FrameTiming or VM '
           'timeline).',
@@ -1253,7 +1260,8 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Some visual effects need saveLayer, such as BackdropFilter for '
           'blur. The concern is unnecessary layers from convenience '
-          'widgets.',
+          'widgets. A translucent Cupertino bar blurs by design; give it an '
+          'opaque background when the blur is not wanted.',
       relatedIssues: ['opacity_zero'],
     ),
 

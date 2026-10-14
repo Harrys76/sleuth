@@ -11,6 +11,10 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart'
     show Clipboard, DeviceOrientation, SystemChrome;
 import 'package:sleuth/sleuth.dart';
+// The blur reader is a package internal; `ext.sleuthDemo.blurProbe` calls it
+// directly to check, in a profile build, what it reads on the device.
+// ignore: implementation_imports
+import 'package:sleuth/src/utils/blur_sigma.dart' show maxBlurSigma;
 
 import 'custom_detectors/01_simple_structural_detector.dart';
 import 'custom_detectors/02_runtime_callback_detector.dart';
@@ -19,6 +23,7 @@ import 'demos/combined_chat_demo.dart';
 import 'demos/capture_driver.dart';
 import 'demos/combined_social_feed_demo.dart';
 import 'demos/custom_detector_cookbook_demo.dart';
+import 'demos/cupertino_blur_demo.dart';
 import 'demos/custom_painter_demo.dart';
 import 'demos/font_loading_demo.dart';
 import 'demos/fps_stress_test_demo.dart';
@@ -397,6 +402,13 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
         subtitle: 'Heavy compute + GPU blur every frame',
         color: Colors.red,
         builder: (_) => const FpsStressTestDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.blur_linear,
+        title: 'Cupertino Blur',
+        subtitle: 'Bars, dialog and six filter shapes',
+        color: Colors.blueGrey,
+        builder: (_) => const CupertinoBlurDemo(),
       ),
     ],
   ),
@@ -863,6 +875,35 @@ void _registerDemoExtensions() {
         'running': _retainTimer != null,
         'retainedBytes': _retained.fold<int>(0, (sum, b) => sum + b.length * 8),
       }),
+    );
+  });
+  // Lists every BackdropFilter on screen with the blur sigma Sleuth's
+  // reader returns (null when unknown), its filter class and whether it
+  // draws.
+  developer.registerExtension('ext.sleuthDemo.blurProbe', (
+    method,
+    params,
+  ) async {
+    final found = <Map<String, Object?>>[];
+    void visit(Element e) {
+      final w = e.widget;
+      if (w is BackdropFilter) {
+        final ro = e.renderObject;
+        final Object? filter = w.filter ?? (w as dynamic).filterConfig;
+        found.add({
+          'filterClass': filter?.runtimeType.toString(),
+          'sigma': maxBlurSigma(w),
+          'enabled': ro is RenderBackdropFilter ? ro.enabled : null,
+        });
+      }
+      // Visits onstage children only, which leaves out routes kept alive
+      // under an opaque route.
+      e.debugVisitOnstageChildren(visit);
+    }
+
+    WidgetsBinding.instance.rootElement?.debugVisitOnstageChildren(visit);
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'filters': found}),
     );
   });
   // Switches heap_growing's floor and sample legs for a capture run
