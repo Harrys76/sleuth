@@ -3,6 +3,7 @@ import 'dart:convert' show base64Encode, jsonEncode;
 import 'dart:ui' as ui;
 import 'dart:developer' as developer;
 import 'dart:io' show Platform;
+import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -846,7 +847,9 @@ void _registerDemoExtensions() {
   // Retains memory from a timer on whatever screen is in front, for the
   // heap_growing controls: `bytesPerSec=N seconds=S` starts (or replaces)
   // a run that adds a buffer every 50 ms; `clear=true` stops it and drops
-  // what it retained.
+  // what it retained. Byte buffers hold exactly the bytes counted: a
+  // `List<int>` of large ints holds 4-byte references on Android, where
+  // Dart compresses pointers, and the count would read double.
   developer.registerExtension('ext.sleuthDemo.retain', (method, params) async {
     _retainTimer?.cancel();
     _retainTimer = null;
@@ -866,14 +869,17 @@ void _registerDemoExtensions() {
             if (identical(_retainTimer, timer)) _retainTimer = null;
             return;
           }
-          _retained.add(List<int>.filled(tickBytes ~/ 8, 0xFEEDFACE));
+          _retained.add(Uint8List(tickBytes)..fillRange(0, tickBytes, 0xA5));
         });
       }
     }
     return developer.ServiceExtensionResponse.result(
       jsonEncode({
         'running': _retainTimer != null,
-        'retainedBytes': _retained.fold<int>(0, (sum, b) => sum + b.length * 8),
+        'retainedBytes': _retained.fold<int>(
+          0,
+          (sum, b) => sum + b.lengthInBytes,
+        ),
       }),
     );
   });
@@ -1381,7 +1387,7 @@ Future<Map<String, Object?>> startCaptureLeg({
 }
 
 // Buffers held by `ext.sleuthDemo.retain`, and its running timer.
-final List<List<int>> _retained = [];
+final List<Uint8List> _retained = [];
 Timer? _retainTimer;
 
 /// Detector last/peak time shares and the memory detector's GC window

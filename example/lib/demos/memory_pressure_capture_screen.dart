@@ -343,6 +343,9 @@ class _MemoryPressureCaptureScreenState
     const referenceBytesPerMs = 1000;
     while (sw.elapsedMilliseconds < _calibrationDurationMs) {
       final tickBytes = referenceBytesPerMs * _allocationTickMs;
+      // 8 bytes per element held on the iPhone 12, whose floor captures
+      // matched this accounting within 1 %; a Galaxy A07 read half of it
+      // (4-byte references). Recorded triads depend on this workload.
       calibrationBuffer.add(List<int>.filled(tickBytes ~/ 8, 0xCAFEBABE));
       totalBytes += tickBytes;
       await Future<void>.delayed(
@@ -489,6 +492,7 @@ class _MemoryPressureCaptureScreenState
       final sw = Stopwatch()..start();
       var totalAllocated = 0;
       while (sw.elapsedMilliseconds < _allocationDurationSec * 1000) {
+        // Same 8-bytes-per-element accounting as the calibration pass.
         _retainedAllocations.add(
           List<int>.filled(scaledTickBytes ~/ 8, 0xDEADBEEF),
         );
