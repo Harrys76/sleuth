@@ -74,6 +74,7 @@ import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
 import '../utils/framework_types.dart' show isScaffoldElement, isTabBarView;
+import '../utils/own_work_log.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
@@ -1883,6 +1884,7 @@ class SleuthController {
       frameStatsSummary: FrameStatsSummary(
         totalFrames: buffer.length,
         jankFrames: buffer.jankCount,
+        sleuthOverheadFrames: buffer.sleuthOverheadCount,
         averageFps: clampedThroughputFps,
         actualFps: clampedActualFps,
         actualFpsRaw: rawActualFps,
@@ -2676,7 +2678,7 @@ class SleuthController {
             }
             _capSkipConsumed = false;
             try {
-              if (element.mounted) _scanTree(ctx);
+              if (element.mounted) ownWorkLog.measure(() => _scanTree(ctx));
             } catch (e, st) {
               assert(() {
                 debugPrint('Sleuth: scan error: $e\n$st');
@@ -3760,6 +3762,13 @@ class SleuthController {
 
     // FrameTimingDetector uses custom method (not processTimelineData)
     _frameTiming.updateTimelineData(data);
+    // A VM stall this batch measured (logged by the client before the
+    // dispatch) can cover frames read before it.
+    if (_frameTiming.refreshOwnStartDelays() > 0) {
+      _activeRouteSession?.frameStats.refreshOwnStartDelays(
+        ownWorkLog.overlapUs,
+      );
+    }
 
     // Generate verdict for slow frames (full mode with VM timeline data)
     // Local variables bridge jank decision → post-aggregation capture.
@@ -4277,6 +4286,7 @@ class SleuthController {
     FrameStats frame,
     FrameVerdict verdict,
   ) {
+    if (!config.cpuAttribution) return;
     final client = _vmClient;
     if (client == null || !frame.hasPhaseTimestamps) return;
     final frameNumber = frame.frameNumber;
@@ -4294,7 +4304,9 @@ class SleuthController {
         .getCpuSamples(timeOriginUs: timeOriginUs, timeExtentUs: timeExtentUs)
         .then((cpuSamples) {
           if (_disposed || cpuSamples == null) return;
-          final topFunctions = _cpuAggregator.aggregate(cpuSamples);
+          final topFunctions = ownWorkLog.measure(
+            () => _cpuAggregator.aggregate(cpuSamples),
+          );
           if (topFunctions.isEmpty) return;
           _cpuEnrichedFrameNumber = frameNumber;
           _cpuEnrichedTopFunctions = topFunctions;
@@ -4363,7 +4375,7 @@ class SleuthController {
       );
       if (_disposed || profile == null || generationStale()) return;
 
-      final entries = _extractTopAllocators(profile);
+      final entries = ownWorkLog.measure(() => _extractTopAllocators(profile));
       if (entries.isEmpty || generationStale()) return;
 
       // Re-emit memory pressure issues with enrichment
@@ -4895,8 +4907,15 @@ class SleuthController {
           verdictAge <= _frameTiming.frameBuffer.capacity) {
         phase = _lastVerdictPhase;
       } else {
-        // Fallback: derive from UI vs raster duration ratio.
-        phase = latest.uiDuration > latest.rasterDuration
+        // Without a recent verdict, name the thread that ran over, or the
+        // start delay when neither did (a late start under the deadline
+        // rule).
+        final budgetUs = latest.frameBudgetUs;
+        final uiUs = latest.uiDuration.inMicroseconds;
+        final rasterUs = latest.rasterDuration.inMicroseconds;
+        phase = uiUs <= budgetUs && rasterUs <= budgetUs
+            ? PipelinePhase.schedulerDelay
+            : uiUs > rasterUs
             ? PipelinePhase.build
             : PipelinePhase.raster;
       }
@@ -5358,6 +5377,7 @@ class SleuthConfig {
     this.captureMode = false,
     this.autoFrameBudget = true,
     this.profilePlatformChannels = false,
+    this.cpuAttribution = false,
     this.maxElementsPerScan = 0,
     this.stateStore,
   }) : assert(
@@ -6018,6 +6038,20 @@ class SleuthConfig {
   /// [DetectorType.platformChannel] is not enabled.
   final bool profilePlatformChannels;
 
+  /// When true, a jank frame's verdict gains the Dart functions that were
+  /// on the CPU during the frame (`FrameVerdict.topFunctions`), read with
+  /// the VM's `getCpuSamples`. Off by default.
+  ///
+  /// The VM builds that answer on the app's UI isolate. On an iPhone 12
+  /// each request froze the UI for about 300 ms, even for one frame's
+  /// window. Sleuth asks at most once every 10 s, and only while frames
+  /// jank. Sleuth counts the first 600 ms of each request as its own work.
+  /// A frame that the request starts late is Sleuth overhead, and
+  /// `event_loop_stall` leaves that stall out. A freeze that lands inside a
+  /// build still counts in that frame's build time. The app stops for that
+  /// long either way. Requires a VM connection.
+  final bool cpuAttribution;
+
   /// Where the overlay keeps its UI state (trigger position, card
   /// geometry, hidden issues, severity filter) across app restarts.
   ///
@@ -6081,6 +6115,7 @@ class SleuthConfig {
     bool? captureMode,
     bool? autoFrameBudget,
     bool? profilePlatformChannels,
+    bool? cpuAttribution,
     int? maxElementsPerScan,
     Object? stateStore = _sentinel,
   }) {
@@ -6147,6 +6182,7 @@ class SleuthConfig {
       autoFrameBudget: autoFrameBudget ?? this.autoFrameBudget,
       profilePlatformChannels:
           profilePlatformChannels ?? this.profilePlatformChannels,
+      cpuAttribution: cpuAttribution ?? this.cpuAttribution,
       maxElementsPerScan: maxElementsPerScan ?? this.maxElementsPerScan,
       stateStore: identical(stateStore, _sentinel)
           ? this.stateStore

@@ -8,6 +8,10 @@ enum PipelinePhase {
   paint,
   raster,
   schedulerDelay,
+
+  /// The raster thread was still busy with the previous frame. Jank frames
+  /// do not report it, because the hand-off wait does not make a frame
+  /// jank; the previous frame's own raster overrun counts instead.
   pipelineStall,
   unknown,
 }

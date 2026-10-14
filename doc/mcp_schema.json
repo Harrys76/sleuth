@@ -189,6 +189,7 @@
               "shape": {
                 "totalFrames": {"type": "int", "required": true, "nullable": false},
                 "jankFrames": {"type": "int", "required": true, "nullable": false},
+                "sleuthOverheadFrames": {"type": "int", "required": false, "nullable": false, "presence": "only when above 0"},
                 "averageFps": {"type": "num", "required": true, "nullable": false},
                 "p50": {"type": "num", "required": false, "nullable": false, "presence": "when frameStats.length >= 2"},
                 "p95": {"type": "num", "required": false, "nullable": false, "presence": "when frameStats.length >= 2"},

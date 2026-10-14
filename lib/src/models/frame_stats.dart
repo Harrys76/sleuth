@@ -22,6 +22,7 @@ class FrameStats {
     this.buildFinishUs,
     this.rasterStartUs,
     this.rasterFinishUs,
+    this.ownStartDelayUs = 0,
   }) : frameBudgetMs =
            frameBudgetMs ??
            (frameBudgetUs == null ? 16 : frameBudgetUs ~/ 1000),
@@ -84,6 +85,18 @@ class FrameStats {
   final int? rasterStartUs;
   final int? rasterFinishUs;
 
+  /// Microseconds of [vsyncOverhead] during which Sleuth itself kept the UI
+  /// isolate busy (scanning the tree, decoding a VM response), from
+  /// `OwnWorkLog`. Zero for frames built outside `FrameTimingDetector`.
+  final int ownStartDelayUs;
+
+  /// The app's share of the start delay: [vsyncOverhead] minus
+  /// [ownStartDelayUs].
+  int get appStartDelayUs {
+    final delay = vsyncOverhead.inMicroseconds - ownStartDelayUs;
+    return delay > 0 ? delay : 0;
+  }
+
   /// Whether all phase timestamps are available for frame-event correlation.
   bool get hasPhaseTimestamps =>
       vsyncStartUs != null &&
@@ -112,6 +125,7 @@ class FrameStats {
     if (buildFinishUs != null) 'buildFinishUs': buildFinishUs,
     if (rasterStartUs != null) 'rasterStartUs': rasterStartUs,
     if (rasterFinishUs != null) 'rasterFinishUs': rasterFinishUs,
+    if (ownStartDelayUs != 0) 'ownStartDelayUs': ownStartDelayUs,
   };
 
   factory FrameStats.fromJson(Map<String, dynamic> json) => FrameStats(
@@ -139,6 +153,7 @@ class FrameStats {
     buildFinishUs: json['buildFinishUs'] as int?,
     rasterStartUs: json['rasterStartUs'] as int?,
     rasterFinishUs: json['rasterFinishUs'] as int?,
+    ownStartDelayUs: json['ownStartDelayUs'] as int? ?? 0,
   );
 
   Duration get totalDuration {
@@ -147,18 +162,47 @@ class FrameStats {
     return Duration(microseconds: ui > raster ? ui : raster);
   }
 
-  /// End-to-end frame duration for jank detection and display.
-  /// Uses [totalSpan] when available (real frames from [FrameTiming]),
-  /// falls back to [totalDuration] (max of UI/raster) for test-created frames.
+  /// End-to-end frame latency for display (FPS, percentiles, the worst
+  /// frame). Uses [totalSpan] when available (real frames from
+  /// [FrameTiming]), falls back to [totalDuration] (max of UI/raster) for
+  /// test-created frames. Jank does not use it; see [isJank].
   Duration get effectiveTotalDuration => totalSpan ?? totalDuration;
 
   /// A frame over this many times its budget is a severe jank frame.
   static const int severeJankBudgetMultiplier = 2;
 
-  bool get isJank => effectiveTotalDuration.inMicroseconds > frameBudgetUs;
+  /// Whether the frame missed its deadline on one thread: the app's start
+  /// delay plus the build ran over the budget on the UI thread, or the
+  /// raster ran over it on the raster thread.
+  ///
+  /// The wait between build finish and raster start does not count. In
+  /// that wait the raster thread was finishing the previous frame, and that
+  /// frame already counts when its own raster ran over. The start delay
+  /// does count, because a UI thread busy with timers, platform messages or
+  /// microtasks when the vsync arrives delays the frame on screen. Sleuth's
+  /// own share of it ([ownStartDelayUs]) is left out. A negative raster
+  /// duration (no raster finish recorded) only leaves the raster side
+  /// unjudged.
+  bool get isJank => _missedDeadline(1, appDelayOnly: true);
+
+  /// [isJank] at [severeJankBudgetMultiplier] times the budget.
   bool get isSevereJank =>
-      effectiveTotalDuration.inMicroseconds >
-      frameBudgetUs * severeJankBudgetMultiplier;
+      _missedDeadline(severeJankBudgetMultiplier, appDelayOnly: true);
+
+  /// Whether the frame is late only because of Sleuth's own work. It
+  /// misses the deadline with the full start delay and meets it with the
+  /// app's share alone.
+  bool get isSleuthOverhead =>
+      !isJank && _missedDeadline(1, appDelayOnly: false);
+
+  bool _missedDeadline(int multiplier, {required bool appDelayOnly}) {
+    final budgetUs = frameBudgetUs * multiplier;
+    if (rasterDuration.inMicroseconds > budgetUs) return true;
+    final delayUs = appDelayOnly
+        ? appStartDelayUs
+        : vsyncOverhead.inMicroseconds;
+    return delayUs + uiDuration.inMicroseconds > budgetUs;
+  }
 
   /// Sentinel distinguishing "caller omitted the field" from "caller
   /// passed null". Nullable fields in [copyWith] accept this sentinel as
@@ -184,6 +228,7 @@ class FrameStats {
     Object? buildFinishUs = _unset,
     Object? rasterStartUs = _unset,
     Object? rasterFinishUs = _unset,
+    int? ownStartDelayUs,
   }) {
     return FrameStats(
       frameNumber: frameNumber ?? this.frameNumber,
@@ -220,6 +265,7 @@ class FrameStats {
       rasterFinishUs: identical(rasterFinishUs, _unset)
           ? this.rasterFinishUs
           : rasterFinishUs as int?,
+      ownStartDelayUs: ownStartDelayUs ?? this.ownStartDelayUs,
     );
   }
 }
@@ -259,6 +305,35 @@ class FrameStatsBuffer {
   bool get isEmpty => _buffer.isEmpty;
 
   FrameStats? get latest => _buffer.isEmpty ? null : _buffer.last;
+
+  /// Recomputes each buffered frame's [FrameStats.ownStartDelayUs] from
+  /// [overlapUs] over its start delay, for own work logged after the frame
+  /// was read (a stall measured from the next timeline poll). Returns how
+  /// many frames changed.
+  int refreshOwnStartDelays(int Function(int fromUs, int toUs) overlapUs) {
+    var changed = 0;
+    final refreshed = <FrameStats>[];
+    for (final frame in _buffer) {
+      final vsyncStart = frame.vsyncStartUs;
+      final buildStart = frame.buildStartUs;
+      if (vsyncStart != null && buildStart != null && buildStart > vsyncStart) {
+        final own = overlapUs(vsyncStart, buildStart);
+        if (own != frame.ownStartDelayUs) {
+          refreshed.add(frame.copyWith(ownStartDelayUs: own));
+          changed++;
+          continue;
+        }
+      }
+      refreshed.add(frame);
+    }
+    if (changed > 0) {
+      _buffer
+        ..clear()
+        ..addAll(refreshed);
+      _cachedFrames = null;
+    }
+    return changed;
+  }
 
   /// Presented frames per second in the last 1 second of engine time.
   ///
@@ -328,6 +403,11 @@ class FrameStatsBuffer {
   double get averageFps => throughputFps;
 
   int get jankCount => _buffer.where((f) => f.isJank).length;
+
+  /// Frames late only because of Sleuth's own work
+  /// ([FrameStats.isSleuthOverhead]).
+  int get sleuthOverheadCount =>
+      _buffer.where((f) => f.isSleuthOverhead).length;
 
   void add(FrameStats frame) {
     if (_buffer.length >= capacity) {

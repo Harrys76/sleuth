@@ -1,0 +1,520 @@
+{
+ "platform": "iPhone 12, iOS 17.5, Flutter 3.47.6",
+ "source": "flutter run --profile --no-dds; VM timeline read from the host with tool/device_pass.dart timeline; UI-thread events from 15 ms before one late frame's vsync to just after its build start",
+ "frame": {
+  "vsyncStartUs": 269760744196,
+  "buildStartUs": 269760752195,
+  "vsyncOverheadUs": 7999
+ },
+ "traceEvents": [
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760731948,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760732312,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760732854,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760732871,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760733015,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760733037,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760733367,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760733387,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760733584,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760733612,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760733815,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760733825,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PlatformVsync",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760744288,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PlatformVsync",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760751993,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "VsyncFireCallback",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760752006,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "VsyncFlow",
+   "cat": "Embedder",
+   "ph": "s",
+   "ts": 269760752007,
+   "tid": 259,
+   "pid": 4941,
+   "id": "31f0"
+  },
+  {
+   "name": "VsyncFireCallback",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760752033,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "VsyncProcessCallback",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760752191,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "Frame Request Pending",
+   "cat": "Embedder",
+   "ph": "e",
+   "ts": 269760752194,
+   "tid": 259,
+   "pid": 4941,
+   "id": "3152"
+  },
+  {
+   "name": "Animator::BeginFrame",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760752195,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "Pipeline Depth",
+   "cat": "Embedder",
+   "ph": "C",
+   "ts": 269760752199,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PipelineItem",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 269760752200,
+   "tid": 259,
+   "pid": 4941,
+   "id": "3152"
+  },
+  {
+   "name": "PipelineItem",
+   "cat": "Embedder",
+   "ph": "s",
+   "ts": 269760752201,
+   "tid": 259,
+   "pid": 4941,
+   "id": "3152"
+  },
+  {
+   "name": "PipelineProduce",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 269760752201,
+   "tid": 259,
+   "pid": 4941,
+   "id": "3152"
+  },
+  {
+   "name": "Frame",
+   "cat": "Dart",
+   "ph": "b",
+   "ts": 269760752236,
+   "tid": 259,
+   "pid": 4941,
+   "id": "dea239661bf7dd79"
+  },
+  {
+   "name": "Animate",
+   "cat": "Dart",
+   "ph": "b",
+   "ts": 269760752243,
+   "tid": 259,
+   "pid": 4941,
+   "id": "dea239661bf7dd79"
+  },
+  {
+   "name": "Frame Request Pending",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 269760752319,
+   "tid": 259,
+   "pid": 4941,
+   "id": "3153"
+  },
+  {
+   "name": "Animate",
+   "cat": "Dart",
+   "ph": "e",
+   "ts": 269760752340,
+   "tid": 259,
+   "pid": 4941,
+   "id": "dea239661bf7dd79"
+  },
+  {
+   "name": "LAYOUT (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752343,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "LAYOUT",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752345,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "LAYOUT",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752364,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "LAYOUT (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752366,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752367,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752368,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752369,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752369,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PAINT (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752370,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PAINT",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752371,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PAINT",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752380,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PAINT (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752381,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "COMPOSITING",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752382,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "Animator::Render",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760752422,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "Animator::Render",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760752423,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PipelineProduce",
+   "cat": "Embedder",
+   "ph": "e",
+   "ts": 269760752424,
+   "tid": 259,
+   "pid": 4941,
+   "id": "3152"
+  },
+  {
+   "name": "PipelineItem",
+   "cat": "Embedder",
+   "ph": "t",
+   "ts": 269760752424,
+   "tid": 259,
+   "pid": 4941,
+   "id": "3152"
+  },
+  {
+   "name": "COMPOSITING",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752511,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "FINALIZE TREE",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752512,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "FINALIZE TREE",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752513,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "POST_FRAME",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 269760752514,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "POST_FRAME",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 269760752515,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "Frame",
+   "cat": "Dart",
+   "ph": "e",
+   "ts": 269760752516,
+   "tid": 259,
+   "pid": 4941,
+   "id": "dea239661bf7dd79"
+  },
+  {
+   "name": "Animator::BeginFrame",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760752518,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "VsyncFlow",
+   "cat": "Embedder",
+   "ph": "f",
+   "ts": 269760752519,
+   "tid": 259,
+   "pid": 4941,
+   "id": "31f0"
+  },
+  {
+   "name": "VsyncProcessCallback",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760752532,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "AsyncWaitForVsync",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760752620,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "AsyncWaitForVsync",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760752627,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "NotifyIdle",
+   "cat": "GC",
+   "ph": "B",
+   "ts": 269760752628,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "NotifyIdle",
+   "cat": "GC",
+   "ph": "E",
+   "ts": 269760752629,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PlatformViewsController::PerformResize",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760752633,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "PlatformViewsController::PerformResize",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760752634,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 269760753184,
+   "tid": 259,
+   "pid": 4941
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 269760753202,
+   "tid": 259,
+   "pid": 4941
+  }
+ ]
+}

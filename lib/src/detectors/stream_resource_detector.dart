@@ -6,6 +6,7 @@ import 'package:vm_service/vm_service.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/own_work_log.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../vm/timeline_parser.dart';
@@ -509,7 +510,8 @@ class StreamResourceDetector extends BaseDetector
         );
       }
       _consecutivePollFailures = 0;
-      final ingested = _ingestProfile(profile);
+      final loaded = profile;
+      final ingested = ownWorkLog.measure(() => _ingestProfile(loaded));
       _evaluateWindow();
       // Snapshot per-suffix windows so capture screens can see exactly
       // which buckets matched and how their counts evolved across polls.

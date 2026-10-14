@@ -187,10 +187,12 @@ void main() {
       final service = _CountingVmService();
       final client = VmServiceClient(cpuSamplesMinInterval: minInterval)
         ..setServiceForTest(service, isolateId: 'isolates/1');
-      final controller = SleuthController()
-        ..initializeDetectorsForTest()
-        ..setVmClientForTest(client)
-        ..simulateVmStateChangeForTest(true);
+      // CPU attribution is opt-in.
+      final controller =
+          SleuthController(config: const SleuthConfig(cpuAttribution: true))
+            ..initializeDetectorsForTest()
+            ..setVmClientForTest(client)
+            ..simulateVmStateChangeForTest(true);
       for (final batch in batches) {
         for (final f in batch.frames) {
           controller.addFrameForTest(f);

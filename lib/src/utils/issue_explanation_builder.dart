@@ -259,15 +259,19 @@ class IssueExplanationBuilder {
       category: IssueCategory.build,
       whatItIs:
           'More than 15% of the buffered frames (with at least 5 frames '
-          'sampled) exceeded their time budget. At 60 FPS the budget is '
-          '16.7ms. Sustained jank counts severe frames. This issue tracks '
-          'how often ordinary frames run over budget, and Sleuth reports it '
-          'as a warning only.',
+          'sampled) missed their deadline. At 60 FPS the budget is 16.7ms: '
+          'a frame misses it when its start delay plus its build runs past '
+          'the budget, or when its raster alone does. Sustained jank counts '
+          'severe frames. This issue tracks how often ordinary frames miss '
+          'the deadline, and Sleuth reports it as a warning only.',
       readingTheData:
           'Like a single skipped beat in music. It is noticeable but brief, '
           'unlike sustained jank, where the song keeps skipping.\n\n'
-          '• Frame duration is the total time for one frame. The budget is '
-          '16.7ms at 60 FPS.\n\n'
+          '• Start delay is the time from vsync until the build began. '
+          'The part of it Sleuth caused (its own scans, VM reads and the VM '
+          'timeline request) is subtracted; a frame late only because of '
+          'Sleuth counts as Sleuth overhead, not jank. The budget is 16.7ms '
+          'at 60 FPS.\n\n'
           '• Janky % is the share of buffered frames over budget. Sleuth '
           'raises a warning above 15%, once at least 5 frames are '
           'sampled.\n\n'
@@ -281,11 +285,14 @@ class IssueExplanationBuilder {
           'are normal. Frequent single-frame jank makes the app feel less '
           'smooth overall.',
       howToFix:
-          'Check the frame breakdown. Was it build-dominated (expensive '
-          'widget tree construction) or raster-dominated (a GPU '
-          'bottleneck)? For build-heavy frames, look for large setState '
-          'scopes or expensive build methods. For raster-heavy frames, '
-          'check for saveLayer triggers (Opacity, ClipPath, ShaderMask).',
+          'Check the frame breakdown. Was it UI-bound (expensive widget '
+          'tree construction), raster-bound (a GPU bottleneck) or a late '
+          'start (other work held the UI thread when vsync arrived)? For '
+          'build-heavy frames, look for large setState scopes or expensive '
+          'build methods. For raster-heavy frames, check for saveLayer '
+          'triggers (Opacity, ClipPath, ShaderMask). For late starts, look '
+          'for synchronous work in timers, stream listeners and platform '
+          'callbacks.',
       whenToIgnore:
           'Occasional single jank frames during complex transitions or '
           'first renders are normal. Focus on sustained patterns, not '

@@ -7,6 +7,7 @@ import 'package:sleuth/src/analyzer/frame_event_correlator.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/heap_sample.dart';
 import 'package:sleuth/src/models/phase_event.dart';
+import 'package:sleuth/src/utils/own_work_log.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 import 'package:sleuth/src/vm/vm_service_client.dart';
 
@@ -976,6 +977,180 @@ void main() {
       expect(t.rpcMicros - decode, greaterThanOrEqualTo(15000));
       expect(t.uiBlockingMicros, decode + t.parseMicros + t.dispatchMicros);
       client.dispose();
+    });
+
+    test('the poll request\'s round trip counts as own work, capped at '
+        '60 ms for a full read and 25 ms for a window', () async {
+      ownWorkLog.clear();
+      addTearDown(ownWorkLog.clear);
+      final mock = _MockVmService()
+        ..nowMicros = 9000000
+        ..timelineResult = Timeline(
+          traceEvents: [
+            TimelineEvent.parse({
+              'name': 'BUILD',
+              'cat': 'flutter',
+              'ph': 'X',
+              'ts': 5000000,
+              'dur': 100,
+              'pid': 1,
+              'tid': 1,
+            })!,
+          ],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        )
+        ..getVMTimelineDelay = const Duration(milliseconds: 90);
+      final client = VmServiceClient(onTimelineData: (_) {});
+      addTearDown(client.dispose);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      // First poll: a full read.
+      var start = OwnWorkLog.now();
+      await client.pollTimelineSync();
+      expect(mock.timelineWindows.last, (null, null));
+      var waitWindow = ownWorkLog.overlapUs(start, start + 85000);
+      expect(
+        waitWindow,
+        inInclusiveRange(
+          VmServiceClient.ownTimelineFullReadCapUs - 2000,
+          VmServiceClient.ownTimelineFullReadCapUs + 2000,
+        ),
+      );
+
+      // Second poll: a window.
+      ownWorkLog.clear();
+      start = OwnWorkLog.now();
+      await client.pollTimelineSync();
+      expect(mock.timelineWindows.last.$1, isNotNull);
+      waitWindow = ownWorkLog.overlapUs(start, start + 85000);
+      expect(
+        waitWindow,
+        inInclusiveRange(
+          VmServiceClient.ownTimelineRpcCapUs - 2000,
+          VmServiceClient.ownTimelineRpcCapUs + 2000,
+        ),
+      );
+    });
+
+    test('a quick response ends the span early', () async {
+      ownWorkLog.clear();
+      addTearDown(ownWorkLog.clear);
+      final mock = _MockVmService()
+        ..getVMTimelineDelay = const Duration(milliseconds: 10);
+      final client = VmServiceClient(onTimelineData: (_) {});
+      addTearDown(client.dispose);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final start = OwnWorkLog.now();
+      await client.pollTimelineSync();
+      final after = OwnWorkLog.now();
+      final covered = ownWorkLog.overlapUs(start, after + 100000);
+      expect(covered, greaterThanOrEqualTo(10000));
+      expect(covered, lessThan(after - start + 1000));
+    });
+
+    test('a UI-thread gap inside the request, past its cap, is logged as '
+        'own work; a gap outside any request is not', () async {
+      ownWorkLog.clear();
+      addTearDown(ownWorkLog.clear);
+      final now = OwnWorkLog.now();
+      TimelineEvent ev(String name, String ph, int ts) => TimelineEvent.parse({
+        'name': name,
+        'cat': 'Embedder',
+        'ph': ph,
+        'ts': ts,
+        'pid': 1,
+        'tid': 7,
+      })!;
+      final mock = _MockVmService()
+        ..getVMTimelineDelay = const Duration(milliseconds: 120)
+        ..timelineResult = Timeline(
+          traceEvents: [
+            // Idle from -500 ms to -400 ms, before the request.
+            ev('Animator::BeginFrame', 'B', now - 501000),
+            ev('Animator::BeginFrame', 'E', now - 500000),
+            ev('Animator::BeginFrame', 'B', now - 400000),
+            ev('Animator::BeginFrame', 'E', now - 399000),
+            // Idle from 70 to 90 ms, during the request and past the 60 ms
+            // full-read cap.
+            ev('DartIsolate::HandleMessage', 'B', now + 69000),
+            ev('DartIsolate::HandleMessage', 'E', now + 70000),
+            ev('Animator::BeginFrame', 'B', now + 90000),
+            ev('Animator::BeginFrame', 'E', now + 91000),
+          ],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+      final client = VmServiceClient(onTimelineData: (_) {});
+      addTearDown(client.dispose);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      expect(ownWorkLog.overlapUs(now + 70000, now + 90000), 20000);
+      expect(ownWorkLog.overlapUs(now - 499000, now - 401000), 0);
+    });
+
+    test(
+      'a CPU-samples request counts as own work, capped at 600 ms',
+      () async {
+        ownWorkLog.clear();
+        addTearDown(ownWorkLog.clear);
+        final mock = _MockVmService()
+          ..cpuSamplesDelay = const Duration(milliseconds: 40)
+          ..cpuSamplesResult = CpuSamples(samples: []);
+        final client = VmServiceClient();
+        addTearDown(client.dispose);
+        client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+        final start = OwnWorkLog.now();
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1000);
+        final after = OwnWorkLog.now();
+        // The answer ended the span, not the cap.
+        final covered = ownWorkLog.overlapUs(start, start + 700000);
+        expect(covered, greaterThanOrEqualTo(38000));
+        expect(covered, lessThanOrEqualTo(after - start));
+      },
+    );
+
+    test('the round trip is logged when the request is sent, so frame '
+        'timings read before the response see it', () async {
+      ownWorkLog.clear();
+      addTearDown(ownWorkLog.clear);
+      final mock = _MockVmService()
+        ..getVMTimelineDelay = const Duration(milliseconds: 40);
+      final client = VmServiceClient(onTimelineData: (_) {});
+      addTearDown(client.dispose);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final start = OwnWorkLog.now();
+      final poll = client.pollTimelineSync();
+      await Future<void>.delayed(const Duration(milliseconds: 15));
+      final mid = OwnWorkLog.now();
+      expect(ownWorkLog.overlapUs(start, mid), greaterThanOrEqualTo(12000));
+      await poll;
+    });
+
+    test('an unmatched response leaves the span at its cap', () async {
+      ownWorkLog.clear();
+      addTearDown(ownWorkLog.clear);
+      final mock = _MockVmService()
+        ..getVMTimelineDelay = const Duration(milliseconds: 80)
+        ..responseIdOverride = 'other';
+      final client = VmServiceClient(onTimelineData: (_) {});
+      addTearDown(client.dispose);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final start = OwnWorkLog.now();
+      await client.pollTimelineSync();
+      final covered = ownWorkLog.overlapUs(start, start + 78000);
+      expect(
+        covered,
+        inInclusiveRange(
+          VmServiceClient.ownTimelineFullReadCapUs - 2000,
+          VmServiceClient.ownTimelineFullReadCapUs + 2000,
+        ),
+      );
     });
 
     test('decode without a measured delay is non-negative', () async {

@@ -134,6 +134,18 @@ When any projection arg is set, a payload field is present only if its section i
 | `lastSeenCycle` | int | yes | always; null when the buffer is empty |
 | `severityStats` | Map | no | when the trend has at least one present observation. Its shape is `{min: int, max: int}`. |
 
+#### Frame jank keys
+
+`frameStatsSummary` and the `recentFrames` items are untyped maps. Two of
+their keys appear only when above 0 (and `routeSessions[].frameStats`
+carries `sleuthOverheadFrames` the same way): `frameStatsSummary.sleuthOverheadFrames`
+counts frames that missed their deadline only because of start delay Sleuth
+caused, and `recentFrames[].ownStartDelayUs` is the part of a frame's start
+delay that Sleuth's own work covered. A frame is jank when its start delay
+minus `ownStartDelayUs`, plus its build, exceeds `frameBudgetUs`, or when
+its raster alone does; `jankFrames` and the jank percentage leave Sleuth
+overhead frames out.
+
 #### `sessionSummary` sub-shape
 
 Every key is conditional. A session with frames and no ranked issue has only `frameHistogram`.
@@ -171,7 +183,7 @@ Every key is conditional. A session with frames and no ranked issue has only `fr
 | `healthScore` | num | yes | always |
 | `durationSeconds` | num | yes | always |
 | `scanCycles` | int | yes | always |
-| `frameStats` | Map | yes | shape `{totalFrames, jankFrames, averageFps, p50?, p95?, p99?}`. The p-values are FPS percentiles, present only when `frameStats.length >= 2`. |
+| `frameStats` | Map | yes | shape `{totalFrames, jankFrames, sleuthOverheadFrames?, averageFps, p50?, p95?, p99?}`. `sleuthOverheadFrames` is present only when above 0. The p-values are FPS percentiles, present only when `frameStats.length >= 2`. |
 | `issueCount` | int | yes | always; distinct issue keys retained for the session (at most 256) |
 | `criticalCount` | int | yes | always; critical issues among the retained keys |
 | `warningCount` | int | yes | always; warning issues among the retained keys |

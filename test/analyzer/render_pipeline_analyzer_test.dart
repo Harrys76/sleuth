@@ -51,12 +51,12 @@ void main() {
       expect(verdict.suspectedPhase, PipelinePhase.raster);
     });
 
-    test('includes vsync wait when overhead is material', () {
+    test('includes the start delay when it is material', () {
       final verdict = analyzer.analyzeBasicMode(
         frameStats: makeFrame(uiMs: 30, rasterMs: 10, vsyncOverheadUs: 1500),
       );
 
-      expect(verdict.reason, contains('Vsync wait: 1.5ms'));
+      expect(verdict.reason, contains('Start delay: 1.5ms'));
     });
   });
 
@@ -87,12 +87,13 @@ void main() {
       );
     }
 
-    test('detects pipeline stall when gap exceeds 25% of budget', () {
+    test('a hand-off gap is never the cause: with both threads within '
+        'the budget the start delay is', () {
       final verdict = analyzer.analyzeBasicMode(
         frameStats: makeFrame(uiMs: 10, rasterMs: 8, buildToRasterGapUs: 5000),
       );
 
-      expect(verdict.suspectedPhase, PipelinePhase.pipelineStall);
+      expect(verdict.suspectedPhase, PipelinePhase.schedulerDelay);
     });
 
     test('detects scheduler delay when vsync exceeds 25% of budget', () {
@@ -108,17 +109,17 @@ void main() {
       expect(verdict.suspectedPhase, PipelinePhase.schedulerDelay);
     });
 
-    test('pipeline stall takes priority over scheduler delay', () {
+    test('a thread over the budget wins over the start delay and the gap', () {
       final verdict = analyzer.analyzeBasicMode(
         frameStats: makeFrame(
-          uiMs: 10,
+          uiMs: 20,
           rasterMs: 8,
           buildToRasterGapUs: 5000,
           vsyncOverheadUs: 5000,
         ),
       );
 
-      expect(verdict.suspectedPhase, PipelinePhase.pipelineStall);
+      expect(verdict.suspectedPhase, PipelinePhase.build);
     });
 
     test('reason includes total span and gap text', () {
@@ -163,83 +164,64 @@ void main() {
       );
     }
 
-    test('falls back to pipelineStall when no phase dominates', () {
+    test('a late start is the cause when no phase dominates and both '
+        'threads fit; the hand-off gap is not', () {
+      // 8 ms start delay + 10 ms build misses the 16 ms deadline.
       final frame = makeFrame(
         uiMs: 10,
         rasterMs: 8,
+        vsyncOverheadUs: 8000,
         buildToRasterGapUs: 5000,
-        totalSpan: const Duration(milliseconds: 25),
-      );
-
-      final timelineData = ParsedTimelineData(
-        buildScopeDurations: [1000],
-        flushLayoutDurations: [1000],
-        flushPaintDurations: [1000],
-        rasterDurations: [1000],
+        totalSpan: const Duration(milliseconds: 31),
       );
 
       final verdict = analyzer.analyzeFullMode(
         frameStats: frame,
-        timelineData: timelineData,
+        timelineData: ParsedTimelineData(
+          buildScopeDurations: [1000],
+          flushLayoutDurations: [1000],
+          flushPaintDurations: [1000],
+          rasterDurations: [1000],
+        ),
       );
 
-      expect(verdict.suspectedPhase, PipelinePhase.pipelineStall);
-    });
-
-    test('full mode reason includes PIPELINE STALL label and total span', () {
-      final frame = makeFrame(
-        uiMs: 10,
-        rasterMs: 8,
-        buildToRasterGapUs: 5000,
-        totalSpan: const Duration(milliseconds: 25),
-      );
-
-      final timelineData = ParsedTimelineData(
-        buildScopeDurations: [1000],
-        flushLayoutDurations: [1000],
-        flushPaintDurations: [1000],
-        rasterDurations: [1000],
-      );
-
-      final verdict = analyzer.analyzeFullMode(
-        frameStats: frame,
-        timelineData: timelineData,
-      );
-
-      expect(verdict.reason, contains('PIPELINE STALL'));
+      expect(verdict.suspectedPhase, PipelinePhase.schedulerDelay);
+      expect(verdict.reason, contains('SCHEDULER DELAY'));
+      expect(verdict.reason, isNot(contains('PIPELINE STALL')));
       expect(verdict.reason, contains('total span'));
     });
 
-    test(
-      'falls back to pipelineStall with moderate VM phases under budget',
-      () {
-        // Realistic scenario: all VM phases moderate (not tiny 1ms stubs)
-        // but still under budget, while gap pushes totalSpan over budget.
-        final frame = makeFrame(
-          uiMs: 12,
-          rasterMs: 10,
-          buildToRasterGapUs: 8000,
-          totalSpan: const Duration(milliseconds: 30),
-        );
+    test('with every VM phase under budget, the thread that ran over '
+        'decides: its largest phase', () {
+      final frame = makeFrame(
+        uiMs: 18,
+        rasterMs: 10,
+        buildToRasterGapUs: 8000,
+        totalSpan: const Duration(milliseconds: 36),
+      );
 
-        final timelineData = ParsedTimelineData(
-          buildScopeDurations: [5000], // 5ms
-          flushLayoutDurations: [4000], // 4ms
-          flushPaintDurations: [3000], // 3ms
-          rasterDurations: [10000], // 10ms — under 16ms budget
-        );
+      final verdict = analyzer.analyzeFullMode(
+        frameStats: frame,
+        timelineData: ParsedTimelineData(
+          buildScopeDurations: [9000],
+          flushLayoutDurations: [4000],
+          flushPaintDurations: [3000],
+          rasterDurations: [10000],
+        ),
+      );
 
-        final verdict = analyzer.analyzeFullMode(
-          frameStats: frame,
-          timelineData: timelineData,
-        );
+      // Raster's 10 ms is the largest phase, but the UI thread ran over.
+      expect(verdict.suspectedPhase, PipelinePhase.build);
+    });
 
-        expect(verdict.suspectedPhase, PipelinePhase.pipelineStall);
-        expect(verdict.reason, contains('PIPELINE STALL'));
-        expect(verdict.reason, contains('total span: 30.0ms'));
-        expect(verdict.reason, contains('pipeline gap: 8.0ms'));
-      },
-    );
+    test('no measured phase and a thread over budget: the longer thread', () {
+      final verdict = analyzer.analyzeFullMode(
+        frameStats: makeFrame(uiMs: 20, rasterMs: 6, buildToRasterGapUs: 6000),
+        timelineData: ParsedTimelineData(),
+      );
+
+      expect(verdict.suspectedPhase, PipelinePhase.build);
+    });
   });
 
   group('RenderPipelineAnalyzer buildToRasterGapTime nullability', () {
@@ -372,13 +354,14 @@ void main() {
       expect(verdict.suspectedPhase, PipelinePhase.raster);
     });
 
-    test('pipeline stall fallback when no phase dominates', () {
+    test('late start fallback when no phase dominates', () {
       final verdict = analyzer.analyzeCorrelatedMode(
         frameStats: makeFrame(
           uiMs: 10,
           rasterMs: 8,
+          vsyncOverheadUs: 8000,
           buildToRasterGapUs: 5000,
-          totalSpan: const Duration(milliseconds: 25),
+          totalSpan: const Duration(milliseconds: 31),
         ),
         correlation: const CorrelatedFrameData(
           buildScopeUs: 3000,
@@ -391,7 +374,7 @@ void main() {
         ),
       );
 
-      expect(verdict.suspectedPhase, PipelinePhase.pipelineStall);
+      expect(verdict.suspectedPhase, PipelinePhase.schedulerDelay);
     });
 
     test('correlationCoverage metadata on verdict', () {
@@ -452,35 +435,81 @@ void main() {
     });
   });
 
-  group('RenderPipelineAnalyzer raster floor follows frameBudgetUs', () {
-    FrameStats frame(int budgetUs) => FrameStats(
+  group('RenderPipelineAnalyzer full tier: batch totals never pick the '
+      'thread', () {
+    // A poll batch covers about 500 ms of frames, so its phase totals add up
+    // many frames; only the judged frame's own threads say which one ran
+    // over.
+    FrameStats frame({
+      required int startDelayMs,
+      required int buildMs,
+      required int rasterMs,
+    }) => FrameStats(
       frameNumber: 1,
-      uiDuration: const Duration(milliseconds: 4),
-      rasterDuration: const Duration(milliseconds: 4),
+      uiDuration: Duration(milliseconds: buildMs),
+      rasterDuration: Duration(milliseconds: rasterMs),
+      vsyncOverhead: Duration(milliseconds: startDelayMs),
       timestamp: DateTime(2026, 1, 1),
-      frameBudgetUs: budgetUs,
-    );
-    final data = ParsedTimelineData(
-      buildScopeDurations: [3000],
-      flushLayoutDurations: [1000],
-      flushPaintDurations: [500],
-      rasterDurations: [4500],
+      frameBudgetUs: 16667,
     );
 
-    test('16 ms budget: 4500us raster stays under the 8000us floor', () {
+    test('a late start in a batch of twenty 2 ms builds is a scheduler '
+        'delay', () {
       final verdict = RenderPipelineAnalyzer().analyzeFullMode(
-        frameStats: frame(16000),
-        timelineData: data,
+        frameStats: frame(startDelayMs: 12, buildMs: 8, rasterMs: 4),
+        timelineData: ParsedTimelineData(
+          buildScopeDurations: List.filled(20, 2000),
+        ),
+      );
+      expect(verdict.suspectedPhase, PipelinePhase.schedulerDelay);
+    });
+
+    test('a UI-bound frame in a batch heavy with raster events is build', () {
+      final verdict = RenderPipelineAnalyzer().analyzeFullMode(
+        frameStats: frame(startDelayMs: 0, buildMs: 25, rasterMs: 3),
+        timelineData: ParsedTimelineData(
+          buildScopeDurations: List.filled(30, 1000),
+          rasterDurations: List.filled(30, 9000),
+        ),
       );
       expect(verdict.suspectedPhase, PipelinePhase.build);
     });
 
-    test('120 Hz budget: 4500us raster crosses the 4166us floor', () {
+    test('a raster-bound frame in a batch without raster events is '
+        'raster', () {
       final verdict = RenderPipelineAnalyzer().analyzeFullMode(
-        frameStats: frame(8333),
-        timelineData: data,
+        frameStats: frame(startDelayMs: 0, buildMs: 5, rasterMs: 25),
+        timelineData: ParsedTimelineData(
+          buildScopeDurations: List.filled(30, 1500),
+        ),
       );
       expect(verdict.suspectedPhase, PipelinePhase.raster);
+    });
+
+    test('a UI-bound frame is named by its largest UI phase', () {
+      final verdict = RenderPipelineAnalyzer().analyzeFullMode(
+        frameStats: frame(startDelayMs: 0, buildMs: 25, rasterMs: 3),
+        timelineData: ParsedTimelineData(
+          buildScopeDurations: List.filled(10, 1000),
+          flushLayoutDurations: List.filled(10, 2500),
+          flushPaintDurations: List.filled(10, 500),
+        ),
+      );
+      expect(verdict.suspectedPhase, PipelinePhase.layout);
+    });
+
+    test('the reason splits the start delay into the app\'s and '
+        'Sleuth\'s', () {
+      final verdict = RenderPipelineAnalyzer().analyzeFullMode(
+        frameStats: frame(
+          startDelayMs: 14,
+          buildMs: 8,
+          rasterMs: 4,
+        ).copyWith(ownStartDelayUs: 6000),
+        timelineData: ParsedTimelineData(buildScopeDurations: [8000]),
+      );
+      expect(verdict.reason, contains('start delay: 14.0ms'));
+      expect(verdict.reason, contains("6.0ms of it Sleuth's own work"));
     });
   });
 }

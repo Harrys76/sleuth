@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 import '../models/heap_sample.dart';
+import '../utils/own_work_log.dart';
 import 'poll_timings.dart';
 import 'timeline_parser.dart';
 
@@ -764,6 +765,7 @@ class VmServiceClient {
       final events = timeline.traceEvents;
       eventCount = events?.length ?? 0;
       ParsedTimelineData? parsed;
+      final ownParseStart = OwnWorkLog.now();
       if (events != null && events.isNotEmpty) {
         watch
           ..reset()
@@ -804,6 +806,8 @@ class VmServiceClient {
         _sweepStalePendingBegins(batchMaxTs);
         parseUs = watch.elapsedMicroseconds;
       }
+      if (parsed != null) _recordVmHeldGaps(parsed.uiThreadGaps);
+      ownWorkLog.record(ownParseStart, OwnWorkLog.now());
       // Dispatch every batch with data, and an empty batch once per
       // [idleHeartbeat] so window-based detectors keep evaluating while
       // the timeline is quiet.
@@ -817,8 +821,10 @@ class VmServiceClient {
         watch
           ..reset()
           ..start();
-        onTimelineData?.call(
-          parsed ?? TimelineParser.parse(const <TimelineEvent>[]),
+        ownWorkLog.measure(
+          () => onTimelineData?.call(
+            parsed ?? TimelineParser.parse(const <TimelineEvent>[]),
+          ),
         );
         dispatchUs = watch.elapsedMicroseconds;
         segments = readDispatchSegments?.call();
@@ -892,8 +898,12 @@ class VmServiceClient {
   /// [_attachWireListeners]).
   Future<Timeline> _fetchTimeline(int? originUs, int? extentUs) {
     _timelineRequestId = null;
+    _closeTimelineOwnSpan();
     _timelineResponseChars = -1;
     _timelineResponseReceivedUs = -1;
+    _armedTimelineCapUs = originUs == null
+        ? ownTimelineFullReadCapUs
+        : ownTimelineRpcCapUs;
     _armTimelineRequest = true;
     try {
       return originUs == null
@@ -960,13 +970,15 @@ class VmServiceClient {
       if (myGen != _sessionGeneration || _disposed) {
         return watch.elapsedMicroseconds;
       }
-      onHeapSample?.call(
-        HeapSample(
-          heapUsage: mem.heapUsage ?? 0,
-          heapCapacity: mem.heapCapacity ?? 0,
-          externalUsage: mem.externalUsage ?? 0,
-          timestamp: DateTime.now(),
-          rssBytes: _readRssBytes(),
+      ownWorkLog.measure(
+        () => onHeapSample?.call(
+          HeapSample(
+            heapUsage: mem.heapUsage ?? 0,
+            heapCapacity: mem.heapCapacity ?? 0,
+            externalUsage: mem.externalUsage ?? 0,
+            timestamp: DateTime.now(),
+            rssBytes: _readRssBytes(),
+          ),
         ),
       );
     } on SentinelException {
@@ -1065,6 +1077,79 @@ class VmServiceClient {
   /// Request id of the poll's in-flight `getVMTimeline` call.
   String? _timelineRequestId;
 
+  /// [OwnWorkLog.open] handle of the poll's in-flight `getVMTimeline`
+  /// request; null when none is open.
+  int? _timelineOwnSpan;
+
+  /// The longest part of a poll's `getVMTimeline` round trip counted as
+  /// Sleuth's own work.
+  ///
+  /// The VM holds its timeline lock while it writes the response, and a
+  /// thread that fills its event block in that time waits for the lock.
+  /// On iOS and Android the UI and platform threads are one thread, so a
+  /// frame whose vsync lands inside the wait starts late with nothing
+  /// traced in the gap. On an iPhone 12 Sleuth's polls delayed frame starts
+  /// by 5 to 20 ms. The wait lies between the request and its response, so
+  /// that span counts as own work for frame start delay. The client logs
+  /// the span when it sends the request, because frame timings can arrive
+  /// before the response, and cuts it short when the response arrives. The
+  /// cap bounds what the span can excuse when the app's own work holds the
+  /// response back or no response is matched.
+  @visibleForTesting
+  static const int ownTimelineRpcCapUs = 25000;
+
+  /// [ownTimelineRpcCapUs] for a full timeline read (the session's first
+  /// poll and the fallbacks), which writes the whole buffer. On an iPhone
+  /// 12 a full read from the host delayed frame starts by 23 to 50 ms.
+  @visibleForTesting
+  static const int ownTimelineFullReadCapUs = 60000;
+
+  /// The part of a `getCpuSamples` request counted as Sleuth's own work.
+  /// On an iPhone 12 the VM held the UI isolate for 250 to 410 ms, within
+  /// the first 450 ms after the request was sent.
+  @visibleForTesting
+  static const int ownCpuSamplesCapUs = 600000;
+
+  /// Cap for the timeline request being sent, set by [_fetchTimeline].
+  int _armedTimelineCapUs = ownTimelineRpcCapUs;
+
+  /// Sleuth's recent VM requests during which the VM can hold the UI
+  /// thread (timeline reads, CPU samples). Each has a start and an end in
+  /// `Timeline.now` microseconds; the end is null while it is in flight.
+  final List<_RequestWindow> _requestWindows = [];
+
+  _RequestWindow _openRequestWindow() {
+    final now = OwnWorkLog.now();
+    _requestWindows.removeWhere(
+      (w) => w.endUs != null && w.endUs! < now - ownWorkLog.retainUs,
+    );
+    final window = _RequestWindow(now);
+    _requestWindows.add(window);
+    return window;
+  }
+
+  /// Logs as Sleuth's own work each part of a UI-thread gap in [gaps] that
+  /// lies inside one of Sleuth's VM requests. A gap is a stretch of the
+  /// timeline with no event at all, so it measures the stall. The capped
+  /// span opened with the request is only an estimate made before the
+  /// response. On a Galaxy A07 the timeline read held the UI thread for up
+  /// to 70 ms, past the 25 ms cap.
+  void _recordVmHeldGaps(List<(int, int)> gaps) {
+    if (gaps.isEmpty || _requestWindows.isEmpty) return;
+    final now = OwnWorkLog.now();
+    for (final (gapStart, gapEnd) in gaps) {
+      for (final window in _requestWindows) {
+        final start = gapStart > window.startUs ? gapStart : window.startUs;
+        final windowEnd = window.endUs ?? now;
+        final end = gapEnd < windowEnd ? gapEnd : windowEnd;
+        if (end > start) ownWorkLog.record(start, end);
+      }
+    }
+  }
+
+  /// The window of the poll's in-flight timeline request.
+  _RequestWindow? _timelineWindow;
+
   /// Length of the matched raw response; −1 until matched.
   int _timelineResponseChars = -1;
 
@@ -1095,14 +1180,23 @@ class VmServiceClient {
           return;
         }
         _timelineRequestId = _requestIdPattern.firstMatch(message)?.group(1);
+        _timelineOwnSpan = ownWorkLog.open(
+          OwnWorkLog.now(),
+          _armedTimelineCapUs,
+        );
+        _timelineWindow = _openRequestWindow();
       });
       _receiveSub = service.onReceive.listen((message) {
+        // The listener runs synchronously before package:vm_service
+        // decodes the message; the decode is Sleuth's own UI-isolate work.
+        ownWorkLog.recordUntilMicrotask();
         final id = _timelineRequestId;
         if (id == null) return;
         if (!responseCarriesId(message, id)) return;
         _timelineResponseReceivedUs = _rpcClockUs();
         _timelineResponseChars = message.length;
         _timelineRequestId = null;
+        _closeTimelineOwnSpan();
       });
     } catch (_) {
       // A test double without wire streams leaves every poll unmatched
@@ -1136,7 +1230,18 @@ class VmServiceClient {
     _timelineResponseChars = -1;
     _timelineResponseReceivedUs = -1;
     _timelineRequestId = null;
+    _closeTimelineOwnSpan();
     return chars >= 0 ? chars : null;
+  }
+
+  /// Ends the open own-work span of the poll's timeline request now.
+  void _closeTimelineOwnSpan() {
+    _timelineWindow?.endUs ??= OwnWorkLog.now();
+    _timelineWindow = null;
+    final span = _timelineOwnSpan;
+    if (span == null) return;
+    _timelineOwnSpan = null;
+    ownWorkLog.close(span, OwnWorkLog.now());
   }
 
   /// Evict orphan begins from the pending-begin maps and idle cursors
@@ -1347,6 +1452,8 @@ class VmServiceClient {
     _gcSub = null;
     _extensionSub?.cancel();
     _extensionSub = null;
+    _requestWindows.clear();
+    _timelineWindow = null;
     _mainIsolateId = null;
     _verifiedOwnIsolateId = null;
     _connected = false;
@@ -1385,10 +1492,24 @@ class VmServiceClient {
     }
     _lastCpuSamplesRequestUs = nowUs;
 
+    // The VM builds the answer on this isolate's thread, so the UI stops
+    // while it does; nothing of it is Dart code the own-work log could
+    // time.
+    final ownSpan = ownWorkLog.open(OwnWorkLog.now(), ownCpuSamplesCapUs);
+    final cpuWindow = _openRequestWindow();
     final gen = _sessionGeneration;
     try {
       return await _cpuSpans
-          .track(service.getCpuSamples(isolateId, timeOriginUs, timeExtentUs))
+          .track(
+            service
+                .getCpuSamples(isolateId, timeOriginUs, timeExtentUs)
+                .whenComplete(() {
+                  cpuWindow.endUs ??= OwnWorkLog.now();
+                  if (ownSpan != null) {
+                    ownWorkLog.close(ownSpan, OwnWorkLog.now());
+                  }
+                }),
+          )
           .timeout(const Duration(milliseconds: 500));
     } on SentinelException {
       // Isolate ID stale (e.g., after hot restart) — re-fetch
@@ -1509,4 +1630,11 @@ class _IsolateResolution {
   /// The first non-system isolate, the pick used before own-id
   /// verification. Kept for the connect log line.
   final String? legacyId;
+}
+
+/// One of Sleuth's VM requests, in `Timeline.now` microseconds.
+class _RequestWindow {
+  _RequestWindow(this.startUs);
+  final int startUs;
+  int? endUs;
 }
