@@ -612,11 +612,30 @@ void main() {
       expect(errorIssues.first.severity, IssueSeverity.critical);
     });
 
-    test('error spike critical at 5+ server errors in peak window', () {
-      for (int i = 0; i < 5; i++) {
+    test('server errors alone do not make the spike critical', () {
+      // Nine 5xx errors in the peak window: warning, with the 5xx count
+      // in the detail. Critical needs 10 errors of any kind.
+      for (int i = 0; i < 9; i++) {
         detector.processRecord(
           makeRecord(
             statusCode: 502,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+          ),
+        );
+      }
+      final errorIssues = detector.issues.where(
+        (i) => i.stableId == 'http_error_spike',
+      );
+      expect(errorIssues, hasLength(1));
+      expect(errorIssues.first.severity, IssueSeverity.warning);
+      expect(errorIssues.first.detail, contains('9 server errors'));
+    });
+
+    test('ten client errors in 5 s are critical', () {
+      for (int i = 0; i < 10; i++) {
+        detector.processRecord(
+          makeRecord(
+            statusCode: 404,
             startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
           ),
         );
@@ -629,9 +648,8 @@ void main() {
     });
 
     test('error spike severity uses peak window counts, not buffer-wide', () {
-      // 6 server errors spread over 25s — peak 5s window has only 2
-      // plus 1 transport failure in the same window = 3 total errors
-      // but only 2 server errors in peak → should be warning, not critical
+      // 6 server errors spread over 25s: the peak 5s window holds 2 of
+      // them plus 1 transport failure, 3 errors in all, so warning.
       detector.processRecord(makeRecord(statusCode: 500, startedAt: fakeNow));
       detector.processRecord(
         makeRecord(

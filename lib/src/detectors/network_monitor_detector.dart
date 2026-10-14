@@ -443,7 +443,8 @@ class NetworkMonitorDetector extends BaseDetector
         .length;
     final serverErrors = peakRecords.where((r) => r.statusCode >= 500).length;
 
-    final severity = peakCount >= 10 || serverErrors >= 5
+    // Critical by count alone; the 5xx share stays in the detail.
+    final severity = peakCount >= 10
         ? IssueSeverity.critical
         : IssueSeverity.warning;
 
