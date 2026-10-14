@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../network/request_record.dart';
@@ -72,6 +74,23 @@ class NetworkMonitorDetector extends BaseDetector
   static const int _duplicateWindowMs = 500;
   static const int _duplicateThreshold = 3;
   static const int _criticalDuplicateThreshold = 10;
+
+  /// Errors in the peak 5 s window that raise `http_error_spike`.
+  @visibleForTesting
+  static const int errorSpikeThreshold = 3;
+
+  /// Errors in the peak 5 s window that make `http_error_spike` critical.
+  @visibleForTesting
+  static const int errorSpikeCriticalThreshold = 10;
+
+  /// `high_frequency_same_path` window, threshold and critical count, for
+  /// the explanation drift test.
+  @visibleForTesting
+  static const int duplicateWindowMs = _duplicateWindowMs;
+  @visibleForTesting
+  static const int duplicateThreshold = _duplicateThreshold;
+  @visibleForTesting
+  static const int criticalDuplicateThreshold = _criticalDuplicateThreshold;
 
   final Queue<RequestRecord> _records = Queue<RequestRecord>();
   final List<PerformanceIssue> _issues = [];
@@ -433,7 +452,7 @@ class NetworkMonitorDetector extends BaseDetector
       }
     }
 
-    if (peakCount < 3) return;
+    if (peakCount < errorSpikeThreshold) return;
 
     // Scope breakdown counts to the peak window so severity, title, and
     // detail all describe the same set of errors.
@@ -444,7 +463,7 @@ class NetworkMonitorDetector extends BaseDetector
     final serverErrors = peakRecords.where((r) => r.statusCode >= 500).length;
 
     // Critical by count alone; the 5xx share stays in the detail.
-    final severity = peakCount >= 10
+    final severity = peakCount >= errorSpikeCriticalThreshold
         ? IssueSeverity.critical
         : IssueSeverity.warning;
 

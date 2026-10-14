@@ -6190,6 +6190,9 @@ class SleuthConfig {
   /// cadence, bounded below by [fpsTarget] and above by the display's
   /// reported refresh rate. A 120 Hz device rendering at 120 gets an
   /// 8.33 ms budget; a ProMotion device rendering at 60 keeps 16.67 ms.
+  /// On Android the reported rate is the panel's rate when the engine last
+  /// pushed display metrics (launch or a configuration change), so a
+  /// panel that switches from 60 to 90 Hz later keeps the 60 Hz cap.
   ///
   /// When false, the budget is always `1000 / fpsTarget` ms. Capture mode
   /// ([captureMode]) always uses the fixed budget.
