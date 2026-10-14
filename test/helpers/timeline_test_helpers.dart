@@ -238,6 +238,7 @@ ParsedTimelineData platformChannelData({
         name: methodName ?? 'PlatformChannel',
         beginTs: start + i * 1000,
         durationUs: durUs,
+        tid: 1,
       ),
     ),
   );

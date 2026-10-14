@@ -1632,7 +1632,10 @@ void main() {
         ev('b', id: 'a', ts: 1000, tid: 1),
         ev('e', id: 'a', ts: 3000, tid: 7),
       ]);
-      expect(data.platformChannelCalls.single.durationUs, 2000);
+      final call = data.platformChannelCalls.single;
+      expect(call.durationUs, 2000);
+      // The call keeps the thread of its begin.
+      expect(call.tid, 1);
     });
 
     test('unpaired b counts but yields no call', () {
@@ -1683,6 +1686,7 @@ void main() {
       final call = data.platformChannelCalls.single;
       expect(call.durationUs, 2500);
       expect(call.id, isNull);
+      expect(call.tid, 1);
     });
   });
 
