@@ -1004,6 +1004,36 @@ void main() {
       );
     });
 
+    test('gc_pressure identity clears when the window empties between '
+        'evaluations', () {
+      // At 5/min one event in the 10 s window (6/min) is an overage, so
+      // the first event of the next burst cannot clear the identity
+      // through the under-threshold branch; only the empty window can.
+      final low = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0,
+        gcRateThresholdPerMin: 5,
+      );
+      int? gcIdentity() => low.issues
+          .where((i) => i.stableId == 'gc_pressure')
+          .single
+          .dedupIdentityMicros;
+
+      low.recordGcCycle();
+      final first = gcIdentity();
+      expect(first, fakeNow.microsecondsSinceEpoch);
+
+      // The burst ages out; a heap sample evaluates the empty window.
+      fakeNow = fakeNow.add(const Duration(seconds: 11));
+      low.processHeapSample(_sample(timestamp: fakeNow));
+      expect(low.issues.where((i) => i.stableId == 'gc_pressure'), isEmpty);
+
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+      low.recordGcCycle();
+      expect(gcIdentity(), fakeNow.microsecondsSinceEpoch);
+      expect(gcIdentity(), isNot(first));
+    });
+
     test('zero heapCapacity does not cause division-by-zero crash', () {
       fakeNow = fakeNow.add(const Duration(seconds: 1));
 

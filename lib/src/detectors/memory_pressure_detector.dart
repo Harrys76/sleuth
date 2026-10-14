@@ -180,11 +180,11 @@ class MemoryPressureDetector extends BaseDetector
   DateTime? _sampleSustainedStart;
   DateTime? _sustainedNativeGrowthStart;
   // First in-window event timestamp at the moment gc_pressure crossed
-  // the >10/window threshold. Pinned for the full overage episode so
+  // its rate threshold. Pinned for the full overage episode so
   // re-emissions across consecutive evaluations share dedup identity
   // and CaptureHelper collapses them to one trace record per episode.
-  // Cleared in the no-emit branch (`windowEvents <= 10`) so a new
-  // overage after a transient drop produces a distinct identity.
+  // Cleared whenever the rate is at or under the threshold, including
+  // an empty window, so a new overage produces a distinct identity.
   DateTime? _gcOverageStart;
 
   // -- heap_near_capacity (RSS against memoryBudgetBytes) --
@@ -477,9 +477,9 @@ class MemoryPressureDetector extends BaseDetector
     _issues.clear();
 
     _evictExpiredGcBatches();
-    if (_gcWindow.isNotEmpty) {
-      _evaluateGcPressure();
-    }
+    // Runs on an empty window too, so the overage identity clears when a
+    // burst ages out between two evaluations.
+    _evaluateGcPressure();
 
     _evaluateHeapTrend();
     _evaluateHeapCapacity();
