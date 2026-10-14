@@ -557,49 +557,48 @@ void main() {
     );
   });
   group('capture recording leaves out failed detectors', () {
-    testWidgets(
-      'a detector that threw in the last scan is not recorded by the '
-      'timeline path, and is recorded again after a clean scan',
-      (tester) async {
-        await tester.pumpWidget(buildMixedTree(50));
-        final context = tester.element(find.byType(Directionality));
+    testWidgets('a detector that threw in the last scan is not recorded by the '
+        'timeline path, and is recorded again after a clean scan', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildMixedTree(50));
+      final context = tester.element(find.byType(Directionality));
 
-        final controller = SleuthController(
-          config: const SleuthConfig(
-            treeScanInterval: Duration(seconds: 1),
-            enabledDetectors: {DetectorType.frameTiming},
-            captureMode: true,
-          ),
-        );
-        controller.initializeDetectorsForTest();
-        final detector = _StableIdEmittingDetector();
-        controller.addDetectorForTest(detector);
-        bool recorded() => controller.captureEmittedKeysForTest.any(
-          (k) => k.contains('|${_StableIdEmittingDetector.stableId}|'),
-        );
+      final controller = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+          captureMode: true,
+        ),
+      );
+      controller.initializeDetectorsForTest();
+      final detector = _StableIdEmittingDetector();
+      controller.addDetectorForTest(detector);
+      bool recorded() => controller.captureEmittedKeysForTest.any(
+        (k) => k.contains('|${_StableIdEmittingDetector.stableId}|'),
+      );
 
-        final errors = _ScopedErrorCapture();
-        try {
-          controller.runTreeScanForTest(context);
-        } finally {
-          errors.restore();
-        }
-        expect(tester.takeException(), isA<StateError>());
-        expect(detector.issues, isNotEmpty);
-
-        // The published issues leave the failed detector out; the
-        // capture trace must too.
-        controller.feedTimelineDataForTest(emptyTimelineData());
-        expect(recorded(), isFalse);
-
-        detector.throwOnSecondElement = false;
+      final errors = _ScopedErrorCapture();
+      try {
         controller.runTreeScanForTest(context);
-        controller.feedTimelineDataForTest(emptyTimelineData());
-        expect(recorded(), isTrue);
+      } finally {
+        errors.restore();
+      }
+      expect(tester.takeException(), isA<StateError>());
+      expect(detector.issues, isNotEmpty);
 
-        controller.dispose();
-      },
-    );
+      // The published issues leave the failed detector out; the
+      // capture trace must too.
+      controller.feedTimelineDataForTest(emptyTimelineData());
+      expect(recorded(), isFalse);
+
+      detector.throwOnSecondElement = false;
+      controller.runTreeScanForTest(context);
+      controller.feedTimelineDataForTest(emptyTimelineData());
+      expect(recorded(), isTrue);
+
+      controller.dispose();
+    });
   });
 }
 
