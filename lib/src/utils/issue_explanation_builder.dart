@@ -890,7 +890,10 @@ class IssueExplanationBuilder {
           'for 10 seconds or more.\n\n'
           '• Sustained duration is how long native memory has been rising. '
           'Brief spikes during image loading are normal.\n\n'
-          '• The data comes from VM service RSS minus the Dart heap.',
+          '• The data comes from the process RSS minus the Dart heap. RSS '
+          'itself must grow too: when the Dart heap collects, RSS minus '
+          'the heap rises while RSS stays flat, and that is not native '
+          'growth.',
       whyItMatters:
           'Native memory is often the largest part of total app memory, and '
           'Dart\'s garbage collector cannot see it. Growing native memory can '

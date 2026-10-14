@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math' as math;
 
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
@@ -852,7 +853,14 @@ class MemoryPressureDetector extends BaseDetector
       if (sinceFirst.inMilliseconds < warmupDurationMs) return;
     }
 
-    final slope = _computeNativeSlopeBytesPerSec(nativeSamples);
+    // Native growth must show in the RSS itself. The Dart heap's
+    // collections move RSS minus heap without moving RSS: on a Galaxy
+    // A07 the heap climbed and fell by about 10 MB every GC cycle while
+    // RSS stayed flat, which read as native growth after each drop.
+    final slope = math.min(
+      _slopeBytesPerSec(nativeSamples, (s) => s.nativeBytes!),
+      _slopeBytesPerSec(nativeSamples, (s) => s.rssBytes!),
+    );
 
     if (slope > _nativeGrowthThresholdBytesPerSec) {
       _sustainedNativeGrowthStart ??= nativeSamples.last.timestamp;
@@ -875,7 +883,8 @@ class MemoryPressureDetector extends BaseDetector
             detail:
                 'Process memory outside the Dart heap has grown at '
                 '${slopeMbSec.toStringAsFixed(2)} MB/sec for '
-                '${sustained.inSeconds} seconds. Possible causes are '
+                '${sustained.inSeconds} seconds, and the process RSS grew '
+                'at least as fast. Possible causes are '
                 'undisposed GPU textures, images decoded at full resolution, '
                 'or platform channel buffers that keep growing. The current '
                 'native estimate is '
@@ -895,8 +904,12 @@ class MemoryPressureDetector extends BaseDetector
     }
   }
 
-  /// Compute native memory growth rate in bytes/sec via linear regression.
-  double _computeNativeSlopeBytesPerSec(List<HeapSample> samples) {
+  /// Growth rate of [value] across [samples] in bytes/sec, by linear
+  /// regression.
+  double _slopeBytesPerSec(
+    List<HeapSample> samples,
+    int Function(HeapSample sample) value,
+  ) {
     final n = samples.length;
     if (n < 2) return 0;
 
@@ -905,7 +918,7 @@ class MemoryPressureDetector extends BaseDetector
 
     for (final sample in samples) {
       final x = sample.timestamp.difference(firstTs).inMilliseconds / 1000.0;
-      final y = sample.nativeBytes!.toDouble();
+      final y = value(sample).toDouble();
       sumX += x;
       sumY += y;
       sumXY += x * y;
@@ -977,7 +990,9 @@ class MemoryPressureDetector extends BaseDetector
         'samples and `heap_growing` emitted in the same evaluation. It '
         'stays silent when the budget is unset, and RSS-null samples never '
         'count. `native_memory_growing` fires when the slope of the '
-        'RSS-heap gap is above 1MB/s sustained for at least 10s. The '
+        'RSS-heap gap and the slope of RSS itself are both above 1MB/s, '
+        'sustained for at least 10s; RSS stays flat while the Dart heap '
+        'collects, so the heap sawtooth never fires it. The '
         'reproducer asserts that null rssBytes (web) and the zero-heap and '
         'zero-capacity null-coalesce edges emit nothing.\n\n'
         'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s) to '
@@ -1025,7 +1040,7 @@ class MemoryPressureDetector extends BaseDetector
         '`VmServiceClient._readRssBytes()` calls `ProcessInfo.currentRss`, '
         'the OS-level RSS collection boundary. It sources '
         '`HeapSample.rssBytes`, so it gates `native_memory_growing` (which '
-        'derives `nativeBytes = rssBytes - heapUsage`) and '
+        'reads RSS and `nativeBytes = rssBytes - heapUsage`) and '
         '`heap_near_capacity`. The reproducer exercises the null-rssBytes '
         'edge (web, unusual embeddings) but not the `ProcessInfo` call and '
         'its try/catch. This detector does not use the `gcEvents` list from '

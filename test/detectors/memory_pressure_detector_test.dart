@@ -1457,6 +1457,61 @@ void main() {
       expect(issue.title, contains('MB/s'));
     });
 
+    Iterable<PerformanceIssue> nativeIssuesOver(
+      int seconds,
+      HeapSample Function(int i) sampleAt,
+    ) {
+      final seen = <PerformanceIssue>[];
+      for (var i = 0; i < seconds * 2; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(sampleAt(i));
+        seen.addAll(
+          detector.issues.where((x) => x.stableId == 'native_memory_growing'),
+        );
+      }
+      return seen;
+    }
+
+    test('a large Dart heap drop with flat RSS is not native growth', () {
+      // Freeing 50 MB of Dart objects lowers heap usage while RSS keeps
+      // the pages. RSS minus the heap jumps by 50 MB and its 30 s
+      // regression reads about 2.5 MB/s for longer than 10 s.
+      final seen = nativeIssuesOver(
+        120,
+        (i) => _sample(
+          heapUsage: i < 120 ? 100000000 : 50000000,
+          rssBytes: 400000000,
+          timestamp: fakeNow,
+        ),
+      );
+      expect(seen, isEmpty);
+    });
+
+    test('RSS growth during a heap drop is still native growth', () {
+      final seen = nativeIssuesOver(
+        60,
+        (i) => _sample(
+          heapUsage: i < 40 ? 100000000 : 50000000,
+          rssBytes: 400000000 + i * 1048576, // 2 MiB/s
+          timestamp: fakeNow,
+        ),
+      );
+      expect(seen, isNotEmpty);
+    });
+
+    test('heap and RSS rising together is not native growth', () {
+      final seen = nativeIssuesOver(
+        60,
+        (i) => _sample(
+          heapUsage: 50000000 + i * 786432, // 1.5 MiB/s
+          heapCapacity: 200000000 + i * 786432,
+          rssBytes: 300000000 + i * 786432,
+          timestamp: fakeNow,
+        ),
+      );
+      expect(seen, isEmpty);
+    });
+
     test('native_memory_growing coexists with heap_growing', () {
       // Both heap and native growing
       for (var i = 0; i < 24; i++) {
