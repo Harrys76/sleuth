@@ -21,6 +21,25 @@
 - The VM client no longer subscribes to the Extension stream unless a caller
   consumes it. The framework posts a `Flutter.Frame` event for every frame
   outside release builds, and the client decoded each one on the UI isolate.
+- `heap_growing` has a second, more accurate measurement: the heap left
+  right after the idle full collections the VM runs between frames, which
+  leaves out garbage the next collection would free. Replayed on iPhone 12
+  traces it matches the retained allocation rate within 1 %. While it has
+  fresh collections it decides: growth publishes `confirmed`, and a flat
+  heap withdraws the issue even when the 500 ms heap-sample regression reads
+  above the threshold. Without a fresh verdict (no recent idle collections,
+  or a drop such as a page or cache being freed) the heap-sample regression
+  decides as before, at `likely` unless idle collections already showed
+  the growth in the same episode with no drop since. The new
+  measurement ignores the first 30 s after Sleuth starts. Trace records
+  name the leg (`heapGrowingLeg`) and stamp
+  `observedFloorSlopeBytesPerSec` or `observedSlopeBytesPerSec`.
+- StreamResourceDetector reads the allocation profile only while
+  `heap_growing` is active, instead of every 10 s in every session. A new
+  growth episode starts a new sample window, so `stream_resource_growth`
+  appears about 30 s after `heap_growing` at the earliest.
+- New `Sleuth.setHeapGrowingLegsForCapture` (capture mode only) records
+  one `heap_growing` leg at a time.
 - `heap_growing` enrichment reads the allocation profile once instead of
   twice, and waits up to 5 s for it. The ranking already used each class's
   live bytes and instances, so the first read and its accumulator reset did
@@ -40,11 +59,17 @@
   operator rate in the capture notes. The new
   `ext.sleuthDemo.allocationReads` extension does the same for a measurement
   run.
-- The `heap_growing.warning` captures are re-recorded on Flutter 3.47.6
-  (iPhone 12, iOS 17.5) with Sleuth's own allocation-profile reads held:
-  below silent at 333 981 B/s, at 611 146 B/s for an operator rate of
-  572 374, above 848 288 B/s for 781 733. The previous Flutter 3.41.4 set read
-  1.25 to 1.55 times the operator rate.
+- `heap_growing.warning` stays `runtimeVerified` with one bracket per leg,
+  each backed by its own Flutter 3.47.6 triad (iPhone 12, iOS 17.5) recorded
+  with the other leg switched off and the measured operator rate as the
+  observed value: floor leg at 573 022 B/s for an operator rate of 572 044 and
+  above 779 355 for 781 317; sample leg at 672 185 for 572 489 and above
+  796 951 for 781 793; both below legs silent. The previous Flutter 3.41.4 set
+  read 1.25 to 1.55 times the operator rate.
+- Example: the memory capture screen records one `heap_growing` leg per
+  run, keeps the measured operator rate as `expectedMagnitude.observed`, and
+  keeps each run's buffers until the screen closes, so their collection
+  never lands inside the next run.
 - Example: the CSV Import demo's `Isolate.run` path spawns from a synchronous
   helper. A closure created inside the `async` handler captured the
   handler's completer and failed to send.
