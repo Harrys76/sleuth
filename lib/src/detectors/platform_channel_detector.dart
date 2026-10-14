@@ -108,6 +108,15 @@ class PlatformChannelDetector extends BaseDetector
   // both kept for [_retainUs] of event time behind the newest begin.
   final List<_ChannelBegin> _begins = [];
   final List<PlatformChannelCall> _calls = [];
+  // Identities of the held begins and calls. A reconnect resets the VM
+  // client's timeline cursors (whether or not a disconnect was reported),
+  // so its first poll repeats events this detector already holds; the
+  // detector skips those.
+  final Set<String> _beginKeys = {};
+  final Set<String> _callKeys = {};
+  // Begins and calls before this event time have aged out or were evicted;
+  // the detector skips a repeat of one instead of counting it as new.
+  int? _floorUs;
   int _arrivalSeq = 0;
   // Begins with a sequence number at or above this arrived since the last
   // window check.
@@ -129,19 +138,6 @@ class PlatformChannelDetector extends BaseDetector
 
   @override
   set isEnabled(bool value) => _isEnabled = value;
-
-  bool? _vmConnected;
-
-  /// A reconnect resets the VM client's timeline cursors, so its first poll
-  /// repeats events this detector already holds. A connection change drops
-  /// the held calls and ignores later begins at or before the newest one
-  /// seen.
-  @override
-  set vmConnected(bool value) {
-    if (_vmConnected == value) return;
-    _vmConnected = value;
-    _dropRetained();
-  }
 
   @override
   void processTimelineData(ParsedTimelineData data) {
@@ -174,37 +170,60 @@ class PlatformChannelDetector extends BaseDetector
       final ts = json?['ts'];
       // A begin without a timestamp has no place in a span.
       if (ts is! int) continue;
-      final horizon = _horizonUs;
-      if (horizon != null && ts <= horizon) continue;
+      if (_skipped(ts)) continue;
+      final name = json!['name'] as String?;
+      final key = '$ts|${json['tid']}|${json['id'] ?? ''}|$name';
+      if (!_beginKeys.add(key)) continue;
       final method =
-          (json!['args'] as Map<String, dynamic>?)?['method'] as String? ??
-          json['name'] as String? ??
+          (json['args'] as Map<String, dynamic>?)?['method'] as String? ??
+          name ??
           'unknown';
       if (previousUs != null && ts < previousUs) outOfOrder = true;
       previousUs = ts;
-      _begins.add(_ChannelBegin(ts, method, _arrivalSeq++));
+      _begins.add(_ChannelBegin(ts, method, _arrivalSeq++, key));
       final newest = _newestBeginUs;
       if (newest == null || ts > newest) _newestBeginUs = ts;
       _recentCallCount++;
     }
     if (outOfOrder) _begins.sort((a, b) => a.ts.compareTo(b.ts));
     for (final call in data.platformChannelCalls) {
-      final horizon = _horizonUs;
-      if (horizon != null && call.beginTs <= horizon) continue;
+      if (_skipped(call.beginTs)) continue;
+      if (!_callKeys.add(_callKey(call))) continue;
       _callDurationsUs.add(call.durationUs);
       _calls.add(call);
     }
     _prune(byTime: false);
   }
 
+  bool _skipped(int ts) {
+    final horizon = _horizonUs;
+    if (horizon != null && ts <= horizon) return true;
+    final floor = _floorUs;
+    return floor != null && ts < floor;
+  }
+
+  static String _callKey(PlatformChannelCall call) =>
+      '${call.beginTs}|${call.id ?? ''}|${call.name}';
+
+  void _raiseFloor(int us) {
+    final floor = _floorUs;
+    if (floor == null || us > floor) _floorUs = us;
+  }
+
   /// Keeps at most [maxRetainedCalls] begins and calls and, with [byTime],
   /// drops those more than 2 s of event time behind the newest begin.
   void _prune({required bool byTime}) {
     if (_calls.length > maxRetainedCalls) {
-      _calls.removeRange(0, _calls.length - maxRetainedCalls);
+      final evicted = _calls.length - maxRetainedCalls;
+      for (final call in _calls.take(evicted)) {
+        _callKeys.remove(_callKey(call));
+      }
+      _calls.removeRange(0, evicted);
     }
     if (_begins.length > maxRetainedCalls) {
-      _begins.removeRange(0, _begins.length - maxRetainedCalls);
+      final evicted = _begins.length - maxRetainedCalls;
+      _dropBegins(evicted);
+      _raiseFloor(_begins.first.ts);
     }
     final newest = _newestBeginUs;
     if (!byTime || newest == null) return;
@@ -213,20 +232,37 @@ class PlatformChannelDetector extends BaseDetector
     while (drop < _begins.length && _begins[drop].ts < cutoff) {
       drop++;
     }
-    if (drop > 0) _begins.removeRange(0, drop);
-    _calls.removeWhere((c) => c.beginTs < cutoff);
+    _dropBegins(drop);
+    _calls.removeWhere((c) {
+      final old = c.beginTs < cutoff;
+      if (old) _callKeys.remove(_callKey(c));
+      return old;
+    });
+    _raiseFloor(cutoff);
+  }
+
+  void _dropBegins(int count) {
+    if (count <= 0) return;
+    for (final begin in _begins.take(count)) {
+      _beginKeys.remove(begin.key);
+    }
+    _begins.removeRange(0, count);
   }
 
   /// Drops the held calls and ignores later begins at or before the newest
-  /// one seen, or at or before [horizonUs] when that is later.
+  /// one seen, or at or before [horizonUs] when that is later. The horizon
+  /// only moves forward.
   void _dropRetained({int? horizonUs}) {
-    var horizon = _newestBeginUs;
-    if (horizonUs != null && (horizon == null || horizonUs > horizon)) {
-      horizon = horizonUs;
+    for (final candidate in [_newestBeginUs, horizonUs]) {
+      final horizon = _horizonUs;
+      if (candidate != null && (horizon == null || candidate > horizon)) {
+        _horizonUs = candidate;
+      }
     }
-    if (horizon != null) _horizonUs = horizon;
     _begins.clear();
     _calls.clear();
+    _beginKeys.clear();
+    _callKeys.clear();
     _recentCallCount = 0;
     _callDurationsUs.clear();
     _checkSeq = _arrivalSeq;
@@ -458,6 +494,8 @@ class PlatformChannelDetector extends BaseDetector
     _callDurationsUs.clear();
     _begins.clear();
     _calls.clear();
+    _beginKeys.clear();
+    _callKeys.clear();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
@@ -594,7 +632,7 @@ class PlatformChannelDetector extends BaseDetector
 
 /// A platform channel call begin kept for span counting.
 class _ChannelBegin {
-  const _ChannelBegin(this.ts, this.method, this.seq);
+  const _ChannelBegin(this.ts, this.method, this.seq, this.key);
 
   /// Event time in microseconds.
   final int ts;
@@ -602,4 +640,7 @@ class _ChannelBegin {
 
   /// Arrival order.
   final int seq;
+
+  /// Identity used to skip a repeat of the same event.
+  final String key;
 }

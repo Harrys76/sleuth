@@ -823,17 +823,15 @@ void main() {
         expect(detector.lastWindowStats!.callCount, 0);
       });
 
-      test('a reconnect does not count re-delivered calls again', () {
+      test('repeated events after a reconnect are not counted again', () {
         final burst = spaced(s, 25, 1000);
         detector.processTimelineData(calls(burst));
         check();
         final first = detector.issues.single;
         expect(first.severity, IssueSeverity.warning);
 
-        // The client's first poll after reconnecting delivers the same
-        // events again.
-        detector.vmConnected = false;
-        detector.vmConnected = true;
+        // A reconnect resets the client's cursors, reported or not, so its
+        // first poll delivers the same events again.
         detector.processTimelineData(calls(burst));
         check();
         expect(detector.lastWindowStats!.callCount, 0);
@@ -841,6 +839,27 @@ void main() {
           detector.issues.single.dedupIdentityMicros,
           first.dedupIdentityMicros,
         );
+      });
+
+      test('repeats of calls that already aged out are not counted', () {
+        final burst = spaced(s, 25, 1000);
+        detector.processTimelineData(calls(burst));
+        check();
+        detector.processTimelineData(calls(spaced(s + 5000000, 5, 1000)));
+        check();
+        // A full read after a reconnect delivers the old burst again.
+        detector.processTimelineData(calls(burst));
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('a burst not yet checked survives a reconnect', () {
+        detector.processTimelineData(calls(spaced(s, 45, 10000)));
+        detector.vmConnected = false;
+        detector.vmConnected = true;
+        check();
+        expect(detector.lastWindowStats!.callCount, 45);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
       });
 
       test('calls after a reconnect still count', () {
@@ -862,6 +881,16 @@ void main() {
         check();
         expect(detector.lastWindowStats!.callCount, 5);
         expect(detector.issues, isEmpty);
+      });
+
+      test('a scenario boundary only moves forward', () {
+        detector.processTimelineData(calls(spaced(s - 3000000, 5, 1000)));
+        detector.reset(horizonUs: s);
+        // A later reset with an earlier boundary keeps the first one.
+        detector.reset(horizonUs: s - 2000000);
+        detector.processTimelineData(calls(spaced(s - 1000000, 25, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
       });
 
       test('a delayed batch spanning more than 2 s keeps its burst for '
