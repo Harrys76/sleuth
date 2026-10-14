@@ -613,7 +613,10 @@ class IssueExplanationBuilder {
           'at a 10 s cadence.\n\n'
           '• The data comes from the VM service `getAllocationProfile`, '
           'polled at most once per `streamResourceSampleSeconds` (default '
-          '10 s).',
+          '10 s), and only while `heap_growing` is active. A new growth '
+          'episode starts a new window, so the issue appears about 30 s '
+          'after `heap_growing` at the earliest, and growth that lasts less '
+          'than about a minute is not reported.',
       whyItMatters:
           'Stream resource leaks are among the most common Flutter memory '
           'bugs. A forgotten `cancel()` on a `StreamSubscription` or '
