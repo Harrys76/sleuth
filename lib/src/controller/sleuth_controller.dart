@@ -959,6 +959,10 @@ class SleuthController {
       onStartupTimelineEvents: _onStartupTimelineEvents,
       retainTimeline: config.captureMode,
       readDispatchSegments: () => _lastDispatchSegments,
+      // Capture legs keep the poll their brackets were recorded with.
+      streamTimeline: !config.captureMode,
+      newestFrameRasterFinishUs: () =>
+          _frameTiming.frameBuffer.latest?.rasterFinishUs,
     );
     _vmClient = client;
 

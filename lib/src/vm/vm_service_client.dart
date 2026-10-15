@@ -33,6 +33,15 @@ typedef HeapSampleCallback = void Function(HeapSample sample);
 /// Callback type for one-shot startup timeline event extraction.
 typedef StartupTimelineCallback = void Function(StartupTimelineEvents events);
 
+/// Where a VM session reads its timeline from.
+enum TimelineSource {
+  /// The VM's `Timeline` stream, drained every tick, with catch-up reads.
+  stream,
+
+  /// A `getVMTimeline` request every tick.
+  poll,
+}
+
 /// Connects to the app's own VM Service for exact performance data.
 ///
 /// Uses [dart:developer.Service.controlWebServer] to start or query the
@@ -59,7 +68,35 @@ class VmServiceClient {
     this.readDispatchSegments,
     this.cpuSamplesMinInterval = const Duration(seconds: 10),
     this.ownIsolateIdResolver,
+    this.streamTimeline = true,
+    this.newestFrameRasterFinishUs,
+    this.streamSilentFallback = const Duration(seconds: 10),
+    this.catchUpMinInterval = const Duration(seconds: 1),
   });
+
+  /// Whether sessions read the timeline from the VM's `Timeline` stream
+  /// instead of a `getVMTimeline` request every tick.
+  ///
+  /// A `getVMTimeline` request makes the VM write every event in its
+  /// window while the app's threads wait to record theirs: on a Galaxy
+  /// A07 a 1 s window (about 6,900 events) held the raster thread up to
+  /// 41 ms and a whole-buffer read 110 ms, every poll. The stream posts
+  /// each thread's events in blocks of 64 as the block fills, which cost
+  /// the measured frames nothing. The 500 ms tick stays: it drains the
+  /// blocks that arrived, parses them as one batch and dispatches it, so
+  /// detectors keep their cadence. A thread that writes few events holds
+  /// them in an unfinished block; [newestFrameRasterFinishUs] lets the
+  /// tick read just those threads' recent events (a catch-up read).
+  ///
+  /// False polls, as capture mode does so its recorded brackets keep the
+  /// path they were recorded with. A session also polls when the stream
+  /// cannot be subscribed, or delivers no block while frames are drawn.
+  final bool streamTimeline;
+
+  /// The raster finish of the newest presented frame, in timeline
+  /// microseconds, or null before the first frame. Drives the catch-up
+  /// read and the stream fallback.
+  final int? Function()? newestFrameRasterFinishUs;
 
   /// Returns the service id of the isolate this client runs on. Null
   /// uses `Service.getIsolateId(Isolate.current)`. Tests inject ids that
@@ -158,8 +195,85 @@ class VmServiceClient {
   bool _disposed = false;
   bool _connected = false;
 
-  /// One-shot guard — startup events are only extracted on the first poll.
+  /// One-shot guard: startup events are extracted from the first read of
+  /// the client's first session only.
   bool _startupEventsExtracted = false;
+
+  /// Whether a read of the whole buffer has run. Later sessions (after a
+  /// reconnect) start from a window ending at the VM clock instead: a
+  /// whole-buffer read on a Galaxy A07 wrote 31,474 events and held the
+  /// raster thread for 110 ms.
+  bool _wholeBufferRead = false;
+
+  /// How far back a session's first windowed read reaches.
+  static const int firstWindowMicros = 1000000;
+
+  /// Whether this session's first read ran; stream ticks follow it.
+  bool _sessionFirstReadDone = false;
+
+  /// Where this session reads its timeline from.
+  TimelineSource? _timelineSource;
+
+  /// Where the current session reads its timeline from; null while
+  /// disconnected.
+  TimelineSource? get timelineSource => _timelineSource;
+
+  /// Stream blocks waiting for the next tick, in arrival order.
+  final List<List<TimelineEvent>> _streamBuffer = [];
+  int _streamBufferedEvents = 0;
+
+  /// Most events held between two ticks. A tick normally drains about
+  /// 3,500; each decoded event holds its JSON map. Beyond this the
+  /// oldest whole block is dropped and counted in [streamEventsDropped].
+  static const int streamBufferCap = 16384;
+
+  int _streamBlocks = 0;
+  int _streamEvents = 0;
+  int _streamEventsDropped = 0;
+  int _catchUpReads = 0;
+  int? _lastStreamLagMs;
+  int? _streamSubscribedAtUs;
+  int? _lastCatchUpAtUs;
+
+  /// Stream blocks received this session.
+  int get streamBlocks => _streamBlocks;
+
+  /// Stream events received this session.
+  int get streamEvents => _streamEvents;
+
+  /// Stream events dropped this session because ticks fell behind.
+  int get streamEventsDropped => _streamEventsDropped;
+
+  /// Catch-up reads this session.
+  int get catchUpReads => _catchUpReads;
+
+  /// Age, when it arrived, of the newest event in the last stream block,
+  /// in milliseconds; null before the first block.
+  int? get lastStreamLagMs => _lastStreamLagMs;
+
+  /// Newest ordered event seen per thread this session, from the stream
+  /// or a read.
+  final Map<int, int> _newestSeenByTid = {};
+
+  /// Threads that recorded raster scopes this session.
+  final Set<int> _rasterTids = {};
+
+  /// A frame finishing this long after a frame or raster thread's newest
+  /// event seen means that thread holds unsent events: a catch-up read
+  /// follows.
+  static const int catchUpStaleMicros = 250000;
+
+  /// Shortest gap between two catch-up reads.
+  final Duration catchUpMinInterval;
+
+  /// Longest window of a catch-up read.
+  static const int catchUpMaxWindowMicros = 1000000;
+
+  /// How long a subscribed stream may deliver no block at all while
+  /// frames are drawn before the session falls back to polling. A stream
+  /// that has delivered blocks never falls back: on a static screen they
+  /// arrive seconds apart.
+  final Duration streamSilentFallback;
   bool _reconnecting = false;
 
   /// In-flight [connect] future. While non-null, additional [connect] calls
@@ -451,7 +565,147 @@ class VmServiceClient {
     }
   }
 
+  Future<void> _subscribeTimeline(VmService service) async {
+    if (!streamTimeline) {
+      _timelineSource = TimelineSource.poll;
+      return;
+    }
+    final gen = _sessionGeneration;
+    try {
+      _timelineSub = service.onTimelineEvent.listen((event) {
+        if (gen != _sessionGeneration || _disposed) return;
+        _onTimelineBlock(event);
+      });
+      await service.streamListen(EventStreams.kTimeline);
+      if (gen != _sessionGeneration) return;
+      _timelineSource = TimelineSource.stream;
+      _streamSubscribedAtUs = OwnWorkLog.now();
+    } catch (_) {
+      // An older VM or an embedder without the stream: poll.
+      await _timelineSub?.cancel();
+      _timelineSub = null;
+      if (gen == _sessionGeneration) _timelineSource = TimelineSource.poll;
+    }
+  }
+
+  void _onTimelineBlock(Event event) {
+    if (event.kind != EventKind.kTimelineEvents) return;
+    final block = event.timelineEvents;
+    if (block == null || block.isEmpty) return;
+    _streamBlocks++;
+    _streamEvents += block.length;
+    var newest = -1;
+    for (final e in block) {
+      final json = e.json;
+      final ts = json?['ts'];
+      if (ts is int && ts > newest && !_isAsyncPhase(json!['ph'])) {
+        newest = ts;
+      }
+    }
+    if (newest >= 0) {
+      _lastStreamLagMs = (OwnWorkLog.now() - newest) ~/ 1000;
+    }
+    _streamBuffer.add(block);
+    _streamBufferedEvents += block.length;
+    while (_streamBufferedEvents > streamBufferCap &&
+        _streamBuffer.length > 1) {
+      final dropped = _streamBuffer.removeAt(0);
+      _streamBufferedEvents -= dropped.length;
+      _streamEventsDropped += dropped.length;
+    }
+  }
+
+  static bool _isAsyncPhase(Object? ph) =>
+      ph == 'b' ||
+      ph == 'e' ||
+      ph == 'n' ||
+      ph == 's' ||
+      ph == 't' ||
+      ph == 'f' ||
+      ph == 'S' ||
+      ph == 'T' ||
+      ph == 'p' ||
+      ph == 'F';
+
+  List<TimelineEvent> _drainStream() {
+    final events = <TimelineEvent>[for (final block in _streamBuffer) ...block];
+    _streamBuffer.clear();
+    _streamBufferedEvents = 0;
+    return events;
+  }
+
+  /// Switches the session to polling when the stream delivered no block
+  /// while frames were drawn for [streamSilentFallback]. A quiet
+  /// stream that has delivered blocks stays: on a static screen blocks
+  /// arrive seconds apart.
+  Future<void> _fallBackIfStreamSilent() async {
+    final subscribedAt = _streamSubscribedAtUs;
+    if (_timelineSource != TimelineSource.stream ||
+        _streamBlocks > 0 ||
+        subscribedAt == null) {
+      return;
+    }
+    final newestFrame = newestFrameRasterFinishUs?.call();
+    if (newestFrame == null || newestFrame <= subscribedAt) return;
+    if (OwnWorkLog.now() - subscribedAt < streamSilentFallback.inMicroseconds) {
+      return;
+    }
+    _timelineSource = TimelineSource.poll;
+    await _timelineSub?.cancel();
+    _timelineSub = null;
+    _streamBuffer.clear();
+    _streamBufferedEvents = 0;
+    try {
+      await _service?.streamCancel(EventStreams.kTimeline);
+    } catch (_) {
+      // Already gone with the session.
+    }
+  }
+
+  /// The window of a catch-up read, as `(originUs, extentUs)`, or null
+  /// when none is due. Due when the newest frame finished more than
+  /// [catchUpStaleMicros] after the newest event seen on a frame or raster
+  /// thread, at most once per [catchUpMinInterval]; [force] (a
+  /// flush) skips both checks. The window starts 5 ms before the oldest of
+  /// those threads' newest events and spans at most
+  /// [catchUpMaxWindowMicros] before [nowUs].
+  (int, int)? _catchUpWindow({required int nowUs, required bool force}) {
+    final tracked = _catchUpTids;
+    int? oldestSeen;
+    var stale = false;
+    final newestFrame = newestFrameRasterFinishUs?.call();
+    for (final tid in tracked) {
+      final seen = _newestSeenByTid[tid];
+      if (seen == null) continue;
+      if (oldestSeen == null || seen < oldestSeen) oldestSeen = seen;
+      if (newestFrame != null && newestFrame - seen > catchUpStaleMicros) {
+        stale = true;
+      }
+    }
+    if (!force) {
+      if (!stale) return null;
+      final last = _lastCatchUpAtUs;
+      if (last != null && nowUs - last < catchUpMinInterval.inMicroseconds) {
+        return null;
+      }
+    }
+    final floor = nowUs - catchUpMaxWindowMicros;
+    final from = oldestSeen == null ? floor : oldestSeen - 5000;
+    final origin = math.max(0, math.max(floor, from));
+    return (origin, nowUs - origin + _windowExtentSlackUs);
+  }
+
+  /// The frame and raster threads a catch-up read keeps; other threads'
+  /// events come from the stream when their blocks fill, so a read that
+  /// starts after their unsent events cannot move their cursors past them.
+  Set<int> get _catchUpTids => {..._frameThreadIdle.keys, ..._rasterTids};
+
   Future<void> _subscribeToStreams(VmService service) async {
+    // Before the first read, which runs at the first tick: a block that
+    // finished between that read and a later subscription would never be
+    // posted, and its events after the read would reach neither path. The
+    // per-thread cursors drop what both deliver.
+    await _subscribeTimeline(service);
     try {
       await service.streamListen(EventStreams.kGC);
       _gcSub = service.onGCEvent.listen((event) {
@@ -559,6 +813,11 @@ class VmServiceClient {
   /// flow (`Sleuth.flushTimelineNow`). Do NOT remove or rename without
   /// updating both consumers.
   Future<void> pollTimelineSync() => _pollTimeline(forceFresh: true);
+
+  /// Test-only: one ordinary tick, as the periodic timer runs it (no
+  /// forced catch-up read).
+  @visibleForTesting
+  Future<void> tickForTest() => _pollTimeline();
 
   /// Snapshots the current VM timeline buffer and returns the events
   /// as raw Chrome Trace Event JSON-encodable maps WITHOUT clearing
@@ -784,63 +1043,121 @@ class VmServiceClient {
       // split across fetches is joined by the pending-begin maps. The
       // per-tid cursors drop what was already processed. Nothing is cleared, so events written between two
       // fetches are never lost and DevTools keeps its timeline.
-      var lastMaxTs = _lastMaxTs;
-      int? originUs;
-      int? extentUs;
+      await _fallBackIfStreamSilent();
+      if (myGen != _sessionGeneration || _disposed) return;
+      List<TimelineEvent>? events;
       var floorUs = 0;
-      if (lastMaxTs == null && _fullReadAfterFallbacks) {
-        _fullReadAfterFallbacks = false;
-        windowFallback = true;
-        _windowFallbacks++;
-      }
-      if (lastMaxTs != null) {
-        originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
-        watch.start();
-        final clockReadStartUs = _rpcClockUs();
-        final nowUs = await _readTimelineClock();
-        tailUs += watch.elapsedMicroseconds;
-        tailWindows.add((clockReadStartUs, _rpcClockUs()));
-        if (myGen != _sessionGeneration || _disposed) return;
-        if (nowUs != null && _clampToClock(nowUs)) {
-          lastMaxTs = _lastMaxTs!;
-          originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
+      if (_timelineSource == TimelineSource.stream && _sessionFirstReadDone) {
+        // Stream tick: the blocks that arrived since the last tick, plus
+        // the frame and raster threads' recent events when a frame
+        // finished after the newest event seen on them.
+        events = _drainStream();
+        final window = _catchUpWindow(
+          nowUs: OwnWorkLog.now(),
+          force: forceFresh,
+        );
+        if (window != null) {
+          _lastCatchUpAtUs = OwnWorkLog.now();
+          _catchUpReads++;
+          final Timeline timeline;
+          watch
+            ..reset()
+            ..start();
+          try {
+            timeline = await _fetchTimeline(window.$1, window.$2);
+            final receivedUs = _timelineResponseReceivedUs;
+            if (receivedUs >= 0) decodeUs = _rpcClockUs() - receivedUs;
+          } finally {
+            rpcUs = watch.elapsedMicroseconds;
+          }
+          if (decodeUs != null && decodeUs > rpcUs) decodeUs = rpcUs;
+          if (myGen != _sessionGeneration || _disposed) return;
+          final keep = _catchUpTids;
+          events.addAll([
+            for (final e in timeline.traceEvents ?? const <TimelineEvent>[])
+              if (keep.isEmpty || keep.contains(e.json?['tid'])) e,
+          ]);
         }
-        if (nowUs == null || nowUs < lastMaxTs) {
-          // The clock read failed or is not on the event clock: read the
-          // whole buffer and drop everything before the window client
-          // side, so evicted cursors cannot replay old events.
+      } else {
+        // The session's first read covers what came before the stream;
+        // the blocks buffered until now hold nothing it does not.
+        if (_timelineSource == TimelineSource.stream) _drainStream();
+        var lastMaxTs = _lastMaxTs;
+        int? originUs;
+        int? extentUs;
+        if (lastMaxTs == null && _fullReadAfterFallbacks) {
+          _fullReadAfterFallbacks = false;
           windowFallback = true;
           _windowFallbacks++;
-          floorUs = originUs;
-          originUs = null;
-          if (++_consecutiveWindowFallbacks >= _fallbacksBeforeFullRead) {
-            _consecutiveWindowFallbacks = 0;
-            _lastMaxTs = null;
-            _fullReadAfterFallbacks = true;
-          }
-        } else {
-          _consecutiveWindowFallbacks = 0;
-          extentUs = nowUs - originUs + _windowExtentSlackUs;
         }
+        if (lastMaxTs != null) {
+          originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
+          watch.start();
+          final clockReadStartUs = _rpcClockUs();
+          final nowUs = await _readTimelineClock();
+          tailUs += watch.elapsedMicroseconds;
+          tailWindows.add((clockReadStartUs, _rpcClockUs()));
+          if (myGen != _sessionGeneration || _disposed) return;
+          if (nowUs != null && _clampToClock(nowUs)) {
+            lastMaxTs = _lastMaxTs!;
+            originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
+          }
+          if (nowUs == null || nowUs < lastMaxTs) {
+            // The clock read failed or is not on the event clock: read the
+            // whole buffer and drop everything before the window client
+            // side, so evicted cursors cannot replay old events.
+            windowFallback = true;
+            _windowFallbacks++;
+            floorUs = originUs;
+            originUs = null;
+            if (++_consecutiveWindowFallbacks >= _fallbacksBeforeFullRead) {
+              _consecutiveWindowFallbacks = 0;
+              _lastMaxTs = null;
+              _fullReadAfterFallbacks = true;
+            }
+          } else {
+            _consecutiveWindowFallbacks = 0;
+            extentUs = nowUs - originUs + _windowExtentSlackUs;
+          }
+        }
+        // A session after the first starts from a window ending at the VM
+        // clock instead of re-reading the whole buffer.
+        if (originUs == null &&
+            lastMaxTs == null &&
+            !windowFallback &&
+            _wholeBufferRead) {
+          final nowUs = await _readTimelineClock();
+          if (myGen != _sessionGeneration || _disposed) return;
+          if (nowUs != null) {
+            originUs = math.max(0, nowUs - firstWindowMicros);
+            extentUs = nowUs - originUs + _windowExtentSlackUs;
+          }
+        }
+        final Timeline timeline;
+        watch
+          ..reset()
+          ..start();
+        try {
+          timeline = await _fetchTimeline(originUs, extentUs);
+          final receivedUs = _timelineResponseReceivedUs;
+          if (receivedUs >= 0) decodeUs = _rpcClockUs() - receivedUs;
+        } finally {
+          rpcUs = watch.elapsedMicroseconds;
+        }
+        // Both readings come from monotonic clocks started at different
+        // instants; the decode lies inside the await by construction.
+        if (decodeUs != null && decodeUs > rpcUs) decodeUs = rpcUs;
+        // Drop stale poll if reconnect/dispose ran during the await.
+        if (myGen != _sessionGeneration || _disposed) return;
+        // An empty whole-buffer read leaves the next read whole too: it
+        // found nothing to start from.
+        if (originUs == null && (timeline.traceEvents?.isNotEmpty ?? false)) {
+          _wholeBufferRead = true;
+        }
+        _sessionFirstReadDone = true;
+        events = timeline.traceEvents;
       }
-      final Timeline timeline;
-      watch
-        ..reset()
-        ..start();
-      try {
-        timeline = await _fetchTimeline(originUs, extentUs);
-        final receivedUs = _timelineResponseReceivedUs;
-        if (receivedUs >= 0) decodeUs = _rpcClockUs() - receivedUs;
-      } finally {
-        rpcUs = watch.elapsedMicroseconds;
-      }
-      // Both readings come from monotonic clocks started at different
-      // instants; the decode lies inside the await by construction.
-      if (decodeUs != null && decodeUs > rpcUs) decodeUs = rpcUs;
-      // Drop stale poll if reconnect/dispose ran during the await.
-      if (myGen != _sessionGeneration || _disposed) return;
       _consecutivePollFailures = 0;
-      final events = timeline.traceEvents;
       eventCount = events?.length ?? 0;
       ParsedTimelineData? parsed;
       final ownParseStart = OwnWorkLog.now();
@@ -871,6 +1188,12 @@ class VmServiceClient {
           minTimestampUs: floorUs,
         );
         duplicates = parsed.duplicatesDropped;
+        for (final MapEntry(key: tid, value: ts)
+            in parsed.newestTsByTid.entries) {
+          final seen = _newestSeenByTid[tid];
+          if (seen == null || ts > seen) _newestSeenByTid[tid] = ts;
+        }
+        _rasterTids.addAll(parsed.rasterTids);
         final batchMaxTs = parsed.maxTimestampUs;
         final currentMaxTs = _lastMaxTs;
         if (batchMaxTs >= 0 &&
@@ -1501,7 +1824,6 @@ class VmServiceClient {
     _consecutiveWindowFallbacks = 0;
     _fullReadAfterFallbacks = false;
     _lastMaxTs = null;
-    _startupEventsExtracted = false;
     _cpuSpans.clear();
     _allocationSpans.clear();
     _lastCpuSamplesRequestUs = null;
@@ -1528,6 +1850,19 @@ class VmServiceClient {
     _controlWebServerTimer = null;
     _timelineSub?.cancel();
     _timelineSub = null;
+    _timelineSource = null;
+    _sessionFirstReadDone = false;
+    _streamBuffer.clear();
+    _streamBufferedEvents = 0;
+    _streamBlocks = 0;
+    _streamEvents = 0;
+    _streamEventsDropped = 0;
+    _catchUpReads = 0;
+    _lastStreamLagMs = null;
+    _streamSubscribedAtUs = null;
+    _lastCatchUpAtUs = null;
+    _newestSeenByTid.clear();
+    _rasterTids.clear();
     _gcSub?.cancel();
     _gcSub = null;
     _extensionSub?.cancel();

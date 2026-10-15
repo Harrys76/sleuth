@@ -1262,7 +1262,9 @@ void main() {
           traceEvents: [build(100000)],
           timeOriginMicros: 0,
           timeExtentMicros: 0,
-        );
+        )
+        // The new session's first read ends at the clock.
+        ..nowMicros = 200000;
       client.setServiceForTest(fresh, isolateId: 'isolate-1');
       await client.pollTimelineSync();
 
@@ -1442,8 +1444,8 @@ void main() {
       client.dispose();
     });
 
-    test('after a lost connection the next session starts with a full '
-        'fetch again', () async {
+    test('after a lost connection the next session starts from a window '
+        'ending at the clock, not the whole buffer', () async {
       final mock = _MockVmService()..timelineResult = buffer([_build(5000)]);
       final client = VmServiceClient();
       client.setServiceForTest(mock, isolateId: 'isolate-1');
@@ -1459,11 +1461,20 @@ void main() {
       await client.pollTimelineSync();
       expect(client.isConnected, isFalse);
 
-      final fresh = _MockVmService()..timelineResult = buffer([_build(5000)]);
+      final fresh = _MockVmService()
+        ..timelineResult = buffer([_build(5000)])
+        ..nowMicros = 3000000;
       client.setServiceForTest(fresh, isolateId: 'isolate-1');
       await client.pollTimelineSync();
 
-      expect(fresh.timelineWindows, [(null, null)]);
+      // A whole-buffer read on a Galaxy A07 held the raster thread for
+      // 110 ms; one per client is enough for the startup events.
+      expect(fresh.timelineWindows, [
+        (
+          3000000 - VmServiceClient.firstWindowMicros,
+          VmServiceClient.firstWindowMicros + 1000000,
+        ),
+      ]);
       client.dispose();
     });
 
@@ -2295,7 +2306,8 @@ void main() {
       client.dispose();
     });
 
-    test('a new session extracts startup events again', () async {
+    test('startup events are extracted once per client, not again after a '
+        'reconnect', () async {
       final startups = <StartupTimelineEvents>[];
       Timeline startupBuffer() => Timeline(
         traceEvents: [
@@ -2325,7 +2337,7 @@ void main() {
         isolateId: 'isolate-1',
       );
       await client.pollTimelineSync();
-      expect(startups, hasLength(2));
+      expect(startups, hasLength(1));
       client.dispose();
     });
   });

@@ -58,6 +58,20 @@ class FakeVmService implements VmService {
   final StreamController<Event> isolateController =
       StreamController<Event>.broadcast(sync: true);
 
+  /// `Timeline` stream: push [timelineBlock] events to deliver blocks.
+  final StreamController<Event> timelineController =
+      StreamController<Event>.broadcast(sync: true);
+
+  /// Events `getVMTimeline` serves, filtered to the requested window as
+  /// the VM does; empty by default.
+  List<TimelineEvent> timelineEvents = [];
+
+  /// `(timeOriginMicros, timeExtentMicros)` of every `getVMTimeline` call.
+  final List<(int?, int?)> timelineWindows = [];
+
+  /// Value `getVMTimelineMicros` serves.
+  int nowMicros = 1 << 40;
+
   /// Errors `streamListen` throws, by stream id.
   final Map<String, Object> streamListenErrors = {};
   final Completer<void> _done = Completer<void>();
@@ -161,12 +175,30 @@ class FakeVmService implements VmService {
   Future<Timeline> getVMTimeline({
     int? timeOriginMicros,
     int? timeExtentMicros,
-  }) async =>
-      Timeline(traceEvents: [], timeOriginMicros: 0, timeExtentMicros: 0);
+  }) async {
+    calls.add('getVMTimeline');
+    timelineWindows.add((timeOriginMicros, timeExtentMicros));
+    final origin = timeOriginMicros;
+    final end = origin == null ? null : origin + (timeExtentMicros ?? 0);
+    bool inWindow(TimelineEvent e) {
+      if (origin == null) return true;
+      final ts = e.json?['ts'];
+      return ts is int && ts >= origin && ts <= end!;
+    }
+
+    return Timeline(
+      traceEvents: [
+        for (final e in timelineEvents)
+          if (inWindow(e)) e,
+      ],
+      timeOriginMicros: origin ?? 0,
+      timeExtentMicros: timeExtentMicros ?? 0,
+    );
+  }
 
   @override
   Future<Timestamp> getVMTimelineMicros() async =>
-      Timestamp(timestamp: 1 << 40);
+      Timestamp(timestamp: nowMicros);
 
   @override
   Stream<Event> get onGCEvent => gcController.stream;
@@ -175,7 +207,7 @@ class FakeVmService implements VmService {
   Stream<Event> get onExtensionEvent => extensionController.stream;
 
   @override
-  Stream<Event> get onTimelineEvent => const Stream.empty();
+  Stream<Event> get onTimelineEvent => timelineController.stream;
 
   @override
   Stream<Event> get onDebugEvent => debugController.stream;
@@ -190,6 +222,7 @@ class FakeVmService implements VmService {
     'Timer' => timerController.stream,
     'Debug' => debugController.stream,
     'Isolate' => isolateController.stream,
+    'Timeline' => timelineController.stream,
     _ => const Stream.empty(),
   };
 
@@ -199,6 +232,15 @@ class FakeVmService implements VmService {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
+
+/// A `TimelineEvents` event carrying [events], as the VM posts one block
+/// on its `Timeline` stream.
+Event timelineBlock(List<Map<String, dynamic>> events) => Event.parse({
+  'type': 'Event',
+  'kind': 'TimelineEvents',
+  'timestamp': 0,
+  'timelineEvents': events,
+})!;
 
 /// A non-system isolate reference with [id], in the VM's
 /// `isolates/<number>` form.
