@@ -1114,6 +1114,61 @@ void main() {
         expect(second.dedupIdentityMicros, isNot(first.dedupIdentityMicros));
       });
 
+      test('a late call in a reported span does not hide a new burst in '
+          'the same check', () {
+        detector.processTimelineData(calls(spaced(s, 51, 10000)));
+        check();
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+        // The cooldown and the 10 s persistence run out.
+        for (var i = 0; i < 10; i++) {
+          check();
+        }
+        expect(detector.issues, isEmpty);
+        // One poll brings a late call inside the reported span and a new
+        // 45-call burst 12 s later.
+        detector.processTimelineData(
+          calls(
+            [s + 600000, ...spaced(s + 12000000, 45, 10000)],
+            tids: [100, for (var i = 0; i < 45; i++) 1],
+          ),
+        );
+        check();
+        final issue = detector.issues.single;
+        expect(issue.severity, IssueSeverity.critical);
+        expect(issue.title, contains('45 calls/sec'));
+        expect(detector.lastWindowStats!.callCount, 45);
+      });
+
+      test('a late call in an earlier reported span adds no issue after '
+          'a later one', () {
+        final identities = <int?>{};
+        void record() {
+          for (final issue in detector.issues) {
+            identities.add(issue.dedupIdentityMicros);
+          }
+        }
+
+        detector.processTimelineData(calls(spaced(s, 25, 10000)));
+        check();
+        record();
+        for (var i = 0; i < 3; i++) {
+          check();
+        }
+        detector.processTimelineData(calls(spaced(s + 2000000, 25, 10000)));
+        check();
+        record();
+        for (var i = 0; i < 3; i++) {
+          check();
+        }
+        expect(identities, hasLength(2));
+        // A call from the first span arrives late on another thread.
+        detector.processTimelineData(calls([s + 300000], tids: [100]));
+        check();
+        record();
+        expect(detector.lastWindowStats!.callCount, 26);
+        expect(identities, hasLength(2));
+      });
+
       test('a reset forgets the reported span', () {
         detector.processTimelineData(calls(spaced(s, 25, 10000)));
         check();

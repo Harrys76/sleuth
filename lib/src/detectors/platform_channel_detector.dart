@@ -54,10 +54,10 @@ typedef PlatformChannelWindowStats = ({
 /// records one trace event), then stays in [issues] until
 /// [emissionPersistence] has passed since the emission, so a short burst
 /// remains visible long enough to read. Another overload after the
-/// cooldown emits a fresh issue with a new identity. A check whose new
-/// calls all began inside the span of the last emission, at the same
-/// severity, has counted late calls that joined that overload, so it emits
-/// nothing new.
+/// cooldown emits a fresh issue with a new identity. A call that arrives
+/// late inside a span already reported at its severity or higher still
+/// counts, but it cannot make a span emit again; other new calls in the
+/// same check still can.
 class PlatformChannelDetector extends BaseDetector
     with DetectorMetadataProvider {
   PlatformChannelDetector({
@@ -111,6 +111,9 @@ class PlatformChannelDetector extends BaseDetector
   /// The most threads whose dropped-begin marks are kept.
   static const int _maxThreadMarks = 256;
 
+  /// The most reported spans kept.
+  static const int _maxReportedSpans = 64;
+
   static const int _spanUs = 1000000;
 
   /// Reads the controller's interaction state at emission so a
@@ -146,15 +149,16 @@ class PlatformChannelDetector extends BaseDetector
   // Begins with a sequence number at or above this arrived since the last
   // window check.
   int _checkSeq = 0;
-  // The busiest span among begins that the count cap evicted before a
-  // check saw them; the next check reports it when it beats the live
-  // spans. Its call durations, by call key, are the ones held at the
-  // eviction plus the ones held at the check.
-  _SpanStats? _evictedPeak;
-  Map<String, int> _evictedPeakDurations = const {};
-  // Start and severity of the span behind the last fresh emission.
-  int? _reportedSpanStartUs;
-  IssueSeverity? _reportedSeverity;
+  // The busiest span, and the busiest span that may emit, among begins the
+  // count cap evicted before a check saw them. The next check uses them
+  // when they beat the live spans. Each keeps the call durations held at
+  // the eviction, which the check merges by call key with the calls held
+  // by then.
+  _SpanStats? _evictedBusiest;
+  _SpanStats? _evictedEmitting;
+  // Start and severity of each span behind a fresh emission, kept while
+  // the span is within retention.
+  final List<({int startUs, IssueSeverity severity})> _reportedSpans = [];
   int? _newestBeginUs;
   // [reset] sets this to the newest begin seen, and the detector drops
   // later begins at or before it, so a retained-buffer replay from before
@@ -294,6 +298,7 @@ class PlatformChannelDetector extends BaseDetector
         return old;
       });
       _raiseFloor(cutoff);
+      _reportedSpans.removeWhere((r) => r.startUs + _spanUs <= cutoff);
     }
     if (_droppedUpToByTid.length > _maxThreadMarks) {
       // Raise the floor to the oldest mark kept, which forgets the older
@@ -330,38 +335,75 @@ class PlatformChannelDetector extends BaseDetector
     _recentCallCount = 0;
     _callDurationsUs.clear();
     _checkSeq = _arrivalSeq;
-    _evictedPeak = null;
-    _evictedPeakDurations = const {};
+    _evictedBusiest = null;
+    _evictedEmitting = null;
   }
 
-  /// The busiest half-open 1 s span of event time that holds at least one
-  /// begin received since the last check, as `(first, last)` indexes into
-  /// [_begins]; null when no begin arrived since then. With [startBefore],
-  /// only spans whose first begin has an index below it count.
-  (int, int)? _busiestNewSpan({int? startBefore}) {
-    if (_begins.isEmpty) return null;
-    // newBefore[i] counts the begins received since the last check among
-    // the first i.
-    final newBefore = List<int>.filled(_begins.length + 1, 0);
-    for (var i = 0; i < _begins.length; i++) {
-      newBefore[i + 1] = newBefore[i] + (_begins[i].seq >= _checkSeq ? 1 : 0);
+  /// Half-open 1 s spans of event time that hold at least one begin
+  /// received since the last check, as `(first, last)` indexes into
+  /// [_begins]. `busiest` is the one with the most begins. `emitting` is
+  /// the busiest one over [callsPerSecThreshold] that holds a new begin
+  /// outside every span already reported at its severity or higher, so
+  /// late calls that only rejoin a reported overload cannot emit it again.
+  /// Both are null when no begin arrived since the last check. With
+  /// [startBefore], only spans whose first begin has an index below it
+  /// count.
+  ({(int, int)? busiest, (int, int)? emitting}) _bestSpans({int? startBefore}) {
+    final n = _begins.length;
+    // Counts over the first i begins: the begins received since the last
+    // check, and those of them outside every reported span (fresh for a
+    // warning) and outside every critical reported span (fresh for a
+    // critical).
+    final newBefore = List<int>.filled(n + 1, 0);
+    final freshForWarning = List<int>.filled(n + 1, 0);
+    final freshForCritical = List<int>.filled(n + 1, 0);
+    for (var i = 0; i < n; i++) {
+      final begin = _begins[i];
+      final isNew = begin.seq >= _checkSeq;
+      var inReported = false;
+      var inCritical = false;
+      if (isNew) {
+        for (final r in _reportedSpans) {
+          if (begin.ts < r.startUs || begin.ts >= r.startUs + _spanUs) continue;
+          inReported = true;
+          if (r.severity == IssueSeverity.critical) {
+            inCritical = true;
+            break;
+          }
+        }
+      }
+      newBefore[i + 1] = newBefore[i] + (isNew ? 1 : 0);
+      freshForWarning[i + 1] =
+          freshForWarning[i] + (isNew && !inReported ? 1 : 0);
+      freshForCritical[i + 1] =
+          freshForCritical[i] + (isNew && !inCritical ? 1 : 0);
     }
-    if (newBefore.last == 0) return null;
-    (int, int)? best;
+    if (newBefore[n] == 0) return (busiest: null, emitting: null);
+    (int, int)? busiest;
+    (int, int)? emitting;
     var right = 0;
-    final leftEnd = startBefore ?? _begins.length;
+    final leftEnd = startBefore ?? n;
     for (var left = 0; left < leftEnd; left++) {
       if (right < left) right = left;
-      while (right + 1 < _begins.length &&
+      while (right + 1 < n &&
           _begins[right + 1].ts < _begins[left].ts + _spanUs) {
         right++;
       }
-      final hasNew = newBefore[right + 1] - newBefore[left] > 0;
-      if (hasNew && (best == null || right - left > best.$2 - best.$1)) {
-        best = (left, right);
+      if (newBefore[right + 1] - newBefore[left] == 0) continue;
+      final count = right - left + 1;
+      if (busiest == null || count > busiest.$2 - busiest.$1 + 1) {
+        busiest = (left, right);
+      }
+      if (count <= callsPerSecThreshold) continue;
+      final fresh = count > callsPerSecThreshold * criticalMultiplier
+          ? freshForCritical
+          : freshForWarning;
+      if (fresh[right + 1] - fresh[left] > 0 &&
+          (emitting == null || count > emitting.$2 - emitting.$1 + 1)) {
+        emitting = (left, right);
       }
     }
-    return best;
+    return (busiest: busiest, emitting: emitting);
   }
 
   /// Longest call completed since the last window check (µs); 0 when
@@ -401,29 +443,31 @@ class PlatformChannelDetector extends BaseDetector
   static String _ms(int us) =>
       us % 1000 == 0 ? '${us ~/ 1000}' : (us / 1000).toStringAsFixed(1);
 
-  /// The start, count, method counts and new-begin times of the span from
-  /// index `first` to index `last` of [_begins].
-  _SpanStats _spanStats((int, int) span) {
+  /// The start, count and method counts of the span from index `first` to
+  /// index `last` of [_begins], with [heldDurations] as the durations kept
+  /// from an eviction.
+  _SpanStats _spanStats(
+    (int, int) span, {
+    Map<String, int> heldDurations = const {},
+  }) {
     final (first, last) = span;
     final methodCounts = <String, int>{};
-    int? newFirstUs;
-    int? newLastUs;
     for (var i = first; i <= last; i++) {
-      final begin = _begins[i];
-      methodCounts[begin.method] = (methodCounts[begin.method] ?? 0) + 1;
-      if (begin.seq >= _checkSeq) {
-        newFirstUs ??= begin.ts;
-        newLastUs = begin.ts;
-      }
+      final method = _begins[i].method;
+      methodCounts[method] = (methodCounts[method] ?? 0) + 1;
     }
+    final startUs = _begins[first].ts;
     return (
-      startUs: _begins[first].ts,
+      startUs: startUs,
       count: last - first + 1,
       methodCounts: methodCounts,
-      newFirstUs: newFirstUs,
-      newLastUs: newLastUs,
+      heldDurations: heldDurations,
     );
   }
+
+  /// The one of [a] and [b] with more begins; [a] on a tie.
+  static _SpanStats? _busier(_SpanStats? a, _SpanStats? b) =>
+      b != null && (a == null || b.count > a.count) ? b : a;
 
   /// The durations of the held calls that began in the 1 s span from
   /// [startUs], by call key.
@@ -434,37 +478,46 @@ class PlatformChannelDetector extends BaseDetector
   };
 
   void _keepEvictedPeak(int evicted) {
-    final span = _busiestNewSpan(startBefore: evicted);
-    if (span == null) return;
-    final stats = _spanStats(span);
-    final kept = _evictedPeak;
-    if (kept == null || stats.count > kept.count) {
-      _evictedPeak = stats;
-      _evictedPeakDurations = _durationsByCall(stats.startUs);
+    final spans = _bestSpans(startBefore: evicted);
+    _SpanStats? snapshot((int, int)? span, _SpanStats? kept) {
+      if (span == null) return kept;
+      final count = span.$2 - span.$1 + 1;
+      if (kept != null && count <= kept.count) return kept;
+      return _spanStats(
+        span,
+        heldDurations: _durationsByCall(_begins[span.$1].ts),
+      );
     }
+
+    _evictedBusiest = snapshot(spans.busiest, _evictedBusiest);
+    _evictedEmitting = snapshot(spans.emitting, _evictedEmitting);
   }
 
   void _evaluateWindow() {
     // Every number the issue shows comes from one span, so the title, the
     // method counts, the durations and the trace args describe the same
     // calls.
-    final span = _busiestNewSpan();
-    var stats = span == null ? null : _spanStats(span);
-    var durationsByCall = const <String, int>{};
-    final evictedPeak = _evictedPeak;
-    if (evictedPeak != null &&
-        (stats == null || evictedPeak.count > stats.count)) {
-      stats = evictedPeak;
-      durationsByCall = _evictedPeakDurations;
-    }
-    _evictedPeak = null;
-    _evictedPeakDurations = const {};
+    // The issue describes the busiest span that may emit; without one, the
+    // stats describe the busiest span.
+    final live = _bestSpans();
+    final emitting = _busier(
+      live.emitting == null ? null : _spanStats(live.emitting!),
+      _evictedEmitting,
+    );
+    final stats =
+        emitting ??
+        _busier(
+          live.busiest == null ? null : _spanStats(live.busiest!),
+          _evictedBusiest,
+        );
+    _evictedBusiest = null;
+    _evictedEmitting = null;
     final count = stats?.count ?? 0;
     final methodCounts = stats?.methodCounts ?? const <String, int>{};
     final durationsUs = stats == null
         ? const <int>[]
         : {
-            ...durationsByCall,
+            ...stats.heldDurations,
             ..._durationsByCall(stats.startUs),
           }.values.toList();
     final maxUs = durationsUs.isEmpty
@@ -478,24 +531,9 @@ class PlatformChannelDetector extends BaseDetector
           .where((d) => d > durationThresholdUs)
           .length,
     );
-    final wouldBeCritical = count > callsPerSecThreshold * criticalMultiplier;
-    // Late calls can join a span that was already reported. When every new
-    // begin lies inside the last reported span and the severity is the
-    // same, this check found that overload again, so it keeps the reported
-    // issue instead of emitting a second one.
-    final reportedStartUs = _reportedSpanStartUs;
-    final newFirstUs = stats?.newFirstUs;
-    final newLastUs = stats?.newLastUs;
-    final sameOverload =
-        reportedStartUs != null &&
-        newFirstUs != null &&
-        newLastUs != null &&
-        newFirstUs >= reportedStartUs &&
-        newLastUs < reportedStartUs + _spanUs &&
-        _reportedSeverity ==
-            (wouldBeCritical ? IssueSeverity.critical : IssueSeverity.warning);
     // Emission is count-only; call durations annotate the issue.
-    if (count > callsPerSecThreshold && !sameOverload) {
+    if (emitting != null) {
+      final wouldBeCritical = count > callsPerSecThreshold * criticalMultiplier;
       // Cooldown semantics: suppress fresh emissions during the
       // 3-cycle drain after a fire so sustained overload collapses
       // to a single trace record per cooldown window (composite-key
@@ -528,10 +566,15 @@ class PlatformChannelDetector extends BaseDetector
       }
       _cooldownCyclesRemaining = 3;
       _lastEmittedAt = _clock();
-      _reportedSpanStartUs = stats!.startUs;
-      _reportedSeverity = wouldBeCritical
-          ? IssueSeverity.critical
-          : IssueSeverity.warning;
+      _reportedSpans.add((
+        startUs: emitting.startUs,
+        severity: wouldBeCritical
+            ? IssueSeverity.critical
+            : IssueSeverity.warning,
+      ));
+      if (_reportedSpans.length > _maxReportedSpans) {
+        _reportedSpans.removeAt(0);
+      }
       final maxUs = _lastWindowStats!.maxCallDurationUs;
       final p95Us = _lastWindowStats!.p95CallDurationUs;
       final overCount = _lastWindowStats!.callsOverThreshold;
@@ -632,10 +675,9 @@ class PlatformChannelDetector extends BaseDetector
     _beginKeys.clear();
     _callKeys.clear();
     _droppedUpToByTid.clear();
-    _evictedPeak = null;
-    _evictedPeakDurations = const {};
-    _reportedSpanStartUs = null;
-    _reportedSeverity = null;
+    _evictedBusiest = null;
+    _evictedEmitting = null;
+    _reportedSpans.clear();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
@@ -666,8 +708,7 @@ class PlatformChannelDetector extends BaseDetector
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
-    _reportedSpanStartUs = null;
-    _reportedSeverity = null;
+    _reportedSpans.clear();
     _lastWindowStats = null;
     _issues.clear();
   }
@@ -774,14 +815,13 @@ class PlatformChannelDetector extends BaseDetector
 
 /// Start time, count and method counts of one span of call begins.
 ///
-/// `newFirstUs` and `newLastUs` are the event times of the first and last
-/// begins in the span that arrived since the last check.
+/// `heldDurations` holds, by call key, the durations kept when the count
+/// cap evicted the span's begins; it is empty for a live span.
 typedef _SpanStats = ({
   int startUs,
   int count,
   Map<String, int> methodCounts,
-  int? newFirstUs,
-  int? newLastUs,
+  Map<String, int> heldDurations,
 });
 
 /// A platform channel call begin kept for span counting.
