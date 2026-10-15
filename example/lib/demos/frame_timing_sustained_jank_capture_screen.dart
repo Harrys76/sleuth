@@ -59,6 +59,7 @@ class FrameTimingSustainedJankCaptureScreen extends StatefulWidget {
     this.captureModeOverride,
     this.provenanceCheck = currentCaptureProvenance,
     this.vmConnected = _sleuthVmConnected,
+    this.calls = const CaptureLegCalls(),
   });
 
   /// Capture mode for tests. Null reads the build's
@@ -74,6 +75,10 @@ class FrameTimingSustainedJankCaptureScreen extends StatefulWidget {
   /// needs to read the detector's records.
   @visibleForTesting
   final bool Function() vmConnected;
+
+  /// The stream, scenario and flush calls a leg makes.
+  @visibleForTesting
+  final CaptureLegCalls calls;
 
   @override
   State<FrameTimingSustainedJankCaptureScreen> createState() =>
@@ -307,6 +312,12 @@ class _FrameTimingSustainedJankCaptureScreenState
   int _ambientSevere = 0;
   Completer<void>? _legDone;
 
+  // The scenario and stream state a leg owns. They are fields, not
+  // locals, so dispose can end the scenario and restore the streams
+  // while the leg still awaits a flush or a delay.
+  String? _openScenario;
+  bool _streamsSuspended = false;
+
   late final CaptureProvenanceCheck _provenance;
 
   bool get _captureModeOn =>
@@ -341,14 +352,45 @@ class _FrameTimingSustainedJankCaptureScreenState
 
   @override
   void dispose() {
-    // Lets a running leg reach its `mounted` check now, so its cleanup
-    // ends the scenario and restores the streams before another capture
-    // can start, instead of after the ticker timeout.
+    // A running leg may be awaiting its ticker, a delay or the flush. End
+    // its scenario and restore the streams now, so neither lands inside
+    // another capture's span, and release the ticker wait so the leg
+    // reaches its `mounted` check.
     final done = _legDone;
     if (done != null && !done.isCompleted) done.complete();
+    _endScenario(log: false);
+    unawaited(_resumeStreams(log: false));
     _ticker.dispose();
     _stopTimings();
     super.dispose();
+  }
+
+  /// Ends the leg's open scenario once. A throw is logged, not rethrown,
+  /// so it cannot replace the leg's outcome.
+  void _endScenario({String label = '', bool log = true}) {
+    final scenario = _openScenario;
+    if (scenario == null) return;
+    _openScenario = null;
+    try {
+      widget.calls.markScenarioEnd(scenario);
+    } catch (e) {
+      if (log) _say('[$label] markScenarioEnd: $e');
+    }
+  }
+
+  /// Restores the timeline streams once, bounded so an unanswered VM call
+  /// cannot keep the screen busy.
+  Future<void> _resumeStreams({String label = '', bool log = true}) async {
+    if (!_streamsSuspended) return;
+    _streamsSuspended = false;
+    try {
+      await withCallTimeout(
+        widget.calls.resumeStreams(),
+        'resumeAllTimelineStreams',
+      );
+    } catch (e) {
+      if (log) _say('[$label] resumeAllTimelineStreams: $e');
+    }
   }
 
   // Whether [_onTimings] is registered; removing an unregistered
@@ -482,15 +524,13 @@ class _FrameTimingSustainedJankCaptureScreenState
       );
     });
 
-    var streamsSuspended = false;
-    var scenarioOpen = false;
     try {
       // The span is short, but a full stream set can still roll the
       // scenario markers out of the VM ring buffer; restored in finally.
       // Marked first: a suspension that times out may still land later.
-      streamsSuspended = true;
+      _streamsSuspended = true;
       await withCallTimeout(
-        Sleuth.suspendNonEssentialTimelineStreams(),
+        widget.calls.suspendStreams(),
         'suspendNonEssentialTimelineStreams',
       );
       if (!mounted) return;
@@ -498,8 +538,8 @@ class _FrameTimingSustainedJankCaptureScreenState
       // the screen and the detector judge the same timing batches.
       SchedulerBinding.instance.addTimingsCallback(_onTimings);
       _timingsRegistered = true;
-      Sleuth.markScenarioBegin(leg.scenario);
-      scenarioOpen = true;
+      widget.calls.markScenarioBegin(leg.scenario);
+      _openScenario = leg.scenario;
 
       await Future<void>.delayed(const Duration(milliseconds: _settleMs));
       if (!mounted) return;
@@ -518,10 +558,9 @@ class _FrameTimingSustainedJankCaptureScreenState
         const Duration(milliseconds: _postScenarioBarrierMs),
       );
       if (!mounted) return;
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
+      await widget.calls.flushTimeline();
       if (!mounted) return;
-      Sleuth.markScenarioEnd(leg.scenario);
-      scenarioOpen = false;
+      _endScenario(label: label);
       _stopTimings();
 
       _logSpinFrames(label);
@@ -539,11 +578,7 @@ class _FrameTimingSustainedJankCaptureScreenState
       // The end marker must reach the VM buffer before the export reads it.
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
-      streamsSuspended = false;
-      await withCallTimeout(
-        Sleuth.resumeAllTimelineStreams(),
-        'resumeAllTimelineStreams',
-      );
+      await _resumeStreams(label: label);
       if (!mounted) return;
 
       final provenance = requireCaptureProvenance(
@@ -620,25 +655,9 @@ class _FrameTimingSustainedJankCaptureScreenState
       final pending = _legDone;
       if (pending != null && !pending.isCompleted) pending.complete();
       _legDone = null;
-      if (scenarioOpen) {
-        // A throw here must not replace the leg's own outcome.
-        try {
-          Sleuth.markScenarioEnd(leg.scenario);
-        } catch (e) {
-          _say('[$label] markScenarioEnd on cleanup: $e');
-        }
-      }
-      if (streamsSuspended) {
-        // Bounded, so an unanswered VM call cannot keep the screen busy.
-        try {
-          await withCallTimeout(
-            Sleuth.resumeAllTimelineStreams(),
-            'resumeAllTimelineStreams',
-          );
-        } catch (e) {
-          _say('[$label] resumeAllTimelineStreams on cleanup: $e');
-        }
-      }
+      // Both are no-ops when the leg or dispose already did them.
+      _endScenario(label: label);
+      await _resumeStreams(label: label);
       if (mounted) setState(() => _busy = false);
     }
   }

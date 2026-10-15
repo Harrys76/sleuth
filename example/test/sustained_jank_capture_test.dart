@@ -2,6 +2,7 @@
 // rule, the spin schedule, the frame and last-record refusals, and the
 // bracket it reads from the detector.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' show FrameTiming;
 
@@ -76,6 +77,31 @@ String _capture(
       },
     ],
   });
+}
+
+/// Leg calls that record what a leg did and hold the flush open until
+/// [flush] completes.
+class _RecordingCalls extends CaptureLegCalls {
+  final List<String> log = [];
+  Completer<void>? flush;
+
+  @override
+  Future<void> suspendStreams() async => log.add('suspend');
+
+  @override
+  Future<void> resumeStreams() async => log.add('resume');
+
+  @override
+  Future<void> flushTimeline() {
+    log.add('flush');
+    return (flush ??= Completer<void>()).future;
+  }
+
+  @override
+  void markScenarioBegin(String scenario) => log.add('begin $scenario');
+
+  @override
+  void markScenarioEnd(String scenario) => log.add('end $scenario');
 }
 
 void main() {
@@ -354,6 +380,7 @@ void main() {
     Future<void> pumpScreen(
       WidgetTester tester, {
       bool vmConnected = true,
+      CaptureLegCalls calls = const CaptureLegCalls(),
     }) async {
       tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1;
@@ -371,6 +398,7 @@ void main() {
               problem: null,
             ),
             vmConnected: () => vmConnected,
+            calls: calls,
           ),
         ),
       );
@@ -411,6 +439,44 @@ void main() {
         find.textContaining('[below] OUT-OF-BAND: 0 severe frame(s)'),
         findsNWidgets(2),
       );
+    });
+
+    testWidgets('closing the screen during the flush ends the scenario '
+        'and restores the streams at once', (tester) async {
+      final calls = _RecordingCalls();
+      await pumpScreen(tester, calls: calls);
+      await runBelowLeg(tester);
+      // The leg now waits on a flush that has not answered.
+      expect(calls.log, [
+        'suspend',
+        'begin frame_timing_sustained_jank_below',
+        'flush',
+      ]);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(calls.log.skip(3), [
+        'end frame_timing_sustained_jank_below',
+        'resume',
+      ]);
+      // The flush answering late must not end or resume anything again.
+      calls.flush!.complete();
+      await tester.pump();
+      expect(calls.log, hasLength(5));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a finished leg ends its scenario and restores the streams '
+        'once', (tester) async {
+      final calls = _RecordingCalls()..flush = (Completer<void>()..complete());
+      await pumpScreen(tester, calls: calls);
+      await runBelowLeg(tester);
+      expect(calls.log, [
+        'suspend',
+        'begin frame_timing_sustained_jank_below',
+        'flush',
+        'end frame_timing_sustained_jank_below',
+        'resume',
+      ]);
     });
 
     testWidgets('closing the screen mid-leg ends the leg at once', (
