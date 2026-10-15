@@ -1057,7 +1057,7 @@ the detector's peak, `lastObservedErrorCount` after
 `flushErrorSpikeEvaluation()` or `lastObservedSamePathCluster` after
 `flushSamePathEvaluation()`, which the detector computes below the
 threshold too, so a below leg of 2 reads 2. A leg dwells 1.6 s after its
-last response before the flush: in capture mode the timeline tick
+last response before the flush. In capture mode the timeline tick
 records issues only when it dispatches, on data or on a 1 s heartbeat,
 and a 200 ms dwell let the at leg's issue land after the span closed.
 Bands: below (0, 3), at [3, 4.5], above (4.5, 7.5]. Save the captures as
@@ -1387,8 +1387,8 @@ bracket with one build, because the audit requires one exact
 
 Repaint critical legs (0.8, 1.23 and 2.0 times 30 %) lay out a long text
 wrapped to the tile width per op and draw only the first text per tile.
-With short texts the paint share stopped near 30 % on the iPhone 12:
-each short layout cost about 3 µs, so the 32 tiles held most of the
+With short texts the paint share stopped near 30 % on the iPhone 12.
+Each short layout cost about 3 µs, so the 32 tiles took most of the
 paint time however many layouts ran.
 
 ### Launch

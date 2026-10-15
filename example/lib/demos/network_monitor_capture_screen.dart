@@ -724,8 +724,8 @@ class _NetworkMonitorCaptureScreenState
     }
   }
 
-  /// One leg of the two count families: [requestCount] GETs to one path,
-  /// [spacingMs] apart by start time. `http_error_spike` legs ask the
+  /// Runs one leg of the two count families. It sends [requestCount] GETs
+  /// to one path, [spacingMs] apart by start time. `http_error_spike` legs ask the
   /// server for status 500; `high_frequency_same_path` legs get 200. The
   /// exported magnitude is the detector's peak (largest 5 s error window
   /// or 500 ms same-path cluster), which it holds below the threshold
@@ -771,8 +771,8 @@ class _NetworkMonitorCaptureScreenState
           );
           final req = await client.getUrl(uri);
           final resp = await req.close();
-          // `await for`, not `.drain()`: the record is emitted when the
-          // monitored stream completes.
+          // Use `await for`, not `.drain()`; the monitor emits the record
+          // when the monitored stream completes.
           await for (final _ in resp) {}
         }());
       }
@@ -780,8 +780,8 @@ class _NetworkMonitorCaptureScreenState
 
       // Dwell so a timeline dispatch records the issue inside the span.
       // On a static screen the tick dispatches on data or a 1 s
-      // heartbeat, so 1.6 s holds at least one after the last response;
-      // then the VM-poll barrier, as the request_frequency legs do.
+      // heartbeat, so 1.6 s holds at least one after the last response.
+      // The VM-poll barrier follows, as in the request_frequency legs.
       await Future<void>.delayed(const Duration(milliseconds: 1600));
       final monitor = Sleuth.networkMonitor;
       if (monitor == null) {

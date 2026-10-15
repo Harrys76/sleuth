@@ -458,11 +458,11 @@ class NetworkMonitorDetector extends BaseDetector
     );
   }
 
-  /// The largest 5 s window of error records by start time, as the
-  /// error records sorted by `startedAt`, the window's size and its first
-  /// index. Records arrive in completion order; a slow error that
-  /// finishes after a later one is sorted back into place. Updates
-  /// [lastObservedErrorCount].
+  /// Finds the largest 5 s window of error records by start time and
+  /// returns the error records sorted by `startedAt`, the window's size
+  /// and its first index. Records arrive in completion order, so a slow
+  /// error that finishes after a later one is sorted back into place.
+  /// Updates [lastObservedErrorCount].
   ({List<RequestRecord> errors, int count, int left}) _errorPeak() {
     final errors =
         _records
@@ -549,18 +549,18 @@ class NetworkMonitorDetector extends BaseDetector
     );
   }
 
-  /// The idempotent request groups (method + path, query stripped) with
-  /// their records sorted by `startedAt` and their largest 500 ms
-  /// cluster. Updates [lastObservedSamePathCluster].
+  /// Returns the idempotent request groups (method and path, query
+  /// stripped), each with its records sorted by `startedAt` and its
+  /// largest 500 ms cluster. Updates [lastObservedSamePathCluster].
   List<({String key, List<RequestRecord> records, int cluster})>
   _samePathClusters() {
     // Group all buffered records by normalized URL (method + path, no
     // query params). Query strings are intentionally stripped so that
     // pagination / search params still count as the same endpoint for
     // burst detection. Uses the full buffer so evidence persists until
-    // route transition clears records. Cancels excluded — an aborted
-    // request to the same path is not evidence of missing caching or
-    // un-debounced input.
+    // route transition clears records. Cancelled requests are left out,
+    // because an aborted request to the same path is not evidence of
+    // missing caching or input without a debounce.
     final groups = <String, List<RequestRecord>>{};
     for (final record in _records) {
       if (record.cancelled) continue;
@@ -602,10 +602,9 @@ class NetworkMonitorDetector extends BaseDetector
   }
 
   void _evaluateHighFrequencySamePath() {
-    // Flag when ≥3 requests to the same endpoint cluster within 500ms —
-    // high-frequency traffic to one path strongly indicates missing
-    // cache, un-debounced input, or redundant fetches from multiple
-    // widgets.
+    // Flag 3 or more requests to the same endpoint within 500 ms. Such
+    // traffic to one path points to missing caching, input without a
+    // debounce, or redundant fetches from several widgets.
     for (final (key: key, records: records, cluster: maxCluster)
         in _samePathClusters()) {
       if (maxCluster < _duplicateThreshold) continue;

@@ -26,8 +26,8 @@ import 'capture_driver.dart';
 // drains the timeline, resets the detector, idles 1.5 s, and records a
 // 6 s scenario. Warning legs target 0.5, 1.25 and 2.0 times the live
 // threshold t = `paintTimePercentThreshold` (default 10 %); critical legs
-// target 0.8, 1.23 and 2.0 times 3t and draw one text per tile, so the
-// raster thread does not cap the frame rate below the paint target;
+// target 0.8, 1.23 and 2.0 times 3t and lay out long wrapped texts,
+// drawing one per tile (see [CapturePaintLoad.drawAll]);
 // a peak outside the band, or an export whose in-span records miss the
 // bracket, gets another span, up to five in all. The above target sits
 // mid-band (15–27 %) so the peak window keeps headroom under the ceiling.
@@ -256,7 +256,7 @@ class CapturePaintLoad extends ChangeNotifier {
   /// tiles themselves and PAINT stopped near 30 % of UI-thread time
   /// however many layouts ran. A wrapped long text costs enough per
   /// layout that the share follows the knob, and drawing one per tile
-  /// keeps the raster thread out of it.
+  /// keeps raster work flat.
   bool drawAll;
 
   /// Text layouts tile [index] draws per paint: `ops ~/ 32`, plus one for

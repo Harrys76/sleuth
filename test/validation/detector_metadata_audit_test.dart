@@ -2065,7 +2065,7 @@ void main() {
               'reproducer-pinned.',
         );
       }
-      // Independent of prose: the critical-threshold entry needs the
+      // Whatever the prose says, the critical-threshold entry needs the
       // critical capture triad behind it.
       expect(hasCriticalThresholdEntry, isTrue);
       final critical = meta.additionalBrackets!.single;
