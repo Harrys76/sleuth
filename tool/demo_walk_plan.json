@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Steps per demo for tool/demo_walk.dart. Start the walk at least 30 s after the app launches; heap_growing ignores the first 30 s. Titles match the home list in example/lib/main.dart. Each demo runs its bad pattern first and reads it as phase 'bad'; demos with a Fixed Pattern side then switch and read 'fixed' after at least 10 s. Jank cards (jank_detected, sustained_jank) judge the frames from the last 10 s and raster_dominance the last second, so a fixed read taken at least 10 s after the switch shows only the fixed pattern's frames. Network demos need internet. The empty bad-pattern gallery has nothing to scroll, so its pull-to-refresh is a real-touch swipe inside the list after collapsing Instructions (Android only, physical pixels for a 720 x 1600 screen); after the first page the bad gallery loads up to 3 more on its own while the list cannot scroll, so the wait after the swipe covers 4 downloads of 1.1 MB. The Fixed side's Load next page button covers iOS. Migrated App has no back arrow; the walk's final pop closes it. Update this file when a demo's controls change.",
+  "notes": "Steps per demo for tool/demo_walk.dart. Start the walk at least 30 s after the app launches; heap_growing ignores the first 30 s. Titles match the home list in example/lib/main.dart. Each demo runs its bad pattern first and reads it as phase 'bad'; demos with a Fixed Pattern side then switch and read 'fixed' after at least 10 s. Jank cards (jank_detected, sustained_jank) judge the frames from the last 10 s and raster_dominance the last second, so a fixed read taken at least 10 s after the switch shows only the fixed pattern's frames. raster_dominance reports a burst at the next scan and clears at the scan after it, so a read taken right after a scroll can miss it. The Memory Pressure native phase taps 14 times 2.5 s apart, because native_memory_growing needs about 25 s of continued growth and then its 10 s sustain. Network demos need internet. The empty bad-pattern gallery has nothing to scroll, so its pull-to-refresh is a real-touch swipe inside the list after collapsing Instructions (Android only, physical pixels for a 720 x 1600 screen); after the first page the bad gallery loads up to 3 more on its own while the list cannot scroll, so the wait after the swipe covers 4 downloads of 1.1 MB, which took up to 5.6 s each on the Galaxy's network. Four pages still fit a 360 x 800 screen, so the walk does not scroll the bad gallery; the Fixed side waits 7 s between its page taps because its button hides while a page loads. The Fixed side's Load next page button covers iOS. Migrated App has no back arrow; the walk's final pop closes it. Update this file when a demo's controls change.",
   "demos": [
     {
       "title": "High-Level setState",
@@ -117,6 +117,9 @@
         ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
         ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
         ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
+        ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
+        ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
+        ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
         ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 3],
         ["read", "native"],
         ["tap", "GC Churn"], ["wait", 8], ["read", "churn"], ["tap", "Stop Churn"],
@@ -161,12 +164,10 @@
         ["call", "ext.sleuthDemo.type", {"text": "flutter perf", "submit": "true"}],
         ["wait", 6], ["read", "slow"],
         ["tap", "Instructions"], ["tap", "Gallery"], ["wait", 1],
-        ["swipe", 360, 900, 360, 1500, 500], ["wait", 10],
-        ["scroll", 3000, 1500], ["wait", 2], ["scroll", 3000, 1500], ["wait", 2],
-        ["scroll", 3000, 1500], ["wait", 3], ["read", "gallery"],
+        ["swipe", 360, 900, 360, 1500, 500], ["wait", 15], ["read", "gallery"],
         ["tap", "Fixed Pattern"], ["tap", "Gallery"], ["wait", 1],
-        ["tap", "Load next page"], ["wait", 3], ["tap", "Load next page"], ["wait", 3],
-        ["tap", "Load next page"], ["wait", 4], ["read", "gallery fixed"]
+        ["tap", "Load next page"], ["wait", 7], ["tap", "Load next page"], ["wait", 7],
+        ["tap", "Load next page"], ["wait", 7], ["read", "gallery fixed"]
       ]
     },
     {

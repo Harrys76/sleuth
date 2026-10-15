@@ -74,6 +74,12 @@ int _maxQualifying(List<PerformanceIssue> issues) {
   return best;
 }
 
+// The Galaxy's Live Waveform warning and part of High-Level setState's are
+// frames about 500 ms apart, the period of Sleuth's VM timeline poll. On
+// that phone the fixed Live Waveform at 60 Hz showed a 30 to 48 ms raster
+// frame every 500 ms with the VM link and none above 25 ms without it. The
+// detector does not yet take that stall out of raster time, so these
+// replays pin what it reports today, not app jank.
 const _fixtures = [
   'galaxy_90_gpu_pressure.json',
   'galaxy_90_cupertino_blur.json',
