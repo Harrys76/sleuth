@@ -409,6 +409,9 @@ class _GalleryTabState extends State<_GalleryTab> {
       onRefresh: _refresh,
       child: ListView.builder(
         controller: _scroll,
+        // With its own controller the list is not primary, so a short list
+        // on Android's clamping physics could not be pulled to refresh.
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         itemCount: _pages.length + 1,
         itemBuilder: (context, i) {
