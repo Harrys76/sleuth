@@ -661,6 +661,11 @@ class VmServiceClient {
   /// cleared in `_cleanup()`.
   final PendingChannelBegins _pendingChannelBegins = PendingChannelBegins();
 
+  /// Frame threads and the idle stretch open on each at the end of the
+  /// last parse, so a gap that spans two batches is found
+  /// ([TimelineParser.parse] `frameThreadIdle`). Cleared in `_cleanup`.
+  final Map<int, int?> _frameThreadIdle = {};
+
   /// Maximum age (in microseconds) for an unmatched BUILD `ph: 'B'` event
   /// to remain in [_pendingBuildBegins]. Beyond this, the entry is treated
   /// as orphan (its matching E was lost — VM buffer overflow, isolate
@@ -861,6 +866,7 @@ class VmServiceClient {
           pendingRasterBegins: _pendingRasterBegins,
           pendingShaderBegins: _pendingShaderBegins,
           pendingChannelBegins: _pendingChannelBegins,
+          frameThreadIdle: _frameThreadIdle,
           cursorsByTid: _lastProcessedTsByTid,
           minTimestampUs: floorUs,
         );
@@ -1514,6 +1520,7 @@ class VmServiceClient {
     _pendingRasterBegins.clear();
     _pendingShaderBegins.clear();
     _pendingChannelBegins.clear();
+    _frameThreadIdle.clear();
     _lastProcessedTsByTid.clear();
     _pollTimer?.cancel();
     _pollTimer = null;
