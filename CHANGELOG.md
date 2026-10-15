@@ -219,6 +219,66 @@
 - Example: `ext.sleuthDemo.retain` retains byte buffers and reports exact
   bytes; its `List<int>` of large ints held 4-byte references on Android
   and reported twice the retained rate.
+- Behavior change: `native_memory_growing` needs growth that keeps going.
+  The slope must pass 1 MiB/s over the whole 30 s window and over each half
+  of it, each half with at least 4 samples, and each slope is the smaller
+  of the native and RSS regressions. A one-time jump of D bytes inside the
+  window reads about 1.5 x D / 30 s as one slope, so a 25 MB jump passed
+  for more than 10 s: opening the GPU and FPS stress demos on a Galaxy A07
+  reported native growth. Those recordings now stay silent, and fourteen
+  10 MB native allocations 2.5 s apart fire on a Galaxy A07 and an iPhone
+  12. Growth needs to continue for about 25 s, and allocations more than
+  about 15 s apart can leave one half flat.
+- Behavior change: `gc_pressure` counts young-generation collections only,
+  and `SleuthConfig.gcRateThresholdPerMin` now defaults to 240 young
+  collections a minute (it was 180 events of any kind). An app that sets it
+  now gates young collections with it. Each concurrent old-generation cycle
+  posts a marking start and a sweep, and an animated screen runs them
+  steadily: Live Waveform posted 41 old-generation events in 10 s on an
+  iPhone 12 next to 28 scavenges, and read as pressure. Young collections
+  follow the allocation rate: the GC Churn demo ran 65 in 10 s on a Galaxy
+  A07 and 135 on an iPhone 12. Old-generation cycles, marking starts and
+  the pause share stay on the card. The title reads "N young GCs/min". On a
+  Galaxy A07 at 90 Hz, Live Waveform ran 41 young collections in 10 s and
+  spent 4.9 % of the time in GC pauses, more than the churn demo's 3.9 %,
+  and fires.
+- Behavior change: `raster_dominance` counts frames that missed their
+  deadline on the raster thread. A frame counts when its raster time
+  exceeds its own frame budget and `maxFrameRasterFloorUs` and is more than
+  2 times its UI time; it counted from 8 ms of raster, so 60 Hz screens
+  whose raster fit the frame read as GPU pressure. Three such frames within
+  one second warn and 10 are critical (new
+  `GpuPressureDetector.criticalRasterDominantFrames`); critical no longer
+  needs the frames to be over budget, since all of them are. The detector
+  keeps the last second of these frames across scans, so a burst that a
+  scan splits counts once, and reports a burst once. Recorded frames replay
+  in tests: on a Galaxy A07 at 90 Hz the GPU Pressure, Cupertino blur and
+  IntrinsicHeight demos dropped 26 to 54 such frames a second, and other
+  screens 5 or fewer. With the VM timeline connected, a batch whose slowest
+  raster frame is over the budget and more than 2 times the UI total makes
+  the issue `confirmed`; the VM ratio no longer sets the severity. When no
+  frame timings arrive (the jank detector is off), the VM timeline reports
+  alone, critical above twice the budget. `effectiveMaxFrameRasterFloorUs`
+  is the resolved frame budget, or `maxFrameRasterFloorUs` when larger.
+- Behavior change: on displays faster than `fpsTarget`, `heavy_compute`
+  warns at three quarters of the frame budget, at most 8 ms (it was half
+  the budget): 8 ms at 90 Hz and 6.25 ms at 120 Hz, critical at twice that.
+  Half the budget flagged builds that left half the frame for layout, paint
+  and raster. At the `fpsTarget` budget, with an explicit
+  `heavyComputeGapMs` and in capture mode the threshold stays at 8 ms.
+- Behavior change: `jank_detected` and `sustained_jank` judge only the
+  frames whose vsync lies within 10 s of the newest frame's, outside
+  capture mode. A screen that stops animating draws only Sleuth's own scan
+  frames, about one a second, so the 240-frame buffer kept the bad frames
+  for minutes and the card stayed after the jank ended. The cards now clear
+  about 10 s after the jank stops. Frames without a vsync time still count.
+- Example: the gallery's pages come from Cloudflare's speed-test endpoint,
+  because httpbin caps `/bytes/N` at 102,400 bytes and the 1.1 MB page
+  never reached the `large_response` threshold. The bad gallery loads up
+  to 3 more pages on its own while its list is too short to scroll, so its
+  load-on-scroll can start, and its list can be pulled to refresh on
+  Android. The Memory Pressure demo fills its native buffers with random
+  bytes, because iOS compresses zero pages and RSS did not grow.
 
 ## 0.37.0
 
