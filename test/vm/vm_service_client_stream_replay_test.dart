@@ -2,9 +2,11 @@
 // blocks a Galaxy A07 and an iPhone 12 posted, in arrival order, with the
 // frames Sleuth held for the same span (`tool/timeline_cost_probe.dart
 // stream-dump`; each fixture's provenance names the screen). The replay
-// runs the client's 500 ms ticks on the recording's clock, delivers each
-// block at its arrival, and lets the client's catch-up reads see only the
-// events written by then.
+// runs the client's 500 ms ticks on the recording's clock and delivers
+// each block at its arrival. A read makes the VM post every thread's
+// unfinished block before it answers, as both phones did: the replay
+// posts each thread's events written by then that no delivered block
+// held, and the recorded block still arrives later, as a repeat.
 import 'dart:convert';
 import 'dart:io';
 
@@ -119,11 +121,22 @@ Future<_Result> _replay(_Recording rec) async {
       if ((e['ts'] as int? ?? 0) <= us) TimelineEvent.parse(e)!,
   ];
 
+  var next = 0;
+  service.flushOnRead = () {
+    final byTid = <int, List<Map<String, dynamic>>>{};
+    for (final b in rec.blocks.skip(next)) {
+      for (final e in b.events) {
+        if ((e['ts'] as int? ?? 0) <= nowUs) {
+          (byTid[e['tid'] as int] ??= []).add(e);
+        }
+      }
+    }
+    return byTid.values.toList();
+  };
   expect(await client.startSessionForTest(service), isTrue);
   // The session's first read happens before the recording starts.
   writtenBy(nowUs);
   await client.tickForTest();
-  var next = 0;
   for (var tick = rec.firstUs; tick <= rec.lastUs + _tickUs; tick += _tickUs) {
     nowUs = tick;
     while (next < rec.blocks.length &&

@@ -57,6 +57,16 @@ void main() {
     for (final e in events) TimelineEvent.parse(e)!,
   ];
 
+  /// [events] as the unfinished blocks a read makes the VM post, one per
+  /// thread.
+  List<List<Map<String, dynamic>>> byThread(List<Map<String, dynamic>> events) {
+    final blocks = <int, List<Map<String, dynamic>>>{};
+    for (final e in events) {
+      (blocks[e['tid'] as int] ??= []).add(e);
+    }
+    return blocks.values.toList();
+  }
+
   Future<VmServiceClient> start({
     Duration silentFallback = const Duration(seconds: 10),
     Duration catchUpMinInterval = const Duration(seconds: 1),
@@ -133,54 +143,67 @@ void main() {
 
   group('catch-up read', () {
     test('runs when a frame finished well after the newest event seen on '
-        'the frame or raster thread, and keeps only those threads', () async {
+        'the frame or raster thread, and reads an empty window ahead of the '
+        'clock while the VM posts every unfinished block', () async {
       service.timelineEvents = parsed(frame(base));
       final client = await start();
       await client.tickForTest();
 
       // A frame finished 600 ms later, but its events wait in unfinished
-      // blocks. The VM holds them, and an event on another thread.
+      // blocks, as does an event on another thread.
       final late = base + 600000;
       newestFrame = late + 9000;
-      service.timelineEvents = parsed([
-        ...frame(base),
-        ...frame(late, buildUs: 1500),
-        event(
-          'Platform Channel send foo',
-          'X',
-          late + 50,
-          tid: _other,
-          dur: 300,
-        ),
-      ]);
+      final channel = event(
+        'Platform Channel send foo',
+        'X',
+        late + 50,
+        tid: _other,
+        dur: 300,
+      );
+      service.flushOnRead = () =>
+          byThread([...frame(late, buildUs: 1500), channel]);
       await client.tickForTest();
 
       expect(client.catchUpReads, 1);
-      final (origin, _) = service.timelineWindows.last;
-      // From 5 ms before the older of the two threads' newest events.
-      // The UI thread's newest event is the BUILD at base + 200.
-      expect(origin, base + 200 - 5000);
+      final (origin, extent) = service.timelineWindows.last;
+      expect(origin, greaterThan(Timeline.now));
+      expect(extent, 1);
       expect(builds(), [2000, 1500]);
       expect(rasters(), [4000, 4000]);
-      expect([for (final b in batches) ...b.platformChannelEvents], isEmpty);
+      expect([
+        for (final b in batches) ...b.platformChannelEvents,
+      ], hasLength(1));
 
-      // That thread's events still arrive when its block fills.
+      // The blocks those threads fill later repeat nothing.
+      service.flushOnRead = null;
       service.timelineController.add(
-        timelineBlock([
-          event(
-            'Platform Channel send foo',
-            'X',
-            late + 50,
-            tid: _other,
-            dur: 300,
-          ),
-        ]),
+        timelineBlock([...frame(late, buildUs: 1500), channel]),
       );
       await client.tickForTest();
+      expect(builds(), [2000, 1500]);
       expect([
         for (final b in batches) ...b.platformChannelEvents,
       ], hasLength(1));
     });
+
+    test(
+      'delivers a frame thread\'s events however long they waited',
+      () async {
+        service.timelineEvents = parsed(frame(base - 3000000));
+        final client = await start();
+        await client.tickForTest();
+        // Three frames over 2.5 s, none of them streamed yet.
+        final waiting = [
+          ...frame(base - 2500000, buildUs: 1100),
+          ...frame(base - 1200000, buildUs: 1200),
+          ...frame(base, buildUs: 1300),
+        ];
+        newestFrame = base + 9000;
+        service.flushOnRead = () => byThread(waiting);
+        await client.tickForTest();
+        expect(builds(), [2000, 1100, 1200, 1300]);
+      },
+    );
 
     test('does not run while the stream keeps up', () async {
       service.timelineEvents = parsed(frame(base));
@@ -199,22 +222,19 @@ void main() {
 
       final late = base + 300000;
       newestFrame = late + 9000;
-      service.timelineEvents = parsed([...frame(base), ...frame(late)]);
+      service.flushOnRead = () => byThread(frame(late));
       await client.tickForTest();
       expect(client.catchUpReads, 1);
 
       // Nothing new: the read moved the newest events seen.
+      service.flushOnRead = null;
       await client.tickForTest();
       expect(client.catchUpReads, 1);
 
       // A newer frame that has not arrived does.
       final later = late + 300000;
       newestFrame = later + 9000;
-      service.timelineEvents = parsed([
-        ...frame(base),
-        ...frame(late),
-        ...frame(later),
-      ]);
+      service.flushOnRead = () => byThread(frame(later));
       await client.tickForTest();
       expect(client.catchUpReads, 2);
     });
@@ -226,30 +246,51 @@ void main() {
 
       final late = base + 300000;
       newestFrame = late + 9000;
-      service.timelineEvents = parsed([...frame(base), ...frame(late)]);
       await client.tickForTest();
       expect(client.catchUpReads, 1);
 
       final later = late + 300000;
       newestFrame = later + 9000;
-      service.timelineEvents = parsed([
-        ...frame(base),
-        ...frame(late),
-        ...frame(later),
-      ]);
       await client.tickForTest();
       expect(client.catchUpReads, 1);
     });
 
-    test('spans at most one second', () async {
-      service.timelineEvents = parsed(frame(base - 5000000));
+    test('runs at least once per catchUpMaxInterval while the stream '
+        'keeps up', () async {
+      var now = base;
+      service.timelineEvents = parsed(frame(base));
+      final client = VmServiceClient(
+        onTimelineData: batches.add,
+        ownIsolateIdResolver: () => 'isolates/1',
+        newestFrameRasterFinishUs: () => newestFrame,
+        streamClockForTest: () => now,
+      );
+      addTearDown(client.dispose);
+      expect(await client.startSessionForTest(service), isTrue);
+      await client.tickForTest();
+      for (var i = 1; i <= 8; i++) {
+        now = base + i * 500000;
+        service.timelineController.add(timelineBlock(frame(now - 20000)));
+        newestFrame = now - 10000;
+        await client.tickForTest();
+      }
+      // 4 s of ticks: one read at 2 s and one at 4 s.
+      expect(client.catchUpReads, 2);
+    });
+
+    test('a failed read still dispatches the blocks that arrived', () async {
+      service.timelineEvents = parsed(frame(base));
       final client = await start();
       await client.tickForTest();
-      newestFrame = Timeline.now;
+      service.timelineController.add(
+        timelineBlock(frame(base + 16667, buildUs: 1400)),
+      );
+      newestFrame = base + 600000;
+      service.timelineReadError = RPCError('getVMTimeline', -32000, 'busy');
       await client.tickForTest();
-      final (origin, extent) = service.timelineWindows.last;
-      expect(origin, greaterThanOrEqualTo(Timeline.now - 1100000));
-      expect(origin! + extent!, greaterThan(Timeline.now));
+      expect(client.catchUpReads, 1);
+      expect(builds(), [2000, 1400]);
+      expect(client.timelineSource, TimelineSource.stream);
     });
 
     test('a flush runs one whether or not a frame is waiting', () async {
@@ -289,6 +330,53 @@ void main() {
         ]),
       );
       expect(client.lastStreamLagMs, inInclusiveRange(40, 200));
+    },
+  );
+
+  test('blocks a read makes the VM post leave the lag alone', () async {
+    service.timelineEvents = parsed(frame(base));
+    final client = await start();
+    await client.tickForTest();
+    service.timelineController.add(
+      timelineBlock([event('BUILD', 'X', Timeline.now - 30000, dur: 100)]),
+    );
+    final lag = client.lastStreamLagMs;
+    expect(lag, isNotNull);
+    // A quiet thread's unfinished block holds an event 5 s old.
+    newestFrame = Timeline.now;
+    service.flushOnRead = () => [
+      [event('Other', 'i', Timeline.now - 5000000, tid: _other)],
+    ];
+    await client.tickForTest();
+    expect(client.catchUpReads, 1);
+    expect(client.lastStreamLagMs, lag);
+  });
+
+  test(
+    'a later session drops streamed events older than its first read',
+    () async {
+      service.timelineEvents = parsed(frame(base));
+      final client = await start();
+      await client.tickForTest();
+      client.endSessionForTest();
+
+      // The next session reads [clock - 1 s, clock + 1 s] first.
+      final next = FakeVmService()..nowMicros = base + 3000000;
+      next.timelineEvents = parsed(frame(base + 2500000, buildUs: 1100));
+      expect(await client.startSessionForTest(next), isTrue);
+      batches.clear();
+      await client.tickForTest();
+      expect(builds(), [1100]);
+
+      // A quiet thread posts a block holding an event from before that read.
+      next.timelineController.add(
+        timelineBlock([
+          event('BUILD', 'X', base + 1000000, tid: _other, dur: 900),
+          event('BUILD', 'X', base + 2800000, tid: _other, dur: 800),
+        ]),
+      );
+      await client.tickForTest();
+      expect(builds(), [1100, 800]);
     },
   );
 

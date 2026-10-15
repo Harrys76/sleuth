@@ -69,6 +69,14 @@ class FakeVmService implements VmService {
   /// `(timeOriginMicros, timeExtentMicros)` of every `getVMTimeline` call.
   final List<(int?, int?)> timelineWindows = [];
 
+  /// The unfinished blocks a `getVMTimeline` call makes the VM post on the
+  /// `Timeline` stream before it answers, one list of events per thread.
+  /// Null posts nothing.
+  List<List<Map<String, dynamic>>> Function()? flushOnRead;
+
+  /// Thrown by the next `getVMTimeline` call, then cleared.
+  Object? timelineReadError;
+
   /// Value `getVMTimelineMicros` serves.
   int nowMicros = 1 << 40;
 
@@ -178,6 +186,13 @@ class FakeVmService implements VmService {
   }) async {
     calls.add('getVMTimeline');
     timelineWindows.add((timeOriginMicros, timeExtentMicros));
+    if (timelineReadError case final error?) {
+      timelineReadError = null;
+      throw error;
+    }
+    for (final block in flushOnRead?.call() ?? const []) {
+      if (block.isNotEmpty) timelineController.add(timelineBlock(block));
+    }
     final origin = timeOriginMicros;
     final end = origin == null ? null : origin + (timeExtentMicros ?? 0);
     bool inWindow(TimelineEvent e) {

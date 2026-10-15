@@ -17,6 +17,10 @@
 //   none          no request
 //   full          getVMTimeline over the whole buffer
 //   window<ms>    getVMTimeline from the VM clock minus <ms>
+//   empty         getVMTimeline for a window no event falls in, which
+//                 still makes the VM post every unfinished block
+//   stream-empty  empty, while listening to the Timeline stream (as a
+//                 stream session's catch-up read runs)
 //   clock         getVMTimelineMicros only
 //   memory        getMemoryUsage only
 //   stream        listen to the Timeline stream for 7 s instead
@@ -149,11 +153,22 @@ Future<void> _measure(
       await service.streamCancel(EventStreams.kTimeline);
       await sub.cancel();
     } else {
+      // `stream-empty`: empty-window reads while listening to the stream,
+      // as a stream session's catch-up reads run.
+      final listening = mode == 'stream-empty';
+      final sub = listening ? service.onTimelineEvent.listen((_) {}) : null;
+      if (listening) await service.streamListen(EventStreams.kTimeline);
       final run = Stopwatch()..start();
       while (run.elapsedMilliseconds < 7000) {
         final request = Stopwatch()..start();
         if (mode == 'full') {
           events += (await service.getVMTimeline()).traceEvents!.length;
+        } else if (mode == 'empty' || mode == 'stream-empty') {
+          final now = (await service.getVMTimelineMicros()).timestamp!;
+          events += (await service.getVMTimeline(
+            timeOriginMicros: now + 3600000000,
+            timeExtentMicros: 1,
+          )).traceEvents!.length;
         } else if (mode.startsWith('window')) {
           final windowUs = int.parse(mode.substring(6)) * 1000;
           final now = (await service.getVMTimelineMicros()).timestamp!;
@@ -174,6 +189,10 @@ Future<void> _measure(
         }
         final wait = periodMs - request.elapsedMilliseconds;
         await Future<void>.delayed(Duration(milliseconds: wait > 0 ? wait : 0));
+      }
+      if (listening) {
+        await service.streamCancel(EventStreams.kTimeline);
+        await sub!.cancel();
       }
     }
     final frames = await _recentFrames(call);

@@ -293,10 +293,11 @@
   in blocks of 64 as a block fills, which cost the measured frames
   nothing. The 500 ms tick stays and parses the blocks that arrived as one
   batch, so detectors keep their cadence. A thread that writes few events
-  holds them in an unfinished block, so when a frame finished more than
-  250 ms after the newest event seen on the frame or raster thread, the
-  tick reads those two threads' last second (at most once a second);
-  events from other threads that rarely fill a block arrive later.
+  holds them in an unfinished block, and any `getVMTimeline` request makes
+  the VM post every thread's unfinished block before it answers. So when a
+  frame finished more than 250 ms after the newest event seen on the frame
+  or raster thread (at most once a second), and at least every 2 s, the
+  tick requests an empty window and parses the blocks that arrive with it.
   Capture mode keeps the request, as do sessions whose VM refuses the
   stream or sends no block at all for 10 s while frames are drawn.
   `PollTimings` and the `lastPoll*` / `maxPoll*` diagnose keys describe the
