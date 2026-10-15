@@ -254,30 +254,46 @@
   scan splits counts once, and reports a burst once. Recorded frames replay
   in tests: on a Galaxy A07 at 90 Hz the GPU Pressure, Cupertino blur and
   IntrinsicHeight demos dropped 26 to 54 such frames a second, and other
-  screens 5 or fewer. With the VM timeline connected, a batch whose slowest
-  raster frame is over the budget and more than 2 times the UI total makes
-  the issue `confirmed`; the VM ratio no longer sets the severity. When no
-  frame timings arrive (the jank detector is off), the VM timeline reports
-  alone, critical above twice the budget. `effectiveMaxFrameRasterFloorUs`
-  is the resolved frame budget, or `maxFrameRasterFloorUs` when larger.
+  screens 5 or fewer. The VM timeline does not pair a frame's raster with
+  its UI work, so it sets each raster frame against the UI time of an
+  average frame in its poll; it compared one frame's raster with the whole
+  poll's UI total, which grows with the frame count, so it almost never
+  agreed on an animated screen and read old values on idle polls. With the
+  VM timeline connected, one raster frame since the last scan over the
+  budget and more than 2 times that UI time makes the issue `confirmed`;
+  the VM ratio no longer sets the severity. When no frames arrived since
+  the last scan (the jank detector is off), the VM timeline reports alone
+  once one poll holds 3 such frames, critical at 10. A route change drops
+  the VM timing seen before it. `effectiveMaxFrameRasterFloorUs` is the
+  resolved frame budget, or `maxFrameRasterFloorUs` when larger. On some
+  Android phones Sleuth's own timeline poll stalls the raster thread about
+  twice a second (a 30 to 48 ms raster frame every 500 ms on a Galaxy A07),
+  which the detector does not yet take out.
 - Behavior change: on displays faster than `fpsTarget`, `heavy_compute`
   warns at three quarters of the frame budget, at most 8 ms (it was half
   the budget): 8 ms at 90 Hz and 6.25 ms at 120 Hz, critical at twice that.
   Half the budget flagged builds that left half the frame for layout, paint
   and raster. At the `fpsTarget` budget, with an explicit
-  `heavyComputeGapMs` and in capture mode the threshold stays at 8 ms.
+  `heavyComputeGapMs` and in capture mode the threshold stays as before:
+  8 ms, or the explicit value.
 - Behavior change: `jank_detected` and `sustained_jank` judge only the
   frames whose vsync lies within 10 s of the newest frame's, outside
   capture mode. A screen that stops animating draws only Sleuth's own scan
   frames, about one a second, so the 240-frame buffer kept the bad frames
   for minutes and the card stayed after the jank ended. The cards now clear
   about 10 s after the jank stops. Frames without a vsync time still count.
+  On such a screen ten frames fill the window, so `jank_detected` also needs
+  at least 3 late frames (`FrameTimingDetector.minJankFrameCount`); one or
+  two hitches no longer read as 10 to 20 % jank.
 - Example: the gallery's pages come from Cloudflare's speed-test endpoint,
   because httpbin caps `/bytes/N` at 102,400 bytes and the 1.1 MB page
-  never reached the `large_response` threshold. The bad gallery loads up
-  to 3 more pages on its own while its list is too short to scroll, so its
-  load-on-scroll can start, and its list can be pulled to refresh on
-  Android. The Memory Pressure demo fills its native buffers with random
+  never reached the `large_response` threshold. The bad gallery loads more
+  pages on its own until its list can scroll (at most 10), so its
+  load-on-scroll can start; a pull on a list that cannot scroll no longer
+  counts as a scroll to the end, and the list can be pulled to refresh on
+  Android. A non-2xx answer is an error, not a page, the request cap has
+  its own message with no retry, and a pull at the cap keeps the loaded
+  pages. The Memory Pressure demo fills its native buffers with random
   bytes, because iOS compresses zero pages and RSS did not grow.
 
 ## 0.37.0

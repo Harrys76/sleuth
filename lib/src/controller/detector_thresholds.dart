@@ -243,8 +243,9 @@ class DetectorThresholds {
   /// resolved frame budget is the `fpsTarget` budget: warning above 8 ms,
   /// critical above 16 ms at 60 Hz. When the measured frame rate is above
   /// `fpsTarget` (e.g. a 120 Hz device rendering at 120), the threshold
-  /// becomes half the resolved frame budget (4.2 ms at 120 Hz). An
-  /// explicit value is used as-is and never scales.
+  /// becomes three quarters of the resolved frame budget, at most 8 ms
+  /// (8 ms at 90 Hz, 6.25 ms at 120 Hz). An explicit value is used as-is
+  /// and never scales.
   ///
   /// **Raise this** to quiet the detector on slower devices. **Lower
   /// this** (e.g. 4 ms) for a stricter main-isolate budget audit.
@@ -260,11 +261,13 @@ class DetectorThresholds {
   /// **Default:** 2.0. Raster time is normally a small fraction of UI
   /// time; a ratio above 2 means the GPU is the bottleneck (excess
   /// layers, saveLayer calls, or expensive shaders). Per frame
-  /// (`FrameTiming`, every tier): 3 raster-dominant frames inside one
-  /// second raise `raster_dominance` as likely, critical when those
-  /// frames also exceeded the frame budget. VM timeline: the worst raster
-  /// frame against the UI thread total confirms it, critical at 2× this
-  /// value.
+  /// (`FrameTiming`, every tier): a frame counts when its raster time is
+  /// over its frame budget and above this ratio times its UI time; 3 such
+  /// frames inside one second raise `raster_dominance` as likely, 10 make
+  /// it critical. VM timeline: a raster frame over the budget and above
+  /// this ratio times the UI time of an average frame in its poll confirms
+  /// it; with no frame timings, 3 such frames in one poll raise it alone,
+  /// 10 make it critical.
   ///
   /// **Raise this** (e.g. 3.0) for games or intentionally GPU-heavy
   /// scenes. **Lower this** (e.g. 1.5) to catch GPU pressure earlier.

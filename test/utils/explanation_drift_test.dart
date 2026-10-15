@@ -126,6 +126,16 @@ void main() {
     ),
     (
       'jank_detected',
+      _Field.whatItIs,
+      'at least ${FrameTimingDetector.minJankFrameCount} of them late',
+    ),
+    (
+      'jank_detected',
+      _Field.readingTheData,
+      'at least ${FrameTimingDetector.minJankFrameCount} of them were late',
+    ),
+    (
+      'jank_detected',
       _Field.readingTheData,
       'share of the last $jankWindowSeconds seconds of frames',
     ),
@@ -335,6 +345,13 @@ void main() {
       'raster_dominance',
       _Field.readingTheData,
       '${gpu.criticalRasterDominantFrames} within one second make it '
+          'critical',
+    ),
+    (
+      'raster_dominance',
+      _Field.readingTheData,
+      '${gpu.minRasterDominantFrames} such frames in one poll (about half a '
+          'second) are a warning, and ${gpu.criticalRasterDominantFrames} are '
           'critical',
     ),
     (

@@ -261,7 +261,8 @@ class IssueExplanationBuilder {
       category: IssueCategory.build,
       whatItIs:
           'More than 15% of the frames from the last 10 seconds (with at '
-          'least 5 frames sampled) missed their deadline. At 60 FPS the budget is 16.7ms: '
+          'least 5 frames sampled, and at least 3 of them late) missed '
+          'their deadline. At 60 FPS the budget is 16.7ms: '
           'a frame misses it when its start delay plus its build runs past '
           'the budget, or when its raster alone does. Sustained jank counts '
           'severe frames. This issue tracks how often ordinary frames miss '
@@ -276,7 +277,9 @@ class IssueExplanationBuilder {
           'at 60 FPS.\n\n'
           '• Janky % is the share of the last 10 seconds of frames over '
           'budget. Sleuth raises a warning above 15%, once at least 5 frames '
-          'are sampled, and the issue clears about 10 seconds after the jank '
+          'are sampled and at least 3 of them were late, so one or two '
+          'hitches on a quiet screen that draws a frame a second do not '
+          'count. The issue clears about 10 seconds after the jank '
           'stops.\n\n'
           '• UI duration is the time spent building and laying out '
           'widgets.\n\n'
@@ -444,10 +447,11 @@ class IssueExplanationBuilder {
           'finishes.\n\n'
           '• Build duration ms is how long the BUILD pass ran. Under 8ms is '
           'normal. Sleuth reports above 8ms (warning) and above 16ms '
-          '(critical). These defaults apply at 60 Hz. On faster displays the '
-          'warning is three quarters of the frame budget, at most 8ms (6.25ms '
-          'at 120 Hz), and critical stays at twice the warning. Both are '
-          'configurable.\n\n'
+          '(critical). These defaults apply at the target frame rate '
+          '(fpsTarget, 60 by default). When the app renders faster than the '
+          'target, the warning is three quarters of the frame budget, at '
+          'most 8ms (6.25ms at 120 Hz), and critical stays at twice the '
+          'warning. Both are configurable.\n\n'
           '• Dirty widgets lists the widgets marked dirty during the heavy '
           'build. They show what triggered the work.\n\n'
           '• The data comes from VM timeline build-phase events.',
@@ -560,7 +564,7 @@ class IssueExplanationBuilder {
           'SleuthConfig.gcRateThresholdPerMin), that is, more than 40 '
           'scavenges in 10 seconds. Scavenges rise with the frame rate, so an '
           'animated screen on a 90 or 120 Hz display can cross it; at 90 Hz '
-          'the Galaxy spent 4 to 5 % of its time in GC pauses on such a '
+          'the Galaxy spent 3.7 to 4.9 % of its time in GC pauses on such a '
           'screen.\n\n'
           '• The title number (for example "300 young GCs/min") is the rate '
           'over the last 10 seconds. The detail also counts old-generation '
@@ -1245,9 +1249,9 @@ class IssueExplanationBuilder {
       displayName: 'Raster dominance',
       category: IssueCategory.raster,
       whatItIs:
-          'The raster thread is consistently taking longer than the UI '
-          'thread. GPU work (compositing, painting to the screen) dominates '
-          'frame time, not widget building.',
+          'Frames keep missing their deadline on the raster thread while '
+          'the UI thread finishes in time. GPU work (compositing, painting '
+          'to the screen) sets the frame time, not widget building.',
       readingTheData:
           'Like a restaurant where the chef finishes dishes quickly but the '
           'waiter takes forever to serve them. The bottleneck is delivery, '
@@ -1264,11 +1268,12 @@ class IssueExplanationBuilder {
           '• 3 raster-dominant frames within one second raise the issue as a '
           'warning, and 10 within one second make it critical. Sleuth '
           'ignores frames in the first seconds after launch.\n\n'
-          '• When the VM timeline is connected and its slowest raster frame '
-          'since the last scan is also over the budget and above 2.0 times '
-          'the UI total, the issue is confirmed. With frame timing turned off, the VM timeline raises it '
-          'alone: a frame over the budget and above 2.0 times the UI total is '
-          'a warning, and over twice the budget is critical.\n\n'
+          '• When the VM timeline is connected and shows a raster frame '
+          'since the last scan that is also over the budget and above 2.0 '
+          'times the UI time of an average frame in its poll, the issue is '
+          'confirmed. With frame timing turned off, the VM timeline raises '
+          'it alone: 3 such frames in one poll (about half a second) are a '
+          'warning, and 10 are critical.\n\n'
           '• Raster ms and UI ms are the absolute times for each thread. Both '
           'must stay under the frame budget (16.7ms at 60 Hz) to avoid '
           'jank.\n\n'
@@ -1286,9 +1291,12 @@ class IssueExplanationBuilder {
           'display size to reduce texture upload cost. Consider simpler '
           'visual effects on lower-end devices.',
       whenToIgnore:
-          'GPU-heavy screens (complex animations, many overlapping '
-          'transparent layers) can be raster-dominated without a problem if '
-          'frames still meet the budget.',
+          'A short burst during a page transition or the first frames of a '
+          'heavy effect can be acceptable when the screen settles. On some '
+          'Android phones Sleuth\'s own VM timeline poll stalls the raster '
+          'thread about twice a second, so a warning from frames about '
+          '500 ms apart on an otherwise smooth screen can be Sleuth\'s '
+          'cost.',
       relatedIssues: [
         'always_repaint_painter',
         'frequent_repaint_painter',

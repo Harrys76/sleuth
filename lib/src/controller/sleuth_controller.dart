@@ -1323,7 +1323,7 @@ class SleuthController {
 
   /// Applies the resolved budget to budget-derived detector thresholds.
   /// The GPU detector's VM leg always takes the resolved budget. At the
-  /// `fpsTarget` budget heavy_compute keeps its own 8 ms threshold; above
+  /// `fpsTarget` budget heavy_compute keeps its `lagThresholdMs`; above
   /// `fpsTarget` it derives one from the resolved budget.
   T _withFrameBudget<T extends BaseDetector>(T detector) {
     final budgetUs = _frameBudget.budgetUs;
@@ -4908,7 +4908,7 @@ class SleuthController {
 
     // Export and service-extension readers always see the freshest list.
     // The notifier fires only when something a reader can see changed —
-    // live counters in titles/details (e.g. "45 GC/min") change the
+    // live counters in titles/details (e.g. "390 young GCs/min") change the
     // fingerprint. Per-tick panels listen to [scanTickNotifier] instead.
     _latestIssues = ranked;
     final fingerprint = _issuesFingerprint(ranked);
@@ -5988,7 +5988,7 @@ class SleuthConfig {
   ///
   /// **Default:** 240 (4 per second sustained over the 10 s window).
   /// On an iPhone 12 and a Galaxy A07 at 60 Hz, ordinary screens ran 168
-  /// scavenges a minute or fewer and the GC Churn demo 342 to 810.
+  /// scavenges a minute or fewer and the GC Churn demo 390 to 810.
   /// Scavenges rise with the frame rate: an animated screen at 90 Hz on
   /// the Galaxy ran 186 to 246, with 3.7 to 4.9 % of the time in GC
   /// pauses. Each `gc_pressure` emission stamps

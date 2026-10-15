@@ -1517,9 +1517,9 @@ not viable on the VM ratio. Two blockers each rule out a ratio bracket:
    units, because a trace cannot certify a ratio. A ratio bracket
    checked against a ratio the detector stamps would certify itself.
 
-Since 0.38.0 the VM leg pairs the slowest raster frame with the UI
-total of its own batch, read once per scan, and the ratio no longer
-sets the severity. The issue fires on frames whose raster time missed
+Since 0.38.0 the VM leg sets each raster frame against the UI time of
+an average frame in its own poll, read once per scan, and the ratio no
+longer sets the severity. The issue fires on frames whose raster time missed
 the frame budget: 3 within one second warn and 10 are critical. A future
 raise should bracket that count of missed frames per second, or the
 worst frame's raster duration, which the trace-versus-observed

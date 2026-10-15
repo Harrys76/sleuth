@@ -135,11 +135,12 @@ class _GpuPressureDemoState extends State<GpuPressureDemo>
 /// every frame pays for eighteen large blurs on the raster thread.
 ///
 /// Six circles at sigma 40 cost about 3 ms of raster per frame on an
-/// iPhone 12 (median UI 0.5 ms), under the 8 ms floor; eighteen at sigma 60
-/// is the first setting that crosses it. The cost is tuned on a
-/// device so that at least 3 frames per second rasterize for over 8 ms
-/// at more than twice their UI time, which is what `raster_dominance`
-/// needs; on a faster GPU raise [_orbCount] or [_sigma].
+/// iPhone 12 (median UI 0.5 ms); eighteen at sigma 60 is tuned so that
+/// some frames miss their budget on the raster thread at more than twice
+/// their UI time, which is what `raster_dominance` counts. The iPhone 12
+/// missed 2 to 5 such frames a second (a warning at 3) and a Galaxy A07
+/// 37 to 52 (critical at 10); on a faster GPU raise [_orbCount] or
+/// [_sigma].
 class _BlurOrbsPainter extends CustomPainter {
   _BlurOrbsPainter(this.animation) : super(repaint: animation);
 

@@ -91,7 +91,7 @@ class MemoryPressureDetector extends BaseDetector
   /// Old-generation sweeps and concurrent-marking starts do not count: on
   /// animated screens they follow promotion and pause the app briefly.
   /// On an iPhone 12 and a Galaxy A07 at 60 Hz, ordinary screens ran 168
-  /// scavenges a minute or fewer, and the GC Churn demo ran 342 to 810.
+  /// scavenges a minute or fewer, and the GC Churn demo ran 390 to 810.
   /// Scavenges rise with the frame rate: Live Waveform at 90 Hz on the
   /// Galaxy ran 186 to 246 a minute with 3.7 to 4.9 % of the time in GC
   /// pauses, more than the churn demo. Each emission stamps the

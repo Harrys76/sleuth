@@ -208,7 +208,7 @@ issue list.
 | ShaderJank | Shader Jank (first run) | "Shader Compilation" (VM+ only) | |
 | MemoryPressure | Memory Pressure | "Heap Growing" or "High GC Pressure" (VM+ only) | |
 | PlatformChannel | Platform Channel Traffic | "High Platform Channel Traffic" (VM+ only) | |
-| GpuPressure | GPU Pressure | "Raster Dominance" (FrameTiming leg `likely`, VM+ leg `confirmed`) | |
+| GpuPressure | GPU Pressure | "Raster Dominance" (FrameTiming leg `likely`, `confirmed` when a VM+ raster frame also misses the budget) | |
 | FrameTiming | CSV Import | "Jank Detected" with the share of frames over budget | |
 | NetworkMonitor | Search + Gallery | "Slow Request", "Large Response" or "Request Frequency Spike" | |
 | StreamResource | Stream Resource Leaks (VM+ only) | "Stream Resources Growing" | |
