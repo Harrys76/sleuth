@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/models/allocation_entry.dart';
@@ -1396,8 +1398,9 @@ void main() {
     test(
       'flags native_memory_growing when growth > 1MB/s sustained 10+ seconds',
       () {
-        // 2MB/s native growth for 12 seconds (24 samples), flat heap
-        for (var i = 0; i < 24; i++) {
+        // 2MB/s native growth for 14 seconds (28 samples), flat heap; the
+        // both-halves rule needs 4 samples per half before it evaluates
+        for (var i = 0; i < 28; i++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
           detector.processHeapSample(
             _sample(
@@ -1416,7 +1419,7 @@ void main() {
     );
 
     test('native_memory_growing stableId, confidence, category correct', () {
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 28; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         detector.processHeapSample(
           _sample(
@@ -1438,7 +1441,7 @@ void main() {
     });
 
     test('native_memory_growing detail contains rate and native estimate', () {
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 28; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         detector.processHeapSample(
           _sample(
@@ -1471,6 +1474,91 @@ void main() {
       }
       return seen;
     }
+
+    // The seconds, since the first sample, of each 0.5 s step that showed
+    // native_memory_growing, for an RSS curve over a flat 50 MB heap.
+    List<double> nativeCardTimes(int seconds, double Function(double t) rss) {
+      final times = <double>[];
+      for (var i = 0; i < seconds * 2; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(
+          _sample(rssBytes: rss(i / 2).round(), timestamp: fakeNow),
+        );
+        if (detector.issues.any((x) => x.stableId == 'native_memory_growing')) {
+          times.add(i / 2);
+        }
+      }
+      return times;
+    }
+
+    group('continued growth', () {
+      const mib = 1048576.0;
+
+      test('a 2 MiB/s ramp with 5 MB of jitter is native growth', () {
+        final random = math.Random(1);
+        final times = nativeCardTimes(
+          30,
+          (t) => 150e6 + 2 * mib * t + random.nextDouble() * 10e6 - 5e6,
+        );
+        expect(times, isNotEmpty);
+        expect(times.first, lessThanOrEqualTo(18));
+      });
+
+      test('a ramp that stops loses the card within 10 s of the plateau', () {
+        final times = nativeCardTimes(
+          50,
+          (t) => 150e6 + 2 * mib * math.min(t, 20),
+        );
+        expect(times, contains(20.0));
+        expect(times.last, lessThanOrEqualTo(30));
+      });
+
+      test('a one-time 50 MB jump is not native growth', () {
+        expect(
+          nativeCardTimes(60, (t) => 150e6 + (t >= 20 ? 50e6 : 0)),
+          isEmpty,
+        );
+      });
+
+      test('10 MB every 5 s is native growth', () {
+        expect(
+          nativeCardTimes(60, (t) => 150e6 + 10e6 * (math.max(0, t - 10) ~/ 5)),
+          isNotEmpty,
+        );
+      });
+
+      test('two 20 MB jumps 20 s apart are too far apart to read as '
+          'growth', () {
+        // The documented limit: a half without a jump stays flat.
+        expect(
+          nativeCardTimes(
+            70,
+            (t) => 150e6 + (t >= 10 ? 20e6 : 0) + (t >= 30 ? 20e6 : 0),
+          ),
+          isEmpty,
+        );
+      });
+
+      test('a half with fewer than 4 samples does not evaluate', () {
+        HeapSample at(double t) => _sample(
+          rssBytes: (150e6 + 2 * mib * t).round(),
+          timestamp: DateTime(
+            2026,
+          ).add(Duration(milliseconds: (t * 1000).round())),
+        );
+        // Three samples, a gap, then five: the time midpoint leaves three
+        // in the first half.
+        final sparse = [
+          for (final t in [0.0, 0.5, 1.0, 8.0, 8.5, 9.0, 9.5, 10.0]) at(t),
+        ];
+        expect(MemoryPressureDetector.continuedGrowthSlope(sparse), 0);
+        final even = [for (var i = 0; i < 8; i++) at(i / 2)];
+        expect(
+          MemoryPressureDetector.continuedGrowthSlope(even),
+          greaterThan(mib),
+        );
+      });
+    });
 
     test('a large Dart heap drop with flat RSS is not native growth', () {
       // Freeing 50 MB of Dart objects lowers heap usage while RSS keeps
@@ -1514,7 +1602,7 @@ void main() {
 
     test('native_memory_growing coexists with heap_growing', () {
       // Both heap and native growing
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 28; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         detector.processHeapSample(
           _sample(
@@ -1585,7 +1673,7 @@ void main() {
 
     test('reset clears native sustained growth tracking', () {
       // Trigger native_memory_growing
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 28; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         detector.processHeapSample(
           _sample(

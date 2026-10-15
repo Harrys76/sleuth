@@ -312,7 +312,9 @@ void main() {
 
     group('native_memory_growing (RSS-heap gap > 1MB/s sustained 10s)', () {
       test('native memory growing at 2MB/s over 10s fires', () {
-        for (var i = 0; i < 25; i++) {
+        // 14 s: the both-halves rule needs 4 samples per half before the
+        // 10 s sustain starts.
+        for (var i = 0; i < 28; i++) {
           detector.processHeapSample(
             HeapSample(
               heapUsage: 5 * 1024 * 1024,

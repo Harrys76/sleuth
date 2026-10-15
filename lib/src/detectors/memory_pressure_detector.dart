@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:math' as math;
 
+import 'package:meta/meta.dart';
+
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
@@ -171,8 +173,19 @@ class MemoryPressureDetector extends BaseDetector
   // -- Heap trend rolling window --
 
   static const int _windowCapacity = 60; // 30 seconds at 500ms
-  static const int _sustainedGrowthDurationSec = 10;
-  static const int _nativeGrowthThresholdBytesPerSec = 1048576; // 1 MB/sec
+  /// Seconds a growth rate must stay above its threshold before
+  /// `heap_growing` (sample leg) or `native_memory_growing` emits.
+  @visibleForTesting
+  static const int sustainedGrowthDurationSec = 10;
+
+  /// `native_memory_growing` threshold in bytes per second (1 MiB/s).
+  @visibleForTesting
+  static const int nativeGrowthThresholdBytesPerSec = 1048576;
+
+  /// Fewest heap samples each half of the window needs before
+  /// `native_memory_growing` evaluates.
+  @visibleForTesting
+  static const int nativeMinSamplesPerHalf = 4;
 
   final Queue<HeapSample> _heapSamples = Queue<HeapSample>();
   // Sample leg: when the sample regression first crossed the threshold in
@@ -625,7 +638,7 @@ class MemoryPressureDetector extends BaseDetector
     final sustained = _heapSamples.last.timestamp.difference(
       _sampleSustainedStart!,
     );
-    if (sustained.inSeconds < _sustainedGrowthDurationSec) return null;
+    if (sustained.inSeconds < sustainedGrowthDurationSec) return null;
     return (slope: slope, sustained: sustained);
   }
 
@@ -853,21 +866,14 @@ class MemoryPressureDetector extends BaseDetector
       if (sinceFirst.inMilliseconds < warmupDurationMs) return;
     }
 
-    // Native growth must show in the RSS itself. When RSS keeps the pages
-    // of freed Dart objects, a heap drop raises RSS minus the heap without
-    // moving RSS; a drop of about 25 MB or more read above 1 MiB/s for
-    // longer than 10 s.
-    final slope = math.min(
-      _slopeBytesPerSec(nativeSamples, (s) => s.nativeBytes!),
-      _slopeBytesPerSec(nativeSamples, (s) => s.rssBytes!),
-    );
+    final slope = continuedGrowthSlope(nativeSamples);
 
-    if (slope > _nativeGrowthThresholdBytesPerSec) {
+    if (slope > nativeGrowthThresholdBytesPerSec) {
       _sustainedNativeGrowthStart ??= nativeSamples.last.timestamp;
       final sustained = nativeSamples.last.timestamp.difference(
         _sustainedNativeGrowthStart!,
       );
-      if (sustained.inSeconds >= _sustainedGrowthDurationSec) {
+      if (sustained.inSeconds >= sustainedGrowthDurationSec) {
         final slopeMbSec = slope / (1024 * 1024);
         final (hint, effort) = FixHintBuilder.nativeMemoryGrowth();
         _issues.add(
@@ -883,8 +889,9 @@ class MemoryPressureDetector extends BaseDetector
             detail:
                 'Process memory outside the Dart heap has grown at '
                 '${slopeMbSec.toStringAsFixed(2)} MB/sec for '
-                '${sustained.inSeconds} seconds, and the process RSS grew '
-                'at least as fast. Possible causes are '
+                '${sustained.inSeconds} seconds, in both halves of the last '
+                '30 seconds, and the process RSS grew at least as fast. '
+                'Possible causes are '
                 'undisposed GPU textures, images decoded at full resolution, '
                 'or platform channel buffers that keep growing. The current '
                 'native estimate is '
@@ -904,9 +911,45 @@ class MemoryPressureDetector extends BaseDetector
     }
   }
 
+  /// The slowest growth rate across [samples], in bytes/sec, over the
+  /// whole window and over each half split at its time midpoint. Each
+  /// rate is the lower of the native and RSS regressions. Zero while a
+  /// half holds fewer than [nativeMinSamplesPerHalf] samples.
+  ///
+  /// Native growth must show in the RSS itself. When RSS keeps the pages
+  /// of freed Dart objects, a heap drop raises RSS minus the heap without
+  /// moving RSS; a drop of about 25 MB or more read above 1 MiB/s for
+  /// longer than 10 s.
+  ///
+  /// Growth must also continue through the window. A one-time jump of D
+  /// bytes in the middle of a 30 s window reads about 1.5 D / 30 s as one
+  /// slope, so a screen that allocated 25 MB once read as growth for more
+  /// than 10 s. A jump leaves one half flat. Growth that arrives in chunks
+  /// more than about 15 s apart can leave a half flat too and is not
+  /// reported.
+  @visibleForTesting
+  static double continuedGrowthSlope(List<HeapSample> samples) {
+    double rate(List<HeapSample> part) => math.min(
+      _slopeBytesPerSec(part, (s) => s.nativeBytes!),
+      _slopeBytesPerSec(part, (s) => s.rssBytes!),
+    );
+    final start = samples.first.timestamp;
+    final middle = start.add(samples.last.timestamp.difference(start) ~/ 2);
+    final split = samples.indexWhere((s) => !s.timestamp.isBefore(middle));
+    if (split < nativeMinSamplesPerHalf ||
+        samples.length - split < nativeMinSamplesPerHalf) {
+      return 0;
+    }
+    return [
+      rate(samples),
+      rate(samples.sublist(0, split)),
+      rate(samples.sublist(split)),
+    ].reduce(math.min);
+  }
+
   /// Growth rate of [value] across [samples] in bytes/sec, by linear
   /// regression.
-  double _slopeBytesPerSec(
+  static double _slopeBytesPerSec(
     List<HeapSample> samples,
     int Function(HeapSample sample) value,
   ) {
@@ -990,9 +1033,12 @@ class MemoryPressureDetector extends BaseDetector
         'samples and `heap_growing` emitted in the same evaluation. It '
         'stays silent when the budget is unset, and RSS-null samples never '
         'count. `native_memory_growing` fires when the slope of the '
-        'RSS-heap gap and the slope of RSS itself are both above 1MB/s, '
-        'sustained for at least 10s; RSS stays flat while the Dart heap '
-        'collects, so the heap sawtooth never fires it. The '
+        'RSS-heap gap and the slope of RSS itself are both above 1MB/s '
+        'over the 30 s window and over each half of it, sustained for at '
+        'least 10s; RSS stays flat while the Dart heap collects, so the '
+        'heap sawtooth never fires it, and a one-time jump leaves one half '
+        'flat. Recorded Galaxy A07 and iPhone 12 staircases (10 MB every '
+        '2.5 s) fire it, and a Galaxy screen-open jump does not. The '
         'reproducer asserts that null rssBytes (web) and the zero-heap and '
         'zero-capacity null-coalesce edges emit nothing.\n\n'
         'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s) to '

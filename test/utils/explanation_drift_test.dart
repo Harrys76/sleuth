@@ -209,6 +209,12 @@ void main() {
       'more than ${config.gcRateThresholdPerMin ~/ 6} cycles in 10 seconds',
     ),
     (
+      'native_memory_growing',
+      _Field.readingTheData,
+      'above ${MemoryPressureDetector.nativeGrowthThresholdBytesPerSec ~/ 1048576} MB/s over the last 30 seconds and over each half of '
+          'them, for ${MemoryPressureDetector.sustainedGrowthDurationSec} seconds or more',
+    ),
+    (
       'heap_near_capacity',
       _Field.whatItIs,
       '${(thresholds.memoryCapacityPercent * 100).round()}% or more of the '
