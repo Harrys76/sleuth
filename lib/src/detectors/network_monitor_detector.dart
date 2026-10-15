@@ -119,6 +119,40 @@ class NetworkMonitorDetector extends BaseDetector
   /// pipeline's `_evaluate` wrapper that clears `_issues` first).
   void flushFrequencyEvaluation() => _recomputeFrequencyPeak();
 
+  int _lastObservedErrorCount = 0;
+
+  /// Most HTTP errors (status 400 or above, or a transport failure)
+  /// that started within one 5 s window of the buffer, from the most
+  /// recent evaluation, below [errorSpikeThreshold] too. Capture screens
+  /// export it for legs where no `http_error_spike` issue fires.
+  int get lastObservedErrorCount => _lastObservedErrorCount;
+
+  /// Recomputes [lastObservedErrorCount] without emitting an issue.
+  void flushErrorSpikeEvaluation() => _errorPeak();
+
+  int _lastObservedSamePathCluster = 0;
+
+  /// Most GET, HEAD or OPTIONS requests to one path (query stripped)
+  /// that started within 500 ms of each other, from the most recent
+  /// evaluation, below [duplicateThreshold] too. Capture screens export
+  /// it for legs where no `high_frequency_same_path` issue fires.
+  int get lastObservedSamePathCluster => _lastObservedSamePathCluster;
+
+  /// Recomputes [lastObservedSamePathCluster] without emitting an issue.
+  void flushSamePathEvaluation() => _samePathClusters();
+
+  /// Identities of the last `http_error_spike` and
+  /// `high_frequency_same_path` emissions. Each emission's identity is
+  /// its `detectedAt`, moved past the previous one when two evaluations
+  /// share a clock reading, so capture records never share an identity.
+  int _lastErrorIdentityMicros = 0;
+  int _lastSamePathIdentityMicros = 0;
+
+  static int _nextIdentity(DateTime at, int previous) {
+    final micros = at.microsecondsSinceEpoch;
+    return micros > previous ? micros : previous + 1;
+  }
+
   /// Records with `startedAt` before this timestamp are from a previous page
   /// and are silently dropped by [processRecord]. Set by [clearRecords] on
   /// route transitions.
@@ -220,6 +254,8 @@ class NetworkMonitorDetector extends BaseDetector
     _frequencyTimer?.cancel();
     _frequencyTimer = null;
     _lastObservedPeakCount = 0;
+    _lastObservedErrorCount = 0;
+    _lastObservedSamePathCluster = 0;
   }
 
   /// Clear and rebuild all issues from current buffer state.
@@ -422,24 +458,24 @@ class NetworkMonitorDetector extends BaseDetector
     );
   }
 
-  void _evaluateErrors() {
-    // Filter to error records, then find peak 5-second window.
-    final errorRecords = _records
-        .where((r) => r.statusCode >= 400 || r.statusCode == -1)
-        .toList();
-
-    if (errorRecords.length < 3) return;
-
-    // Find peak 5-second error window across the buffer, tracking bounds
-    // so severity and detail are scoped to the same window.
-    int peakCount = 0;
-    int peakLeft = 0;
-    int peakRight = 0;
-    int left = 0;
-    for (var right = 0; right < errorRecords.length; right++) {
+  /// The largest 5 s window of error records by start time, as the
+  /// error records sorted by `startedAt`, the window's size and its first
+  /// index. Records arrive in completion order; a slow error that
+  /// finishes after a later one is sorted back into place. Updates
+  /// [lastObservedErrorCount].
+  ({List<RequestRecord> errors, int count, int left}) _errorPeak() {
+    final errors =
+        _records
+            .where((r) => r.statusCode >= 400 || r.statusCode == -1)
+            .toList()
+          ..sort((a, b) => a.startedAt.compareTo(b.startedAt));
+    var peakCount = 0;
+    var peakLeft = 0;
+    var left = 0;
+    for (var right = 0; right < errors.length; right++) {
       while (left < right &&
-          errorRecords[right].startedAt
-                  .difference(errorRecords[left].startedAt)
+          errors[right].startedAt
+                  .difference(errors[left].startedAt)
                   .inMilliseconds >
               _frequencyWindowMs) {
         left++;
@@ -448,15 +484,20 @@ class NetworkMonitorDetector extends BaseDetector
       if (windowSize > peakCount) {
         peakCount = windowSize;
         peakLeft = left;
-        peakRight = right;
       }
     }
+    _lastObservedErrorCount = peakCount;
+    return (errors: errors, count: peakCount, left: peakLeft);
+  }
 
+  void _evaluateErrors() {
+    final (errors: errorRecords, count: peakCount, left: peakLeft) =
+        _errorPeak();
     if (peakCount < errorSpikeThreshold) return;
 
     // Scope breakdown counts to the peak window so severity, title, and
     // detail all describe the same set of errors.
-    final peakRecords = errorRecords.sublist(peakLeft, peakRight + 1);
+    final peakRecords = errorRecords.sublist(peakLeft, peakLeft + peakCount);
     final transportFailures = peakRecords
         .where((r) => r.statusCode == -1)
         .length;
@@ -481,6 +522,11 @@ class NetworkMonitorDetector extends BaseDetector
       transportFailures: transportFailures,
     );
 
+    final detectedAt = _clock();
+    _lastErrorIdentityMicros = _nextIdentity(
+      detectedAt,
+      _lastErrorIdentityMicros,
+    );
     _issues.add(
       PerformanceIssue(
         stableId: 'http_error_spike',
@@ -495,50 +541,49 @@ class NetworkMonitorDetector extends BaseDetector
             '$urlDetails',
         fixHint: hint,
         fixEffort: effort,
-        detectedAt: _clock(),
+        detectedAt: detectedAt,
+        dedupIdentityMicros: _lastErrorIdentityMicros,
+        extraTraceArgs: {'observedErrorCount': peakCount.toString()},
         confidenceReason: 'Measured directly from HTTP interception',
       ),
     );
   }
 
-  void _evaluateHighFrequencySamePath() {
-    // Group all buffered records by normalized URL (method + path, no query
-    // params). Flag when ≥3 requests to the same endpoint cluster within
-    // 500ms — this is high-frequency traffic to one path that strongly
-    // indicates missing cache, un-debounced input, or redundant fetches
-    // from multiple widgets. Query strings are intentionally stripped so
-    // that pagination / search params still count as the same endpoint
-    // for burst detection. Uses the full buffer so evidence persists
-    // until route transition clears records.
-    // Cancels excluded — an aborted request to the same path is not
-    // evidence of missing caching or un-debounced input.
-    final recentRecords = _records
-        .where((r) => !r.cancelled)
-        .toList(growable: false);
-
-    // Group by method + normalized URL
+  /// The idempotent request groups (method + path, query stripped) with
+  /// their records sorted by `startedAt` and their largest 500 ms
+  /// cluster. Updates [lastObservedSamePathCluster].
+  List<({String key, List<RequestRecord> records, int cluster})>
+  _samePathClusters() {
+    // Group all buffered records by normalized URL (method + path, no
+    // query params). Query strings are intentionally stripped so that
+    // pagination / search params still count as the same endpoint for
+    // burst detection. Uses the full buffer so evidence persists until
+    // route transition clears records. Cancels excluded — an aborted
+    // request to the same path is not evidence of missing caching or
+    // un-debounced input.
     final groups = <String, List<RequestRecord>>{};
-    for (final record in recentRecords) {
+    for (final record in _records) {
+      if (record.cancelled) continue;
       final key = '${record.method.toUpperCase()} ${_normalizeUrl(record.url)}';
       (groups[key] ??= []).add(record);
     }
 
+    final result = <({String key, List<RequestRecord> records, int cluster})>[];
+    var largest = 0;
     for (final entry in groups.entries) {
-      final records = entry.value;
-      if (records.length < _duplicateThreshold) continue;
-
-      // Only detect duplicates for idempotent methods where repeated
-      // identical requests are clearly redundant. POST/PUT/PATCH may
-      // hit the same URL with different payloads intentionally.
+      // Only idempotent methods, where repeated identical requests are
+      // clearly redundant. POST/PUT/PATCH may hit the same URL with
+      // different payloads intentionally.
       final method = entry.key.split(' ').first;
       if (method != 'GET' && method != 'HEAD' && method != 'OPTIONS') continue;
 
       // Largest number of requests whose start times lie within 500 ms of
       // each other (inclusive). The left edge slides, so a cluster that
       // begins after an earlier request is still counted in full.
-      records.sort((a, b) => a.startedAt.compareTo(b.startedAt));
-      int maxCluster = 1;
-      int clusterStart = 0;
+      final records = entry.value
+        ..sort((a, b) => a.startedAt.compareTo(b.startedAt));
+      var maxCluster = 1;
+      var clusterStart = 0;
       for (var i = 1; i < records.length; i++) {
         while (records[i].startedAt
                 .difference(records[clusterStart].startedAt)
@@ -549,7 +594,20 @@ class NetworkMonitorDetector extends BaseDetector
         final clusterSize = i - clusterStart + 1;
         if (clusterSize > maxCluster) maxCluster = clusterSize;
       }
+      if (maxCluster > largest) largest = maxCluster;
+      result.add((key: entry.key, records: records, cluster: maxCluster));
+    }
+    _lastObservedSamePathCluster = largest;
+    return result;
+  }
 
+  void _evaluateHighFrequencySamePath() {
+    // Flag when ≥3 requests to the same endpoint cluster within 500ms —
+    // high-frequency traffic to one path strongly indicates missing
+    // cache, un-debounced input, or redundant fetches from multiple
+    // widgets.
+    for (final (key: key, records: records, cluster: maxCluster)
+        in _samePathClusters()) {
       if (maxCluster < _duplicateThreshold) continue;
 
       final severity = maxCluster >= _criticalDuplicateThreshold
@@ -563,15 +621,23 @@ class NetworkMonitorDetector extends BaseDetector
 
       // Use method+URL fingerprint for stable identity across scans.
       // Index-based IDs jitter when records age in/out of the buffer.
-      final fingerprint = entry.key.hashCode.abs().toRadixString(16);
+      final fingerprint = key.hashCode.abs().toRadixString(16);
+      final detectedAt = _clock();
+      _lastSamePathIdentityMicros = _nextIdentity(
+        detectedAt,
+        _lastSamePathIdentityMicros,
+      );
       _issues.add(
         PerformanceIssue(
           stableId: 'high_frequency_same_path:$fingerprint',
+          // The fingerprint hashes the host and port, so capture records
+          // carry the bare family name the bracket matches.
+          captureTraceStableId: 'high_frequency_same_path',
           severity: severity,
           category: IssueCategory.network,
           confidence: IssueConfidence.likely,
           title:
-              'High-Frequency Requests: ${entry.key.split(' ').first} '
+              'High-Frequency Requests: ${key.split(' ').first} '
               '${_shortenUrl(records.first.url)} ×$maxCluster in '
               '${_duplicateWindowMs}ms',
           detail:
@@ -582,7 +648,9 @@ class NetworkMonitorDetector extends BaseDetector
               'widgets, or a rebuild that repeats API calls.',
           fixHint: hint,
           fixEffort: effort,
-          detectedAt: _clock(),
+          detectedAt: detectedAt,
+          dedupIdentityMicros: _lastSamePathIdentityMicros,
+          extraTraceArgs: {'observedClusterSize': maxCluster.toString()},
           confidenceReason:
               'Request timing correlation and same-path clustering (query '
               'stripped)',

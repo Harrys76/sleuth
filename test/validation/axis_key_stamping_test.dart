@@ -173,13 +173,14 @@ final Map<DetectorType, Future<List<PerformanceIssue>> Function()> _recipes = {
     final now = DateTime(2026);
     RequestRecord record({
       String url = 'https://example.com/api',
+      int statusCode = 200,
       int durationMs = 100,
       int responseBytes = 1024,
       DateTime? startedAt,
     }) => RequestRecord(
       url: url,
       method: 'GET',
-      statusCode: 200,
+      statusCode: statusCode,
       durationMs: durationMs,
       responseBytes: responseBytes,
       startedAt: startedAt ?? now,
@@ -200,8 +201,35 @@ final Map<DetectorType, Future<List<PerformanceIssue>> Function()> _recipes = {
         ),
       );
     }
+    final errors = NetworkMonitorDetector(clock: () => now);
+    for (var i = 0; i < 3; i++) {
+      errors.processRecord(
+        record(
+          url: 'http://127.0.0.1/err?seq=$i',
+          statusCode: 500,
+          startedAt: now.add(Duration(milliseconds: i * 700)),
+        ),
+      );
+    }
+    final samePath = NetworkMonitorDetector(clock: () => now);
+    for (var i = 0; i < 3; i++) {
+      samePath.processRecord(
+        record(
+          url: 'http://127.0.0.1/same?seq=$i',
+          startedAt: now.add(Duration(milliseconds: i * 50)),
+        ),
+      );
+    }
     return [
-      for (final d in [slowWarning, slowCritical, large, frequent]) ...d.issues,
+      for (final d in [
+        slowWarning,
+        slowCritical,
+        large,
+        frequent,
+        errors,
+        samePath,
+      ])
+        ...d.issues,
     ];
   },
   DetectorType.trackedResource: () async {

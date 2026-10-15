@@ -929,9 +929,40 @@ void main() {
       d.dispose();
     });
 
+    test('http_error_spike stamps observedErrorCount + dedupIdentityMicros '
+        'on extraTraceArgs', () {
+      final d = NetworkMonitorDetector(clock: () => fakeNow);
+      for (var i = 0; i < 4; i++) {
+        d.processRecord(record(statusCode: 500));
+      }
+      final issue = d.issues.firstWhere(
+        (i) => i.stableId == 'http_error_spike',
+      );
+      expect(issue.extraTraceArgs?['observedErrorCount'], '4');
+      expect(issue.dedupIdentityMicros, isNotNull);
+      expect(d.lastObservedErrorCount, 4);
+      d.dispose();
+    });
+
+    test('high_frequency_same_path stamps observedClusterSize and the '
+        'bare family as captureTraceStableId', () {
+      final d = NetworkMonitorDetector(clock: () => fakeNow);
+      for (var i = 0; i < 4; i++) {
+        d.processRecord(record());
+      }
+      final issue = d.issues.firstWhere(
+        (i) => i.stableId?.startsWith('high_frequency_same_path:') == true,
+      );
+      expect(issue.extraTraceArgs?['observedClusterSize'], '4');
+      expect(issue.captureTraceStableId, 'high_frequency_same_path');
+      expect(issue.dedupIdentityMicros, isNotNull);
+      expect(d.lastObservedSamePathCluster, 4);
+      d.dispose();
+    });
+
     test('http_error_spike boundary triad pins `>= 3` errors per 5s '
         'window', () {
-      // 2 errors: silent (errorRecords.length < 3 returns)
+      // 2 errors: silent (the peak window holds fewer than 3)
       var d = NetworkMonitorDetector(clock: () => fakeNow);
       for (var i = 0; i < 2; i++) {
         d.processRecord(record(statusCode: 500));
@@ -969,8 +1000,8 @@ void main() {
 
     test('high_frequency_same_path boundary triad pins `>= 3` cluster + '
         '`>= 10` critical', () {
-      // 2 same-URL records: silent (records.length < _duplicateThreshold
-      // returns)
+      // 2 same-URL records: silent (the largest cluster is under
+      // _duplicateThreshold)
       var d = NetworkMonitorDetector(clock: () => fakeNow);
       for (var i = 0; i < 2; i++) {
         d.processRecord(record());
