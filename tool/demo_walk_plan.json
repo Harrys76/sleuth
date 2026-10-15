@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "notes": "Steps per demo for tool/demo_walk.dart. Start the walk at least 30 s after the app launches; heap_growing ignores the first 30 s. Titles match the home list in example/lib/main.dart. Each demo runs its bad pattern first and reads it as phase 'bad'; demos with a Fixed Pattern side then switch and read 'fixed' after at least 10 s. Frame-based cards (jank_detected, sustained_jank, raster_dominance) judge the last 240 frames, and a static screen renders none, so after a switch to Fixed they can still show the bad pattern's frames. Network demos need internet. The empty bad-pattern gallery has nothing to scroll, so its pull-to-refresh is a real-touch swipe inside the list after collapsing Instructions (Android only, physical pixels for a 720 x 1600 screen); the Fixed side's Load next page button covers iOS. Migrated App has no back arrow; the walk's final pop closes it. Update this file when a demo's controls change.",
+  "demos": [
+    {
+      "title": "High-Level setState",
+      "steps": [
+        ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"],
+        ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"],
+        ["wait", 3], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"],
+        ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"], ["tap", "Tap"],
+        ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Rebuild Hotspot (Dashboard)",
+      "steps": [
+        ["tap", "Start Ticker"], ["wait", 10], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 12], ["read", "fixed"],
+        ["tap", "Stop Ticker"]
+      ]
+    },
+    {
+      "title": "Non-Lazy ListView",
+      "steps": [
+        ["wait", 3], ["scroll", 2500, 1500], ["scroll", -2500, 1500],
+        ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["scroll", 2500, 1500], ["wait", 10], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Shrink-wrapped Sections",
+      "steps": [
+        ["wait", 3], ["scroll", 1500, 1200], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["scroll", 1500, 1200], ["wait", 10], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "CSV Import",
+      "steps": [
+        ["tap", "Pick CSV"], ["wait", 3], ["tap", "Pick CSV"], ["wait", 3],
+        ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["tap", "Pick CSV (isolate)"], ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Live Waveform",
+      "steps": [
+        ["wait", 6], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Always-Repaint CustomPainter",
+      "steps": [
+        ["wait", 6], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Missing RepaintBoundary",
+      "steps": [
+        ["wait", 3], ["scroll", 1500, 1500], ["scroll", -1500, 1500],
+        ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "GPU Pressure",
+      "steps": [
+        ["wait", 5], ["scroll", 800, 1200], ["wait", 2], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Shader Jank",
+      "steps": [
+        ["tap", "Navigate to shader-heavy screen"], ["wait", 2],
+        ["scroll", 1500, 1500], ["wait", 2], ["frames", "bad"], ["read", "bad"],
+        ["pop"]
+      ]
+    },
+    {
+      "title": "FPS Stress Test (~20 FPS)",
+      "steps": [
+        ["wait", 8], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Cupertino Blur",
+      "steps": [
+        ["wait", 2], ["scroll", 800, 1200], ["frames", "blur"], ["read", "blur"],
+        ["tap", "Show alert"], ["wait", 2], ["read", "alert"], ["tap", "Close"],
+        ["tap", "Opaque bars"], ["wait", 3], ["read", "opaque"], ["tap", "Opaque bars"]
+      ]
+    },
+    {
+      "title": "IntrinsicHeight Abuse",
+      "steps": [
+        ["wait", 4], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 10], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Uncached Images",
+      "steps": [
+        ["wait", 6], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 10], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Memory Pressure",
+      "steps": [
+        ["tap", "Sustained Growth"], ["wait", 25], ["read", "growth"],
+        ["tap", "Native +10MB"], ["wait", 3], ["tap", "Native +10MB"], ["wait", 3],
+        ["tap", "Native +10MB"], ["wait", 3], ["tap", "Native +10MB"], ["wait", 6],
+        ["read", "native"],
+        ["tap", "GC Churn"], ["wait", 8], ["read", "churn"], ["tap", "Stop Churn"],
+        ["tap", "Release All"], ["wait", 3]
+      ]
+    },
+    {
+      "title": "KeepAlive Overuse",
+      "steps": [
+        ["wait", 3], ["fling", -600, 0], ["wait", 1], ["fling", -600, 0], ["wait", 1],
+        ["fling", -600, 0], ["wait", 2], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["fling", -600, 0], ["wait", 1], ["fling", -600, 0],
+        ["wait", 10], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Stream Resource Leaks",
+      "steps": [
+        ["tap", "Start leak"], ["wait", 40], ["read", "leak"],
+        ["tap", "Stop & release all"], ["wait", 3]
+      ]
+    },
+    {
+      "title": "Tracked Resource Leaks",
+      "steps": [
+        ["tap", "Start leak"], ["wait", 12], ["read", "leak"],
+        ["tap", "Stop & untrack all"], ["wait", 2]
+      ]
+    },
+    {
+      "title": "Search + Gallery",
+      "steps": [
+        ["call", "ext.sleuthDemo.type", {"text": "f"}],
+        ["call", "ext.sleuthDemo.type", {"text": "fl"}],
+        ["call", "ext.sleuthDemo.type", {"text": "flu"}],
+        ["call", "ext.sleuthDemo.type", {"text": "flut"}],
+        ["call", "ext.sleuthDemo.type", {"text": "flutt"}],
+        ["call", "ext.sleuthDemo.type", {"text": "flutte"}],
+        ["call", "ext.sleuthDemo.type", {"text": "flutter"}],
+        ["wait", 3], ["read", "search"],
+        ["tap", "Slow API (3 s+ response)"],
+        ["call", "ext.sleuthDemo.type", {"text": "flutter perf", "submit": "true"}],
+        ["wait", 6], ["read", "slow"],
+        ["tap", "Instructions"], ["tap", "Gallery"], ["wait", 1],
+        ["swipe", 360, 900, 360, 1500, 500], ["wait", 5],
+        ["scroll", 3000, 1500], ["wait", 2], ["scroll", 3000, 1500], ["wait", 2],
+        ["scroll", 3000, 1500], ["wait", 3], ["read", "gallery"],
+        ["tap", "Fixed Pattern"], ["tap", "Gallery"], ["wait", 1],
+        ["tap", "Load next page"], ["wait", 3], ["tap", "Load next page"], ["wait", 3],
+        ["tap", "Load next page"], ["wait", 4], ["read", "gallery fixed"]
+      ]
+    },
+    {
+      "title": "Platform Channel Traffic",
+      "steps": [
+        ["tap", "Rapid Fire (50)"], ["wait", 2], ["tap", "Rapid Fire (50)"], ["wait", 2],
+        ["read", "rapid"],
+        ["tap", "Sustained Load"], ["wait", 6], ["frames", "sustained"], ["read", "sustained"],
+        ["tap", "Stop Sustained"],
+        ["tap", "Fixed Pattern"], ["tap", "Batched Call (50 items, 1 round-trip)"],
+        ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Font Loading Stress",
+      "steps": [
+        ["wait", 4], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 10], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Tabbed Shell",
+      "steps": [
+        ["wait", 3], ["scroll", 1500, 1200], ["read", "list"],
+        ["tap", "Images"], ["wait", 6], ["read", "images"],
+        ["tap", "Layout"], ["wait", 4], ["read", "layout"]
+      ]
+    },
+    {
+      "title": "Migrated App (material_ui)",
+      "steps": [
+        ["wait", 3], ["read", "controls"],
+        ["tap", "Paint"], ["wait", 4], ["frames", "paint"], ["read", "paint"]
+      ]
+    },
+    {
+      "title": "Custom Detector Cookbook",
+      "steps": [
+        ["tap", "Trigger slow frame"], ["wait", 1], ["tap", "Trigger slow frame"], ["wait", 1],
+        ["tap", "Trigger slow frame"], ["wait", 1], ["tap", "Trigger slow frame"], ["wait", 2],
+        ["read", "slow"], ["scroll", 1500, 1200], ["wait", 3], ["read", "card03"]
+      ]
+    },
+    {
+      "title": "Combined: Social Feed",
+      "steps": [
+        ["wait", 6], ["scroll", 2500, 2000], ["scroll", -2500, 1500],
+        ["tap", "Like"], ["tap", "Like"], ["tap", "Like"], ["tap", "Like"], ["tap", "Like"],
+        ["tap", "Like"], ["tap", "Like"], ["tap", "Like"], ["tap", "Like"], ["tap", "Like"],
+        ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["tap", "Like"], ["tap", "Like"], ["tap", "Like"],
+        ["wait", 12], ["read", "fixed"]
+      ]
+    },
+    {
+      "title": "Combined: Chat App",
+      "steps": [
+        ["wait", 10], ["tap", "Friend 3"], ["wait", 3], ["frames", "bad"], ["read", "bad"],
+        ["tap", "Fixed Pattern"], ["wait", 12], ["read", "fixed"]
+      ]
+    }
+  ]
+}

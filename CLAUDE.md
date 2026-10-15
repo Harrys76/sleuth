@@ -23,6 +23,10 @@ cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
 cd example && fvm flutter test            # Cookbook smoke, demo and capture-screen widget tests (142 tests)
 
+# Demo walk on a device (iOS or Android): runs each demo's controls from tool/demo_walk_plan.json
+# and records issues per phase; start the app with `fvm flutter run --profile --no-dds -d <device>`
+fvm dart run tool/demo_walk.dart ws://<host>:<port>/<auth>/ws [--android <serial>] [--only "Title|Title"]
+
 # MCP sidecar (packages/sleuth_mcp/)
 cd packages/sleuth_mcp && dart test       # Sidecar tests (653 tests)
 cd packages/sleuth_mcp && dart analyze    # Sidecar static analysis
