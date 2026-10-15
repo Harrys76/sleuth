@@ -1,0 +1,8212 @@
+{
+  "traceEvents": [
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 42755,
+      "args": {
+        "name": "FlutterConcurrentMessageLoopWorker (42755)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 64539,
+      "args": {
+        "name": "DartWorker (64539)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 29187,
+      "args": {
+        "name": "io.flutter.1.io (29187)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 64831,
+      "args": {
+        "name": "DartWorker (64831)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 13979,
+      "args": {
+        "name": "DartWorker (13979)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 34563,
+      "args": {
+        "name": "DartWorker (34563)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 11295,
+      "args": {
+        "name": "DartWorker (11295)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 24323,
+      "args": {
+        "name": "io.flutter.1.raster (24323)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 27395,
+      "args": {
+        "name": "io.flutter.1.profiler (27395)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 31575,
+      "args": {
+        "name": "DartWorker (31575)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 34307,
+      "args": {
+        "name": "Dart Profiler ThreadInterrupter (34307)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 39943,
+      "args": {
+        "name": "DartWorker (39943)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 33283,
+      "args": {
+        "name": "FlutterConcurrentMessageLoopWorker (33283)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 65127,
+      "args": {
+        "name": "DartWorker (65127)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 44075,
+      "args": {
+        "name": "DartWorker (44075)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 64491,
+      "args": {
+        "name": "DartWorker (64491)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 41551,
+      "args": {
+        "name": "DartWorker (41551)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 259,
+      "args": {
+        "name": "io.flutter.1.ui (259)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 36355,
+      "args": {
+        "name": "DartWorker (36355)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 31807,
+      "args": {
+        "name": "DartWorker (31807)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 43899,
+      "args": {
+        "name": "DartWorker (43899)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 44383,
+      "args": {
+        "name": "DartWorker (44383)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 45471,
+      "args": {
+        "name": "DartWorker (45471)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 15411,
+      "args": {
+        "name": "DartWorker (15411)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 40711,
+      "args": {
+        "name": "DartWorker (40711)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 64059,
+      "args": {
+        "name": "DartWorker (64059)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 42499,
+      "args": {
+        "name": "FlutterConcurrentMessageLoopWorker (42499)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 6505,
+      "tid": 8195,
+      "args": {
+        "name": "DartWorker (8195)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "sleuth.scenario.begin",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721290188,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "name": "high_frequency_same_path_at",
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721290400,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721293538,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721293547,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721293591,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721293597,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296049,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296058,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296061,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderTransform.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296112,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderTransform.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296123,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296130,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296138,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296153,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296156,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296160,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296162,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296983,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721296991,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721297011,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721297012,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721297016,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721297018,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721297023,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721297024,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721297026,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721297029,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298102,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298104,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298108,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298258,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298260,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298265,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298269,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298274,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721298276,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721310322,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721310328,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721310624,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721310635,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312261,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312267,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312271,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderTransform.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312322,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderTransform.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312334,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312342,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312345,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312352,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312354,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312359,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "RenderConstrainedBox.getDryBaseline",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312361,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312398,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312400,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312403,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312406,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312408,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312409,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312411,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721312414,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314197,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314200,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314203,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314346,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314348,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314352,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314355,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314358,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721314359,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721327142,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721327152,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721327318,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721327327,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328282,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328288,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328291,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328292,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328300,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328302,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328305,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328306,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328307,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328312,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721328315,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330406,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330408,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330411,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330546,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330549,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330553,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330557,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330560,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721330562,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721343991,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721343995,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721344178,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721344187,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345250,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345255,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345259,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345261,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345262,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345265,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345267,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345269,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345270,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345275,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721345277,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347119,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347121,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347124,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347287,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347289,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347294,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347298,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347301,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721347303,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721360470,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721360477,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721360634,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721360642,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361573,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361578,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361581,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361582,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361584,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361586,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361588,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361589,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361590,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361595,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721361597,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363443,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363445,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363448,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363579,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363581,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363585,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363589,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363591,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721363593,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721377254,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721377259,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721377536,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721377543,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378531,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378536,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378539,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378541,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378542,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378552,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378554,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378555,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378556,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378558,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721378561,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380424,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380426,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380429,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380557,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380559,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380566,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380569,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380572,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721380574,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721393831,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721393840,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721394128,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721394135,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395053,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395060,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395064,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395065,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395067,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395069,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395071,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395073,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395074,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395076,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721395078,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721396930,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721396932,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721396935,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721397059,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721397062,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721397101,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721397105,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721397108,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721397111,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721410604,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721410608,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721410773,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721410781,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411701,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411708,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411710,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411712,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411713,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411715,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411718,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411719,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411720,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411722,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721411724,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413550,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413577,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413583,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413706,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413709,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413714,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413717,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413719,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721413721,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721427296,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721427301,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721427589,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721427599,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428555,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428560,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428563,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428565,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428567,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428570,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428572,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428573,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428575,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428577,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721428579,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430325,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430327,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430333,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430472,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430474,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430479,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430483,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430486,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721430488,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "sleuth.issue.high_frequency_same_path.warning",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721433269,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "detectedAtMicros": "1792078813472477",
+        "observedClusterSize": "3",
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721444016,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721444021,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721444295,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721444306,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445214,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445218,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445222,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445224,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445226,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445230,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445232,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445234,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445235,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445240,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721445243,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447164,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447165,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447168,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447374,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447378,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447384,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447388,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447391,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721447393,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721460800,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721460806,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721460983,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721460992,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461934,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461939,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461943,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461952,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461953,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461956,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461959,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461960,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461962,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461965,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721461974,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463756,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463757,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463760,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463874,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463875,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463880,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463883,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463885,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721463887,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721477413,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721477418,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721477583,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721477589,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478515,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478523,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478526,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478528,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478529,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478532,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478535,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478536,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478538,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478540,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721478542,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480446,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480448,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480453,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480577,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480579,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480586,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480590,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480592,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721480593,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721494053,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721494060,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721494355,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721494361,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495387,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495392,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495394,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495396,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495397,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495402,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495405,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495406,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495407,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495409,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721495411,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497194,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497196,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497208,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497370,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497373,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497377,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497380,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497383,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721497400,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721510826,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721510835,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511029,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511043,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511056,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511058,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511059,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511062,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511068,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511069,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511071,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511073,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511075,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511820,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511822,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511828,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511948,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511950,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511957,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511960,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511962,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721511964,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527582,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527587,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527805,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527815,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527821,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527825,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527826,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527830,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527837,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527839,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527840,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527843,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721527846,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528596,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528598,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528601,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528732,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528735,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528741,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528743,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528746,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721528747,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544258,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544267,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544454,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544470,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544474,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544477,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544482,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544485,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544489,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544491,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544493,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544498,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721544502,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545278,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545279,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545281,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545406,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545408,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545413,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545422,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545425,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721545427,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721560993,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561000,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561056,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561063,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561189,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561197,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561200,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561202,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561203,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561206,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561208,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561209,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561211,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561215,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561218,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561960,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561961,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721561963,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721562097,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721562099,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721562103,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721562107,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721562110,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721562111,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577685,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577691,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577890,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577906,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577910,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577913,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577915,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577921,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577924,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577926,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577927,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577929,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721577931,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578703,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578705,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578710,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578833,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578836,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578840,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578843,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578846,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721578848,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594379,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594387,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594573,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594585,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594594,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594596,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594597,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594600,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594603,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594604,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594606,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594610,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721594612,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595344,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595346,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595368,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595492,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595495,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595499,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595503,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595506,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721595507,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611220,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611229,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611453,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611466,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611469,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611471,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611473,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611479,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611482,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611483,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611484,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611487,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721611490,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612302,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612305,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612311,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612434,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612436,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612443,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612448,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612451,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721612452,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721627935,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721627942,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628004,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628019,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628022,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628025,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628026,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628029,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628036,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628038,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628040,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628042,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628045,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628803,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628805,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628808,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628933,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628935,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628943,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628946,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628950,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721628951,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646295,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646301,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646360,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646369,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646375,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646377,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646378,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646380,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646382,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646383,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646384,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646386,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721646388,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647128,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647130,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647135,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647255,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647257,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647261,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647264,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647267,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721647268,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664024,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664027,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664058,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664062,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664304,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664306,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664307,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664445,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664446,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664448,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664449,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664453,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664454,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664455,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664456,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664853,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664854,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664855,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664906,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664907,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664909,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664910,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664911,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721664912,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677782,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677784,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677833,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677843,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677846,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677846,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677848,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677849,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677851,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677852,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677852,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677854,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721677855,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678255,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678256,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678258,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678315,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678316,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678323,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678325,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678326,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721678326,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778132,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778144,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778155,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778163,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778288,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778292,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778300,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778301,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778302,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778305,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778307,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778312,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778314,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778316,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778318,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778320,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778321,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778323,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778493,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778497,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778501,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778504,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778506,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384721778508,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413189,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413349,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413372,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413392,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413402,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413405,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413407,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413414,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413419,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413422,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413424,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413430,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413434,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413437,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413439,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413446,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413631,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413635,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413642,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722413647,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722417982,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722417986,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530055,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530066,
+      "ph": "b",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530079,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530088,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530336,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530343,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530351,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530355,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530357,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530361,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530364,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530366,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530368,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530372,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530375,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530377,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530378,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530382,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530553,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530556,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530562,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530569,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530573,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384722530575,
+      "ph": "e",
+      "id": "d574ba42ea128e3f",
+      "args": {
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    },
+    {
+      "name": "sleuth.scenario.end",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 6505,
+      "ts": 384723007000,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "name": "high_frequency_same_path_at",
+        "isolateId": "isolates/3536766685130183",
+        "isolateGroupId": "isolateGroups/2150358516188227"
+      }
+    }
+  ],
+  "sleuthMetadata": {
+    "schemaVersion": "v1",
+    "device": "iPhone 12",
+    "deviceOsVersion": "iOS 17.5",
+    "flutterVersion": "3.47.6",
+    "captureCommand": "fvm flutter run --profile --no-dds -d \"iPhone 12\" --dart-define=SLEUTH_CAPTURE_MODE=true --dart-define=SLEUTH_CAPTURE_DEVICE=\"iPhone 12\"",
+    "scenario": "high_frequency_same_path_at",
+    "expectedMagnitude": {
+      "min": 2,
+      "observed": 3,
+      "max": 4,
+      "unit": "events"
+    },
+    "captureDate": "2026-10-15T15:40:21.208939Z",
+    "role": "at"
+  }
+}

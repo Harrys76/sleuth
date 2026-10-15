@@ -583,8 +583,8 @@ void main() {
     test('NetworkMonitorDetector pinned at reproducerOnly base + '
         'slow_request tier-stack (warning + critical) raise', () {
       // Anti-tautology anchor. NetworkMonitor base tier stays
-      // `reproducerOnly` so the two unraised families
-      // (http_error_spike, high_frequency_same_path) are not
+      // `reproducerOnly`, so the unbracketed critical severities of
+      // http_error_spike and high_frequency_same_path are not
       // mechanically over-claimed. Per-family raises live in
       // `perStableIdTier` and `additionalBrackets`:
       //
@@ -599,6 +599,8 @@ void main() {
       //  - large_response.warning: bytes axis (additionalBrackets[0]).
       //  - request_frequency.warning: events-per-window axis
       //    (additionalBrackets[1]).
+      //  - http_error_spike.warning and high_frequency_same_path.warning:
+      //    count axes (additionalBrackets[3] and [4]).
       final BaseDetector? nm = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.networkMonitor)
           .cast<BaseDetector?>()
@@ -614,10 +616,9 @@ void main() {
         meta.tier,
         EvidenceTier.reproducerOnly,
         reason:
-            'Base tier stays reproducerOnly. The 3 raised families '
-            'live in perStableIdTier so the two still-unraised families '
-            '(http_error_spike, high_frequency_same_path) are not '
-            'mechanically over-claimed at runtimeVerified.',
+            'Base tier stays reproducerOnly. The raised families live '
+            'in perStableIdTier, and severity-aware effectiveTierFor keeps '
+            'the unbracketed critical severities at the base.',
       );
       expect(
         meta.perStableIdTier?['slow_request'],
@@ -655,19 +656,32 @@ void main() {
         meta.effectiveTierFor('request_frequency'),
         EvidenceTier.runtimeVerified,
       );
+      for (final id in ['http_error_spike', 'high_frequency_same_path']) {
+        expect(
+          meta.perStableIdTier?[id],
+          EvidenceTier.runtimeVerified,
+          reason: '$id warning is raised by its own capture triad.',
+        );
+        expect(
+          meta.effectiveTierFor(id, severity: 'warning'),
+          EvidenceTier.runtimeVerified,
+          reason: '$id.warning is backed by a bracket.',
+        );
+        expect(
+          meta.effectiveTierFor(id, severity: 'critical'),
+          EvidenceTier.reproducerOnly,
+          reason: '$id.critical has no bracket and stays at the base.',
+        );
+      }
       expect(
-        meta.effectiveTierFor('http_error_spike'),
-        EvidenceTier.reproducerOnly,
+        meta.effectiveTierFor(
+          'high_frequency_same_path:1a2b3c',
+          severity: 'warning',
+        ),
+        EvidenceTier.runtimeVerified,
         reason:
-            'http_error_spike stays at base reproducerOnly; not '
-            'covered by any BracketSpec.',
-      );
-      expect(
-        meta.effectiveTierFor('high_frequency_same_path'),
-        EvidenceTier.reproducerOnly,
-        reason:
-            'high_frequency_same_path stays at base reproducerOnly; '
-            'not covered by any BracketSpec.',
+            'The emitted id is parametric (method and path fingerprint); '
+            'it must resolve to the bare family\'s tier.',
       );
       expect(
         meta.effectiveMaxTier,
@@ -744,7 +758,7 @@ void main() {
             'v0.18.3: coveredStableIds expanded to all five emitted '
             'families since the base tier (reproducerOnly) honestly '
             'covers them via the layer-2 reproducer. perStableIdTier '
-            'raises only slow_request to runtimeVerified.',
+            'raises the bracketed families.',
       );
 
       // Critical-tier bracket evidence is now captured in
@@ -770,23 +784,50 @@ void main() {
               'different threshold than the detector actually uses.',
         );
       }
-      // additionalBrackets pin. Three BracketSpec entries cover the
+      // additionalBrackets pin. Five BracketSpec entries cover the
       // bytes axis (large_response.warning at index 0), the
       // events-per-window axis (request_frequency.warning at index 1),
-      // and the slow_request critical-tier raise (index 2). Each spec's
+      // the slow_request critical-tier raise (index 2), and the
+      // http_error_spike and high_frequency_same_path warnings (indexes 3
+      // and 4). Each spec's
       // coveredThresholds, threshold, unit, and provenance fields are
       // pinned literally so a future diff that drops or rewires a spec
       // must update this anchor.
       expect(meta.additionalBrackets, isNotNull);
       expect(
         meta.additionalBrackets,
-        hasLength(3),
+        hasLength(5),
         reason:
-            'Three additional brackets: large_response[0], '
-            'request_frequency[1], slow_request critical-tier[2]. '
-            'http_error_spike and high_frequency_same_path stay at '
-            'base reproducerOnly until they have their own captures.',
+            'Five additional brackets: large_response[0], '
+            'request_frequency[1], slow_request critical-tier[2], '
+            'http_error_spike warning[3], high_frequency_same_path '
+            'warning[4].',
       );
+      for (final (id, argKey) in [
+        ('http_error_spike', 'observedErrorCount'),
+        ('high_frequency_same_path', 'observedClusterSize'),
+      ]) {
+        final spec = meta.additionalBrackets!.singleWhere(
+          (s) => s.stableId == id,
+        );
+        expect(spec.severityLabel, 'warning');
+        expect(spec.threshold, 3);
+        expect(spec.unit, 'events');
+        expect(spec.atTolerance, 0.5);
+        expect(
+          spec.aboveCeilingMultiplier,
+          2.5,
+          reason: 'The above band stops at 7.5, under the critical 10.',
+        );
+        expect(spec.observedAxisArgKey, argKey);
+        expect(spec.observedAxisTolerance, 0.10);
+        expect(spec.requireUniqueDetectedAtMicros, isTrue);
+        expect(spec.coveredThresholds, {'$id.warning'});
+        expect(spec.profileCapturePaths, [
+          for (final role in ['below', 'at', 'above'])
+            'test/validation/captures/network_monitor/${id}_$role.json',
+        ]);
+      }
 
       final largeSpec = meta.additionalBrackets!.firstWhere(
         (s) => s.stableId == 'large_response',
@@ -972,10 +1013,10 @@ void main() {
       }
       expect(
         tuples,
-        hasLength(4),
+        hasLength(6),
         reason:
-            '4 distinct (stableId, severityLabel, argKey) tuples '
-            'across canonical + 3 additionalBrackets.',
+            '6 distinct (stableId, severityLabel, argKey) tuples '
+            'across canonical + 5 additionalBrackets.',
       );
     });
 
@@ -1590,8 +1631,9 @@ void main() {
       // Anti-tautology anchor: excessive_repaint raised from base
       // reproducerOnly to runtimeVerified via perStableIdTier. The axis
       // is the share of UI-thread wall time inside PAINT scopes per ~1 s
-      // window (`percent`), warning > 10 %, backed by an on-device triad
-      // (iPhone 12 / iOS 17.5 / Flutter 3.47.x). Other families
+      // window (`percent`), warning > 10 % and critical > 30 %, each
+      // backed by an on-device triad (iPhone 12 / iOS 17.5 / Flutter
+      // 3.47.x). Other families
       // `excessive_repaint_debug` and parametric
       // `repaint_debug_<typeName>` stay at base reproducerOnly.
       final BaseDetector? rp = controller.detectorsForAudit
@@ -1657,11 +1699,30 @@ void main() {
       expect(meta.observedAxisReduction, equals('max'));
       expect(
         meta.coveredThresholds,
-        equals(const {'excessive_repaint.warning'}),
+        equals(const {
+          'excessive_repaint.warning',
+          'excessive_repaint.critical',
+        }),
         reason:
-            'Severity-scoped to warning only; critical (>30 % paint '
-            'share) stays implicitly reproducerOnly.',
+            'Warning is covered by the canonical bracket, critical (>30 % '
+            'paint share) by additionalBrackets[0].',
       );
+      final critical = meta.additionalBrackets!.single;
+      expect(critical.stableId, 'excessive_repaint');
+      expect(critical.severityLabel, 'critical');
+      expect(critical.threshold, 30);
+      expect(critical.unit, 'percent');
+      expect(critical.atTolerance, 0.5);
+      expect(critical.aboveCeilingMultiplier, 2.7);
+      expect(critical.observedAxisArgKey, 'observedPaintPercent');
+      expect(critical.observedAxisTolerance, 0.25);
+      expect(critical.minInBandSamples, 2);
+      expect(critical.requireUniqueDetectedAtMicros, isTrue);
+      expect(critical.profileCapturePaths, [
+        for (final role in ['below', 'at', 'above'])
+          'test/validation/captures/repaint/excessive_repaint_critical_'
+              '$role.json',
+      ]);
       expect(
         meta.coveredStableIds,
         equals(const {'excessive_repaint', 'excessive_repaint_debug'}),
@@ -1831,11 +1892,11 @@ void main() {
       // warning tier (20 calls/sec, counted by event time) is backed
       // by three on-device captures (iPhone 12 / iOS 17.5 / Flutter
       // 3.47.6) with stable per-window dedupIdentityMicros derived from
-      // `_windowStart.microsecondsSinceEpoch`. The critical tier (41
-      // calls/sec) has no capture bracket and reads reproducerOnly. The
-      // above-band ceiling 1.95 × 20 = 39 calls/sec stays under the
-      // 41-call critical boundary, so the above leg cannot also bracket
-      // the critical tier.
+      // `_windowStart.microsecondsSinceEpoch`. The critical tier (above
+      // 40 calls/sec) has its own triad in additionalBrackets. The
+      // warning above-band ceiling 1.95 × 20 = 39 calls/sec stays under
+      // the 41-call critical boundary, so the warning above leg cannot
+      // also bracket the critical tier.
       final BaseDetector? pc = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.platformChannel)
           .cast<BaseDetector?>()
@@ -1851,8 +1912,8 @@ void main() {
         meta.tier,
         EvidenceTier.reproducerOnly,
         reason:
-            'The base tier is the per-family minimum; only the warning '
-            'tier has a capture bracket.',
+            'The base tier is the per-family minimum; each severity '
+            'needs its own capture bracket.',
       );
       expect(meta.perStableIdTier, {
         'platform_channel_traffic': EvidenceTier.runtimeVerified,
@@ -1868,8 +1929,9 @@ void main() {
       );
       expect(
         meta.effectiveTierFor('platform_channel_traffic', severity: 'critical'),
-        EvidenceTier.reproducerOnly,
-        reason: 'No bracket covers platform_channel_traffic.critical.',
+        EvidenceTier.runtimeVerified,
+        reason:
+            'additionalBrackets[0] covers platform_channel_traffic.critical.',
       );
       expect(
         meta.reproducerPath,
@@ -1916,10 +1978,13 @@ void main() {
       );
       expect(
         meta.coveredThresholds,
-        equals(const {'platform_channel_traffic.warning'}),
+        equals(const {
+          'platform_channel_traffic.warning',
+          'platform_channel_traffic.critical',
+        }),
         reason:
-            'Severity-scoped to warning; critical (41 calls/sec) '
-            'stays implicitly reproducerOnly.',
+            'Warning is covered by the canonical bracket, critical (above '
+            '40 calls/sec) by additionalBrackets[0].',
       );
       expect(
         meta.coveredStableIds,
@@ -2000,17 +2065,22 @@ void main() {
               'reproducer-pinned.',
         );
       }
-      // Independent of prose: critical-threshold metadata entry must
-      // not appear unless a critical-tier capture campaign exists.
-      // Currently no such captures → entry must remain absent.
-      expect(
-        hasCriticalThresholdEntry,
-        isFalse,
-        reason:
-            'platform_channel_traffic.critical not yet a covered '
-            'threshold. Adding this entry requires a critical-tier '
-            'capture campaign bracketing 41 calls/sec.',
-      );
+      // Independent of prose: the critical-threshold entry needs the
+      // critical capture triad behind it.
+      expect(hasCriticalThresholdEntry, isTrue);
+      final critical = meta.additionalBrackets!.single;
+      expect(critical.stableId, 'platform_channel_traffic');
+      expect(critical.severityLabel, 'critical');
+      expect(critical.threshold, 40);
+      expect(critical.atTolerance, 0.5);
+      expect(critical.aboveCeilingMultiplier, 2.5);
+      expect(critical.observedAxisArgKey, 'observedCount');
+      expect(critical.requireUniqueDetectedAtMicros, isTrue);
+      expect(critical.profileCapturePaths, [
+        for (final role in ['below', 'at', 'above'])
+          'test/validation/captures/platform_channel/'
+              'platform_channel_traffic_critical_$role.json',
+      ]);
 
       // Duration-axis guard (positive).
       final claimsDurationAxisCaptured =
@@ -2043,13 +2113,13 @@ void main() {
         );
       }
       expect(
-        meta.additionalBrackets,
-        isNull,
+        meta.additionalBrackets!.every((b) => b.unit == 'events'),
+        isTrue,
         reason:
-            'PlatformChannel currently brackets only the frequency '
-            'axis (20 calls/sec). The 8 ms cumulative-duration axis stays '
-            'implicitly reproducerOnly — a future raise of that axis '
-            'would populate additionalBrackets with a second BracketSpec.',
+            'PlatformChannel brackets only the frequency axis (warning '
+            'and critical). The 8 ms cumulative-duration axis stays '
+            'implicitly reproducerOnly; a raise of that axis would add a '
+            'duration-unit BracketSpec.',
       );
     });
 
@@ -2066,7 +2136,13 @@ void main() {
       );
       expect(
         repaint.effectiveTierFor('excessive_repaint', severity: 'critical'),
+        EvidenceTier.runtimeVerified,
+      );
+      final network = metaOf(DetectorType.networkMonitor);
+      expect(
+        network.effectiveTierFor('http_error_spike', severity: 'critical'),
         EvidenceTier.reproducerOnly,
+        reason: 'A raised family keeps an unbracketed severity at the base.',
       );
       expect(
         repaint.effectiveTierFor('excessive_repaint'),

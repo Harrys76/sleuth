@@ -55,6 +55,13 @@ void main() {
       expect(find.text('Run warning/at'), findsOneWidget);
     });
 
+    testWidgets('repaint screen offers critical legs', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: RepaintCaptureScreen()));
+      await tester.tap(find.text('critical'));
+      await tester.pump();
+      expect(find.text('Run critical/at'), findsOneWidget);
+    });
+
     testWidgets('screens register a leg runner while mounted', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(home: RebuildActivityCaptureScreen()),
@@ -179,6 +186,15 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('platform channel: a critical leg is refused before its '
+        'calls', (tester) async {
+      await pumpScreen(tester, const PlatformChannelCaptureScreen());
+      await tapLeg(tester, find.textContaining('Critical at ('));
+      expectRefused('critical at');
+      expect(find.textContaining('attempt 1/'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('memory pressure: a leg is refused before its allocation', (
       tester,
     ) async {
@@ -212,6 +228,26 @@ void main() {
       expectRefused('warning/below');
       expect(find.textContaining('scenario.begin'), findsNothing);
       expect(tester.takeException(), isNull);
+
+      // The count modes refuse the same way before any request.
+      for (final (mode, leg) in [
+        ('HTTP error spike (errors/5s)', 'Below (2 errors), passes'),
+        ('Same-path requests (GETs/500 ms)', 'At (3 GETs), warning'),
+      ]) {
+        await tester.tap(
+          find.byWidgetPredicate((w) => w is DropdownButtonFormField).first,
+        );
+        await tester.pump();
+        await tester.tap(find.text(mode).last);
+        await tester.pump();
+        await tapLeg(tester, find.text(leg));
+        final role = leg.startsWith('Below') ? 'below' : 'at';
+        expect(
+          find.textContaining('[$role] ABORT: capture provenance: '),
+          findsOneWidget,
+        );
+      }
+      expect(find.textContaining('scenario.begin'), findsNothing);
       // Release the socket before the test ends.
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(
@@ -594,12 +630,18 @@ void main() {
         {'error': 'bad_args'},
       );
       expect(
+        await startCaptureLeg(detector: 'repaint', tier: 'fatal', role: 'at'),
+        {'error': 'bad_args'},
+      );
+      // Repaint critical legs are accepted; outside capture mode they
+      // stop at the mode check like any other leg.
+      expect(
         await startCaptureLeg(
           detector: 'repaint',
           tier: 'critical',
           role: 'at',
         ),
-        {'error': 'bad_args'},
+        {'error': 'not_capture_mode'},
       );
       CaptureDriver.instance.begin('rebuild/warning/at');
       expect(

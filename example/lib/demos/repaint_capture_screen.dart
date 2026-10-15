@@ -6,8 +6,8 @@ import 'package:sleuth/sleuth.dart';
 
 import 'capture_driver.dart';
 
-// Capture helper for the runtimeVerified `excessive_repaint.warning`
-// bracket. The detector measures the share of UI-thread wall time spent
+// Capture helper for the runtimeVerified `excessive_repaint` warning and
+// critical brackets. The detector measures the share of UI-thread wall time spent
 // inside PAINT scopes per ~1 s window, so the workload varies paint cost
 // per frame at a fixed frame rate.
 //
@@ -22,10 +22,12 @@ import 'capture_driver.dart';
 // in PAINT recording rather than on the raster thread.
 //
 // Each leg runs a 3 s calibration pre-pass at a known `ops`, reads the
-// detector's measured share, scales `ops` to the leg target (below
-// 0.5 t, at 1.25 t, above 2.0 t of the live threshold t =
-// `paintTimePercentThreshold`, default 10 %), stops, drains the
-// timeline, resets the detector, idles 1.5 s, and records a 6 s scenario;
+// detector's measured share, scales `ops` to the leg target, stops,
+// drains the timeline, resets the detector, idles 1.5 s, and records a
+// 6 s scenario. Warning legs target 0.5, 1.25 and 2.0 times the live
+// threshold t = `paintTimePercentThreshold` (default 10 %); critical legs
+// target 0.8, 1.23 and 2.0 times 3t and draw one text per tile, so the
+// raster thread does not cap the frame rate below the paint target;
 // a peak outside the band, or an export whose in-span records miss the
 // bracket, gets another span, up to five in all. The above target sits
 // mid-band (15–27 %) so the peak window keeps headroom under the ceiling.
@@ -37,10 +39,18 @@ import 'capture_driver.dart';
 /// bottom of this file.
 const int _kTileCount = 32;
 
-/// Leg targets as factors of the warning threshold.
-const Map<String, double> _legFactors = {
+/// Leg targets for the warning tier, as factors of the warning threshold.
+const Map<String, double> _warningLegFactors = {
   'below': 0.5,
   'at': 1.25,
+  'above': 2.0,
+};
+
+/// Leg targets for the critical tier, as factors of the critical
+/// threshold (3× the warning threshold), as the rebuild screen uses.
+const Map<String, double> _criticalLegFactors = {
+  'below': 0.8,
+  'at': 1.23,
   'above': 2.0,
 };
 
@@ -67,6 +77,7 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen>
     with CaptureScreenStateMixin<RepaintCaptureScreen> {
   /// Current `ops`, or null while no workload runs.
   final ValueNotifier<int?> _ops = ValueNotifier<int?>(null);
+  String _tier = 'warning';
 
   @override
   String get captureDetector => _detectorKey;
@@ -81,7 +92,9 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen>
   Future<void> runCaptureLeg(String tier, String role) async {
     final driver = CaptureDriver.instance;
     final detector = Sleuth.repaintDetector;
-    final factor = _legFactors[role];
+    final factor = (tier == 'critical'
+        ? _criticalLegFactors
+        : _warningLegFactors)[role];
     final bracket = detector == null
         ? null
         : CaptureBracket.fromMetadata(
@@ -94,19 +107,22 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen>
         detector == null
             ? 'Sleuth.repaintDetector is null (Sleuth.init() with '
                   'captureMode=true required)'
-            : 'unknown leg $tier/$role (excessive_repaint brackets the '
-                  'warning tier only)',
+            : 'unknown leg $tier/$role, or no excessive_repaint.$tier '
+                  'bracket is declared',
       );
       return;
     }
-    final threshold = detector.paintTimePercentThreshold;
+    if (mounted && _tier != tier) setState(() => _tier = tier);
+    final warning = detector.paintTimePercentThreshold;
+    final threshold = tier == 'critical' ? warning * 3 : warning;
+    final basename = tier == 'critical' ? 'critical_$role' : role;
     await runTimeShareLeg(
       leg: TimeShareLeg(
         detector: _detectorKey,
         bracket: bracket,
         tier: tier,
         role: role,
-        scenario: 'excessive_repaint_$role',
+        scenario: 'excessive_repaint_$basename',
         tierThreshold: threshold,
         targetPercent: threshold * factor,
         knobName: 'ops',
@@ -128,8 +144,8 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen>
   }
 
   void _onRunLeg(String role) {
-    if (!CaptureDriver.instance.begin('$_detectorKey/warning/$role')) return;
-    unawaited(CaptureDriver.instance.runLeg(runCaptureLeg, 'warning', role));
+    if (!CaptureDriver.instance.begin('$_detectorKey/$_tier/$role')) return;
+    unawaited(CaptureDriver.instance.runLeg(runCaptureLeg, _tier, role));
   }
 
   @override
@@ -151,8 +167,7 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen>
               'Repaints 32 tiles every frame with a variable number of '
               'text layouts spread across them, so PAINT takes a chosen '
               'share of UI-thread time. Legs bracket excessive_repaint: '
-              'warning above 10 % '
-              '(default).',
+              'warning above 10 %, critical above 30 % (defaults).',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 8),
@@ -160,12 +175,12 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen>
               valueListenable: _ops,
               builder: (_, ops, _) => ops == null
                   ? const SizedBox(height: 48)
-                  : _RunningWorkload(ops: ops),
+                  : _RunningWorkload(ops: ops, drawAll: _tier != 'critical'),
             ),
             CaptureLegPanel(
-              tier: 'warning',
-              tiers: const ['warning'],
-              onTierChanged: (_) {},
+              tier: _tier,
+              tiers: const ['warning', 'critical'],
+              onTierChanged: (tier) => setState(() => _tier = tier),
               onRunLeg: _onRunLeg,
             ),
           ],
@@ -178,9 +193,10 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen>
 /// Owns the shared [CapturePaintLoad] and its per-frame Ticker while a
 /// workload runs; an `ops` change updates the load in place.
 class _RunningWorkload extends StatefulWidget {
-  const _RunningWorkload({required this.ops});
+  const _RunningWorkload({required this.ops, required this.drawAll});
 
   final int ops;
+  final bool drawAll;
 
   @override
   State<_RunningWorkload> createState() => _RunningWorkloadState();
@@ -188,7 +204,10 @@ class _RunningWorkload extends StatefulWidget {
 
 class _RunningWorkloadState extends State<_RunningWorkload>
     with SingleTickerProviderStateMixin {
-  late final CapturePaintLoad _load = CapturePaintLoad(ops: widget.ops);
+  late final CapturePaintLoad _load = CapturePaintLoad(
+    ops: widget.ops,
+    drawAll: widget.drawAll,
+  );
   late final Ticker _ticker;
 
   @override
@@ -204,7 +223,9 @@ class _RunningWorkloadState extends State<_RunningWorkload>
   @override
   void didUpdateWidget(_RunningWorkload oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _load.ops = widget.ops;
+    _load
+      ..ops = widget.ops
+      ..drawAll = widget.drawAll;
   }
 
   @override
@@ -223,10 +244,20 @@ class _RunningWorkloadState extends State<_RunningWorkload>
 /// layouts per frame across all tiles.
 @visibleForTesting
 class CapturePaintLoad extends ChangeNotifier {
-  CapturePaintLoad({required this.ops});
+  CapturePaintLoad({required this.ops, this.drawAll = true});
 
-  /// Text layouts drawn per frame across all tiles.
+  /// Text layouts per frame across all tiles.
   int ops;
+
+  /// Whether every layout is a short text that is also drawn. With it off
+  /// (critical legs) each layout is a long text wrapped to the tile width
+  /// and only the first per tile is drawn. A short text lays out in about
+  /// 3 µs on an iPhone 12, so most paint time per frame went to the 32
+  /// tiles themselves and PAINT stopped near 30 % of UI-thread time
+  /// however many layouts ran. A wrapped long text costs enough per
+  /// layout that the share follows the knob, and drawing one per tile
+  /// keeps the raster thread out of it.
+  bool drawAll;
 
   /// Text layouts tile [index] draws per paint: `ops ~/ 32`, plus one for
   /// the first `ops % 32` tiles.
@@ -359,8 +390,9 @@ const TextStyle _kOpsTextStyle = TextStyle(
   color: Color(0xFF000000),
 );
 
-/// Lays out and draws `load.opsForTile(tileIndex)` fresh `TextPainter`s
-/// on every notifier tick. The text includes the tick and tile index, so
+/// Lays out `load.opsForTile(tileIndex)` fresh `TextPainter`s on every
+/// notifier tick and draws them (only the first with
+/// [CapturePaintLoad.drawAll] off). The text includes the tick and tile index, so
 /// every layout is new work.
 class _OpsPainter extends CustomPainter {
   _OpsPainter(this.load, this.tileIndex) : super(repaint: load);
@@ -374,11 +406,17 @@ class _OpsPainter extends CustomPainter {
     final ops = load.opsForTile(tileIndex);
     final tick = load.ticks;
     for (var k = 0; k < ops; k++) {
+      final label = '$tick:$tileIndex:$k';
       final painter = TextPainter(
-        text: TextSpan(text: '$tick:$tileIndex:$k', style: _kOpsTextStyle),
+        text: TextSpan(
+          text: load.drawAll ? label : List.filled(16, label).join(' '),
+          style: _kOpsTextStyle,
+        ),
         textDirection: TextDirection.ltr,
-      )..layout();
-      painter.paint(canvas, Offset((k % 5) * 2.0, (k % 3) * 2.0));
+      )..layout(maxWidth: load.drawAll ? double.infinity : size.width);
+      if (load.drawAll || k == 0) {
+        painter.paint(canvas, Offset((k % 5) * 2.0, (k % 3) * 2.0));
+      }
       painter.dispose();
     }
   }

@@ -702,6 +702,30 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
+    additionalBrackets: [
+      BracketSpec(
+        stableId: 'excessive_repaint',
+        severityLabel: 'critical',
+        threshold: 30,
+        unit: 'percent',
+        coveredThresholds: {'excessive_repaint.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/repaint/excessive_repaint_critical_below.json',
+          'test/validation/captures/repaint/excessive_repaint_critical_at.json',
+          'test/validation/captures/repaint/excessive_repaint_critical_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.7,
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+        observedAxisArgKey: 'observedPaintPercent',
+        observedAxisTolerance: 0.25,
+        observedAxisReduction: 'max',
+        // Two in-band windows per leg, so one window that drifted into the
+        // band between sub-band windows cannot certify the bracket.
+        minInBandSamples: 2,
+      ),
+    ],
     rationale:
         'Hybrid detector. The reproducer pins all three families. '
         '`excessive_repaint` measures the share of UI-thread wall time '
@@ -722,8 +746,10 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
         '`pumpWidget` for the debug and structural legs). A broad '
         '`expect(issues, isEmpty)` pins animation-owner Gate B suppression, '
         'so a regression cannot leak through any of the three emission '
-        'paths. `excessive_repaint.warning` is runtimeVerified via three '
-        'iPhone 12, iOS 17.5, Flutter 3.47.x captures. Their workload '
+        'paths. `excessive_repaint` warning and critical are runtimeVerified '
+        'via capture triads on iPhone 12, iOS 17.5 and Flutter 3.47.x. The '
+        'critical legs target 0.8, 1.23 and 2.0 times 30 % and need two '
+        'in-band windows each. The workload '
         'varies paint cost per frame with 32 distinct CustomPainter types '
         'that repaint through a shared per-frame notifier, so BUILD stays '
         'flat and the per-widget debug gate stays below its threshold. A '
@@ -743,7 +769,10 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
     parametricFamilies: {'repaint_debug'},
     perStableIdTier: {'excessive_repaint': EvidenceTier.runtimeVerified},
-    coveredThresholds: {'excessive_repaint.warning'},
+    coveredThresholds: {
+      'excessive_repaint.warning',
+      'excessive_repaint.critical',
+    },
     profileCapturePaths: [
       'test/validation/captures/repaint/excessive_repaint_below.json',
       'test/validation/captures/repaint/excessive_repaint_at.json',

@@ -601,21 +601,21 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
       _DemoRoute(
         icon: Icons.cloud_download,
         title: 'NetworkMonitor',
-        subtitle: 'slow_request warning + critical brackets',
+        subtitle: 'Network monitor brackets',
         color: Colors.orange,
         builder: (_) => const NetworkMonitorCaptureScreen(),
       ),
       _DemoRoute(
         icon: Icons.settings_input_hdmi,
         title: 'PlatformChannel',
-        subtitle: 'platform_channel_traffic warning bracket',
+        subtitle: 'platform_channel_traffic brackets',
         color: Colors.blueGrey,
         builder: (_) => const PlatformChannelCaptureScreen(),
       ),
       _DemoRoute(
         icon: Icons.brush,
         title: 'Repaint',
-        subtitle: 'excessive_repaint warning bracket',
+        subtitle: 'excessive_repaint warning + critical',
         color: Colors.pink,
         builder: (_) => const RepaintCaptureScreen(),
       ),
@@ -1355,8 +1355,7 @@ Future<Map<String, Object?>> startCaptureLeg({
   final slug = _captureScreenSlugs[detector];
   if (slug == null ||
       !_captureTiers.contains(tier) ||
-      !_captureRoles.contains(role) ||
-      (detector == 'repaint' && tier != 'warning')) {
+      !_captureRoles.contains(role)) {
     return {'error': 'bad_args'};
   }
   final driver = CaptureDriver.instance;

@@ -726,9 +726,35 @@ class PlatformChannelDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
-    // Only the warning tier has a capture bracket; the per-family raise
-    // with a severity-aware `effectiveTierFor` keeps critical at the base.
+    // Warning and critical each have a capture bracket; the per-family
+    // raise with a severity-aware `effectiveTierFor` reads both.
     perStableIdTier: {'platform_channel_traffic': EvidenceTier.runtimeVerified},
+    additionalBrackets: [
+      // Critical fires above 40 calls (strict). atTolerance 0.5 gives the
+      // at band [40, 60]; the ceiling of 2.5 (100) leaves room for a
+      // 90 calls/sec above leg.
+      BracketSpec(
+        stableId: 'platform_channel_traffic',
+        severityLabel: 'critical',
+        threshold: 40,
+        unit: 'events',
+        coveredThresholds: {'platform_channel_traffic.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/platform_channel/'
+              'platform_channel_traffic_critical_below.json',
+          'test/validation/captures/platform_channel/'
+              'platform_channel_traffic_critical_at.json',
+          'test/validation/captures/platform_channel/'
+              'platform_channel_traffic_critical_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.5,
+        observedAxisArgKey: 'observedCount',
+        observedAxisTolerance: 0.25,
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+    ],
     rationale:
         'VM-only detector. The emission axis is the largest number of call '
         'begins in one 1 s span of event time, checked once per second of '
@@ -770,15 +796,13 @@ class PlatformChannelDetector extends BaseDetector
         'on every leg, and the below leg stays silent. After the 3-window '
         'cooldown the detector keeps the issue, without re-emitting, until '
         '`emissionPersistence` (10 s) has passed since the emission, so '
-        'each leg still records exactly one trace event. The critical tier '
-        'at 2 times the threshold (41 calls/sec) is reproducer-pinned: the '
-        'base tier is reproducerOnly, `perStableIdTier` raises the family, '
-        'and only `platform_channel_traffic.warning` has a bracket, so '
-        '`effectiveTierFor` with severity `critical` reads reproducerOnly. '
-        'The '
+        'each leg still records exactly one trace event. The warning '
         'aboveCeilingMultiplier is 1.95, which puts the above-band ceiling '
         'at 39 calls/sec, under the 41-call critical-escalation boundary, '
-        'so the above leg cannot reach the critical tier by accident.',
+        'so the warning above leg cannot reach the critical tier by '
+        'accident. The critical tier (above 40 calls/sec) has its own '
+        'triad in `additionalBrackets`, with legs at 30, 50 and 90 calls '
+        'per second, on the same device and Flutter version.',
     reproducerPath: 'test/validation/platform_channel_reproducer_test.dart',
     profileCapturePaths: [
       'test/validation/captures/platform_channel/'
@@ -801,7 +825,10 @@ class PlatformChannelDetector extends BaseDetector
     bracketAtTolerance: 0.50,
     aboveCeilingMultiplier: 1.95,
     coveredStableIds: {'platform_channel_traffic'},
-    coveredThresholds: {'platform_channel_traffic.warning'},
+    coveredThresholds: {
+      'platform_channel_traffic.warning',
+      'platform_channel_traffic.critical',
+    },
     // Captures recorded under v0.19.4 producer-side dedup with
     // stable per-window `dedupIdentityMicros`
     // (`_windowStart.microsecondsSinceEpoch`). Opt into the

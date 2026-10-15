@@ -730,8 +730,16 @@ class NetworkMonitorDetector extends BaseDetector
         'distinct `detectedAtMicros` and a `peakCount` that only grows, '
         'which the audit-gate MAX reduction picks. The critical tier '
         '(slow_request 3000 ms) is raised through its own bracket in '
-        '`additionalBrackets`. The two unraised families '
-        '(http_error_spike, high_frequency_same_path) stay reproducerOnly.',
+        '`additionalBrackets`. http_error_spike (3 errors in 5 s) and '
+        'high_frequency_same_path (3 GETs to one path in 500 ms) warnings '
+        'are runtimeVerified on iPhone 12, iOS 17.5 and Flutter 3.47.x. The '
+        'loopback server answers 500 for the error legs (2, 3 and 6 errors '
+        '700 ms apart), and the same-path legs send 2, 3 and 6 GETs 50 ms '
+        'apart. Each leg exports the detector\'s peak count '
+        '(`lastObservedErrorCount`, `lastObservedSamePathCluster`), which '
+        'it holds below the threshold too. The same-path issue carries '
+        '`captureTraceStableId` because its id hashes the host and port. '
+        'Both families stay reproducerOnly at critical.',
     reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
     profileCapturePaths: [
       'test/validation/captures/network_monitor/slow_request_below.json',
@@ -754,6 +762,8 @@ class NetworkMonitorDetector extends BaseDetector
       'slow_request': EvidenceTier.runtimeVerified,
       'large_response': EvidenceTier.runtimeVerified,
       'request_frequency': EvidenceTier.runtimeVerified,
+      'http_error_spike': EvidenceTier.runtimeVerified,
+      'high_frequency_same_path': EvidenceTier.runtimeVerified,
     },
     coveredThresholds: {'slow_request.warning', 'slow_request.critical'},
     // Captures recorded under v0.18.1+ producer-side dedup, so
@@ -840,6 +850,47 @@ class NetworkMonitorDetector extends BaseDetector
         observedAxisArgKey: 'observedDurationMs',
         // Same tighter tolerance as canonical bracket — loopback
         // measurement paths agree to the millisecond.
+        observedAxisTolerance: 0.10,
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+      // Warning brackets for the two count families. Both fire at 3 or
+      // more and turn critical at 10, so the above ceiling of 2.5 (7.5)
+      // keeps the above leg a warning. The exported magnitude and the
+      // stamped arg are the same detector peak, hence the tight
+      // observed-axis tolerance.
+      BracketSpec(
+        stableId: 'http_error_spike',
+        severityLabel: 'warning',
+        threshold: 3,
+        unit: 'events',
+        coveredThresholds: {'http_error_spike.warning'},
+        profileCapturePaths: [
+          'test/validation/captures/network_monitor/http_error_spike_below.json',
+          'test/validation/captures/network_monitor/http_error_spike_at.json',
+          'test/validation/captures/network_monitor/http_error_spike_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.5,
+        observedAxisArgKey: 'observedErrorCount',
+        observedAxisTolerance: 0.10,
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+      BracketSpec(
+        stableId: 'high_frequency_same_path',
+        severityLabel: 'warning',
+        threshold: 3,
+        unit: 'events',
+        coveredThresholds: {'high_frequency_same_path.warning'},
+        profileCapturePaths: [
+          'test/validation/captures/network_monitor/high_frequency_same_path_below.json',
+          'test/validation/captures/network_monitor/high_frequency_same_path_at.json',
+          'test/validation/captures/network_monitor/high_frequency_same_path_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.5,
+        observedAxisArgKey: 'observedClusterSize',
         observedAxisTolerance: 0.10,
         requireUniqueDetectedAtMicros: true,
         requireDetectorTraceRecord: true,

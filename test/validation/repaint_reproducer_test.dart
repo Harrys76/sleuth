@@ -542,18 +542,22 @@ void _captureScreenGuards() {
   group('repaint capture screen', () {
     final screenFile = File('example/lib/demos/repaint_capture_screen.dart');
 
-    test('legs target 0.5 / 1.25 / 2.0 x the threshold over a 6 s '
-        'scenario, inside each role band', () {
-      expect(screenFile.existsSync(), isTrue);
-      final src = screenFile.readAsStringSync();
-      final start = src.indexOf('const Map<String, double> _legFactors = {');
-      expect(start, greaterThanOrEqualTo(0));
+    Map<String, double> factors(String src, String name) {
+      final start = src.indexOf('const Map<String, double> $name = {');
+      expect(start, greaterThanOrEqualTo(0), reason: name);
       final block = src.substring(start, src.indexOf('};', start));
-      final factors = {
+      return {
         for (final m in RegExp(r"'(\w+)':\s*([0-9.]+)").allMatches(block))
           m.group(1)!: double.parse(m.group(2)!),
       };
-      expect(factors, {'below': 0.5, 'at': 1.25, 'above': 2.0});
+    }
+
+    test('warning legs target 0.5 / 1.25 / 2.0 x the threshold over a 6 s '
+        'scenario, inside each role band', () {
+      expect(screenFile.existsSync(), isTrue);
+      final src = screenFile.readAsStringSync();
+      final warning = factors(src, '_warningLegFactors');
+      expect(warning, {'below': 0.5, 'at': 1.25, 'above': 2.0});
       expect(
         src,
         contains('const Duration _workloadDuration = Duration(seconds: 6);'),
@@ -568,10 +572,33 @@ void _captureScreenGuards() {
       final t = meta.bracketThreshold!.toDouble();
       final at = meta.bracketAtTolerance!;
       final ceiling = meta.aboveCeilingMultiplier!;
-      expect(factors['below']! * t, lessThan(t));
-      expect(factors['at']! * t, inInclusiveRange(t, t * (1 + at)));
-      expect(factors['above']! * t, greaterThan(t * (1 + at)));
-      expect(factors['above']! * t, lessThanOrEqualTo(t * ceiling));
+      expect(warning['below']! * t, lessThan(t));
+      expect(warning['at']! * t, inInclusiveRange(t, t * (1 + at)));
+      expect(warning['above']! * t, greaterThan(t * (1 + at)));
+      expect(warning['above']! * t, lessThanOrEqualTo(t * ceiling));
+    });
+
+    test('critical legs target 0.8 / 1.23 / 2.0 x 3 times the threshold, '
+        'inside each role band of the critical bracket', () {
+      final src = screenFile.readAsStringSync();
+      final critical = factors(src, '_criticalLegFactors');
+      expect(critical, {'below': 0.8, 'at': 1.23, 'above': 2.0});
+      expect(src, contains("scenario: 'excessive_repaint_\$basename'"));
+
+      final spec = RepaintDetector().validationMetadata.additionalBrackets!
+          .singleWhere((b) => b.severityLabel == 'critical');
+      final t = spec.threshold.toDouble();
+      expect(t, 30);
+      expect(critical['below']! * t, lessThan(t));
+      expect(
+        critical['at']! * t,
+        inInclusiveRange(t, t * (1 + spec.atTolerance!)),
+      );
+      expect(critical['above']! * t, greaterThan(t * (1 + spec.atTolerance!)));
+      expect(
+        critical['above']! * t,
+        lessThanOrEqualTo(t * spec.aboveCeilingMultiplier!),
+      );
     });
   });
 }

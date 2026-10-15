@@ -99,14 +99,19 @@ final Map<DetectorType, Future<List<PerformanceIssue>> Function()> _recipes = {
           .issues,
   ],
   DetectorType.platformChannel: () async {
-    var now = DateTime(2026);
-    final d = PlatformChannelDetector(clock: () => now)
-      ..processTimelineData(
-        platformChannelData(channelEventCount: 25, durUs: 2000),
-      );
-    now = now.add(const Duration(seconds: 2));
-    d.processTimelineData(emptyTimelineData());
-    return d.issues;
+    // One detector per severity: 25 calls is a warning, 45 critical.
+    final issues = <PerformanceIssue>[];
+    for (final calls in [25, 45]) {
+      var now = DateTime(2026);
+      final d = PlatformChannelDetector(clock: () => now)
+        ..processTimelineData(
+          platformChannelData(channelEventCount: calls, durUs: 2000),
+        );
+      now = now.add(const Duration(seconds: 2));
+      d.processTimelineData(emptyTimelineData());
+      issues.addAll(d.issues);
+    }
+    return issues;
   },
   DetectorType.frameTiming: () async {
     final d = FrameTimingDetector(warmupDuration: Duration.zero);
