@@ -183,9 +183,10 @@
   and calls made before a capture scenario began, do not count. The
   detector keeps the last 10 s of calls, so a check sees a poll that
   covers several seconds, and a call that arrives late counts with the
-  calls around it. Late calls that join a span already reported, at the
-  same severity, add no second issue. A poll with more calls than the
-  detector keeps (4096) still reports its busiest span. New
+  calls around it. A late call inside a span already reported at its
+  severity or higher adds no second issue, and it does not hide other new
+  calls in the same check. A poll with more calls than the detector keeps
+  (4096) still reports its busiest span. New
   `PlatformChannelCall.tid` holds the thread of the call's begin, so two
   calls that begin in the same microsecond on different threads keep both
   durations. The triad was re-recorded on Flutter 3.47.6 (iPhone 12,
