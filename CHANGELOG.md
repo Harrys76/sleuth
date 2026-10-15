@@ -207,9 +207,8 @@
   keeps the pages of freed Dart objects, a heap drop of about 25 MB or more
   reads as native growth while the drop sits in the 30 s window (a
   simulated 50 MB drop with flat RSS read 2.5 MB/s for 12 s). On a Galaxy
-  A07 the VM returned the pages of a 64 MB drop, and real RSS growth on the
-  GPU demo (57 MB in 25 s) still fires; both are replayed in tests.
-  `HeapSample.nativeBytes` keeps its definition.
+  A07 the VM returned the pages of a 64 MB drop; that recording replays in
+  tests. `HeapSample.nativeBytes` keeps its definition.
 - `high_frequency_same_path` counts the largest cluster of requests within
   500 ms of each other; requests at 0, 300, 600 and 700 ms count 3 (they
   counted 2).
