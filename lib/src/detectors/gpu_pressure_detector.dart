@@ -35,10 +35,12 @@ import '../vm/timeline_parser.dart';
 ///   (cold-start pipeline compilation belongs to `shader_compilation`).
 /// * **VM leg.** Raster and UI timeline events from the VM, ignored inside
 ///   the same startup window, read once per scan. When the frame leg fires
-///   and the worst VM raster frame since the last scan also exceeds the
-///   budget, the issue is `confirmed`. When no frames arrived since the
-///   last scan (`FrameTimingDetector` disabled), the VM leg emits on its
-///   own.
+///   and a VM raster frame since the last scan also exceeds the budget and
+///   [rasterMultiplierThreshold] times the UI time of an average frame in
+///   its batch, the issue is `confirmed`. When no frames arrived since the
+///   last scan (`FrameTimingDetector` disabled), the VM leg emits on its own
+///   once one poll holds [minRasterDominantFrames] such frames, critical at
+///   [criticalRasterDominantFrames].
 /// * **Structural leg.** Opacity, ClipPath, BackdropFilter, ShaderMask and
 ///   ColorFiltered over deep subtrees (`expensive_gpu_nodes`).
 class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
@@ -66,7 +68,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
          lifecycle: DetectorLifecycle.hybrid,
          name: 'GPU Pressure',
          description:
-             'Detects GPU bottlenecks (raster above 2.0 times UI per frame)',
+             'Detects GPU bottlenecks (frames that miss their budget on the '
+             'raster thread, raster above 2.0 times UI)',
        );
 
   /// Flag when raster time exceeds UI time by this factor.
@@ -82,9 +85,9 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   final int minRasterDominantFrames;
 
   /// Raster-dominant frames inside one second at which `raster_dominance`
-  /// is critical. Default 10. On a Galaxy A07 and an iPhone 12, screens
-  /// with a heavy blur or a raster-bound animation dropped 26 to 57 such
-  /// frames a second, and other screens 5 or fewer.
+  /// is critical. Default 10. On a Galaxy A07 the GPU Pressure, Cupertino
+  /// blur and IntrinsicHeight demos dropped 26 to 54 such frames a second;
+  /// other screens there and on an iPhone 12 dropped 5 or fewer.
   final int criticalRasterDominantFrames;
 
   /// Frames arriving within this many seconds of
@@ -136,9 +139,12 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   /// BackdropFilter with blur sigma above this threshold gets critical severity.
   static const _highSigmaThreshold = 10.0;
 
-  // The VM batch with the slowest raster frame since the last scan: that
-  // frame's raster time and the batch's UI total. Read and cleared once per
-  // scan, so idle polls cannot judge old values again.
+  // VM raster frames since the last scan that missed the budget with raster
+  // above the ratio times their batch's UI time per frame: the most in any
+  // one batch, and the slowest of them with its batch's UI time per frame.
+  // Read and cleared once per scan, so idle polls cannot judge old values
+  // again.
+  int _vmMissedInBatch = 0;
   int _vmWorstRasterUs = 0;
   int _vmWorstBatchUiUs = 0;
   bool _vmConnected = false;
@@ -192,8 +198,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   set vmConnected(bool value) {
     _vmConnected = value;
     if (!value) {
-      _vmWorstRasterUs = 0;
-      _vmWorstBatchUiUs = 0;
+      _clearVmLeg();
       _issues.removeWhere(
         (i) =>
             i.stableId == 'raster_dominance' &&
@@ -254,11 +259,24 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         data.totalFlushPaintUs;
     // A batch without UI work has no ratio to judge.
     if (totalUi <= 0) return;
-    final worst = data.rasterDurations.reduce((a, b) => a > b ? a : b);
-    if (worst > _vmWorstRasterUs) {
-      _vmWorstRasterUs = worst;
-      _vmWorstBatchUiUs = totalUi;
+    // A poll carries about half a second of frames, and the timeline does
+    // not pair a frame's raster with its UI work. Each raster frame is set
+    // against the UI time of an average frame in the batch, not the batch's
+    // total, which grows with the frame count.
+    final perFrame = totalUi ~/ data.rasterDurations.length;
+    final uiPerFrameUs = perFrame > 0 ? perFrame : 1;
+    final budgetUs = effectiveMaxFrameRasterFloorUs;
+    var missed = 0;
+    for (final rasterUs in data.rasterDurations) {
+      if (rasterUs <= budgetUs) continue;
+      if (rasterUs <= rasterMultiplierThreshold * uiPerFrameUs) continue;
+      missed++;
+      if (rasterUs > _vmWorstRasterUs) {
+        _vmWorstRasterUs = rasterUs;
+        _vmWorstBatchUiUs = uiPerFrameUs;
+      }
     }
+    if (missed > _vmMissedInBatch) _vmMissedInBatch = missed;
   }
 
   @override
@@ -308,9 +326,16 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   /// Starts a new frame window at a route change: raster-dominant frames
-  /// seen on the previous route no longer count toward the frame leg.
+  /// and VM raster timing seen on the previous route no longer count.
   void markRouteEpoch() {
     _resetFrameLeg();
+    _clearVmLeg();
+  }
+
+  void _clearVmLeg() {
+    _vmMissedInBatch = 0;
+    _vmWorstRasterUs = 0;
+    _vmWorstBatchUiUs = 0;
   }
 
   void _resetFrameLeg() {
@@ -544,29 +569,27 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     final dominantCount = _dominantCount;
     final worstFrameRasterUs = _worstFrameRasterUs;
     // Without a new frame since the last scan the frame leg has nothing to
-    // judge; its held frames are then dropped.
+    // judge. Its held frames stay for the next scan, which prunes them by
+    // time, so a scan that lands between two frame-timing batches does not
+    // split a burst.
     final frameLeg = windowFrameCount == 0 ? null : _evaluateFrameLeg();
-    if (windowFrameCount == 0) _ringCount = 0;
     _pruneFrameLeg();
     _resetScanCounters();
 
-    // The VM batch with the slowest raster frame since the last scan, read
-    // once. Its numerator is that single frame, not the batch sum, which
-    // grows with idle vsync raster scopes; the denominator is the batch's
-    // UI total.
+    // The VM raster frames since the last scan that missed the budget with
+    // raster above the ratio times their batch's UI time per frame, read
+    // once.
+    final vmMissedInBatch = vmConnected ? _vmMissedInBatch : 0;
     final vmWorstUs = _vmWorstRasterUs;
     final vmUiUs = _vmWorstBatchUiUs;
-    _vmWorstRasterUs = 0;
-    _vmWorstBatchUiUs = 0;
+    _clearVmLeg();
     final vmRatio = vmUiUs > 0 ? vmWorstUs / vmUiUs : 0.0;
-    final vmMissed =
-        vmConnected &&
-        vmUiUs > 0 &&
-        vmWorstUs > effectiveMaxFrameRasterFloorUs &&
-        vmRatio > rasterMultiplierThreshold;
+    final vmMissed = vmMissedInBatch > 0;
     // The VM leg emits alone only when no frames arrived, which happens
-    // when FrameTimingDetector is disabled.
-    final vmAlone = vmMissed && windowFrameCount == 0;
+    // when FrameTimingDetector is disabled, and then needs as many missed
+    // frames inside one poll as the frame leg needs inside one second.
+    final vmAlone =
+        windowFrameCount == 0 && vmMissedInBatch >= minRasterDominantFrames;
     final hasRasterDominance = frameLeg != null || vmAlone;
 
     if (frameLeg != null) {
@@ -616,20 +639,22 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       _issues.add(
         PerformanceIssue(
           stableId: 'raster_dominance',
-          severity: vmWorstUs > effectiveMaxFrameRasterFloorUs * 2
+          severity: vmMissedInBatch >= criticalRasterDominantFrames
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           category: IssueCategory.raster,
           confidence: IssueConfidence.confirmed,
           title: 'Raster Dominance: ${vmRatio.toStringAsFixed(1)}× UI time',
           detail:
-              'Worst-frame raster '
-              '(${(vmWorstUs / 1000).toStringAsFixed(1)}ms) is over the '
+              '$vmMissedInBatch frames in one VM poll (about half a second) '
+              'took longer than the '
               '${(effectiveMaxFrameRasterFloorUs / 1000).toStringAsFixed(1)}'
-              'ms frame budget and ${vmRatio.toStringAsFixed(1)} times the '
-              'UI thread total (${(vmUiUs / 1000).toStringAsFixed(1)}ms). '
-              'No frame timings arrived, so this comes from the VM timeline '
-              'alone.',
+              'ms frame budget to rasterize, with raster above '
+              '${rasterMultiplierThreshold.toStringAsFixed(1)} times the UI '
+              'time of an average frame in that poll. The worst took '
+              '${(vmWorstUs / 1000).toStringAsFixed(1)}ms against '
+              '${(vmUiUs / 1000).toStringAsFixed(1)}ms of UI time. No frame '
+              'timings arrived, so this comes from the VM timeline alone.',
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
@@ -704,20 +729,24 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         'since the last scan, so a burst is reported once. Recorded frames '
         'from a Galaxy A07 (90 Hz) and an iPhone 12 pin the split: the GPU '
         'Pressure, Cupertino blur and IntrinsicHeight demos on the Galaxy '
-        'dropped 26 to 54 such frames a second, other screens 5 or fewer, and '
-        'ordinary '
-        'screens at 3 to 6 ms of raster stay silent. Frames inside the '
-        'startup window (`startupPhaseWindowSeconds` after Dart entry) do '
-        'not count on either leg. On the VM leg, each scan reads the batch '
-        'with the slowest raster frame since the last scan and clears it, '
-        'so idle polls never judge old values. That frame\'s raster is '
-        'divided by the batch\'s UI total. When the frame leg fires and that '
-        'frame is over the budget with the ratio above 2.0, the issue is '
-        '`confirmed`. When no frames arrived since the last scan '
-        '(`FrameTimingDetector` disabled), the VM leg emits on its own, '
-        'critical above 2 times the budget. '
-        'Impeller raster durations can include present back-pressure, so '
-        'the frame leg stays `likely`. `expensive_gpu_nodes` (structural) '
+        'dropped 26 to 54 such frames a second, other screens 5 or fewer. '
+        'Two Galaxy screens read warning from 3 frames 500 ms apart, the '
+        'period of Sleuth\'s VM timeline poll, which stalls that phone\'s '
+        'raster thread; the detector does not yet take that stall out. '
+        'Frames inside the startup window (`startupPhaseWindowSeconds` after '
+        'Dart entry) do not count on either leg. On the VM leg, each scan '
+        'reads the batch with the slowest raster frame since the last scan '
+        'and clears it, so idle polls never judge old values; a route change '
+        'clears it too. Each raster frame in a batch is set against the UI '
+        'time of an average frame in that batch (UI total over raster '
+        'frames), because the timeline does not pair them. When the frame '
+        'leg fires and at least one VM frame since the last scan is over '
+        'the budget with the ratio above 2.0, the issue is `confirmed`; '
+        'otherwise it is `likely`, because Impeller raster durations can '
+        'include present back-pressure. When no frames arrived since the '
+        'last scan (`FrameTimingDetector` disabled), the VM leg emits on its '
+        'own once one poll holds 3 such frames, critical at 10. '
+        '`expensive_gpu_nodes` (structural) '
         'gates on a subtree size strictly above 5 over 4 RenderObject '
         'checks. These are `RenderOpacity` (an opacity-value short-circuit '
         'at 0.0 and 1.0, pinned by a 4-axis matrix), `RenderClipPath` '

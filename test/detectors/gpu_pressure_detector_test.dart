@@ -21,6 +21,7 @@ import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/utils/fix_hint_builder.dart';
 import 'package:sleuth/src/utils/framework_types.dart' show cupertinoBlurOwner;
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -43,66 +44,69 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
-    group('VM connected — raster ratio', () {
+    group('VM connected, no frame timings', () {
       setUp(() {
         detector.vmConnected = true;
       });
 
-      testWidgets('no issue when raster <= UI x threshold', (tester) async {
-        // Raster 20ms (over the 16.7ms budget), UI 10ms: ratio 2.0, not
-        // above the 2.0 threshold.
-        detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 20000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
-          ),
-        );
-
+      Future<List<PerformanceIssue>> scanVm(WidgetTester tester) async {
         await tester.pumpWidget(const _GpuTestApp());
         detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+        return detector.issues;
+      }
 
-        expect(detector.issues, isEmpty);
-      });
+      testWidgets(
+        'no issue when raster is at most 2.0× the UI time per frame',
+        (tester) async {
+          // Three frames over the 16.7 ms budget, each 20 ms against 10 ms of
+          // UI per frame: ratio 2.0, not above the threshold.
+          detector.processTimelineData(
+            rasterFramesData(
+              rasterUs: const [20000, 20000, 20000],
+              uiPerFrameUs: 10000,
+            ),
+          );
+          expect(await scanVm(tester), isEmpty);
+        },
+      );
 
-      testWidgets('no issue when the worst frame fits the frame budget', (
+      testWidgets('no issue when the frames fit the frame budget', (
         tester,
       ) async {
-        // Raster 16ms, UI 2ms: ratio 8, but under the 16.7ms budget.
+        // Ratio 8, but 16 ms is under the 16.7 ms budget.
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 16000,
-            buildUs: 1000,
-            layoutUs: 500,
-            paintUs: 500,
+          rasterFramesData(
+            rasterUs: const [16000, 16000, 16000],
+            uiPerFrameUs: 2000,
           ),
         );
-
-        await tester.pumpWidget(const _GpuTestApp());
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-
-        expect(detector.issues, isEmpty);
+        expect(await scanVm(tester), isEmpty);
       });
 
-      testWidgets('warning when the worst frame misses the budget at more '
-          'than 2.0× UI', (tester) async {
-        // Raster 25ms, UI 10ms — ratio = 2.5
+      testWidgets('2 missed frames in one poll stay silent', (tester) async {
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 25000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 1000, 1000],
+            uiPerFrameUs: 10000,
+          ),
+        );
+        expect(await scanVm(tester), isEmpty);
+      });
+
+      testWidgets('warning at 3 missed frames in one poll', (tester) async {
+        // 25 ms of raster against 10 ms of UI per frame: ratio 2.5.
+        detector.processTimelineData(
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
           ),
         );
 
-        await tester.pumpWidget(const _GpuTestApp());
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-
-        expect(detector.issues, hasLength(1));
-        final issue = detector.issues.first;
+        final issues = await scanVm(tester);
+        expect(issues, hasLength(1));
+        final issue = issues.first;
         expect(issue.severity, IssueSeverity.warning);
+        expect(issue.confidence, IssueConfidence.confirmed);
         expect(issue.title, 'Raster Dominance: 2.5× UI time');
         expect(issue.observationSource, ObservationSource.vmTimeline);
         expect(
@@ -111,97 +115,130 @@ void main() {
         );
         expect(
           issue.detail,
-          'Worst-frame raster (25.0ms) is over the 16.7ms frame budget and '
-          '2.5 times the UI thread total (10.0ms). No frame timings arrived, '
+          '3 frames in one VM poll (about half a second) took longer than '
+          'the 16.7ms frame budget to rasterize, with raster above 2.0 '
+          'times the UI time of an average frame in that poll. The worst '
+          'took 25.0ms against 10.0ms of UI time. No frame timings arrived, '
           'so this comes from the VM timeline alone.',
         );
       });
 
-      testWidgets('critical when the worst frame takes more than twice the '
-          'budget', (tester) async {
-        // Raster 50ms, UI 10ms — ratio = 5.0
-        detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 50000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
-          ),
-        );
-
+      testWidgets('9 missed frames in one poll warn, 10 are critical', (
+        tester,
+      ) async {
         await tester.pumpWidget(const _GpuTestApp());
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.severity, IssueSeverity.critical);
-      });
-
-      testWidgets('severity follows the budget, not the ratio', (tester) async {
-        await tester.pumpWidget(const _GpuTestApp());
-        IssueSeverity? severityFor(int rasterUs, int uiUs) {
+        IssueSeverity? severityFor(int missed) {
           detector.processTimelineData(
-            rasterDominantData(
-              rasterUs: rasterUs,
-              buildUs: uiUs,
-              layoutUs: 0,
-              paintUs: 0,
+            rasterFramesData(
+              rasterUs: List.filled(missed, 20000),
+              uiPerFrameUs: 1000,
             ),
           );
           detector.scanTree(tester.element(find.byType(_GpuTestApp)));
           return detector.issues.firstOrNull?.severity;
         }
 
-        // Ratio 2.1 at 34 ms, above twice the 16.7 ms budget.
-        expect(severityFor(34000, 16000), IssueSeverity.critical);
-        // Ratio 33 at 33 ms, under twice the budget.
-        expect(severityFor(33000, 1000), IssueSeverity.warning);
-        // The critical boundary is strict: 2 × 16667 = 33334.
-        expect(severityFor(33334, 1000), IssueSeverity.warning);
-        expect(severityFor(33335, 1000), IssueSeverity.critical);
+        expect(severityFor(9), IssueSeverity.warning);
+        expect(severityFor(10), IssueSeverity.critical);
+      });
+
+      testWidgets('severity follows the missed-frame count, not the raster '
+          'time', (tester) async {
+        await tester.pumpWidget(const _GpuTestApp());
+        // Three frames of 50 ms, three times the budget: still a warning.
+        detector.processTimelineData(
+          rasterFramesData(
+            rasterUs: const [50000, 50000, 50000],
+            uiPerFrameUs: 1000,
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+
+        // Ten frames just over the budget: critical.
+        detector.processTimelineData(
+          rasterFramesData(
+            rasterUs: List.filled(10, 16668),
+            uiPerFrameUs: 1000,
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+      });
+
+      testWidgets('missed frames count per poll, not across polls', (
+        tester,
+      ) async {
+        // Two polls of 2 missed frames each: no single poll holds 3.
+        detector
+          ..processTimelineData(
+            rasterFramesData(
+              rasterUs: const [25000, 25000],
+              uiPerFrameUs: 1000,
+            ),
+          )
+          ..processTimelineData(
+            rasterFramesData(
+              rasterUs: const [25000, 25000],
+              uiPerFrameUs: 1000,
+            ),
+          );
+        expect(await scanVm(tester), isEmpty);
+      });
+
+      testWidgets('UI time is set per frame, not per poll', (tester) async {
+        // Thirty frames of 40 ms against 2 ms of UI each: 60 ms of UI in the
+        // poll. Against the poll's total the ratio would read 0.7.
+        detector.processTimelineData(
+          rasterFramesData(
+            rasterUs: List.filled(30, 40000),
+            uiPerFrameUs: 2000,
+          ),
+        );
+        final issues = await scanVm(tester);
+        expect(issues.single.title, 'Raster Dominance: 20.0× UI time');
+        expect(issues.single.severity, IssueSeverity.critical);
       });
 
       testWidgets('VM timing is read once per scan', (tester) async {
-        detector.processTimelineData(rasterDominantData(rasterUs: 25000));
-        await tester.pumpWidget(const _GpuTestApp());
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-        expect(detector.issues, hasLength(1));
+        detector.processTimelineData(
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
+          ),
+        );
+        expect(await scanVm(tester), hasLength(1));
 
         // No poll since the last scan: nothing left to judge.
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-        expect(detector.issues, isEmpty);
+        expect(await scanVm(tester), isEmpty);
       });
 
       testWidgets('a batch without UI work is ignored', (tester) async {
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 30000,
-            buildUs: 0,
-            layoutUs: 0,
-            paintUs: 0,
-          ),
+          ParsedTimelineData(rasterDurations: const [30000, 30000, 30000]),
         );
-        await tester.pumpWidget(const _GpuTestApp());
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-        expect(detector.issues, isEmpty);
+        expect(await scanVm(tester), isEmpty);
       });
 
-      testWidgets('the batch with the slowest raster frame sets the ratio', (
-        tester,
-      ) async {
-        // Slowest frame 20 ms against its batch's 10 ms of UI: ratio 2.0.
-        detector.processTimelineData(rasterDominantData(rasterUs: 20000));
-        // A faster frame against little UI does not replace it.
-        detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 18000,
-            buildUs: 1000,
-            layoutUs: 500,
-            paintUs: 500,
-          ),
-        );
-        await tester.pumpWidget(const _GpuTestApp());
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-        expect(detector.issues, isEmpty);
+      testWidgets('the slowest missed frame sets the ratio', (tester) async {
+        // 20 ms against 5 ms per frame (ratio 4), then 30 ms against 10 ms
+        // per frame (ratio 3): the 30 ms frame is the worst.
+        detector
+          ..processTimelineData(
+            rasterFramesData(
+              rasterUs: const [20000, 20000, 20000],
+              uiPerFrameUs: 5000,
+            ),
+          )
+          ..processTimelineData(
+            rasterFramesData(
+              rasterUs: const [30000, 30000, 30000],
+              uiPerFrameUs: 10000,
+            ),
+          );
+        final issues = await scanVm(tester);
+        expect(issues.single.title, 'Raster Dominance: 3.0× UI time');
+        expect(issues.single.detail, contains('The worst took 30.0ms'));
       });
 
       testWidgets('updateFrameBudget sets the budget, floored at '
@@ -216,15 +253,13 @@ void main() {
         detector.resetFrameBudget();
         expect(detector.effectiveMaxFrameRasterFloorUs, 16667);
 
-        // 12 ms against 3 ms of UI misses a 120 Hz budget only.
+        // 12 ms against 3 ms of UI per frame misses a 120 Hz budget only.
         await tester.pumpWidget(const _GpuTestApp());
         detector.updateFrameBudget(8333);
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 12000,
-            buildUs: 3000,
-            layoutUs: 0,
-            paintUs: 0,
+          rasterFramesData(
+            rasterUs: const [12000, 12000, 12000],
+            uiPerFrameUs: 3000,
           ),
         );
         detector.scanTree(tester.element(find.byType(_GpuTestApp)));
@@ -232,46 +267,34 @@ void main() {
 
         detector.resetFrameBudget();
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 12000,
-            buildUs: 3000,
-            layoutUs: 0,
-            paintUs: 0,
+          rasterFramesData(
+            rasterUs: const [12000, 12000, 12000],
+            uiPerFrameUs: 3000,
           ),
         );
         detector.scanTree(tester.element(find.byType(_GpuTestApp)));
         expect(detector.issues, isEmpty);
       });
 
-      testWidgets('confidence is confirmed without expensive nodes', (
+      testWidgets('a route epoch drops the VM timing seen before it', (
         tester,
       ) async {
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 25000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
-          ),
+          rasterFramesData(rasterUs: List.filled(5, 25000), uiPerFrameUs: 1000),
         );
-
-        // Simple tree — no expensive render objects
-        await tester.pumpWidget(const _GpuTestApp());
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.confidence, IssueConfidence.confirmed);
+        detector.markRouteEpoch();
+        // The route-change scan sees no frames, so only a VM timing held
+        // from the previous route could raise the VM leg.
+        expect(await scanVm(tester), isEmpty);
       });
 
       testWidgets('splits observed raster signal from likely node cause', (
         tester,
       ) async {
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 25000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
           ),
         );
 
@@ -287,8 +310,6 @@ void main() {
           (issue) => issue.stableId == 'expensive_gpu_nodes',
         );
 
-        expect(rasterIssue.stableId, 'raster_dominance');
-        expect(nodeIssue.stableId, 'expensive_gpu_nodes');
         expect(rasterIssue.confidence, IssueConfidence.confirmed);
         expect(rasterIssue.detail, isNot(contains('Suspected cause')));
         expect(nodeIssue.confidence, IssueConfidence.likely);
@@ -491,11 +512,9 @@ void main() {
       ) async {
         detector.vmConnected = true;
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 25000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
           ),
         );
 
@@ -524,11 +543,9 @@ void main() {
           'evidence backs it', (tester) async {
         detector.vmConnected = true;
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 25000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
           ),
         );
 
@@ -569,11 +586,9 @@ void main() {
         (tester) async {
           detector.vmConnected = true;
           detector.processTimelineData(
-            rasterDominantData(
-              rasterUs: 25000,
-              buildUs: 5000,
-              layoutUs: 3000,
-              paintUs: 2000,
+            rasterFramesData(
+              rasterUs: const [25000, 25000, 25000],
+              uiPerFrameUs: 10000,
             ),
           );
 
@@ -874,22 +889,18 @@ void main() {
         detector.vmConnected = true;
         ageUs = 1000000;
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 25000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
           ),
         );
         expect(raster(await scan(tester)), isNull);
 
         ageUs = 10000000;
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 25000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
           ),
         );
         final issue = raster(await scan(tester));
@@ -983,16 +994,32 @@ void main() {
         expect(raster(await scan(tester)), isNull);
       });
 
-      testWidgets('a scan without new frames drops the held frames', (
+      testWidgets('a scan without new frames keeps the held frames', (
         tester,
       ) async {
-        feed([20000, 20000, 20000]);
-        expect(raster(await scan(tester)), isNotNull);
-
-        // Nothing arrived since the last scan: no issue, and the held
-        // frames are gone.
+        feed([20000, 20000]);
         expect(raster(await scan(tester)), isNull);
-        feed([20000], startUs: 3 * 16667);
+
+        // Nothing arrived since the last scan, as when a scan lands between
+        // two frame-timing batches: no issue, and the held frames stay.
+        expect(raster(await scan(tester)), isNull);
+
+        feed([20000], startUs: 2 * 16667);
+        final issue = raster(await scan(tester));
+        expect(issue, isNotNull);
+        expect(issue!.detail, startsWith('3 frames within one second'));
+      });
+
+      testWidgets('a held burst older than a second is pruned at the next '
+          'scan with frames', (tester) async {
+        feed([20000, 20000]);
+        expect(raster(await scan(tester)), isNull);
+        expect(raster(await scan(tester)), isNull);
+
+        // The next frames arrive 2 s later: the held pair cannot join them.
+        feed([20000], startUs: 2000000);
+        expect(raster(await scan(tester)), isNull);
+        feed([20000], startUs: 2000000 + 16667);
         expect(raster(await scan(tester)), isNull);
       });
 
@@ -1022,6 +1049,42 @@ void main() {
           'VM timeline raster timing',
         );
         expect(issue.extraTraceArgs!['vmWorstRasterUs'], '25000');
+      });
+
+      testWidgets('a realistic VM poll of 30 raster-bound frames confirms '
+          'the frame-leg issue', (tester) async {
+        detector.vmConnected = true;
+        // 40 ms of raster against 2 ms of UI per frame, 60 ms of UI in the
+        // poll. Against the poll's UI total the ratio would read 0.7 and
+        // never confirm.
+        detector.processTimelineData(
+          rasterFramesData(
+            rasterUs: List.filled(30, 40000),
+            uiPerFrameUs: 2000,
+          ),
+        );
+        feed([20000, 20000, 20000]);
+        final issue = raster(await scan(tester))!;
+        expect(issue.confidence, IssueConfidence.confirmed);
+        expect(issue.extraTraceArgs!['vmWorstRasterUs'], '40000');
+      });
+
+      testWidgets('a UI-bound VM poll of 30 frames does not confirm', (
+        tester,
+      ) async {
+        detector.vmConnected = true;
+        // 18 ms of raster misses the budget, but against 20 ms of UI per
+        // frame raster is not the larger cost.
+        detector.processTimelineData(
+          rasterFramesData(
+            rasterUs: List.filled(30, 18000),
+            uiPerFrameUs: 20000,
+          ),
+        );
+        feed([20000, 20000, 20000]);
+        final issue = raster(await scan(tester))!;
+        expect(issue.confidence, IssueConfidence.likely);
+        expect(issue.extraTraceArgs!.containsKey('vmWorstRasterUs'), isFalse);
       });
 
       testWidgets('VM timing within the budget leaves the frame-leg issue '
@@ -1063,11 +1126,9 @@ void main() {
       ) async {
         detector.vmConnected = true;
         detector.processTimelineData(
-          rasterDominantData(
-            rasterUs: 25000,
-            buildUs: 5000,
-            layoutUs: 3000,
-            paintUs: 2000,
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
           ),
         );
         // Balanced frames: the frame leg does not fire, and the VM leg
@@ -1132,7 +1193,12 @@ void main() {
         tester,
       ) async {
         detector.vmConnected = true;
-        detector.processTimelineData(rasterDominantData(rasterUs: 25000));
+        detector.processTimelineData(
+          rasterFramesData(
+            rasterUs: const [25000, 25000, 25000],
+            uiPerFrameUs: 10000,
+          ),
+        );
         await scan(tester, const _OpacityDeepTree());
         expect(raster(detector.issues), isNotNull);
 
@@ -1238,8 +1304,13 @@ void main() {
     ) async {
       detector = GpuPressureDetector(rasterMultiplierThreshold: 3.0);
       detector.vmConnected = true;
-      // UI = 5000+3000+2000 = 10000; Raster 32000; ratio = 3.2 > 3.0 → warning
-      detector.processTimelineData(rasterDominantData(rasterUs: 32000));
+      // 32 ms against 10 ms of UI per frame: ratio 3.2 > 3.0, warning.
+      detector.processTimelineData(
+        rasterFramesData(
+          rasterUs: const [32000, 32000, 32000],
+          uiPerFrameUs: 10000,
+        ),
+      );
       await tester.pumpWidget(const _GpuTestApp());
       detector.scanTree(tester.element(find.byType(_GpuTestApp)));
       expect(detector.issues, hasLength(1));
@@ -1249,20 +1320,27 @@ void main() {
     testWidgets('custom threshold below ratio does not fire', (tester) async {
       detector = GpuPressureDetector(rasterMultiplierThreshold: 3.0);
       detector.vmConnected = true;
-      // UI = 10000; Raster 25000; ratio = 2.5 < 3.0 → no issue
-      detector.processTimelineData(rasterDominantData(rasterUs: 25000));
+      // 25 ms against 10 ms of UI per frame: ratio 2.5 < 3.0, no issue.
+      detector.processTimelineData(
+        rasterFramesData(
+          rasterUs: const [25000, 25000, 25000],
+          uiPerFrameUs: 10000,
+        ),
+      );
       await tester.pumpWidget(const _GpuTestApp());
       detector.scanTree(tester.element(find.byType(_GpuTestApp)));
       expect(detector.issues, isEmpty);
     });
 
-    testWidgets('with a custom threshold, critical still follows the frame '
-        'budget', (tester) async {
+    testWidgets('with a custom threshold, critical still follows the '
+        'missed-frame count', (tester) async {
       detector = GpuPressureDetector(rasterMultiplierThreshold: 3.0);
       detector.vmConnected = true;
-      // UI = 10000; Raster 35000; ratio = 3.5, under twice the threshold,
-      // but 35 ms is more than twice the 16.7 ms budget → critical.
-      detector.processTimelineData(rasterDominantData(rasterUs: 35000));
+      // 35 ms against 10 ms of UI per frame: ratio 3.5, under twice the
+      // threshold, but 10 such frames in one poll are critical.
+      detector.processTimelineData(
+        rasterFramesData(rasterUs: List.filled(10, 35000), uiPerFrameUs: 10000),
+      );
       await tester.pumpWidget(const _GpuTestApp());
       detector.scanTree(tester.element(find.byType(_GpuTestApp)));
       expect(detector.issues, hasLength(1));
