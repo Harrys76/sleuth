@@ -23,32 +23,41 @@ import '../vm/timeline_parser.dart';
 ///
 /// * **Frame leg (every tier).** [processFrame] receives each presented
 ///   frame's `FrameTiming` UI (build + layout + paint) and raster durations.
-///   A frame is raster-dominant when both durations are positive, raster
-///   exceeds [effectiveMaxFrameRasterFloorUs], and raster exceeds
-///   [rasterMultiplierThreshold] × UI. `raster_dominance` emits as `likely`
-///   when at least [minRasterDominantFrames] dominant frames fall inside any
-///   one-second span since the last scan. Frames that arrive within
-///   [startupPhaseWindowSeconds] of Dart entry are ignored (cold-start
-///   pipeline compilation belongs to `shader_compilation`).
+///   A frame is raster-dominant when its UI time is positive, its raster
+///   time exceeds the frame's own budget (so the frame missed its deadline
+///   on the raster thread) and [maxFrameRasterFloorUs], and raster exceeds
+///   [rasterMultiplierThreshold] × UI. `raster_dominance` warns when at
+///   least [minRasterDominantFrames] dominant frames fall inside a
+///   one-second span, and is critical at [criticalRasterDominantFrames].
+///   Dominant frames from the last second before the newest frame carry
+///   across a scan, so a burst split by a scan counts once. Frames that
+///   arrive within [startupPhaseWindowSeconds] of Dart entry are ignored
+///   (cold-start pipeline compilation belongs to `shader_compilation`).
 /// * **VM leg.** Raster and UI timeline events from the VM, ignored inside
-///   the same startup window. When it fires
-///   it wins: `raster_dominance` is `confirmed` and carries the VM numbers.
+///   the same startup window, read once per scan. When the frame leg fires
+///   and the worst VM raster frame since the last scan also exceeds the
+///   budget, the issue is `confirmed`. When no frames arrived since the
+///   last scan (`FrameTimingDetector` disabled), the VM leg emits on its
+///   own.
 /// * **Structural leg.** Opacity, ClipPath, BackdropFilter, ShaderMask and
 ///   ColorFiltered over deep subtrees (`expensive_gpu_nodes`).
-///
-/// The frame leg needs `FrameTimingDetector` enabled; without it no frames
-/// arrive.
 class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   GpuPressureDetector({
     this.rasterMultiplierThreshold = 2.0,
     this.maxFrameRasterFloorUs = 8000,
     this.minRasterDominantFrames = 3,
+    this.criticalRasterDominantFrames = 10,
     this.startupPhaseWindowSeconds = 5,
     String? Function()? sourceRouteProvider,
     int? Function()? appStartMonotonicUsForTest,
   }) : assert(
          minRasterDominantFrames >= 1,
          'minRasterDominantFrames must be at least 1.',
+       ),
+       assert(
+         criticalRasterDominantFrames >= minRasterDominantFrames,
+         'criticalRasterDominantFrames must be at least '
+         'minRasterDominantFrames.',
        ),
        _sourceRouteProvider = sourceRouteProvider ?? (() => null),
        _appStartForTest = appStartMonotonicUsForTest,
@@ -63,19 +72,20 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   /// Flag when raster time exceeds UI time by this factor.
   final double rasterMultiplierThreshold;
 
-  /// Suppress `raster_dominance` unless a single frame's raster time
-  /// exceeds this floor (microseconds). On the VM leg the numerator is the
-  /// worst single-frame raster scope in the batch; on the frame leg every
-  /// dominant frame must clear it. Idle vsync frames with trivial UI work
-  /// otherwise produce a misleading high ratio. Default 8000us (half of
-  /// the 60Hz frame budget).
+  /// Raster time (microseconds) a frame must exceed to count, on top of
+  /// its frame budget. The default 8000 is below the budget of every
+  /// display up to 120 Hz, so it takes effect only when raised.
   final int maxFrameRasterFloorUs;
 
-  /// Raster-dominant frames required inside one second for the frame leg
-  /// to emit `raster_dominance`. Default 3. Severity is critical when that
-  /// many frames in the qualifying span also had raster time above their
-  /// own frame budget.
+  /// Raster-dominant frames inside one second at which `raster_dominance`
+  /// warns. Default 3.
   final int minRasterDominantFrames;
+
+  /// Raster-dominant frames inside one second at which `raster_dominance`
+  /// is critical. Default 10. On a Galaxy A07 and an iPhone 12, screens
+  /// with a heavy blur or a raster-bound animation dropped 26 to 57 such
+  /// frames a second, and other screens 5 or fewer.
+  final int criticalRasterDominantFrames;
 
   /// Frames arriving within this many seconds of
   /// [Sleuth.dartEntryMonotonicUs] do not count toward the frame leg. Same
@@ -92,23 +102,27 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   /// `FrameTimingDetector`. Tests pass `() => Timeline.now - ageUs`.
   final int? Function()? _appStartForTest;
 
-  int? _budgetFloorUs;
+  static const int _defaultFrameBudgetUs = 16667;
+  int _frameBudgetUs = _defaultFrameBudgetUs;
 
-  /// Floor in effect: half the resolved frame budget once
-  /// [updateFrameBudget] has been called, else [maxFrameRasterFloorUs].
+  /// Raster time the VM leg's worst frame must exceed: the resolved frame
+  /// budget, or [maxFrameRasterFloorUs] when that is larger. The frame leg
+  /// uses each frame's own budget.
   int get effectiveMaxFrameRasterFloorUs =>
-      _budgetFloorUs ?? maxFrameRasterFloorUs;
+      _frameBudgetUs > maxFrameRasterFloorUs
+      ? _frameBudgetUs
+      : maxFrameRasterFloorUs;
 
-  /// Sets the raster floor to half of [budgetUs]. Called by
-  /// `SleuthController` when the resolved frame budget changes.
+  /// Sets the frame budget the VM leg judges against. Called by
+  /// `SleuthController` whenever the resolved frame budget changes.
   void updateFrameBudget(int budgetUs) {
     if (budgetUs <= 0) return;
-    _budgetFloorUs = budgetUs ~/ 2;
+    _frameBudgetUs = budgetUs;
   }
 
-  /// Restores the [maxFrameRasterFloorUs] floor.
+  /// Restores the 60 Hz budget (16667 us).
   void resetFrameBudget() {
-    _budgetFloorUs = null;
+    _frameBudgetUs = _defaultFrameBudgetUs;
   }
 
   final List<PerformanceIssue> _issues = [];
@@ -122,9 +136,11 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   /// BackdropFilter with blur sigma above this threshold gets critical severity.
   static const _highSigmaThreshold = 10.0;
 
-  int _lastRasterUs = 0;
-  int _lastMaxFrameRasterUs = 0;
-  int _lastUiUs = 0;
+  // The VM batch with the slowest raster frame since the last scan: that
+  // frame's raster time and the batch's UI total. Read and cleared once per
+  // scan, so idle polls cannot judge old values again.
+  int _vmWorstRasterUs = 0;
+  int _vmWorstBatchUiUs = 0;
   bool _vmConnected = false;
   final List<String> _expensiveNodes = [];
 
@@ -137,12 +153,17 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   static const String _structuralOnlyReason =
       'Structural pattern only. Sleuth saw no raster-dominant frames';
 
+  static const String _frameLegReason =
+      'Per-frame FrameTiming raster and UI durations';
+
   // -- Frame leg --
   //
-  // Frames since the last `_evaluate`. Dominant frames go into a fixed
-  // 64-entry ring (parallel lists, no per-frame allocation) that drops the
-  // oldest entry when full, so under sustained pressure the newest ~1 s of
-  // frames at 60 Hz is always present. Everything resets after each scan.
+  // Dominant frames go into a fixed 64-entry ring (parallel lists, no
+  // per-frame allocation) that drops the oldest entry when full. After a
+  // scan the ring keeps the dominant frames from the last second before
+  // the newest frame, so a burst split by a scan still counts once; the
+  // per-scan counters reset. A span counts only when it holds a frame that
+  // arrived since the previous scan, so a burst is reported once.
   static const int _ringCapacity = 64;
   static const int _spanUs = 1000000;
   final List<int> _ringRasterUs = List<int>.filled(_ringCapacity, 0);
@@ -151,47 +172,43 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   final List<bool> _ringHasAt = List<bool>.filled(_ringCapacity, false);
   final List<int> _ringIdentityUs = List<int>.filled(_ringCapacity, 0);
   final List<bool> _ringHasIdentity = List<bool>.filled(_ringCapacity, false);
-  final List<bool> _ringOverBudget = List<bool>.filled(_ringCapacity, false);
+  final List<bool> _ringFresh = List<bool>.filled(_ringCapacity, false);
   int _ringCount = 0;
   int _ringWrite = 0;
   int _windowFrameCount = 0;
   int _dominantCount = 0;
   int _worstFrameRasterUs = 0;
-
-  /// Frame-leg version of the last scan's `raster_dominance`, kept when the
-  /// VM leg won that scan. A VM disconnect swaps it in so frame evidence
-  /// already observed survives the loss of the VM.
-  PerformanceIssue? _frameLegFallback;
+  int? _newestFrameAtUs;
 
   /// Current VM connectivity — set by the controller.
   ///
-  /// On disconnect, clears stale VM timings, removes the VM-sourced
-  /// `raster_dominance` (replaced by the frame-leg version when that leg
-  /// also qualified), and downgrades other non-frame issues to `possible`.
-  /// Frame-sourced issues are untouched, and `expensive_gpu_nodes` stays
-  /// `likely` while a frame-sourced `raster_dominance` remains.
+  /// On disconnect, clears the VM timings, removes a VM-sourced
+  /// `raster_dominance`, returns a VM-confirmed frame-leg issue to
+  /// `likely`, and downgrades other non-frame issues to `possible`.
+  /// `expensive_gpu_nodes` stays `likely` while a frame-sourced
+  /// `raster_dominance` remains.
   bool get vmConnected => _vmConnected;
   @override
   set vmConnected(bool value) {
     _vmConnected = value;
     if (!value) {
-      _lastRasterUs = 0;
-      _lastMaxFrameRasterUs = 0;
-      _lastUiUs = 0;
-      final vmIndex = _issues.indexWhere(
+      _vmWorstRasterUs = 0;
+      _vmWorstBatchUiUs = 0;
+      _issues.removeWhere(
         (i) =>
             i.stableId == 'raster_dominance' &&
             i.observationSource == ObservationSource.vmTimeline,
       );
-      if (vmIndex != -1) {
-        final fallback = _frameLegFallback;
-        if (fallback != null) {
-          _issues[vmIndex] = fallback;
-        } else {
-          _issues.removeAt(vmIndex);
+      for (int i = 0; i < _issues.length; i++) {
+        final issue = _issues[i];
+        if (issue.stableId == 'raster_dominance' &&
+            issue.confidence == IssueConfidence.confirmed) {
+          _issues[i] = issue.copyWith(
+            confidence: IssueConfidence.likely,
+            confidenceReason: _frameLegReason,
+          );
         }
       }
-      _frameLegFallback = null;
       final frameLegRemains = _issues.any(
         (i) =>
             i.stableId == 'raster_dominance' &&
@@ -230,17 +247,18 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     // Cold-start polls carry pipeline-compilation raster frames against
     // almost no UI work; the frame leg ignores them and so does this leg.
     if (_insideStartupWindow()) return;
-    if (data.rasterDurations.isNotEmpty) {
-      _lastRasterUs = data.rasterDurations.fold(0, (s, d) => s + d);
-      _lastMaxFrameRasterUs = data.rasterDurations.reduce(
-        (a, b) => a > b ? a : b,
-      );
-    }
+    if (data.rasterDurations.isEmpty) return;
     final totalUi =
         data.totalBuildScopeUs +
         data.totalFlushLayoutUs +
         data.totalFlushPaintUs;
-    if (totalUi > 0) _lastUiUs = totalUi;
+    // A batch without UI work has no ratio to judge.
+    if (totalUi <= 0) return;
+    final worst = data.rasterDurations.reduce((a, b) => a > b ? a : b);
+    if (worst > _vmWorstRasterUs) {
+      _vmWorstRasterUs = worst;
+      _vmWorstBatchUiUs = totalUi;
+    }
   }
 
   @override
@@ -248,10 +266,18 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     if (!_isEnabled) return;
     if (_insideStartupWindow()) return;
     _windowFrameCount++;
+    final atUs = frame.vsyncStartUs ?? frame.rasterFinishUs;
+    final newest = _newestFrameAtUs;
+    if (atUs != null && (newest == null || atUs > newest)) {
+      _newestFrameAtUs = atUs;
+    }
     final uiUs = frame.uiDuration.inMicroseconds;
     final rasterUs = frame.rasterDuration.inMicroseconds;
     if (uiUs <= 0 || rasterUs <= 0) return;
-    if (rasterUs <= effectiveMaxFrameRasterFloorUs) return;
+    // The frame missed its deadline on the raster thread, and raster, not
+    // the UI thread, was the larger cost.
+    if (rasterUs <= frame.frameBudgetUs) return;
+    if (rasterUs <= maxFrameRasterFloorUs) return;
     if (rasterUs <= rasterMultiplierThreshold * uiUs) return;
 
     _dominantCount++;
@@ -259,13 +285,12 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     final i = _ringWrite;
     _ringRasterUs[i] = rasterUs;
     _ringUiUs[i] = uiUs;
-    final atUs = frame.vsyncStartUs ?? frame.rasterFinishUs;
     _ringHasAt[i] = atUs != null;
     _ringAtUs[i] = atUs ?? 0;
     final identityUs = frame.rasterFinishUs ?? frame.vsyncStartUs;
     _ringHasIdentity[i] = identityUs != null;
     _ringIdentityUs[i] = identityUs ?? 0;
-    _ringOverBudget[i] = rasterUs > frame.frameBudgetUs;
+    _ringFresh[i] = true;
     _ringWrite = (i + 1) % _ringCapacity;
     if (_ringCount < _ringCapacity) _ringCount++;
   }
@@ -291,15 +316,53 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   void _resetFrameLeg() {
     _ringCount = 0;
     _ringWrite = 0;
+    _newestFrameAtUs = null;
+    _resetScanCounters();
+  }
+
+  void _resetScanCounters() {
     _windowFrameCount = 0;
     _dominantCount = 0;
     _worstFrameRasterUs = 0;
   }
 
+  /// Drops dominant frames more than a second older than the newest frame,
+  /// and frames without a timestamp, and marks the frames it keeps as seen
+  /// by a scan. Kept frames move up to stay contiguous in arrival order.
+  void _pruneFrameLeg() {
+    final newest = _newestFrameAtUs;
+    final oldest = (_ringWrite - _ringCount + _ringCapacity) % _ringCapacity;
+    var kept = 0;
+    for (var k = 0; k < _ringCount; k++) {
+      final from = (oldest + k) % _ringCapacity;
+      final keep =
+          newest != null &&
+          _ringHasAt[from] &&
+          _ringAtUs[from] > newest - _spanUs;
+      if (!keep) continue;
+      final to = (oldest + kept) % _ringCapacity;
+      if (to != from) {
+        _ringRasterUs[to] = _ringRasterUs[from];
+        _ringUiUs[to] = _ringUiUs[from];
+        _ringAtUs[to] = _ringAtUs[from];
+        _ringHasAt[to] = true;
+        _ringIdentityUs[to] = _ringIdentityUs[from];
+        _ringHasIdentity[to] = _ringHasIdentity[from];
+      }
+      _ringFresh[to] = false;
+      kept++;
+    }
+    _ringCount = kept;
+    _ringWrite = (oldest + kept) % _ringCapacity;
+  }
+
   /// Finds the one-second span holding the most dominant frames (the most
-  /// recent on ties). Frames without timestamps form one span of their own.
-  /// Returns null when no span reaches [minRasterDominantFrames].
+  /// recent on ties) among the spans that hold a frame that arrived since
+  /// the previous scan. Frames without timestamps form one span of their
+  /// own. Returns null when no span reaches [minRasterDominantFrames].
   _FrameLegResult? _evaluateFrameLeg() {
+    // Fast path: no dominant frame arrived since the previous scan.
+    if (_dominantCount == 0) return null;
     if (_ringCount < minRasterDominantFrames) return null;
     final oldest = (_ringWrite - _ringCount + _ringCapacity) % _ringCapacity;
     final timed = <int>[];
@@ -319,10 +382,14 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     var bestCount = 0;
     var bestLeft = 0;
     var left = 0;
+    var freshInSpan = 0;
     for (var right = 0; right < timed.length; right++) {
+      if (_ringFresh[timed[right]]) freshInSpan++;
       while (_ringAtUs[timed[right]] - _ringAtUs[timed[left]] >= _spanUs) {
+        if (_ringFresh[timed[left]]) freshInSpan--;
         left++;
       }
+      if (freshInSpan == 0) continue;
       final count = right - left + 1;
       if (count >= bestCount) {
         bestCount = count;
@@ -330,18 +397,17 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       }
     }
     var bestSpan = timed.sublist(bestLeft, bestLeft + bestCount);
+    // Untimed frames never outlive a scan, so they all arrived since the
+    // previous one.
     if (untimed.length > bestCount) {
       bestCount = untimed.length;
       bestSpan = untimed;
     }
     if (bestCount < minRasterDominantFrames) return null;
 
-    var overBudget = 0;
-    final ratios = <double>[];
-    for (final idx in bestSpan) {
-      if (_ringOverBudget[idx]) overBudget++;
-      ratios.add(_ringRasterUs[idx] / _ringUiUs[idx]);
-    }
+    final ratios = <double>[
+      for (final idx in bestSpan) _ringRasterUs[idx] / _ringUiUs[idx],
+    ];
     ratios.sort();
     final mid = ratios.length ~/ 2;
     final median = ratios.length.isOdd
@@ -351,7 +417,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     return _FrameLegResult(
       qualifyingCount: bestCount,
       medianRatio: median,
-      critical: overBudget >= minRasterDominantFrames,
+      critical: bestCount >= criticalRasterDominantFrames,
       identityUs: _ringHasIdentity[last] ? _ringIdentityUs[last] : null,
     );
   }
@@ -473,92 +539,104 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
 
   void _evaluate() {
     _issues.clear();
-    _frameLegFallback = null;
 
-    final frameLeg = _evaluateFrameLeg();
     final windowFrameCount = _windowFrameCount;
     final dominantCount = _dominantCount;
     final worstFrameRasterUs = _worstFrameRasterUs;
-    _resetFrameLeg();
+    // Without a new frame since the last scan the frame leg has nothing to
+    // judge; its held frames are then dropped.
+    final frameLeg = windowFrameCount == 0 ? null : _evaluateFrameLeg();
+    if (windowFrameCount == 0) _ringCount = 0;
+    _pruneFrameLeg();
+    _resetScanCounters();
 
-    final hasRasterTiming = vmConnected && _lastUiUs > 0 && _lastRasterUs > 0;
-    // Numerator is the WORST single-frame raster scope, not aggregate
-    // sum. Aggregate inflates whenever many idle vsync raster scopes
-    // share a batch with little UI work — including the case of one
-    // bad raster frame in an otherwise-idle batch. Tradeoff documented
-    // in DetectorMetadata rationale.
-    final ratio = hasRasterTiming ? _lastMaxFrameRasterUs / _lastUiUs : 0.0;
-    final vmDominance =
-        hasRasterTiming &&
-        _lastMaxFrameRasterUs > effectiveMaxFrameRasterFloorUs &&
-        ratio > rasterMultiplierThreshold;
-    final hasRasterDominance = vmDominance || frameLeg != null;
+    // The VM batch with the slowest raster frame since the last scan, read
+    // once. Its numerator is that single frame, not the batch sum, which
+    // grows with idle vsync raster scopes; the denominator is the batch's
+    // UI total.
+    final vmWorstUs = _vmWorstRasterUs;
+    final vmUiUs = _vmWorstBatchUiUs;
+    _vmWorstRasterUs = 0;
+    _vmWorstBatchUiUs = 0;
+    final vmRatio = vmUiUs > 0 ? vmWorstUs / vmUiUs : 0.0;
+    final vmMissed =
+        vmConnected &&
+        vmUiUs > 0 &&
+        vmWorstUs > effectiveMaxFrameRasterFloorUs &&
+        vmRatio > rasterMultiplierThreshold;
+    // The VM leg emits alone only when no frames arrived, which happens
+    // when FrameTimingDetector is disabled.
+    final vmAlone = vmMissed && windowFrameCount == 0;
+    final hasRasterDominance = frameLeg != null || vmAlone;
 
-    PerformanceIssue? frameIssue;
     if (frameLeg != null) {
       final (hint, effort) = FixHintBuilder.rasterDominance();
       final median = frameLeg.medianRatio.toStringAsFixed(1);
-      frameIssue = PerformanceIssue(
-        stableId: 'raster_dominance',
-        severity: frameLeg.critical
-            ? IssueSeverity.critical
-            : IssueSeverity.warning,
-        category: IssueCategory.raster,
-        confidence: IssueConfidence.likely,
-        title: 'Raster Dominance: $median× UI time',
-        detail:
-            '$dominantCount of $windowFrameCount frames since the last scan '
-            'were raster-dominant, ${frameLeg.qualifyingCount} within one '
-            'second (worst raster '
-            '${(worstFrameRasterUs / 1000).toStringAsFixed(1)}ms, median '
-            'raster-to-UI ratio $median).',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.frameTiming,
-        detectedAt: DateTime.now(),
-        sourceRoute: _sourceRouteProvider(),
-        dedupIdentityMicros: frameLeg.identityUs,
-        extraTraceArgs: {
-          'source': 'frame_timing',
-          'dominantFrameCount': dominantCount.toString(),
-          'windowFrameCount': windowFrameCount.toString(),
-          'worstFrameRasterUs': worstFrameRasterUs.toString(),
-          'medianRatio': frameLeg.medianRatio.toStringAsFixed(2),
-          'lifecyclePhase': 'steady',
-        },
-        confidenceReason: 'Per-frame FrameTiming raster and UI durations',
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'raster_dominance',
+          severity: frameLeg.critical
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
+          category: IssueCategory.raster,
+          confidence: vmMissed
+              ? IssueConfidence.confirmed
+              : IssueConfidence.likely,
+          title: 'Raster Dominance: $median× UI time',
+          detail:
+              '${frameLeg.qualifyingCount} frames within one second missed '
+              'their budget on the raster thread, with raster above '
+              '${rasterMultiplierThreshold.toStringAsFixed(1)} times the UI '
+              'time (median raster-to-UI ratio $median). $dominantCount of '
+              '$windowFrameCount frames since the last scan did so, the '
+              'worst taking '
+              '${(worstFrameRasterUs / 1000).toStringAsFixed(1)}ms.',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.frameTiming,
+          detectedAt: DateTime.now(),
+          sourceRoute: _sourceRouteProvider(),
+          dedupIdentityMicros: frameLeg.identityUs,
+          extraTraceArgs: {
+            'source': 'frame_timing',
+            'dominantFrameCount': dominantCount.toString(),
+            'windowFrameCount': windowFrameCount.toString(),
+            'worstFrameRasterUs': worstFrameRasterUs.toString(),
+            'medianRatio': frameLeg.medianRatio.toStringAsFixed(2),
+            if (vmMissed) 'vmWorstRasterUs': vmWorstUs.toString(),
+            'lifecyclePhase': 'steady',
+          },
+          confidenceReason: vmMissed
+              ? '$_frameLegReason, confirmed by the VM timeline raster timing'
+              : _frameLegReason,
+        ),
       );
-    }
-
-    if (vmDominance) {
+    } else if (vmAlone) {
       final (hint, effort) = FixHintBuilder.rasterDominance();
       _issues.add(
         PerformanceIssue(
           stableId: 'raster_dominance',
-          severity: ratio > rasterMultiplierThreshold * 2
+          severity: vmWorstUs > effectiveMaxFrameRasterFloorUs * 2
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           category: IssueCategory.raster,
           confidence: IssueConfidence.confirmed,
-          title: 'Raster Dominance: ${ratio.toStringAsFixed(1)}× UI time',
+          title: 'Raster Dominance: ${vmRatio.toStringAsFixed(1)}× UI time',
           detail:
               'Worst-frame raster '
-              '(${(_lastMaxFrameRasterUs / 1000).toStringAsFixed(1)}ms) is '
-              '${ratio.toStringAsFixed(1)} times the UI thread total '
-              '(${(_lastUiUs / 1000).toStringAsFixed(1)}ms).',
+              '(${(vmWorstUs / 1000).toStringAsFixed(1)}ms) is over the '
+              '${(effectiveMaxFrameRasterFloorUs / 1000).toStringAsFixed(1)}'
+              'ms frame budget and ${vmRatio.toStringAsFixed(1)} times the '
+              'UI thread total (${(vmUiUs / 1000).toStringAsFixed(1)}ms). '
+              'No frame timings arrived, so this comes from the VM timeline '
+              'alone.',
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: DateTime.now(),
-          confidenceReason: frameLeg != null
-              ? 'Measured directly from VM timeline raster timing, '
-                    'corroborated by $dominantCount raster-dominant frames'
-              : 'Measured directly from VM timeline raster timing',
+          confidenceReason: 'Measured directly from VM timeline raster timing',
         ),
       );
-      _frameLegFallback = frameIssue;
-    } else if (frameIssue != null) {
-      _issues.add(frameIssue);
     }
 
     if (_expensiveNodes.isNotEmpty) {
@@ -604,7 +682,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     _chromeNodeCount = 0;
     _subtreeSizeStack.clear();
     _resetFrameLeg();
-    _frameLegFallback = null;
+    _vmWorstRasterUs = 0;
+    _vmWorstBatchUiUs = 0;
   }
 
   @override
@@ -614,25 +693,27 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         'Hybrid detector with a frame leg, a VM leg and a structural leg. '
         'On the frame leg (every tier), `processFrame` reads the per-frame '
         '`FrameTiming` UI (build, layout and paint) and raster durations. A '
-        'frame is raster-dominant when UI is above 0, raster is above 0, '
-        'raster is above the per-frame floor (default 8000us, or half the '
-        'resolved frame budget once the controller supplies one) and raster '
-        'is above 2.0 times UI. `raster_dominance` emits `likely` (source '
-        '`frameTiming`) when at least 3 dominant frames fall inside any 1 s '
-        'span since the last scan, over a 64-entry ring that drops the '
-        'oldest. It is critical when 3 frames in that span also exceeded '
-        'their frame budget. Frames inside the startup window '
-        '(`startupPhaseWindowSeconds` after Dart entry) do not count on '
-        'either leg. On the VM leg, the ratio is the worst single-frame '
-        'raster scope divided by the UI thread total '
-        '(`TimelineParser.parse()` output). The ratio must be strictly '
-        'above 2.0 and is critical above 4.0. The VM leg uses the same '
-        'per-frame floor and requires `vmConnected && _lastUiUs > 0 && '
-        '_lastRasterUs > 0`. When both legs qualify, the VM leg emits one '
-        '`raster_dominance` (`confirmed`), and its reason notes the frame '
-        'corroboration. The tradeoff is that the VM UI denominator is an '
-        'aggregate, so sustained moderate raster across an active batch may '
-        'under-classify on that leg. The frame leg compares per frame. '
+        'frame is raster-dominant when UI is above 0, raster is above the '
+        'frame\'s own budget (the frame missed its deadline on the raster '
+        'thread) and above `maxFrameRasterFloorUs` (default 8000us, below '
+        'every budget up to 120 Hz), and raster is above 2.0 times UI. '
+        '`raster_dominance` warns (`likely`, source `frameTiming`) at 3 '
+        'dominant frames inside a 1 s span and is critical at 10, over a '
+        '64-entry ring that keeps the last second before the newest frame '
+        'across scans and emits only when frames arrived since the last '
+        'scan. Recorded frames from a Galaxy A07 (90 Hz) and an iPhone 12 pin '
+        'the split: heavy blur and raster-bound animation dropped 26 to 57 '
+        'such frames a second, other screens 5 or fewer, and ordinary '
+        'screens at 3 to 6 ms of raster stay silent. Frames inside the '
+        'startup window (`startupPhaseWindowSeconds` after Dart entry) do '
+        'not count on either leg. On the VM leg, each scan reads the batch '
+        'with the slowest raster frame since the last scan and clears it, '
+        'so idle polls never judge old values. That frame\'s raster is '
+        'divided by the batch\'s UI total. When the frame leg fires and that '
+        'frame is over the budget with the ratio above 2.0, the issue is '
+        '`confirmed`. When no frames arrived since the last scan '
+        '(`FrameTimingDetector` disabled), the VM leg emits on its own, '
+        'critical above 2 times the budget. '
         'Impeller raster durations can include present back-pressure, so '
         'the frame leg stays `likely`. `expensive_gpu_nodes` (structural) '
         'gates on a subtree size strictly above 5 over 4 RenderObject '
@@ -652,11 +733,11 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         'Opacity-wrapping-Opacity test verifies the nested-expense '
         'subtree-stack arithmetic. For confidence, `expensive_gpu_nodes` is '
         '`likely` when either raster leg qualified and `possible` '
-        'otherwise. The VM-disconnect setter removes only the VM-sourced '
-        '`raster_dominance` and swaps in the frame-leg version when that '
-        'leg also qualified. It leaves frame-sourced issues untouched, and '
-        'it downgrades `expensive_gpu_nodes` only when no frame-sourced '
-        '`raster_dominance` remains. The detector has no runtime '
+        'otherwise. The VM-disconnect setter removes a VM-sourced '
+        '`raster_dominance`, returns a VM-confirmed frame-leg issue to '
+        '`likely`, and downgrades `expensive_gpu_nodes` only when no '
+        'frame-sourced `raster_dominance` remains. The detector has no '
+        'runtime '
         'verification against Impeller or Skia budgets and no external '
         'citation.',
     reproducerPath: 'test/validation/gpu_pressure_reproducer_test.dart',
@@ -679,8 +760,8 @@ class _FrameLegResult {
   /// Median raster/UI ratio of the qualifying frames.
   final double medianRatio;
 
-  /// At least [GpuPressureDetector.minRasterDominantFrames] qualifying
-  /// frames had raster time above their frame budget.
+  /// At least [GpuPressureDetector.criticalRasterDominantFrames] frames
+  /// fell in the qualifying span.
   final bool critical;
 
   /// `rasterFinishUs ?? vsyncStartUs` of the last qualifying frame.

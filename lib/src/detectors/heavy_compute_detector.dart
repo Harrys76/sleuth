@@ -12,8 +12,9 @@ import '../vm/timeline_parser.dart';
 ///
 /// **VM-Only Detector** — detects slow widget build passes (>8 ms warning,
 /// >16 ms critical at 60 Hz) from VM timeline BUILD-scope durations. With
-/// [autoThreshold], [updateFrameBudget] moves the warning threshold to half
-/// the resolved frame budget (critical stays 2x).
+/// [autoThreshold] on a display faster than the fpsTarget,
+/// [updateFrameBudget] moves the warning threshold to three quarters of the
+/// resolved frame budget, at most [lagThresholdMs] (critical stays 2x).
 ///
 /// ## Persistence contract
 ///
@@ -60,8 +61,9 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   /// [autoThreshold] is true and a frame budget has been applied.
   final int lagThresholdMs;
 
-  /// When true, [updateFrameBudget] sets the warning threshold to half the
-  /// resolved frame budget. When false, [lagThresholdMs] always applies.
+  /// When true, [updateFrameBudget] sets the warning threshold to three
+  /// quarters of the resolved frame budget, at most [lagThresholdMs]. When
+  /// false, [lagThresholdMs] always applies.
   final bool autoThreshold;
 
   int _lagThresholdUs;
@@ -69,12 +71,17 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   /// Warning threshold in effect, in microseconds.
   int get effectiveLagThresholdUs => _lagThresholdUs;
 
-  /// Sets the warning threshold to half of [budgetUs] when [autoThreshold]
-  /// is true. Called by `SleuthController` when the resolved frame budget
-  /// changes.
+  /// Sets the warning threshold to three quarters of [budgetUs], at most
+  /// [lagThresholdMs], when [autoThreshold] is true: 8 ms at 90 Hz, 6.25 ms
+  /// at 120 Hz. Half the budget (5.6 ms at 90 Hz) flagged builds whose
+  /// frames still fit; on a Galaxy A07, 7 of the 23 screens that fired at
+  /// 90 Hz had worst builds between 5.6 and 8.1 ms. Called by
+  /// `SleuthController` when the resolved frame budget changes.
   void updateFrameBudget(int budgetUs) {
     if (!autoThreshold || budgetUs <= 0) return;
-    _lagThresholdUs = budgetUs ~/ 2;
+    final threeQuarters = budgetUs * 3 ~/ 4;
+    final capUs = lagThresholdMs * 1000;
+    _lagThresholdUs = threeQuarters < capUs ? threeQuarters : capUs;
   }
 
   /// Restores the [lagThresholdMs] threshold.
@@ -357,8 +364,11 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
         'capture replay forgery on both brackets. The 8 ms and 16 ms '
         'thresholds apply at the `fpsTarget` frame budget. When the '
         'resolved budget is shorter (a faster display), the warning '
-        'threshold drops to half of it and critical stays at 2 times, '
-        'unless `heavyComputeGapMs` is set. Capture mode keeps the '
+        'threshold becomes three quarters of it, at most 8 ms (8 ms at 90 '
+        'Hz, 6.25 ms at 120 Hz), and critical stays at 2 times, unless '
+        '`heavyComputeGapMs` is set. Half the budget flagged builds whose '
+        'frames still fit: 7 of 23 Galaxy A07 screens at 90 Hz had worst '
+        'builds between 5.6 and 8.1 ms. Capture mode keeps the '
         '`fpsTarget` budget. Each VM batch emits at most one issue, for the '
         'longest BUILD over the threshold, and the detail gives the count '
         'of other slow builds. Emitted issues persist for the '
@@ -406,7 +416,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     observedAxisArgKey: 'observedDurationMs',
     // Critical-tier bracket. atTolerance 0.60 (vs warning's 0.50) is
     // forward-compat re-record headroom, not retroactive band-fit:
-    // the committed at observation (23.703 ms) fits the 0.50 band
+    // the committed at observation (19.021 ms) fits the 0.50 band
     // [16, 24] too. The wider band gives the next operator a 1-2
     // tap convergence window instead of 4-5 retries against a near-
     // edge target. aboveCeilingMultiplier stays 1.875 → ceiling 30

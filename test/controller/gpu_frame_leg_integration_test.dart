@@ -33,9 +33,9 @@ List<FrameTiming> _timings(
     }(),
 ];
 
-/// Raster-bound frames: 1 ms build, 12 ms raster.
+/// Raster-bound frames: 1 ms build, 20 ms raster, over the 60 Hz budget.
 List<FrameTiming> _rasterBound(int count) =>
-    _timings(count, buildUs: 1000, rasterUs: 12000);
+    _timings(count, buildUs: 1000, rasterUs: 20000);
 
 SleuthController _controller({int startupPhaseWindowSeconds = 5}) {
   final c = SleuthController(
@@ -68,7 +68,7 @@ void main() {
 
   group('raster_dominance from real FrameTiming without a VM', () {
     testWidgets('raster-bound frames after the startup window → one likely '
-        'issue, one notification', (tester) async {
+        'warning, one notification', (tester) async {
       final c = _controller(startupPhaseWindowSeconds: 1);
       Sleuth.init();
       // Real monotonic clock: step past the 1 s startup window.
@@ -79,7 +79,7 @@ void main() {
       var notifications = 0;
       c.issuesNotifier.addListener(() => notifications++);
 
-      c.handleTimingsForTest(_rasterBound(20));
+      c.handleTimingsForTest(_rasterBound(5));
       c.scanTreeFullPathForTest(root);
 
       expect(c.isVmConnected, isFalse);
@@ -88,8 +88,32 @@ void main() {
       expect(issues.single.confidence, IssueConfidence.likely);
       expect(issues.single.observationSource, ObservationSource.frameTiming);
       expect(issues.single.severity, IssueSeverity.warning);
-      expect(issues.single.extraTraceArgs!['dominantFrameCount'], '20');
+      expect(issues.single.extraTraceArgs!['dominantFrameCount'], '5');
       expect(notifications, 1);
+    });
+
+    testWidgets('20 raster-bound frames inside a second → critical', (
+      tester,
+    ) async {
+      final c = _controller();
+      final root = await _pumpApp(tester);
+
+      c.handleTimingsForTest(_rasterBound(20));
+      c.scanTreeFullPathForTest(root);
+
+      final issue = _raster(c).single;
+      expect(issue.severity, IssueSeverity.critical);
+      expect(issue.extraTraceArgs!['dominantFrameCount'], '20');
+    });
+
+    testWidgets('12 ms of raster fits the 60 Hz budget → none', (tester) async {
+      final c = _controller();
+      final root = await _pumpApp(tester);
+
+      c.handleTimingsForTest(_timings(20, buildUs: 1000, rasterUs: 12000));
+      c.scanTreeFullPathForTest(root);
+
+      expect(_raster(c), isEmpty);
     });
 
     testWidgets('frames inside the startup window are ignored', (tester) async {

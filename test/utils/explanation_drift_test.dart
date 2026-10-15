@@ -312,23 +312,14 @@ void main() {
     (
       'raster_dominance',
       _Field.readingTheData,
-      'above ${thresholds.gpuPressureRatio} times (warning)',
-    ),
-    (
-      'raster_dominance',
-      _Field.readingTheData,
-      'above ${thresholds.gpuPressureRatio * 2} times (critical)',
-    ),
-    (
-      'raster_dominance',
-      _Field.readingTheData,
       '${gpu.minRasterDominantFrames} raster-dominant frames within one '
           'second',
     ),
     (
       'raster_dominance',
       _Field.readingTheData,
-      '${gpu.maxFrameRasterFloorUs ~/ 1000} ms at 60 Hz',
+      '${gpu.criticalRasterDominantFrames} within one second make it '
+          'critical',
     ),
     (
       'non_lazy_shrinkwrap',

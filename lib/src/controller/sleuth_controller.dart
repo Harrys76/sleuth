@@ -1322,16 +1322,14 @@ class SleuthController {
   }
 
   /// Applies the resolved budget to budget-derived detector thresholds.
-  /// At the `fpsTarget` budget the detectors keep their own defaults
-  /// (8000 us raster floor, 8 ms heavy-compute threshold); above
-  /// `fpsTarget` they use half the resolved budget.
+  /// The GPU detector's VM leg always takes the resolved budget. At the
+  /// `fpsTarget` budget heavy_compute keeps its own 8 ms threshold; above
+  /// `fpsTarget` it derives one from the resolved budget.
   T _withFrameBudget<T extends BaseDetector>(T detector) {
     final budgetUs = _frameBudget.budgetUs;
     final atTarget = budgetUs == _fpsTargetBudgetUs;
     if (detector is GpuPressureDetector) {
-      atTarget
-          ? detector.resetFrameBudget()
-          : detector.updateFrameBudget(budgetUs);
+      detector.updateFrameBudget(budgetUs);
     } else if (detector is HeavyComputeDetector) {
       atTarget
           ? detector.resetFrameBudget()

@@ -57,7 +57,7 @@ void main() {
       expect(c.effectiveFrameRateHz, 60);
       expect(c.frameRateSource, FrameRateSource.fixed);
       expect(_heavy(c).effectiveLagThresholdUs, 8000);
-      expect(_gpu(c).effectiveMaxFrameRasterFloorUs, 8000);
+      expect(_gpu(c).effectiveMaxFrameRasterFloorUs, 16667);
     });
 
     test('120 Hz cadence on a 120 Hz display tightens every consumer', () {
@@ -67,15 +67,15 @@ void main() {
       expect(c.frameBudgetUs, 8333);
       expect(c.effectiveFrameRateHz, 120);
       expect(c.frameRateSource, FrameRateSource.measured);
-      expect(_heavy(c).effectiveLagThresholdUs, 4166);
-      expect(_gpu(c).effectiveMaxFrameRasterFloorUs, 4166);
+      expect(_heavy(c).effectiveLagThresholdUs, 6249);
+      expect(_gpu(c).effectiveMaxFrameRasterFloorUs, 8333);
       expect(_latestFrame(c).frameBudgetUs, 8333);
 
       // Cadence falls back to 60: consumers return to their defaults.
       c.handleTimingsForTest(_frames(120, 16667));
       expect(c.frameBudgetUs, 16667);
       expect(_heavy(c).effectiveLagThresholdUs, 8000);
-      expect(_gpu(c).effectiveMaxFrameRasterFloorUs, 8000);
+      expect(_gpu(c).effectiveMaxFrameRasterFloorUs, 16667);
     });
 
     test('ProMotion display rendering at 60 keeps 16667', () {
@@ -99,7 +99,7 @@ void main() {
       expect(c.frameBudgetUs, 16667);
       expect(c.frameRateSource, FrameRateSource.fixed);
       expect(_heavy(c).effectiveLagThresholdUs, 8000);
-      expect(_gpu(c).effectiveMaxFrameRasterFloorUs, 8000);
+      expect(_gpu(c).effectiveMaxFrameRasterFloorUs, 16667);
       expect(_latestFrame(c).frameBudgetUs, 16667);
     });
 
@@ -127,7 +127,7 @@ void main() {
       c.handleTimingsForTest(_frames(60, 8333));
       c.disableDetector(DetectorType.heavyCompute);
       c.enableDetector(DetectorType.heavyCompute);
-      expect(_heavy(c).effectiveLagThresholdUs, 4166);
+      expect(_heavy(c).effectiveLagThresholdUs, 6249);
     });
 
     test('diagnose reports the resolved budget', () async {

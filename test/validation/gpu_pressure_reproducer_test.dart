@@ -1,16 +1,18 @@
 // Hermetic reproducer for `GpuPressureDetector`.
 //
 // Drives the detector at all three legs:
-//   Frame leg — feeds per-frame `FrameStats` through `processFrame`. Pins
-//     the sustained rule (`minRasterDominantFrames` = 3 dominant frames
-//     inside one second), the per-frame ratio (strict `> 2.0`) and floor,
-//     and critical when the qualifying frames also blew the frame budget.
+//   Frame leg — feeds per-frame `FrameStats` through `processFrame`. A
+//     frame counts when its raster time exceeds its own budget (strict),
+//     `maxFrameRasterFloorUs` (strict) and 2.0 × its UI time (strict).
+//     Pins the warning at `minRasterDominantFrames` (3) such frames inside
+//     one second and critical at `criticalRasterDominantFrames` (10).
 //     Emits `likely` with `ObservationSource.frameTiming`, VM or not.
 //   VM leg — feeds raster + UI events through `TimelineParser.parse()` into
-//     `processTimelineData`. Pins `raster_dominance` ratio gate (strict
-//     `> 2.0`), critical escalation (`> 4.0`), and the
-//     `hasRasterTiming` precondition (`vmConnected && _lastUiUs > 0 &&
-//     _lastRasterUs > 0`). When it fires it wins (`confirmed`).
+//     `processTimelineData`. With no frames since the last scan it emits on
+//     its own (`confirmed`, `ObservationSource.vmTimeline`) when the worst
+//     raster frame exceeds the frame budget (strict) and 2.0 × the batch's
+//     UI total (strict); critical above twice the budget. A batch without
+//     UI work is ignored.
 //   Structural leg — pumps widget trees that produce the 5 RenderObject
 //     types the detector flags (`RenderOpacity`, `RenderClipPath`,
 //     `RenderBackdropFilter`, `RenderShaderMask`, `ColorFiltered` widget)
@@ -22,10 +24,10 @@
 // Confidence correlation: `expensive_gpu_nodes` confidence is `likely`
 // when either raster leg qualified; `possible` otherwise.
 //
-// VM disconnect: setter clears `_lastRasterUs`/`_lastUiUs`, removes the
-// VM-sourced `raster_dominance`, leaves frame-sourced issues untouched, and
-// downgrades `expensive_gpu_nodes` to `possible` only when no frame-sourced
-// `raster_dominance` remains.
+// VM disconnect: the setter clears the held VM timing, removes the
+// VM-sourced `raster_dominance`, keeps frame-sourced issues at `likely`,
+// and downgrades `expensive_gpu_nodes` to `possible` only when no
+// frame-sourced `raster_dominance` remains.
 //
 // `_vmConnected` defaults to false; setUp explicitly sets `true` so VM-
 // backed tests aren't silently routed into structural-only fallback.
@@ -159,8 +161,12 @@ void main() {
     );
 
     /// Feeds one frame per entry of [rasterUs] (UI 1 ms, 60 Hz spacing,
-    /// 16667 us frame budget) through `processFrame`.
-    void feedFrames(List<int> rasterUs, {int uiUs = 1000}) {
+    /// [frameBudgetUs] budget) through `processFrame`.
+    void feedFrames(
+      List<int> rasterUs, {
+      int uiUs = 1000,
+      int frameBudgetUs = 16667,
+    }) {
       for (var i = 0; i < rasterUs.length; i++) {
         final vsync = i * 16667;
         detector.processFrame(
@@ -169,7 +175,7 @@ void main() {
             uiDuration: Duration(microseconds: uiUs),
             rasterDuration: Duration(microseconds: rasterUs[i]),
             timestamp: DateTime(2026),
-            frameBudgetUs: 16667,
+            frameBudgetUs: frameBudgetUs,
             vsyncStartUs: vsync,
             rasterFinishUs: vsync + rasterUs[i],
           ),
@@ -179,20 +185,20 @@ void main() {
 
     // -- Frame leg: raster_dominance per-frame triad ----------------------
 
-    group('raster_dominance frame-leg triad (3 frames in 1 s)', () {
+    group('raster_dominance frame-leg triad (3 and 10 frames in 1 s)', () {
       setUp(() {
         // Frame leg holds without a VM.
         detector = frameLegDetector()..vmConnected = false;
       });
 
       testWidgets('below: 2 dominant frames do NOT emit', (tester) async {
-        feedFrames([12000, 12000]);
+        feedFrames([20000, 20000]);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, lacksStableId('raster_dominance'));
       });
 
       testWidgets('at: 3 dominant frames emit likely warning', (tester) async {
-        feedFrames([12000, 12000, 12000]);
+        feedFrames([20000, 20000, 20000]);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         final issue = issues.firstWhere(
           (i) => i.stableId == 'raster_dominance',
@@ -202,10 +208,17 @@ void main() {
         expect(issue.observationSource, ObservationSource.frameTiming);
       });
 
-      testWidgets('above: 3 over-budget dominant frames emit critical', (
-        tester,
-      ) async {
-        feedFrames([20000, 20000, 20000]);
+      testWidgets('9 dominant frames stay a warning', (tester) async {
+        feedFrames(List.filled(9, 20000));
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'raster_dominance',
+        );
+        expect(issue.severity, IssueSeverity.warning);
+      });
+
+      testWidgets('above: 10 dominant frames emit critical', (tester) async {
+        feedFrames(List.filled(10, 20000));
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         final issue = issues.firstWhere(
           (i) => i.stableId == 'raster_dominance',
@@ -217,17 +230,34 @@ void main() {
       testWidgets('per-frame ratio is strict-greater (exact 2.0 skipped)', (
         tester,
       ) async {
-        feedFrames([12000, 12000, 12000], uiUs: 6000);
+        feedFrames([20000, 20000, 20000], uiUs: 10000);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, lacksStableId('raster_dominance'));
       });
 
-      testWidgets('per-frame floor is strict-greater (exact 8000us skipped)', (
-        tester,
-      ) async {
-        feedFrames([8000, 8000, 8000]);
+      testWidgets('per-frame budget is strict-greater (exact 16667us '
+          'skipped)', (tester) async {
+        feedFrames([16667, 16667, 16667]);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, lacksStableId('raster_dominance'));
+
+        detector = frameLegDetector()..vmConnected = false;
+        feedFrames([16668, 16668, 16668]);
+        final above = await scanAndIssues(tester, detector, const SizedBox());
+        expect(above, hasStableId('raster_dominance'));
+      });
+
+      testWidgets('per-frame floor is strict-greater (exact 8000us skipped) '
+          'when the budget is below it', (tester) async {
+        // A 4 ms budget leaves the 8000us floor as the binding gate.
+        feedFrames([8000, 8000, 8000], frameBudgetUs: 4000);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, lacksStableId('raster_dominance'));
+
+        detector = frameLegDetector()..vmConnected = false;
+        feedFrames([8001, 8001, 8001], frameBudgetUs: 4000);
+        final above = await scanAndIssues(tester, detector, const SizedBox());
+        expect(above, hasStableId('raster_dominance'));
       });
     });
 
@@ -237,50 +267,37 @@ void main() {
       testWidgets('ratio = 1.99 does NOT emit raster_dominance', (
         tester,
       ) async {
-        // raster=15920, ui=8000 → ratio 1.99 (single-frame raster passes
-        // 8000us per-frame floor; ratio gate suppresses).
+        // raster=19900, ui=10000 → ratio 1.99 (the worst frame misses the
+        // 16667us budget; the ratio gate suppresses).
         final issues = await primeVmThenScan(
           tester,
           const SizedBox(),
-          rasterUs: 15920,
-          uiUs: 8000,
+          rasterUs: 19900,
+          uiUs: 10000,
         );
         expect(issues, lacksStableId('raster_dominance'));
       });
 
       testWidgets('ratio = 2.0 does NOT emit (strict-greater)', (tester) async {
+        // Strict gate is `ratio > rasterMultiplierThreshold` (2.0).
         final issues = await primeVmThenScan(
           tester,
           const SizedBox(),
-          rasterUs: 16008, // 16008/8000 = 2.001 — separate test
-          uiUs: 8000,
+          rasterUs: 20000,
+          uiUs: 10000,
         );
-        // Strict gate is `ratio > rasterMultiplierThreshold` (2.0).
-        // Build exact-2.0 case via raster=16000, ui=8000.
-        detector.dispose();
-        detector = GpuPressureDetector();
-        detector.vmConnected = true;
-        final exact2Issues = await primeVmThenScan(
-          tester,
-          const SizedBox(),
-          rasterUs: 16000,
-          uiUs: 8000,
-        );
-        expect(exact2Issues, lacksStableId('raster_dominance'));
-        // Suppress unused-variable warning for the priming call above.
-        expect(issues, isNotNull);
+        expect(issues, lacksStableId('raster_dominance'));
       });
 
       testWidgets('ratio just-above 2.0 emits raster_dominance (warning)', (
         tester,
       ) async {
-        // raster=16080, ui=8000 → ratio 2.01 (single-frame raster
-        // 16080us > 8000us floor; ratio fires).
+        // raster=20100, ui=10000 → ratio 2.01, worst frame over budget.
         final issues = await primeVmThenScan(
           tester,
           const SizedBox(),
-          rasterUs: 16080,
-          uiUs: 8000,
+          rasterUs: 20100,
+          uiUs: 10000,
         );
         expect(issues, hasStableId('raster_dominance'));
         final issue = issues.firstWhere(
@@ -290,21 +307,30 @@ void main() {
         expect(issue.confidence, IssueConfidence.confirmed);
       });
 
-      testWidgets('ratio > 4.0 (2× threshold) escalates to critical', (
-        tester,
-      ) async {
-        // raster=32080, ui=8000 → ratio 4.01 → critical
-        final issues = await primeVmThenScan(
+      testWidgets('worst frame above twice the budget escalates to critical '
+          '(strict)', (tester) async {
+        // raster=33334 = 2 × 16667, ui=8000 → warning.
+        final at = await primeVmThenScan(
           tester,
           const SizedBox(),
-          rasterUs: 32080,
+          rasterUs: 33334,
           uiUs: 8000,
         );
-        expect(issues, hasStableId('raster_dominance'));
-        final issue = issues.firstWhere(
-          (i) => i.stableId == 'raster_dominance',
+        expect(
+          at.firstWhere((i) => i.stableId == 'raster_dominance').severity,
+          IssueSeverity.warning,
         );
-        expect(issue.severity, IssueSeverity.critical);
+        // raster=33335, ui=16000 → ratio 2.08, above twice the budget.
+        final above = await primeVmThenScan(
+          tester,
+          const SizedBox(),
+          rasterUs: 33335,
+          uiUs: 16000,
+        );
+        expect(
+          above.firstWhere((i) => i.stableId == 'raster_dominance').severity,
+          IssueSeverity.critical,
+        );
       });
 
       testWidgets('idle batch (60×1ms vsync raster + trivial UI) does NOT emit '
@@ -312,8 +338,8 @@ void main() {
         tester,
       ) async {
         // 60 vsync raster events × 1000us each = 60000us aggregate, UI
-        // 500us → aggregate ratio 120. MAX-of-frame raster = 1000us <
-        // 8000us floor → suppressed. Pins the idle-homepage bug class.
+        // 500us → aggregate ratio 120. MAX-of-frame raster = 1000us is
+        // within the budget → suppressed. Pins the idle-homepage bug class.
         final issues = await primeMultiFrameThenScan(
           tester,
           const SizedBox(),
@@ -323,38 +349,38 @@ void main() {
         expect(issues, lacksStableId('raster_dominance'));
       });
 
-      testWidgets('per-frame floor strict-greater (just-below + exact + '
-          'just-above 8000us)', (tester) async {
-        // Just-below: max=7999, ratio=10 (huge) → suppressed.
+      testWidgets('worst-frame budget strict-greater (just-below + exact + '
+          'just-above 16667us)', (tester) async {
+        // Just-below: max=16666, ratio 15 (huge) → suppressed.
         final below = await primeMultiFrameThenScan(
           tester,
           const SizedBox(),
-          rasterDurationsUs: const [7999, 1000, 1000, 1000, 1000],
+          rasterDurationsUs: const [16666, 1000, 1000, 1000, 1000],
           uiUs: 1100,
         );
         expect(below, lacksStableId('raster_dominance'));
-        // Exact-floor: max=8000, ratio=10 → suppressed (strict `>`).
+        // Exact budget: max=16667 → suppressed (strict `>`).
         detector.dispose();
         detector = GpuPressureDetector();
         detector.vmConnected = true;
         final exact = await primeMultiFrameThenScan(
           tester,
           const SizedBox(),
-          rasterDurationsUs: const [8000, 1000, 1000, 1000],
+          rasterDurationsUs: const [16667, 1000, 1000, 1000],
           uiUs: 1100,
         );
         expect(exact, lacksStableId('raster_dominance'));
-        // Just-above: max=16100, uiUs=8000 → MAX/uiUs = 2.0125 > 2.0
+        // Just-above: max=16668, uiUs=8000 → MAX/uiUs = 2.08 > 2.0
         // → fires warning. Single-frame dominance semantic confirmed:
         // the worst raster scope must EXCEED the UI thread total by
-        // > 2.0x, not just exceed the absolute per-frame floor.
+        // > 2.0x, not just miss the budget.
         detector.dispose();
         detector = GpuPressureDetector();
         detector.vmConnected = true;
         final above = await primeMultiFrameThenScan(
           tester,
           const SizedBox(),
-          rasterDurationsUs: const [16100, 1000, 1000, 1000],
+          rasterDurationsUs: const [16668, 1000, 1000, 1000],
           uiUs: 8000,
         );
         expect(above, hasStableId('raster_dominance'));
@@ -364,7 +390,8 @@ void main() {
         expect(aboveIssue.severity, IssueSeverity.warning);
       });
 
-      testWidgets('per-frame floor follows updateFrameBudget', (tester) async {
+      testWidgets('worst-frame budget follows updateFrameBudget, floored at '
+          '8000us', (tester) async {
         Future<List<PerformanceIssue>> leg(
           int maxRasterUs, {
           int? budgetUs,
@@ -383,74 +410,86 @@ void main() {
           );
         }
 
-        // Default floor 8000us.
-        expect(GpuPressureDetector().effectiveMaxFrameRasterFloorUs, 8000);
-        expect(await leg(8001), hasStableId('raster_dominance'));
-        expect(await leg(7999), lacksStableId('raster_dominance'));
-        // 120 Hz budget: floor 8333 ~/ 2 = 4166.
+        // Default: the 60 Hz budget, 16667us.
+        expect(GpuPressureDetector().effectiveMaxFrameRasterFloorUs, 16667);
+        expect(await leg(16668), hasStableId('raster_dominance'));
+        expect(await leg(16667), lacksStableId('raster_dominance'));
+        // 120 Hz budget: 8333us.
         expect(
-          await leg(4167, budgetUs: 8333),
+          await leg(8334, budgetUs: 8333),
           hasStableId('raster_dominance'),
         );
         expect(
-          await leg(4165, budgetUs: 8333),
+          await leg(8333, budgetUs: 8333),
           lacksStableId('raster_dominance'),
         );
-        // Reset restores the constructor floor.
+        // A budget below the 8000us floor leaves the floor binding.
         expect(
-          await leg(4167, budgetUs: 8333, reset: true),
+          await leg(8001, budgetUs: 4000),
+          hasStableId('raster_dominance'),
+        );
+        expect(
+          await leg(8000, budgetUs: 4000),
+          lacksStableId('raster_dominance'),
+        );
+        // Reset restores the 60 Hz budget.
+        expect(
+          await leg(8334, budgetUs: 8333, reset: true),
           lacksStableId('raster_dominance'),
         );
       });
 
       testWidgets('one-spike + idle-tail does NOT inflate ratio '
           '(MAX-of-frame numerator regression)', (tester) async {
-        // [8001, 1000×59] + uiUs=8000. Aggregate raster = 67001us
-        // would have produced ratio 8.375 (critical) under an
-        // aggregate-numerator implementation. Because the dominance
-        // numerator is MAX-of-frame raster (8001us), MAX/uiUs = 1.0,
-        // which is below the > 2.0 ratio gate → no fire. Pins the
-        // root-cause idle-batch class even when one frame crosses
-        // the per-frame floor.
+        // [16668, 1000×59] + uiUs=10000. Aggregate raster = 75668us
+        // would have produced ratio 7.6 under an aggregate-numerator
+        // implementation. Because the dominance numerator is MAX-of-frame
+        // raster (16668us), MAX/uiUs = 1.67, which is below the > 2.0
+        // ratio gate → no fire. Pins the root-cause idle-batch class even
+        // when one frame misses the budget.
         final issues = await primeMultiFrameThenScan(
           tester,
           const SizedBox(),
-          rasterDurationsUs: [8001, ...List.filled(59, 1000)],
-          uiUs: 8000,
+          rasterDurationsUs: [16668, ...List.filled(59, 1000)],
+          uiUs: 10000,
         );
         expect(issues, lacksStableId('raster_dominance'));
       });
 
-      testWidgets(
-        'realistic 12ms single-frame raster + 3ms UI fires critical',
-        (tester) async {
-          // MAX=12010us, uiUs=3000us → MAX/uiUs = 4.003 > 4.0 → critical.
-          // Restores realistic critical-tier coverage at 8-16ms per-frame
-          // raster magnitudes (the multi-frame floor passes; the bumped
-          // legacy fixture for critical sits at 32ms which is much higher
-          // than realistic device-side critical thresholds).
-          final issues = await primeMultiFrameThenScan(
-            tester,
-            const SizedBox(),
-            rasterDurationsUs: const [12010, 1000, 1000, 1000],
-            uiUs: 3000,
-          );
-          final issue = issues.firstWhere(
-            (i) => i.stableId == 'raster_dominance',
-          );
-          expect(issue.severity, IssueSeverity.critical);
-        },
-      );
+      testWidgets('at 120 Hz a 12ms worst frame warns and a 17ms one is '
+          'critical', (tester) async {
+        // Budget 8333us: 12010us misses it (ratio 4.0 against 3ms of UI)
+        // and stays under twice it; 17000us is above twice it.
+        detector.updateFrameBudget(8333);
+        final warn = await primeMultiFrameThenScan(
+          tester,
+          const SizedBox(),
+          rasterDurationsUs: const [12010, 1000, 1000, 1000],
+          uiUs: 3000,
+        );
+        expect(
+          warn.firstWhere((i) => i.stableId == 'raster_dominance').severity,
+          IssueSeverity.warning,
+        );
+        final critical = await primeMultiFrameThenScan(
+          tester,
+          const SizedBox(),
+          rasterDurationsUs: const [17000, 1000, 1000, 1000],
+          uiUs: 3000,
+        );
+        expect(
+          critical.firstWhere((i) => i.stableId == 'raster_dominance').severity,
+          IssueSeverity.critical,
+        );
+      });
 
       testWidgets(
-        'raster events with totalUi == 0 does NOT emit (hasRasterTiming gate)',
+        'raster events with totalUi == 0 does NOT emit (no UI to compare)',
         (tester) async {
-          // The detector's hasRasterTiming check requires _lastUiUs > 0
-          // independently of vmConnected and rasterUs. Feed only raster
-          // events; UI denominator zero blocks emission even though raster
-          // is large.
+          // A batch without UI work has no ratio to judge and is ignored,
+          // however large its raster frame. Feed only raster events.
           final events = [
-            buildEvent(name: 'Raster', ph: 'X', dur: 5000, ts: 1000),
+            buildEvent(name: 'Raster', ph: 'X', dur: 40000, ts: 1000),
           ];
           final parsed = parseAndAssertShape(events, (
             buildEventCount: 0,
@@ -656,7 +695,7 @@ void main() {
         final issues = await primeVmThenScan(
           tester,
           _OpacityTree(opacity: 0.5, leafCount: 10),
-          rasterUs: 24000, // ratio 3.0, max-frame 24000us > 8000us floor
+          rasterUs: 24000, // ratio 3.0, worst frame over the 16667us budget
           uiUs: 8000,
         );
         final issue = issues.firstWhere(
@@ -714,7 +753,7 @@ void main() {
         'corroborates without a VM)',
         (tester) async {
           detector = frameLegDetector()..vmConnected = false;
-          feedFrames([12000, 12000, 12000]);
+          feedFrames([20000, 20000, 20000]);
           final issues = await scanAndIssues(
             tester,
             detector,
@@ -737,18 +776,18 @@ void main() {
 
       testWidgets(
         'vmConnected=true + raster events present + ratio ≤ 2.0 + expense'
-        ' → possible (gate is hasRasterDominance, not hasRasterTiming)',
+        ' → possible (gate is raster dominance, not raster timing)',
         (tester) async {
-          // hasRasterTiming is true (vmConnected + ui>0 + raster>0) but
-          // hasRasterDominance is false (ratio 1.5 ≤ 2.0). Confidence
-          // must be `possible`, not `likely`. A regression that widens
-          // the gate from `hasRasterDominance` to mere `hasRasterTiming`
-          // would flip this case to `likely` — only this test catches it.
+          // The VM saw raster timing over the budget, but the ratio is
+          // 1.5 ≤ 2.0, so there is no raster dominance. Confidence must be
+          // `possible`, not `likely`. A regression that widens the gate
+          // from raster dominance to mere raster timing would flip this
+          // case to `likely`.
           final issues = await primeVmThenScan(
             tester,
             _OpacityTree(opacity: 0.5, leafCount: 10),
-            rasterUs: 12000, // ratio 1.5 (below threshold), max > floor
-            uiUs: 8000,
+            rasterUs: 24000, // ratio 1.5 (below threshold), over budget
+            uiUs: 16000,
           );
           expect(issues, lacksStableId('raster_dominance'));
           final issue = issues.firstWhere(
@@ -774,7 +813,7 @@ void main() {
           final firstIssues = await primeVmThenScan(
             tester,
             _OpacityTree(opacity: 0.5, leafCount: 10),
-            rasterUs: 24000, // ratio 3.0, max > 8000us floor
+            rasterUs: 24000, // ratio 3.0, over the 16667us budget
             uiUs: 8000,
           );
           expect(firstIssues, hasStableId('raster_dominance'));
@@ -803,7 +842,7 @@ void main() {
         'and likely expensive_gpu_nodes',
         (tester) async {
           detector = frameLegDetector()..vmConnected = true;
-          feedFrames([12000, 12000, 12000]);
+          feedFrames([20000, 20000, 20000]);
           final firstIssues = await scanAndIssues(
             tester,
             detector,
@@ -846,7 +885,7 @@ void main() {
           final issues = await primeVmThenScan(
             tester,
             const SizedBox(),
-            rasterUs: 40000, // would fire if enabled (ratio 5.0, max > floor)
+            rasterUs: 40000, // would fire if enabled (ratio 5.0, over budget)
             uiUs: 8000,
           );
           expect(issues, lacksStableId('raster_dominance'));
