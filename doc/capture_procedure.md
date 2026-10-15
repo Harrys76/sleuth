@@ -953,7 +953,11 @@ co-fire can happen on a warm device.
 
 Each leg allows 3 attempts. A retry runs the same injection rate,
 because band misses come from frame-delivery jitter, not from
-calibration.
+calibration. The screen refuses a leg before its workload when the VM
+service is not connected. Stream and export calls are bounded at 10 s
+(`withCallTimeout`), any failure ends the leg with a `FAILED` line, and
+closing the screen during a leg ends its scenario and restores the
+streams at once.
 
 ### 60 Hz pre-flight
 

@@ -372,6 +372,12 @@
   rule, and keeps a leg only when its severe frames are exactly the spin
   frames and, for the at and above legs, the detector's last count equals
   the spin count. A leg with an ambient severe frame is refused.
+- Example: the jank_detected capture screen creates its ticker once, so a
+  second leg no longer throws in a debug build. Closing it during a leg
+  ends the scenario and restores the timeline streams at once, instead of
+  after the rest of its 6 s span. Its VM calls are bounded at 10 s, a
+  failure ends the leg with a `FAILED` line, and a leg is refused before
+  its workload without a VM link.
 
 ## 0.37.0
 

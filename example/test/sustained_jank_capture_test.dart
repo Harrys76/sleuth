@@ -85,6 +85,10 @@ class _RecordingCalls extends CaptureLegCalls {
   final List<String> log = [];
   Completer<void>? flush;
 
+  /// Whether the flush fails the way `flushTimelineNow` does past its
+  /// 2 s limit.
+  bool flushTimesOut = false;
+
   @override
   Future<void> suspendStreams() async => log.add('suspend');
 
@@ -94,6 +98,11 @@ class _RecordingCalls extends CaptureLegCalls {
   @override
   Future<void> flushTimeline() {
     log.add('flush');
+    if (flushTimesOut) {
+      return Future.error(
+        TimeoutException('flush', const Duration(seconds: 2)),
+      );
+    }
     return (flush ??= Completer<void>()).future;
   }
 
@@ -471,6 +480,25 @@ void main() {
       final calls = _RecordingCalls()..flush = (Completer<void>()..complete());
       await pumpScreen(tester, calls: calls);
       await runBelowLeg(tester);
+      expect(calls.log, [
+        'suspend',
+        'begin frame_timing_sustained_jank_below',
+        'flush',
+        'end frame_timing_sustained_jank_below',
+        'resume',
+      ]);
+    });
+
+    testWidgets('a flush that times out ends the leg with a FAILED line', (
+      tester,
+    ) async {
+      final calls = _RecordingCalls()..flushTimesOut = true;
+      await pumpScreen(tester, calls: calls);
+      await runBelowLeg(tester);
+      expect(
+        find.textContaining('[below] FAILED: TimeoutException'),
+        findsOneWidget,
+      );
       expect(calls.log, [
         'suspend',
         'begin frame_timing_sustained_jank_below',
