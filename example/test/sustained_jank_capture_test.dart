@@ -347,6 +347,91 @@ void main() {
     });
   });
 
+  group('leg lifecycle', () {
+    // Outside capture mode, without a VM link and with no Sleuth
+    // instance; the seams let a leg run. No frame timings arrive in a
+    // widget test, so a finished leg is refused for its severe count.
+    Future<void> pumpScreen(
+      WidgetTester tester, {
+      bool vmConnected = true,
+    }) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FrameTimingSustainedJankCaptureScreen(
+            captureModeOverride: true,
+            provenanceCheck: () => (
+              provenance: const CaptureProvenance(
+                device: 'iPhone 12',
+                deviceOsVersion: 'iOS 17.5',
+                flutterVersion: '3.47.6',
+              ),
+              problem: null,
+            ),
+            vmConnected: () => vmConnected,
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    Future<void> runBelowLeg(WidgetTester tester) async {
+      await tester.tap(find.text('Below: 2 severe frames'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      for (var i = 0; i < 90; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    testWidgets('a leg without a VM link is refused before its workload', (
+      tester,
+    ) async {
+      await pumpScreen(tester, vmConnected: false);
+      await tester.tap(find.text('At: 3 severe frames'));
+      await tester.pump();
+      expect(
+        find.textContaining('[at] ABORT: VM service not connected'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('[at] attempt'), findsNothing);
+    });
+
+    testWidgets('two legs in a row run on one screen', (tester) async {
+      await pumpScreen(tester);
+      await runBelowLeg(tester);
+      await runBelowLeg(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('[below] attempt 1/5'), findsOneWidget);
+      expect(find.textContaining('[below] attempt 2/5'), findsOneWidget);
+      expect(
+        find.textContaining('[below] OUT-OF-BAND: 0 severe frame(s)'),
+        findsNWidgets(2),
+      );
+    });
+
+    testWidgets('closing the screen mid-leg ends the leg at once', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      await tester.tap(find.text('Above: 6 severe frames'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      // The ticker is running. Closing the screen must not leave the
+      // leg waiting on its ticker timeout: a pending timer fails the
+      // test when it ends.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   testWidgets('the screen lays out at phone size and names the '
       'preflight problems', (tester) async {
     tester.view.physicalSize = const Size(1170, 2532);

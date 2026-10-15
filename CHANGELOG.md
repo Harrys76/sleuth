@@ -370,8 +370,8 @@
 - Example: a sustained_jank capture screen spins the UI thread for 40 ms
   inside chosen ticker frames, judges every frame with its own FrameTiming
   rule, and keeps a leg only when its severe frames are exactly the spin
-  frames and the detector's last count equals the spin count. A leg with
-  an ambient severe frame is refused.
+  frames and, for the at and above legs, the detector's last count equals
+  the spin count. A leg with an ambient severe frame is refused.
 
 ## 0.37.0
 

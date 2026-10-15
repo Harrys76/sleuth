@@ -46,18 +46,41 @@ import 'capture_driver.dart';
 ///      service must be connected (VM+), because the export reads the
 ///      detector's records from the VM timeline.
 ///   2. Open Capture Helpers, then FrameTiming (sustained_jank). Check
-///      that the banner shows 60 Hz and an approved provenance.
+///      that the refresh-rate line shows 60 Hz and the provenance line
+///      names the device, OS and Flutter version. A red banner lists
+///      anything that blocks a leg.
 ///   3. Tap a leg and wait for "capture stashed" in the log.
 ///   4. Tap **Export last leg** and save the clipboard text as
 ///      `sustained_jank_<role>.json` under
 ///      `test/validation/captures/frame_timing/`.
 class FrameTimingSustainedJankCaptureScreen extends StatefulWidget {
-  const FrameTimingSustainedJankCaptureScreen({super.key});
+  const FrameTimingSustainedJankCaptureScreen({
+    super.key,
+    this.captureModeOverride,
+    this.provenanceCheck = currentCaptureProvenance,
+    this.vmConnected = _sleuthVmConnected,
+  });
+
+  /// Capture mode for tests. Null reads the build's
+  /// `SLEUTH_CAPTURE_MODE` dart-define.
+  @visibleForTesting
+  final bool? captureModeOverride;
+
+  /// Where the screen reads the provenance its exports stamp.
+  @visibleForTesting
+  final CaptureProvenanceCheck Function() provenanceCheck;
+
+  /// Whether Sleuth's VM service client is connected, which the export
+  /// needs to read the detector's records.
+  @visibleForTesting
+  final bool Function() vmConnected;
 
   @override
   State<FrameTimingSustainedJankCaptureScreen> createState() =>
       _FrameTimingSustainedJankCaptureScreenState();
 }
+
+bool _sleuthVmConnected() => Sleuth.diagnoseCaptureState().vmConnected;
 
 /// Frame budget the screen judges against. The pre-flight requires a
 /// 60 Hz display, and capture mode keeps the detector's budget fixed at
@@ -260,7 +283,9 @@ typedef _FrameCost = ({int delayUs, int buildUs, int rasterUs, bool severe});
 class _FrameTimingSustainedJankCaptureScreenState
     extends State<FrameTimingSustainedJankCaptureScreen>
     with SingleTickerProviderStateMixin {
-  Ticker? _ticker;
+  // One ticker for the State, started and stopped per leg: the mixin
+  // allows only one `createTicker` call.
+  late final Ticker _ticker;
   bool _busy = false;
   double? _refreshRate;
   bool _refreshRateOk = false;
@@ -282,13 +307,17 @@ class _FrameTimingSustainedJankCaptureScreenState
   int _ambientSevere = 0;
   Completer<void>? _legDone;
 
-  final CaptureProvenanceCheck _provenance = currentCaptureProvenance();
+  late final CaptureProvenanceCheck _provenance;
 
-  bool get _captureModeOn => const bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
+  bool get _captureModeOn =>
+      widget.captureModeOverride ??
+      const bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
 
   @override
   void initState() {
     super.initState();
+    _ticker = createTicker(_onTick);
+    _provenance = widget.provenanceCheck();
     // The display may not be known in initState on iOS.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -312,7 +341,12 @@ class _FrameTimingSustainedJankCaptureScreenState
 
   @override
   void dispose() {
-    _ticker?.dispose();
+    // Lets a running leg reach its `mounted` check now, so its cleanup
+    // ends the scenario and restores the streams before another capture
+    // can start, instead of after the ticker timeout.
+    final done = _legDone;
+    if (done != null && !done.isCompleted) done.complete();
+    _ticker.dispose();
     _stopTimings();
     super.dispose();
   }
@@ -399,7 +433,14 @@ class _FrameTimingSustainedJankCaptureScreenState
       );
       return;
     }
-    final refusal = provenanceRefusal(label);
+    if (!widget.vmConnected()) {
+      _say(
+        '[$label] ABORT: VM service not connected. Run a profile build '
+        'with --no-dds so Sleuth can attach.',
+      );
+      return;
+    }
+    final refusal = provenanceRefusal(label, check: widget.provenanceCheck);
     if (refusal != null) {
       _say(refusal);
       return;
@@ -441,12 +482,18 @@ class _FrameTimingSustainedJankCaptureScreenState
       );
     });
 
-    // The span is short, but a full stream set can still roll the
-    // scenario markers out of the VM ring buffer; restored in finally.
-    await Sleuth.suspendNonEssentialTimelineStreams();
-    var streamsSuspended = true;
+    var streamsSuspended = false;
     var scenarioOpen = false;
     try {
+      // The span is short, but a full stream set can still roll the
+      // scenario markers out of the VM ring buffer; restored in finally.
+      // Marked first: a suspension that times out may still land later.
+      streamsSuspended = true;
+      await withCallTimeout(
+        Sleuth.suspendNonEssentialTimelineStreams(),
+        'suspendNonEssentialTimelineStreams',
+      );
+      if (!mounted) return;
       // Registered in the same synchronous block as markScenarioBegin, so
       // the screen and the detector judge the same timing batches.
       SchedulerBinding.instance.addTimingsCallback(_onTimings);
@@ -457,15 +504,15 @@ class _FrameTimingSustainedJankCaptureScreenState
       await Future<void>.delayed(const Duration(milliseconds: _settleMs));
       if (!mounted) return;
       if (_ambientSevere == 0) {
-        _ticker = createTicker(_onTick)..start();
+        _ticker.start();
         try {
           await done.future.timeout(_tickerTimeout);
         } on TimeoutException {
           // Judged below as missing spins.
         }
       }
-      _ticker?.dispose();
-      _ticker = null;
+      if (_ticker.isActive) _ticker.stop();
+      if (!mounted) return;
 
       await Future<void>.delayed(
         const Duration(milliseconds: _postScenarioBarrierMs),
@@ -492,29 +539,37 @@ class _FrameTimingSustainedJankCaptureScreenState
       // The end marker must reach the VM buffer before the export reads it.
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
-      await Sleuth.resumeAllTimelineStreams();
       streamsSuspended = false;
+      await withCallTimeout(
+        Sleuth.resumeAllTimelineStreams(),
+        'resumeAllTimelineStreams',
+      );
       if (!mounted) return;
 
-      final provenance = requireCaptureProvenance();
+      final provenance = requireCaptureProvenance(
+        check: widget.provenanceCheck,
+      );
       String? json;
       String? composeFailure;
       try {
-        json = await Sleuth.exportCaptureJson(
-          scenario: leg.scenario,
-          role: label,
-          magnitudeMin: leg.spins > 1 ? leg.spins - 1.0 : 1.0,
-          magnitudeObserved: leg.spins.toDouble(),
-          magnitudeMax: leg.spins + 1.0,
-          unit: 'frames',
-          device: provenance.device,
-          deviceOsVersion: provenance.deviceOsVersion,
-          flutterVersion: provenance.flutterVersion,
-          captureCommand: provenance.captureCommand,
-          bracketStableId: 'sustained_jank',
-          bracketSeverityLabel: 'critical',
-          // The count comes from FrameTiming, not a VM timeline event.
-          magnitudeSourceEventName: '',
+        json = await withCallTimeout(
+          Sleuth.exportCaptureJson(
+            scenario: leg.scenario,
+            role: label,
+            magnitudeMin: leg.spins > 1 ? leg.spins - 1.0 : 1.0,
+            magnitudeObserved: leg.spins.toDouble(),
+            magnitudeMax: leg.spins + 1.0,
+            unit: 'frames',
+            device: provenance.device,
+            deviceOsVersion: provenance.deviceOsVersion,
+            flutterVersion: provenance.flutterVersion,
+            captureCommand: provenance.captureCommand,
+            bracketStableId: 'sustained_jank',
+            bracketSeverityLabel: 'critical',
+            // The count comes from FrameTiming, not a VM timeline event.
+            magnitudeSourceEventName: '',
+          ),
+          'exportCaptureJson',
         );
         if (json == null) {
           composeFailure =
@@ -555,9 +610,12 @@ class _FrameTimingSustainedJankCaptureScreenState
       });
     } on CaptureProvenanceUnavailable catch (e) {
       _say('[$label] ABORT: capture provenance: ${e.problem}.');
+    } catch (e) {
+      // A flush past its 2 s limit, a VM call past its limit, or any other
+      // failure still ends the leg with an outcome line.
+      _say('[$label] FAILED: $e. Tap the leg again.');
     } finally {
-      _ticker?.dispose();
-      _ticker = null;
+      if (_ticker.isActive) _ticker.stop();
       _stopTimings();
       final pending = _legDone;
       if (pending != null && !pending.isCompleted) pending.complete();
@@ -571,7 +629,15 @@ class _FrameTimingSustainedJankCaptureScreenState
         }
       }
       if (streamsSuspended) {
-        await Sleuth.resumeAllTimelineStreams();
+        // Bounded, so an unanswered VM call cannot keep the screen busy.
+        try {
+          await withCallTimeout(
+            Sleuth.resumeAllTimelineStreams(),
+            'resumeAllTimelineStreams',
+          );
+        } catch (e) {
+          _say('[$label] resumeAllTimelineStreams on cleanup: $e');
+        }
       }
       if (mounted) setState(() => _busy = false);
     }
@@ -629,81 +695,91 @@ class _FrameTimingSustainedJankCaptureScreenState
         _provenance.provenance != null &&
         !_busy;
     final rate = _refreshRate;
+    final stamp = _provenance.provenance;
     return Scaffold(
       appBar: AppBar(title: const Text('sustained_jank capture')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Natural height up to three quarters of the body, scrolling
-            // past that, so a long pre-flight reason or a large text
-            // scale cannot overflow.
-            Flexible(
-              flex: 3,
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    CapturePreflightBanner(
-                      captureMode: capture.captureMode,
-                      vmConnected: capture.vmConnected,
-                      provenanceProblem: _provenance.problem,
-                    ),
-                    Text(
-                      'Refresh rate: '
-                      '${rate == null ? 'detecting' : rate.toStringAsFixed(1)}'
-                      ' Hz${_refreshRateOk ? '' : ' (needs 60 Hz)'}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Injects an exact number of severe frames (40 ms '
-                      'spins inside the frame) and records the '
-                      'sustained_jank critical issue, which fires at 3. '
-                      'Bands: at [3, 4.5], above (4.5, 7.5].',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    const SizedBox(height: 12),
-                    for (final leg in SustainedJankLeg.values)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: FilledButton.tonal(
-                          onPressed: ready ? () => _runLeg(leg) : null,
-                          child: Text(
-                            '${leg.label[0].toUpperCase()}'
-                            '${leg.label.substring(1)}: ${leg.spins} '
-                            'severe frames',
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Natural height up to three quarters of the body, scrolling
+              // past that, so a long pre-flight reason or a large text
+              // scale cannot overflow.
+              Flexible(
+                flex: 3,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      CapturePreflightBanner(
+                        captureMode: capture.captureMode,
+                        vmConnected: capture.vmConnected,
+                        provenanceProblem: _provenance.problem,
+                      ),
+                      Text(
+                        'Refresh rate: '
+                        '${rate == null ? 'detecting' : rate.toStringAsFixed(1)}'
+                        ' Hz${_refreshRateOk ? '' : ' (needs 60 Hz)'}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      if (stamp != null)
+                        Text(
+                          'Provenance: ${stamp.device} / '
+                          '${stamp.deviceOsVersion} / '
+                          'Flutter ${stamp.flutterVersion}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Injects an exact number of severe frames (40 ms '
+                        'spins inside the frame) and records the '
+                        'sustained_jank critical issue, which fires at 3. '
+                        'Bands: at [3, 4.5], above (4.5, 7.5].',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 12),
+                      for (final leg in SustainedJankLeg.values)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: FilledButton.tonal(
+                            onPressed: ready ? () => _runLeg(leg) : null,
+                            child: Text(
+                              '${leg.label[0].toUpperCase()}'
+                              '${leg.label.substring(1)}: ${leg.spins} '
+                              'severe frames',
+                            ),
                           ),
                         ),
+                      FilledButton.icon(
+                        onPressed: _busy ? null : _exportLastLeg,
+                        icon: const Icon(Icons.save_alt),
+                        label: const Text('Export last leg'),
                       ),
-                    FilledButton.icon(
-                      onPressed: _busy ? null : _exportLastLeg,
-                      icon: const Icon(Icons.save_alt),
-                      label: const Text('Export last leg'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const Divider(height: 24),
-            Expanded(
-              child: ListView.builder(
-                reverse: true,
-                itemCount: _log.length,
-                itemBuilder: (context, i) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text(
-                    _log[_log.length - 1 - i],
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
+              const Divider(height: 24),
+              Expanded(
+                child: ListView.builder(
+                  reverse: true,
+                  itemCount: _log.length,
+                  itemBuilder: (context, i) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      _log[_log.length - 1 - i],
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

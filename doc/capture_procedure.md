@@ -1042,7 +1042,11 @@ the screen would refuse most legs there, and the claim covers the
 iPhone 12 only.
 
 Each leg allows 5 attempts. The screen shares the 60 Hz pre-flight and
-the provenance stamp of the jank_detected screen.
+the provenance stamp of the jank_detected screen, and refuses a leg
+before its workload when the VM service is not connected. Stream and
+export calls are bounded at 10 s (`withCallTimeout`), any failure ends
+the leg with a `FAILED` line, and closing the screen during a leg ends
+its scenario and restores the streams at once.
 
 ## NetworkMonitor large_response and request_frequency capture (v0.19.9)
 
