@@ -304,6 +304,10 @@
   tick, with the request readings taken from its catch-up read. New
   diagnose keys: `timelineSource`, `streamBlocks`, `streamEvents`,
   `streamEventsDropped`, `catchUpReads`, `lastStreamLagMs`.
+- `shader_compilation` marks a compile `keyframe` when a build started
+  within 100 ms before it in any of the last 20 timeline batches that held
+  builds, not only in the same batch: a pipeline worker's events reach
+  Sleuth when its timeline block is posted, often a batch after the build.
 - Only a client's first VM session reads the whole timeline buffer, for
   the engine startup events; a reconnect starts from the last second. A
   whole-buffer read on a Galaxy A07 held the raster thread for 110 ms.
