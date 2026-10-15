@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 21 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test --exclude-tags benchmark          # Default run (~4,539 tests; wall-clock benchmarks excluded)
+fvm flutter test --exclude-tags benchmark          # Default run (~4,660 tests; wall-clock benchmarks excluded)
 fvm flutter test --tags benchmark --concurrency=1  # Wall-clock benchmarks, serial (40 tests)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
@@ -21,7 +21,7 @@ rm -rf build/unit_test_assets && fvm flutter pub get   # Restore 3.47.6 resoluti
 # Example app
 cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
-cd example && fvm flutter test            # Cookbook smoke, demo and capture-screen widget tests (142 tests)
+cd example && fvm flutter test            # Cookbook smoke, demo and capture-screen widget tests (146 tests)
 
 # Demo walk on a device (iOS or Android): runs each demo's controls from tool/demo_walk_plan.json
 # and records issues per phase; start the app with `fvm flutter run --profile --no-dds -d <device>`
