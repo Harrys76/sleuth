@@ -114,8 +114,10 @@
       "title": "Memory Pressure",
       "steps": [
         ["tap", "Sustained Growth"], ["wait", 25], ["read", "growth"],
-        ["tap", "Native +10MB"], ["wait", 3], ["tap", "Native +10MB"], ["wait", 3],
-        ["tap", "Native +10MB"], ["wait", 3], ["tap", "Native +10MB"], ["wait", 6],
+        ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
+        ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
+        ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 2.5],
+        ["tap", "Native +10MB"], ["wait", 2.5], ["tap", "Native +10MB"], ["wait", 3],
         ["read", "native"],
         ["tap", "GC Churn"], ["wait", 8], ["read", "churn"], ["tap", "Stop Churn"],
         ["tap", "Release All"], ["wait", 3]

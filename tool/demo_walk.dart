@@ -9,6 +9,10 @@
 //   --out <file>       results JSON (default build/demo_walk/<time>.json)
 //   --only "A|B"       walk only the demos with these titles
 //   --from "Title"     start at this demo, for resuming a walk
+//   --raw              also save raw data for calibration: every frame
+//                      Sleuth holds at each frames step, and the GC
+//                      window (ext.sleuthDemo.vmAxes) and heap samples at
+//                      each read
 //   --android <serial> run the Android-only steps too (real-touch swipes
 //                      through adb, which raise a variable-rate panel to its
 //                      top rate; synthetic drags do not)
@@ -46,7 +50,7 @@ Future<void> main(List<String> args) async {
   if (args.isEmpty || args.first.startsWith('--')) {
     stderr.writeln(
       'usage: demo_walk.dart <ws-uri> [--plan f] [--out f] '
-      '[--only "A|B"] [--from Title] [--android serial]',
+      '[--only "A|B"] [--from Title] [--raw] [--android serial]',
     );
     exitCode = 64;
     return;
@@ -61,6 +65,7 @@ Future<void> main(List<String> args) async {
   final only = option('--only', '');
   final from = option('--from', '');
   final androidSerial = option('--android', '');
+  final raw = args.contains('--raw');
   final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
   final outPath = option('--out', 'build/demo_walk/$stamp.json');
 
@@ -124,6 +129,7 @@ Future<void> main(List<String> args) async {
         demo,
         call,
         androidSerial: androidSerial.isEmpty ? null : androidSerial,
+        raw: raw,
       );
       results.add(result);
       stdout.writeln(_summary(result));
@@ -192,11 +198,13 @@ Future<Map<String, dynamic>> _walk(
   Map<String, dynamic> demo,
   _Call call, {
   required String? androidSerial,
+  required bool raw,
 }) async {
   final title = demo['title'] as String;
   final actions = <Map<String, dynamic>>[];
   final issuesByPhase = <String, Map<String, Map<String, dynamic>>>{};
   final framesByPhase = <String, Map<String, dynamic>>{};
+  final rawByPhase = <String, Map<String, dynamic>>{};
 
   Future<void> read(String phase) async {
     final issues = issuesByPhase.putIfAbsent(phase, () => {});
@@ -288,10 +296,24 @@ Future<Map<String, dynamic>> _walk(
       case 'pop':
         record(step, await call('ext.sleuthDemo.pop'));
       case 'read':
-        await read(step.length > 1 ? '${step[1]}' : 'main');
+        final phase = step.length > 1 ? '${step[1]}' : 'main';
+        await read(phase);
+        if (raw) {
+          final slot = rawByPhase.putIfAbsent(phase, () => {});
+          slot['gc'] = await call('ext.sleuthDemo.vmAxes');
+          slot['heapSamples'] = (await call('ext.sleuth.snapshot', {
+            'sections': 'heapSamples',
+          }))['heapSamples'];
+        }
       case 'frames':
-        framesByPhase[step.length > 1 ? '${step[1]}' : 'main'] =
-            await _frameStats(call);
+        final phase = step.length > 1 ? '${step[1]}' : 'main';
+        framesByPhase[phase] = await _frameStats(call);
+        if (raw) {
+          rawByPhase.putIfAbsent(phase, () => {})['frames'] = (await call(
+            'ext.sleuth.snapshot',
+            {'sections': 'recentFrames'},
+          ))['recentFrames'];
+        }
     }
     await Future<void>.delayed(const Duration(milliseconds: 300));
   }
@@ -304,6 +326,7 @@ Future<Map<String, dynamic>> _walk(
     'actions': actions,
     'issues': issuesByPhase,
     'frames': framesByPhase,
+    if (raw) 'raw': rawByPhase,
     'frameBudgetUs': diagnose['frameBudgetUs'],
     'effectiveFrameRateHz': diagnose['effectiveFrameRateHz'],
   };
