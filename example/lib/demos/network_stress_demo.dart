@@ -38,9 +38,15 @@ const _smallEndpoint = '$_payloadEndpoint$_smallPayloadBytes';
 
 // One tile does not fill a phone screen, so the bad gallery's
 // load-on-scroll could never start. After a page loads while the list
-// still cannot scroll, the bad gallery loads the next page itself, at most
-// this many times per fill.
-const _maxAutoFillPages = 3;
+// still cannot scroll, the bad gallery loads the next page itself until
+// the list can scroll: about 6 pages on a phone with the instructions
+// collapsed. This bound stops a fill on a tall tablet, inside the session
+// request cap.
+const _maxAutoFillPages = 10;
+
+String get _capMessage =>
+    'All $_maxSessionRequests requests used. Switch between Bad and Fixed, '
+    'or reopen the demo, to reset the count.';
 
 class NetworkStressDemo extends StatefulWidget {
   const NetworkStressDemo({super.key, this.fetchBytes});
@@ -235,7 +241,7 @@ class _SearchTabState extends State<_SearchTab> {
 
   Future<void> _runSearch(String query, int seq) async {
     if (widget.requestCount.value >= _maxSessionRequests) {
-      setState(() => _error = 'Session request cap reached. Restart screen.');
+      setState(() => _error = _capMessage);
       return;
     }
     // Reserve the slot BEFORE the network round-trip so concurrent
@@ -381,6 +387,8 @@ class _GalleryTabState extends State<_GalleryTab> {
   final List<int> _pages = [];
   bool _loading = false;
   String? _error;
+  bool _capReached = false;
+  bool _canScroll = false;
   int _autoFillPages = 0;
 
   @override
@@ -401,18 +409,20 @@ class _GalleryTabState extends State<_GalleryTab> {
   void _onScroll() {
     if (!_scroll.hasClients) return;
     if (_loading) return;
-    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 100) {
-      _loadNextPage();
-    }
+    final position = _scroll.position;
+    // A pull on a list that cannot scroll moves the offset too (iOS
+    // bounces), and is the refresh gesture, not a scroll to the end.
+    if (position.maxScrollExtent <= 0) return;
+    if (position.extentAfter < 100) _loadNextPage();
   }
 
   Future<void> _loadNextPage() async {
     // Idempotent while a fetch is in flight — pull-to-refresh and the
     // scroll listener can both call this concurrently otherwise, and
     // both completions would append into the freshly-cleared list.
-    if (_loading) return;
+    if (_loading || _capReached) return;
     if (widget.requestCount.value >= _maxSessionRequests) {
-      setState(() => _error = 'Session request cap reached.');
+      setState(() => _capReached = true);
       return;
     }
     // Reserve the slot before the await so concurrent callers respect
@@ -445,17 +455,25 @@ class _GalleryTabState extends State<_GalleryTab> {
   // Loads the next page while the list is too short to scroll, so the
   // load-on-scroll listener gets a scrollable list to watch.
   void _fillScreen() {
-    if (!mounted || !_scroll.hasClients || _loading || _error != null) return;
+    if (!mounted || !_scroll.hasClients) return;
+    final canScroll = _scroll.position.maxScrollExtent > 0;
+    if (canScroll != _canScroll) setState(() => _canScroll = canScroll);
+    if (canScroll || _loading || _error != null || _capReached) return;
     if (_autoFillPages >= _maxAutoFillPages) return;
-    if (_scroll.position.maxScrollExtent > 0) return;
     _autoFillPages++;
     _loadNextPage();
   }
 
   Future<void> _refresh() async {
+    // At the cap a refresh would clear the gallery and load nothing.
+    if (widget.requestCount.value >= _maxSessionRequests) {
+      setState(() => _capReached = true);
+      return;
+    }
     setState(() {
       _pages.clear();
       _error = null;
+      _canScroll = false;
       _autoFillPages = 0;
     });
     await _loadNextPage();
@@ -476,13 +494,18 @@ class _GalleryTabState extends State<_GalleryTab> {
           if (i < _pages.length) {
             return _PhotoTile(index: i, bytes: _pages[i]);
           }
+          if (_capReached) return _ErrorTile(message: _capMessage);
           if (_error != null) {
             return _ErrorTile(message: _error!, onRetry: _loadNextPage);
           }
           if (_loading) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: CircularProgressIndicator()),
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: CircularProgressIndicator(
+                  semanticsLabel: 'Loading page ${_pages.length + 1}',
+                ),
+              ),
             );
           }
           if (widget.bad) {
@@ -490,11 +513,16 @@ class _GalleryTabState extends State<_GalleryTab> {
               padding: const EdgeInsets.all(16),
               child: Text(
                 _pages.isEmpty
-                    ? 'Pull to load the first page. More pages load on '
-                          'their own.'
-                    : 'Scrolling near the bottom triggers auto-load.',
+                    ? 'Pull down to load the first page. More pages load '
+                          'until the list can scroll.'
+                    : _canScroll
+                    ? 'Scroll near the end to load more.'
+                    : 'Pull down to load again.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             );
           }
@@ -548,10 +576,12 @@ class _PhotoTile extends StatelessWidget {
 }
 
 class _ErrorTile extends StatelessWidget {
-  const _ErrorTile({required this.message, required this.onRetry});
+  const _ErrorTile({required this.message, this.onRetry});
 
   final String message;
-  final VoidCallback onRetry;
+
+  /// Null when retrying cannot help, as at the request cap.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -559,17 +589,22 @@ class _ErrorTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Retry page'),
-          ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry page'),
+            ),
+          ],
         ],
       ),
     );
@@ -598,6 +633,12 @@ Future<int> _fetchBytes(String url) async {
       await for (final chunk in response) {
         bytes += chunk.length;
       }
+      // Drained first, so Sleuth still records the request. A rate limit or
+      // server error is not a page.
+      final status = response.statusCode;
+      if (status < 200 || status >= 300) {
+        throw HttpException('HTTP $status', uri: request.uri);
+      }
       return bytes;
     }().timeout(
       const Duration(seconds: 10),
@@ -612,8 +653,23 @@ Future<int> _fetchBytes(String url) async {
 }
 
 String _friendlyError(Object e) {
-  if (e is TimeoutException) return 'Request timed out (network slow?).';
-  if (e is SocketException) return 'Network unavailable.';
-  if (e is HttpException) return 'HTTP error: ${e.message}';
-  return 'Request failed: $e';
+  if (e is TimeoutException) return 'The request timed out. Try again.';
+  if (e is SocketException) {
+    return e.message.contains('timed out')
+        ? 'The connection timed out. Try again.'
+        : 'No connection. Check the network, then try again.';
+  }
+  if (e is HandshakeException) {
+    return 'The secure connection failed. Check the network and the '
+        'device date, then try again.';
+  }
+  if (e is HttpException) {
+    if (e.message == 'HTTP 429') {
+      return 'The server answered 429 (rate limited). Wait a minute, then '
+          'try again.';
+    }
+    return 'The server answered ${e.message.replaceFirst('HTTP ', '')}. '
+        'Try again.';
+  }
+  return 'The request failed. Try again.';
 }
