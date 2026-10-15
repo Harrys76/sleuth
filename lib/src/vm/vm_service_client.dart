@@ -72,7 +72,14 @@ class VmServiceClient {
     this.newestFrameRasterFinishUs,
     this.streamSilentFallback = const Duration(seconds: 10),
     this.catchUpMinInterval = const Duration(seconds: 1),
+    @visibleForTesting this.streamClockForTest,
   });
+
+  /// Test-only clock for the stream's lag, fallback and catch-up timing,
+  /// in timeline microseconds. Null uses the timeline clock.
+  final int Function()? streamClockForTest;
+
+  int _streamNowUs() => streamClockForTest?.call() ?? OwnWorkLog.now();
 
   /// Whether sessions read the timeline from the VM's `Timeline` stream
   /// instead of a `getVMTimeline` request every tick.
@@ -579,7 +586,7 @@ class VmServiceClient {
       await service.streamListen(EventStreams.kTimeline);
       if (gen != _sessionGeneration) return;
       _timelineSource = TimelineSource.stream;
-      _streamSubscribedAtUs = OwnWorkLog.now();
+      _streamSubscribedAtUs = _streamNowUs();
     } catch (_) {
       // An older VM or an embedder without the stream: poll.
       await _timelineSub?.cancel();
@@ -603,7 +610,7 @@ class VmServiceClient {
       }
     }
     if (newest >= 0) {
-      _lastStreamLagMs = (OwnWorkLog.now() - newest) ~/ 1000;
+      _lastStreamLagMs = (_streamNowUs() - newest) ~/ 1000;
     }
     _streamBuffer.add(block);
     _streamBufferedEvents += block.length;
@@ -627,6 +634,18 @@ class VmServiceClient {
       ph == 'p' ||
       ph == 'F';
 
+  void _noteSeen(List<TimelineEvent> events) {
+    for (final e in events) {
+      final json = e.json;
+      if (json == null) continue;
+      final ts = json['ts'];
+      final tid = json['tid'];
+      if (ts is! int || tid is! int || _isAsyncPhase(json['ph'])) continue;
+      final seen = _newestSeenByTid[tid];
+      if (seen == null || ts > seen) _newestSeenByTid[tid] = ts;
+    }
+  }
+
   List<TimelineEvent> _drainStream() {
     final events = <TimelineEvent>[for (final block in _streamBuffer) ...block];
     _streamBuffer.clear();
@@ -647,7 +666,7 @@ class VmServiceClient {
     }
     final newestFrame = newestFrameRasterFinishUs?.call();
     if (newestFrame == null || newestFrame <= subscribedAt) return;
-    if (OwnWorkLog.now() - subscribedAt < streamSilentFallback.inMicroseconds) {
+    if (_streamNowUs() - subscribedAt < streamSilentFallback.inMicroseconds) {
       return;
     }
     _timelineSource = TimelineSource.poll;
@@ -1052,12 +1071,12 @@ class VmServiceClient {
         // the frame and raster threads' recent events when a frame
         // finished after the newest event seen on them.
         events = _drainStream();
-        final window = _catchUpWindow(
-          nowUs: OwnWorkLog.now(),
-          force: forceFresh,
-        );
+        // The drained blocks count as seen before deciding on a read;
+        // otherwise every tick on a busy screen looked a tick behind.
+        _noteSeen(events);
+        final window = _catchUpWindow(nowUs: _streamNowUs(), force: forceFresh);
         if (window != null) {
-          _lastCatchUpAtUs = OwnWorkLog.now();
+          _lastCatchUpAtUs = _streamNowUs();
           _catchUpReads++;
           final Timeline timeline;
           watch
