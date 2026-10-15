@@ -350,9 +350,9 @@
   hashes the host and port. `NetworkMonitorDetector.lastObservedErrorCount`
   and `lastObservedSamePathCluster`, with `flushErrorSpikeEvaluation()` and
   `flushSamePathEvaluation()`, hold the peak window and cluster below the
-  thresholds too. The error window sorts its records by start time; they
-  arrive in completion order, so a slow error that finished late could
-  split one window in two.
+  thresholds too. The error window sorts its records by start time. They
+  arrive in completion order, so an error that finished late could be
+  counted in one window with errors that started more than 5 s from it.
 - `DetectorMetadata.effectiveTierFor` reads a colon-parametric id, such as
   `high_frequency_same_path:<fingerprint>` or
   `tracked_resource_concurrent:<name>`, through its family's tier and
