@@ -454,6 +454,12 @@ FutureOr<Map<String, Object?>> extDiagnoseHandler(
       'eventLoopStallTimerStream': controller.eventLoopStallTimerStream,
       'eventLoopStallExcused': controller.eventLoopStallExcused,
       'eventLoopStallIgnored': controller.eventLoopStallIgnored,
+      'timelineSource': controller.timelineSource,
+      'streamBlocks': controller.streamBlocks,
+      'streamEvents': controller.streamEvents,
+      'streamEventsDropped': controller.streamEventsDropped,
+      'catchUpReads': controller.catchUpReads,
+      'lastStreamLagMs': controller.lastStreamLagMs,
     },
   );
 }

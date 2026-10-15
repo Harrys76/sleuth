@@ -851,6 +851,33 @@ class SleuthController {
   /// the first poll.
   int? get pollWindowFallbacks => _vmClient?.pollWindowFallbacks;
 
+  /// Where the current VM session reads its timeline from: `stream`
+  /// (the VM's Timeline stream with catch-up reads) or `poll`; null
+  /// without a VM session.
+  String? get timelineSource => _vmClient?.timelineSource?.name;
+
+  bool get _hasTimelineSession => _vmClient?.timelineSource != null;
+
+  /// Timeline stream blocks received in the current VM session; null
+  /// without one.
+  int? get streamBlocks => _hasTimelineSession ? _vmClient!.streamBlocks : null;
+
+  /// Timeline stream events received in the current VM session; null
+  /// without one.
+  int? get streamEvents => _hasTimelineSession ? _vmClient!.streamEvents : null;
+
+  /// Timeline stream events dropped because ticks fell behind; null
+  /// without a VM session.
+  int? get streamEventsDropped =>
+      _hasTimelineSession ? _vmClient!.streamEventsDropped : null;
+
+  /// Catch-up reads in the current VM session; null without one.
+  int? get catchUpReads => _hasTimelineSession ? _vmClient!.catchUpReads : null;
+
+  /// Age, when it arrived, of the newest event in the last stream block,
+  /// in milliseconds; null before the first block.
+  int? get lastStreamLagMs => _vmClient?.lastStreamLagMs;
+
   EventLoopStallDetector? get _stallDetector => _detectorsReady
       ? _detectors.whereType<EventLoopStallDetector>().firstOrNull
       : null;

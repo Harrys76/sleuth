@@ -61,7 +61,13 @@
         "pollWindowFallbacks": {"type": "int", "required": true, "nullable": true},
         "eventLoopStallTimerStream": {"type": "bool", "required": true, "nullable": true},
         "eventLoopStallExcused": {"type": "int", "required": true, "nullable": true},
-        "eventLoopStallIgnored": {"type": "int", "required": true, "nullable": true}
+        "eventLoopStallIgnored": {"type": "int", "required": true, "nullable": true},
+        "timelineSource": {"type": "String", "required": true, "nullable": true},
+        "streamBlocks": {"type": "int", "required": true, "nullable": true},
+        "streamEvents": {"type": "int", "required": true, "nullable": true},
+        "streamEventsDropped": {"type": "int", "required": true, "nullable": true},
+        "catchUpReads": {"type": "int", "required": true, "nullable": true},
+        "lastStreamLagMs": {"type": "int", "required": true, "nullable": true}
       }
     },
     "ext.sleuth.snapshot": {

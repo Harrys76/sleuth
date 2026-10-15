@@ -76,6 +76,12 @@ Reports the package version, the VM link, unbound extensions, the frame budget a
 | `eventLoopStallTimerStream` | bool | yes | yes |
 | `eventLoopStallExcused` | int | yes | yes |
 | `eventLoopStallIgnored` | int | yes | yes |
+| `timelineSource` | String | yes | yes |
+| `streamBlocks` | int | yes | yes |
+| `streamEvents` | int | yes | yes |
+| `streamEventsDropped` | int | yes | yes |
+| `catchUpReads` | int | yes | yes |
+| `lastStreamLagMs` | int | yes | yes |
 
 The `*Poll*` keys describe the VM timeline poll loop. They are null until the first poll of the current VM session.
 
@@ -86,6 +92,8 @@ The `*Poll*` keys describe the VM timeline poll loop. They are null until the fi
 - `lastPollEventCount` is the raw event count. `lastPollResponseChars` is the raw response length, or null when Sleuth could not match the response.
 - `maxPoll*Micros` are maxima over the last 32 polls. `maxPollDecodeMicros` is null when Sleuth matched none of those polls.
 - `pollDuplicatesDropped` sums the events skipped as already processed. `pollWindowFallbacks` counts the polls that read the whole timeline buffer because the timeline clock could not bound a fetch window.
+- `timelineSource` is `stream` when the session reads the VM's `Timeline` stream, drained every 500 ms tick, or `poll` when it requests the timeline every tick (capture mode, or a VM that refuses the stream or never sends a block); null without a VM session. In stream mode the `*Poll*` keys describe the tick: `Rpc`, `Decode` and `ResponseChars` belong to its catch-up read and are 0 or null when the tick read nothing, and `EventCount` counts the stream events and the read's events together.
+- `streamBlocks` and `streamEvents` count the stream's blocks (64 events each) and events in the current VM session. `streamEventsDropped` counts events dropped because ticks fell behind (more than 16,384 waiting). `catchUpReads` counts the reads of a frame or raster thread's recent events, which a thread that writes few events needs because its last events wait in an unfinished block. `lastStreamLagMs` is how old the newest event of the last block was when it arrived. The counts are null without a VM session; `lastStreamLagMs` is null before the first block.
 - `eventLoopStallTimerStream` is whether the VM has a `Timer` stream for `event_loop_stall`: null until a VM session tried it, false on Flutter 3.32 to 3.34. `eventLoopStallExcused` counts stalls that debugger pauses, hot reloads or Sleuth's own work explained, and `eventLoopStallIgnored` counts timer events ignored because the app was hidden or paused; both are null when the detector is off.
 
 ### `ext.sleuth.snapshot`

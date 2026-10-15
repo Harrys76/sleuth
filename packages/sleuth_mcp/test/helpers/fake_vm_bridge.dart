@@ -233,6 +233,12 @@ FakeVmBridge defaultFakeBridge() {
       'eventLoopStallTimerStream': true,
       'eventLoopStallExcused': 0,
       'eventLoopStallIgnored': 0,
+      'timelineSource': 'stream',
+      'streamBlocks': 120,
+      'streamEvents': 7680,
+      'streamEventsDropped': 0,
+      'catchUpReads': 0,
+      'lastStreamLagMs': 8,
     },
   });
   bridge.setEnvelope('ext.sleuth.snapshot', fakeSnapshotEnvelope());

@@ -9,6 +9,8 @@ import 'package:sleuth/src/vm/service_extension_handlers.dart';
 import 'package:sleuth/src/vm/vm_service_client.dart';
 import 'package:vm_service/vm_service.dart';
 
+import '../helpers/fake_vm_service.dart';
+
 const _config = SleuthConfig(
   treeScanInterval: Duration(seconds: 1),
   enabledDetectors: {DetectorType.frameTiming},
@@ -461,6 +463,41 @@ void main() {
       }
       expect(data['lastPollEventCount'], 1);
       expect(data['pollDuplicatesDropped'], 0);
+    });
+
+    test('diagnose stream keys are null without a VM session and report '
+        'the session\'s source and counts with one', () async {
+      const streamKeys = [
+        'timelineSource',
+        'streamBlocks',
+        'streamEvents',
+        'streamEventsDropped',
+        'catchUpReads',
+        'lastStreamLagMs',
+      ];
+      final c = _newController();
+      var data =
+          (await extDiagnoseHandler(c, const {}))['data']
+              as Map<String, Object?>;
+      for (final key in streamKeys) {
+        expect(data.containsKey(key), isTrue, reason: key);
+        expect(data[key], isNull, reason: key);
+      }
+
+      final client = VmServiceClient(ownIsolateIdResolver: () => 'isolates/1');
+      addTearDown(client.dispose);
+      expect(await client.startSessionForTest(FakeVmService()), isTrue);
+      c.setVmClientForTest(client);
+      data =
+          (await extDiagnoseHandler(c, const {}))['data']
+              as Map<String, Object?>;
+      expect(data['timelineSource'], 'stream');
+      expect(data['streamBlocks'], 0);
+      expect(data['streamEvents'], 0);
+      expect(data['streamEventsDropped'], 0);
+      expect(data['catchUpReads'], 0);
+      expect(data['lastStreamLagMs'], isNull);
+      expect(jsonEncode(data), isA<String>());
     });
   });
 
