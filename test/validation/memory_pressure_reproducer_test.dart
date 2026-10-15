@@ -35,35 +35,46 @@ void main() {
 
     setUp(() {
       now = DateTime(2026, 4, 25, 12);
-      // Default GC threshold (180/min = 30 cycles in the 10 s window).
+      // Default GC threshold (240/min = 40 young collections in the 10 s
+      // window).
       detector = MemoryPressureDetector(clock: () => now, warmupDurationMs: 0);
       detector.vmConnected = true;
     });
 
-    group('gc_pressure (rate axis, > 180/min over 10s window)', () {
-      /// Records [count] cycles 300 ms apart (all inside the window).
+    group('gc_pressure (young-generation rate axis, > 240/min over 10s '
+        'window)', () {
+      /// Records [count] cycles 200 ms apart (all inside the window).
       void cycles(int count, {String? gcType}) {
         for (var i = 0; i < count; i++) {
-          now = now.add(const Duration(milliseconds: 300));
+          now = now.add(const Duration(milliseconds: 200));
           detector.recordGcCycle(gcType: gcType);
         }
       }
 
-      test('31 GC cycles in window fires gc_pressure (rate 186/min)', () {
-        cycles(31);
+      test('41 young collections in window fire gc_pressure (rate '
+          '246/min)', () {
+        cycles(41);
         expect(detector.issues, hasStableId('gc_pressure'));
       });
 
-      test(
-        '30 GC cycles in window does NOT fire (rate 180/min equals threshold)',
-        () {
-          cycles(30);
-          expect(detector.issues, lacksStableId('gc_pressure'));
-        },
-      );
+      test('40 young collections in window do NOT fire (rate 240/min '
+          'equals threshold)', () {
+        cycles(40);
+        expect(detector.issues, lacksStableId('gc_pressure'));
+      });
+
+      test('old-generation sweeps and marking starts do not count toward '
+          'the rate', () {
+        for (var i = 0; i < 15; i++) {
+          cycles(1, gcType: 'Scavenge');
+          cycles(1, gcType: 'StartCMark');
+          cycles(1, gcType: 'MarkSweep');
+        }
+        expect(detector.issues, lacksStableId('gc_pressure'));
+      });
 
       test('old cycles age out of 10s sliding window', () {
-        cycles(31);
+        cycles(41);
         expect(detector.issues, hasStableId('gc_pressure'));
 
         now = now.add(const Duration(seconds: 15));
@@ -73,7 +84,7 @@ void main() {
 
       test('emission stamps observedGcEvents and the scavenge / old-gen '
           'split', () {
-        cycles(25, gcType: 'Scavenge');
+        cycles(41, gcType: 'Scavenge');
         cycles(6, gcType: 'MarkSweep');
         final issue = detector.issues.firstWhere(
           (i) => i.stableId == 'gc_pressure',
@@ -85,12 +96,12 @@ void main() {
         );
         expect(
           issue.extraTraceArgs!['observedGcEvents'],
-          equals('31'),
+          equals('47'),
           reason:
-              'Detector stamps raw windowEvents count (integer string) so '
-              'the trace record carries the value the threshold gates on.',
+              'Detector stamps the raw window event count (integer string) '
+              'next to the young-generation count the threshold gates on.',
         );
-        expect(issue.extraTraceArgs!['scavengeCount'], equals('25'));
+        expect(issue.extraTraceArgs!['scavengeCount'], equals('41'));
         expect(issue.extraTraceArgs!['oldGenCount'], equals('6'));
         expect(
           issue.dedupIdentityMicros,
@@ -105,7 +116,7 @@ void main() {
       test(
         're-emission inside same overage carries SAME dedupIdentityMicros',
         () {
-          cycles(31);
+          cycles(41);
           final firstIdentity = detector.issues
               .firstWhere((i) => i.stableId == 'gc_pressure')
               .dedupIdentityMicros;
@@ -134,8 +145,8 @@ void main() {
 
       test('distinct overage episodes carry DISTINCT dedupIdentityMicros '
           '(_gcOverageStart cleared on no-emit branch)', () {
-        // First overage: 31 cycles in 10s → fires.
-        cycles(31);
+        // First overage: 41 young collections in 10s → fires.
+        cycles(41);
         final firstIdentity = detector.issues
             .firstWhere((i) => i.stableId == 'gc_pressure')
             .dedupIdentityMicros;
@@ -145,7 +156,7 @@ void main() {
         // age out, then drive a single sub-threshold cycle. NO reset()
         // between episodes — `reset()` would null `_gcOverageStart` via
         // its own clear path and mask the only behavior under test:
-        // the no-emit else-branch clear at `windowEvents <= 30`.
+        // the no-emit else-branch clear at or below the threshold.
         now = now.add(const Duration(seconds: 30));
         detector.recordGcCycle();
         expect(
@@ -158,8 +169,8 @@ void main() {
               'identity.',
         );
 
-        // Second overage: 31 more cycles → fires with NEW identity.
-        cycles(31);
+        // Second overage: 41 more → fires with NEW identity.
+        cycles(41);
         final secondIdentity = detector.issues
             .firstWhere((i) => i.stableId == 'gc_pressure')
             .dedupIdentityMicros;
@@ -170,7 +181,7 @@ void main() {
           reason:
               'Two distinct overage episodes must carry distinct '
               'dedup identities. If _gcOverageStart were only cleared on '
-              'windowEvents == 0 (instead of <= 30), the second '
+              'windowEvents == 0 (instead of at or below the threshold), the second '
               'overage would inherit stale identity and silent dedup '
               'collapse would mask the second episode in CI captures.',
         );

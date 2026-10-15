@@ -206,7 +206,7 @@ void main() {
     (
       'gc_pressure',
       _Field.readingTheData,
-      'more than ${config.gcRateThresholdPerMin ~/ 6} cycles in 10 seconds',
+      'more than ${config.gcRateThresholdPerMin ~/ 6} scavenges in 10 seconds',
     ),
     (
       'native_memory_growing',

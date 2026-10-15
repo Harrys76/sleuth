@@ -86,19 +86,20 @@ class MemoryPressureDetector extends BaseDetector
   /// nothing about how close the process is to being killed.
   final int? memoryBudgetBytes;
 
-  /// GC events per minute (extrapolated from a 10s sliding window) above
-  /// which `gc_pressure` fires. Dart's `EventStreams.kGC` emits one event
-  /// per GC cycle, new-space scavenges included. An idle app with Sleuth
-  /// attached produces 1 to 2 scavenges per second from the VM-service
-  /// poll traffic alone (66 to 138 per minute measured on an iPhone 12),
-  /// while allocation churn runs at thousands per minute. The default of
-  /// 180 (3 per second sustained over 10 s) sits above the idle band.
-  /// Each emission stamps the young-generation / old-generation /
-  /// marking-start split of the window, and the GC pause time when it can
-  /// be measured.
+  /// Young-generation collections (scavenges) per minute, extrapolated
+  /// from a 10 s sliding window, above which `gc_pressure` fires.
+  /// Old-generation sweeps and concurrent-marking starts do not count: on
+  /// animated screens they follow promotion and pause the app briefly.
+  /// On an iPhone 12 and a Galaxy A07 at 60 Hz, ordinary screens ran 168
+  /// scavenges a minute or fewer, and the GC Churn demo ran 342 to 810.
+  /// Scavenges rise with the frame rate: Live Waveform at 90 Hz on the
+  /// Galaxy ran 186 to 246 a minute with 3.7 to 4.9 % of the time in GC
+  /// pauses, more than the churn demo. Each emission stamps the
+  /// young-generation / old-generation / marking-start split of the window,
+  /// and the GC pause time when it can be measured.
   final int gcRateThresholdPerMin;
 
-  static const int _defaultGcRateThresholdPerMin = 180;
+  static const int _defaultGcRateThresholdPerMin = 240;
 
   /// Whether this detector runs in a capture session. Only then does
   /// [setLegsEnabledForCapture] change anything.
@@ -519,12 +520,19 @@ class MemoryPressureDetector extends BaseDetector
       return;
     }
 
+    // Young-generation collections set the rate. Each concurrent old-gen
+    // cycle posts a marking start and then a sweep; counting them doubled
+    // the old-gen cycles that ordinary animation triggers.
+    //
     // Fixed-window denominator: (events / window seconds) * 60.
     // Using the window size rather than elapsed-since-first-event keeps
     // the rate stable under bursty traffic and prevents a lone event
     // from registering as "infinite rate" before the window has filled.
-    final gcPerMinute = (windowEvents / _gcWindowDuration.inSeconds) * 60;
-    if (gcPerMinute > gcRateThresholdPerMin) {
+    final youngCount = _gcWindow
+        .where((r) => r.gcClass == _GcClass.young)
+        .length;
+    final youngPerMinute = (youngCount / _gcWindowDuration.inSeconds) * 60;
+    if (youngPerMinute > gcRateThresholdPerMin) {
       // Pin overage-start on first cross. Persists across consecutive
       // re-emissions during the same overage so CaptureHelper's
       // dedup collapses them to one trace record. Cleared in the
@@ -537,7 +545,6 @@ class MemoryPressureDetector extends BaseDetector
       final markStartCount = _gcWindow
           .where((r) => r.gcClass == _GcClass.markStart)
           .length;
-      final youngCount = windowEvents - oldGenCount - markStartCount;
       final pauseMs = _windowPauseMs(_gcWindow);
       final pausePercent = pauseMs == null
           ? null
@@ -555,10 +562,12 @@ class MemoryPressureDetector extends BaseDetector
           severity: IssueSeverity.warning,
           category: IssueCategory.memory,
           confidence: IssueConfidence.likely,
-          title: 'High GC Pressure: ${gcPerMinute.toStringAsFixed(0)} GC/min',
+          title:
+              'High GC Pressure: '
+              '${youngPerMinute.toStringAsFixed(0)} young GCs/min',
           detail:
-              'Garbage collection runs '
-              '${gcPerMinute.toStringAsFixed(0)}/min ($youngCount '
+              'Young-generation garbage collection runs '
+              '${youngPerMinute.toStringAsFixed(0)}/min ($youngCount '
               'young-generation collections, $oldGenCount old-generation '
               'collections and $markStartCount concurrent-marking starts in '
               'the last $windowSeconds s). $pauseSentence'
@@ -1022,8 +1031,12 @@ class MemoryPressureDetector extends BaseDetector
     rationale:
         'VM-only detector. A hermetic reproducer pins 4 families at the '
         'detector entry points (`processHeapSample` and `recordGcCycle`). '
-        '`gc_pressure` fires above 30 cycles in a 10s sliding window, a '
-        'rate above 180/min, by default. The threshold is configurable, and '
+        '`gc_pressure` fires above 40 young-generation collections in a '
+        '10s sliding window, a rate above 240/min, by default; old-gen '
+        'sweeps and marking starts do not count. Recorded GC dumps from an '
+        'iPhone 12 and a Galaxy A07 pin the rule: GC Churn fires on both, '
+        'and Live Waveform is silent at 60 Hz. The threshold is '
+        'configurable, and '
         'the issue stamps the young-generation, old-generation and '
         'marking-start split, plus GC pause time when every event in the '
         'window has a measured pause. `heap_growing` '

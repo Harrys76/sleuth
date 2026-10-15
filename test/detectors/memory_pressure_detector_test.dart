@@ -32,7 +32,7 @@ void main() {
         warmupDurationMs: 0, // Disable warmup for existing tests.
         // Mechanism tests in this group drive 10 cycles in the 10 s window
         // (60 GC/min). Pin the threshold to 30/min so 60 stays "above";
-        // the 180/min default has its own tests below.
+        // the 240/min default has its own tests below.
         gcRateThresholdPerMin: 30,
       );
     });
@@ -107,7 +107,7 @@ void main() {
       expect(detector.issues.first.detail, contains('/min'));
     });
 
-    // -- GC threshold parameterisation (default 180/min + opt-in lower) --
+    // -- GC threshold parameterisation (default 240/min + opt-in lower) --
 
     /// Feeds [count] GC cycles spread evenly across 9 s, all inside the
     /// 10 s window at the last call.
@@ -123,11 +123,11 @@ void main() {
       }
     }
 
-    test('default threshold is 180/min', () {
-      expect(MemoryPressureDetector().gcRateThresholdPerMin, 180);
+    test('default threshold is 240/min', () {
+      expect(MemoryPressureDetector().gcRateThresholdPerMin, 240);
     });
 
-    test('default 180/min threshold suppresses the idle GC band', () {
+    test('default 240/min threshold suppresses the idle GC band', () {
       // 28 cycles in 10 s = 168/min, inside the band an idle app with
       // VM-service polling produces.
       final defaultDetector = MemoryPressureDetector(
@@ -141,32 +141,50 @@ void main() {
       );
     });
 
-    test('default 180/min threshold is strict-greater (30 cycles silent)', () {
+    test('default 240/min threshold is strict-greater (40 young '
+        'collections silent)', () {
       final defaultDetector = MemoryPressureDetector(
         clock: () => fakeNow,
         warmupDurationMs: 0,
       );
-      feedCycles(defaultDetector, 30);
+      feedCycles(defaultDetector, 40);
       expect(
         defaultDetector.issues.where((i) => i.stableId == 'gc_pressure'),
         isEmpty,
-        reason: 'gcPerMinute == 180 must not fire when the threshold is 180.',
+        reason: '240 young GCs/min must not fire when the threshold is 240.',
       );
     });
 
-    test('default 180/min threshold fires above the idle band', () {
-      // 32 cycles in 10 s = 192/min.
+    test('default 240/min threshold fires at 41 young collections', () {
+      // 41 cycles in 10 s = 246/min.
       final defaultDetector = MemoryPressureDetector(
         clock: () => fakeNow,
         warmupDurationMs: 0,
       );
-      feedCycles(defaultDetector, 32);
+      feedCycles(defaultDetector, 41);
       final issue = defaultDetector.issues.singleWhere(
         (i) => i.stableId == 'gc_pressure',
       );
       expect(issue.severity, IssueSeverity.warning);
       expect(issue.confidence, IssueConfidence.likely);
-      expect(issue.extraTraceArgs!['observedGcEvents'], '32');
+      expect(issue.title, 'High GC Pressure: 246 young GCs/min');
+      expect(issue.extraTraceArgs!['observedGcEvents'], '41');
+    });
+
+    test('old-generation sweeps and marking starts do not count toward the '
+        'default rate', () {
+      // 20 young, 20 marking starts and 20 sweeps in 10 s: 360 events a
+      // minute, 120 of them young.
+      final defaultDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0,
+      );
+      const types = ['Scavenge', 'StartCMark', 'MarkSweep'];
+      feedCycles(defaultDetector, 60, gcType: (i) => types[i % 3]);
+      expect(
+        defaultDetector.issues.where((i) => i.stableId == 'gc_pressure'),
+        isEmpty,
+      );
     });
 
     test('opt-in 30/min threshold fires below the default', () {
@@ -194,22 +212,22 @@ void main() {
         clock: () => fakeNow,
         warmupDurationMs: 0,
       );
-      // 32 cycles: 20 Scavenge, 5 MarkSweep, 3 MarkCompact, 2 null,
-      // 2 unknown.
+      // 52 cycles: 40 Scavenge, 5 MarkSweep, 3 MarkCompact, 2 null,
+      // 2 unknown; 44 young.
       String? type(int i) {
-        if (i < 20) return 'Scavenge';
-        if (i < 25) return 'MarkSweep';
-        if (i < 28) return 'MarkCompact';
-        if (i < 30) return null;
+        if (i < 40) return 'Scavenge';
+        if (i < 45) return 'MarkSweep';
+        if (i < 48) return 'MarkCompact';
+        if (i < 50) return null;
         return 'SomethingNew';
       }
 
-      feedCycles(defaultDetector, 32, gcType: type);
+      feedCycles(defaultDetector, 52, gcType: type);
       final args = defaultDetector.issues
           .singleWhere((i) => i.stableId == 'gc_pressure')
           .extraTraceArgs!;
-      expect(args['observedGcEvents'], '32');
-      expect(args['scavengeCount'], '24');
+      expect(args['observedGcEvents'], '52');
+      expect(args['scavengeCount'], '44');
       expect(args['oldGenCount'], '8');
       expect(
         int.parse(args['scavengeCount']!) + int.parse(args['oldGenCount']!),
@@ -237,16 +255,16 @@ void main() {
         'MarkCompact',
         'StartCMark',
       ];
-      for (var i = 0; i < 10; i++) {
+      for (var i = 0; i < 20; i++) {
         detector.recordGcCycle(gcType: types[i % types.length]);
       }
       final issue = detector.issues.singleWhere(
         (i) => i.stableId == 'gc_pressure',
       );
       final args = issue.extraTraceArgs!;
-      expect(args['scavengeCount'], '4');
-      expect(args['oldGenCount'], '4');
-      expect(args['markStartCount'], '2');
+      expect(args['scavengeCount'], '8');
+      expect(args['oldGenCount'], '8');
+      expect(args['markStartCount'], '4');
       expect(
         int.parse(args['scavengeCount']!) +
             int.parse(args['oldGenCount']!) +
@@ -256,15 +274,15 @@ void main() {
       expect(
         issue.detail,
         contains(
-          '4 young-generation collections, 4 old-generation collections '
-          'and 2 concurrent-marking starts',
+          '8 young-generation collections, 8 old-generation collections '
+          'and 4 concurrent-marking starts',
         ),
       );
     });
 
     test('a concurrent cycle counts one old-generation collection and one '
         'marking start', () {
-      for (var i = 0; i < 5; i++) {
+      for (var i = 0; i < 6; i++) {
         detector.recordGcCycle(gcType: 'Scavenge');
       }
       detector
@@ -275,7 +293,7 @@ void main() {
           .extraTraceArgs!;
       expect(args['oldGenCount'], '1');
       expect(args['markStartCount'], '1');
-      expect(args['scavengeCount'], '5');
+      expect(args['scavengeCount'], '6');
     });
 
     test('old cycles age out of the split with the window', () {

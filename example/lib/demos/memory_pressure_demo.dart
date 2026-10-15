@@ -24,7 +24,7 @@ import '../demo_scaffold.dart';
 ///   (`nativeBytes = rss - heapUsage`).
 /// * **GC pressure** — continuously churn short-lived allocations via a
 ///   periodic timer to force the scavenger to run repeatedly, triggering
-///   `gc_pressure` (>180 GC/min default; configurable via
+///   `gc_pressure` (>240 young GCs/min default; configurable via
 ///   `SleuthConfig.gcRateThresholdPerMin`).
 ///
 /// `heap_near_capacity` stays silent here: it measures process RSS
@@ -148,8 +148,8 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
       setState(() => _churning = true);
       // Every 25 ms, allocate ~4 MB of garbage that immediately becomes
       // unreachable. New-space overflows several times a second, so the
-      // scavenger runs well above the 180 GC/min floor (an idle app with
-      // the VM service attached already sees 1–2 scavenges per second).
+      // scavenger runs well above the 240/min gate (an idle app with the
+      // VM service attached already sees 1–2 scavenges per second).
       _churnTimer = Timer.periodic(const Duration(milliseconds: 25), (_) {
         final garbage = List.generate(
           4000,
@@ -302,7 +302,8 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
           'heap). The detector needs growth that keeps going, so a few '
           'quick taps read as one jump.\n'
           'Toggle "GC Churn" on for about 5 seconds to trigger '
-          '`gc_pressure` (more than 180 GCs a minute by default, '
+          '`gc_pressure` (more than 240 young-generation GCs a minute by '
+          'default, '
           'configurable). The "Retained (Dart)" counter stays at 0 during '
           'churn because the allocations are short-lived by design.\n'
           '`heap_near_capacity` does not appear, because it compares '

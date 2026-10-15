@@ -64,15 +64,15 @@ void main() {
   });
 
   group('memory thresholds reach MemoryPressureDetector', () {
-    test('defaults: no budget, 0.80, 180 GC/min', () {
-      expect(const SleuthConfig().gcRateThresholdPerMin, 180);
+    test('defaults: no budget, 0.80, 240 young GCs/min', () {
+      expect(const SleuthConfig().gcRateThresholdPerMin, 240);
       final controller = SleuthController(config: const SleuthConfig());
       addTearDown(controller.dispose);
       controller.initializeDetectorsForTest();
       final memory = controller.memoryPressureDetector!;
       expect(memory.memoryBudgetBytes, isNull);
       expect(memory.capacityThresholdPercent, 0.80);
-      expect(memory.gcRateThresholdPerMin, 180);
+      expect(memory.gcRateThresholdPerMin, 240);
     });
 
     test('configured budget and fraction are passed through', () {
