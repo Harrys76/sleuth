@@ -48,6 +48,7 @@ void main() {
   const jankPercent = FrameTimingDetector.jankPercentThreshold;
   const jankFrames = FrameTimingDetector.minJankSampleFrames;
   const severeFrames = FrameTimingDetector.sustainedSevereFrameCount;
+  final jankWindowSeconds = FrameTimingDetector.jankWindow.inSeconds;
   const severeX = FrameStats.severeJankBudgetMultiplier;
 
   final rows = <(String stableId, _Field field, String expected)>[
@@ -120,8 +121,23 @@ void main() {
     (
       'jank_detected',
       _Field.whatItIs,
-      'More than $jankPercent% of the buffered frames (with at least '
-          '$jankFrames frames',
+      'More than $jankPercent% of the frames from the last '
+          '$jankWindowSeconds seconds (with at least $jankFrames frames',
+    ),
+    (
+      'jank_detected',
+      _Field.readingTheData,
+      'share of the last $jankWindowSeconds seconds of frames',
+    ),
+    (
+      'sustained_jank',
+      _Field.whatItIs,
+      'within the last $jankWindowSeconds seconds of frames',
+    ),
+    (
+      'sustained_jank',
+      _Field.readingTheData,
+      'clears about $jankWindowSeconds seconds after the jank stops',
     ),
     (
       'jank_detected',
@@ -254,7 +270,7 @@ void main() {
     (
       'sustained_jank',
       _Field.readingTheData,
-      '${frameTiming.frameBuffer.capacity}-frame buffer',
+      'seconds of frames (at most ${frameTiming.frameBuffer.capacity})',
     ),
     (
       'setstate_scope',

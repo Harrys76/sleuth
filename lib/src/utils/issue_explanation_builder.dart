@@ -209,7 +209,7 @@ class IssueExplanationBuilder {
       category: IssueCategory.build,
       whatItIs:
           'At least 3 severe frames (over 2 times the 16.7ms budget at 60 '
-          'FPS) landed within the 240-frame buffer. The app visibly '
+          'FPS) landed within the last 10 seconds of frames. The app visibly '
           'stuttered. The user saw dropped frames again and again over a '
           'sustained period, not a single hiccup.',
       readingTheData:
@@ -218,7 +218,8 @@ class IssueExplanationBuilder {
           'unreliable.\n\n'
           '• Severe frames are frames over 2 times the budget (33.3ms at 60 '
           'FPS). A healthy app has 0. Sleuth raises the issue at 3 or more '
-          'severe frames within the 240-frame buffer.\n\n'
+          'severe frames within the last 10 seconds of frames (at most 240), '
+          'and the issue clears about 10 seconds after the jank stops.\n\n'
           '• Janky % is the share of recent frames over budget. Under 5% is '
           'normal.\n\n'
           '• UI thread and Raster show the time spent in each pipeline '
@@ -259,8 +260,8 @@ class IssueExplanationBuilder {
       displayName: 'Jank detected',
       category: IssueCategory.build,
       whatItIs:
-          'More than 15% of the buffered frames (with at least 5 frames '
-          'sampled) missed their deadline. At 60 FPS the budget is 16.7ms: '
+          'More than 15% of the frames from the last 10 seconds (with at '
+          'least 5 frames sampled) missed their deadline. At 60 FPS the budget is 16.7ms: '
           'a frame misses it when its start delay plus its build runs past '
           'the budget, or when its raster alone does. Sustained jank counts '
           'severe frames. This issue tracks how often ordinary frames miss '
@@ -273,9 +274,10 @@ class IssueExplanationBuilder {
           'timeline request) is subtracted; a frame late only because of '
           'Sleuth counts as Sleuth overhead, not jank. The budget is 16.7ms '
           'at 60 FPS.\n\n'
-          '• Janky % is the share of buffered frames over budget. Sleuth '
-          'raises a warning above 15%, once at least 5 frames are '
-          'sampled.\n\n'
+          '• Janky % is the share of the last 10 seconds of frames over '
+          'budget. Sleuth raises a warning above 15%, once at least 5 frames '
+          'are sampled, and the issue clears about 10 seconds after the jank '
+          'stops.\n\n'
           '• UI duration is the time spent building and laying out '
           'widgets.\n\n'
           '• Raster duration is the time spent compositing and painting to '

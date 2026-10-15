@@ -216,6 +216,30 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     );
   }
 
+  /// How far back, behind the newest frame's vsync, jank looks. On a quiet
+  /// screen Sleuth's own scans draw about one frame a second, so without a
+  /// time limit janky frames took 4 to 8 minutes to leave the 240-frame
+  /// buffer and the card stayed that long after the jank stopped.
+  static const Duration jankWindow = Duration(seconds: 10);
+
+  /// The frames jank is judged on: those since the last [markRouteEpoch]
+  /// that are still in the buffer and, outside [captureMode], whose vsync
+  /// is within [jankWindow] of the newest frame's. Frames without a vsync
+  /// time count.
+  List<FrameStats> get _jankFrames {
+    final frames = _framesSinceRouteEpoch;
+    if (captureMode || frames.isEmpty) return frames;
+    final newest = frames.last.vsyncStartUs;
+    if (newest == null) return frames;
+    final cutoff = newest - jankWindow.inMicroseconds;
+    final first = frames.indexWhere((f) {
+      final vsync = f.vsyncStartUs;
+      return vsync == null || vsync >= cutoff;
+    });
+    if (first <= 0) return first == 0 ? frames : const [];
+    return frames.sublist(first);
+  }
+
   /// Frames ingested since the last [markRouteEpoch] that are still in
   /// the buffer, oldest first; the whole buffer when no epoch is set.
   List<FrameStats> get _framesSinceRouteEpoch {
@@ -598,7 +622,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     // route init, Dart VM warmup produce non-actionable jank).
     if (!_isPastWarmup()) return;
 
-    final frames = _framesSinceRouteEpoch;
+    final frames = _jankFrames;
     if (frames.length < minJankSampleFrames) return; // Need enough data
 
     // Single pass: count jank categories and find the worst app frame.
@@ -1030,7 +1054,10 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         'A hermetic reproducer pins four stableIds. `sustained_jank` fires '
         'on at least 3 severe frames in a 240-frame window. `jank_detected` '
         'fires above 15% jank frames with a sample of at least 5 frames. '
-        'Both judge only the frames since the last route epoch. '
+        'Both judge only the frames since the last route epoch and, '
+        'outside capture mode, only those within 10 s of the newest '
+        'frame\'s vsync, so a card clears about 10 s after the jank stops '
+        'on a screen that draws only Sleuth\'s own scan frames. '
         '`raster_cache_thrashing` fires after at least 15 consecutive '
         'frames in which the picture cache count changes by more than 20% '
         'from a previous frame that held more than 5 pictures, or jumps '
