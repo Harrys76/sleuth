@@ -1049,11 +1049,11 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
       'sustained_jank': EvidenceTier.runtimeVerified,
     },
     additionalBrackets: [
-      // Critical at 3 or more severe frames (the only severity). The at
-      // band [3, 4.5] holds 3 or 4, the above band (4.5, 7.5] 5 to 7.
-      // `last` reads the count when the span closed: a frame excused
-      // later (`refreshOwnStartDelays`) lowers it instead of leaving a
-      // stale peak.
+      // sustained_jank is critical at 3 or more severe frames, its only
+      // severity. The at band [3, 4.5] holds 3 or 4, the above band
+      // (4.5, 7.5] 5 to 7. `last` reads the count when the span closed,
+      // so a frame excused later (`refreshOwnStartDelays`) lowers it
+      // instead of leaving a stale peak.
       BracketSpec(
         stableId: 'sustained_jank',
         severityLabel: 'critical',
@@ -1119,7 +1119,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         'iOS 17.5, Flutter 3.47.6, 60 Hz, deadline rule) that bracket the '
         'jank-percent threshold. `sustained_jank.critical` is '
         'runtimeVerified on three iPhone 12 captures (iOS 17.5, Flutter '
-        '3.47.6, 60 Hz) whose legs inject 2, 3 and 6 severe frames: the '
+        '3.47.6, 60 Hz) whose legs inject 2, 3 and 6 severe frames. The '
         'capture screen spins 40 ms inside chosen frames, counts severe '
         'frames with its own FrameTiming rule (which keeps Sleuth\'s start '
         'delay in, so it never counts fewer than the detector), and keeps a '

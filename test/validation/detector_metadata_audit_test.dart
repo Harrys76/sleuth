@@ -2233,7 +2233,7 @@ void main() {
     test('FrameTimingDetector pinned: base reproducerOnly; jank_detected '
         'warning (v0.19.7) and sustained_jank critical (v0.38.0) '
         'runtimeVerified via perStableIdTier', () {
-      // Anti-tautology anchor. Base tier stays reproducerOnly: the
+      // Anti-tautology anchor. Base tier stays reproducerOnly, because the
       // hermetic reproducer still backs raster_cache_thrashing and
       // raster_cache_growing. Two perStableIdTier raises, each backed by
       // three on-device captures: jank_detected.warning (canonical

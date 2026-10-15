@@ -374,9 +374,10 @@ void main() {
   });
 
   group('leg lifecycle', () {
-    // Outside capture mode, without a VM link and with no Sleuth
-    // instance; the seams let a leg run. No frame timings arrive in a
-    // widget test, so a finished leg is refused for its severe count.
+    // The test runs outside capture mode, without a VM link and without a
+    // Sleuth instance, and the seams let a leg run anyway. No frame
+    // timings arrive in a widget test, so a finished leg is refused for
+    // its severe count.
     Future<void> pumpScreen(
       WidgetTester tester, {
       bool vmConnected = true,
@@ -490,8 +491,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 16));
       }
       // The ticker is running. Closing the screen must not leave the
-      // leg waiting on its ticker timeout: a pending timer fails the
-      // test when it ends.
+      // leg waiting on its ticker timeout, because a pending timer fails
+      // the test when it ends.
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
       expect(tester.takeException(), isNull);

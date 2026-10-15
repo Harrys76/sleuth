@@ -15,13 +15,13 @@ import 'package:sleuth/src/detectors/frame_timing_detector.dart'
 import 'capture_driver.dart';
 
 /// Capture helper for the `runtimeVerified` bracket on
-/// `FrameTimingDetector.sustained_jank.critical`: three or more severe
-/// frames among the frames the detector judged since the scenario began.
+/// `FrameTimingDetector.sustained_jank.critical`, which fires at three or
+/// more severe frames among the frames judged since the scenario began.
 /// A frame is severe when its raster time, or its start delay (less
 /// Sleuth's own share) plus its build time, is over twice the 16.7 ms
 /// budget.
 ///
-/// Each leg injects an exact number of severe frames: a ticker spins the
+/// Each leg injects an exact number of severe frames. A ticker spins the
 /// UI thread for 40 ms inside its callback on ticks 30, 50, 70 and so on,
 /// 2 times for below, 3 for at and 6 for above, and stops 30 ticks after
 /// the last spin. The callback runs in the frame's build phase, so each
@@ -35,7 +35,7 @@ import 'capture_driver.dart';
 /// the screen judged severe are exactly the spin frames, and, for at and
 /// above, when the last in-span record's `observedSevereCount` equals
 /// the spin count with `bufferSize` under 240. A severe frame before the
-/// first spin stops the leg: an ambient severe frame is refused, never
+/// first spin stops the leg. An ambient severe frame is refused, never
 /// subtracted.
 ///
 /// **Procedure per leg:**
@@ -92,9 +92,9 @@ bool _sleuthVmConnected() => Sleuth.diagnoseCaptureState().vmConnected;
 /// the same 16,667 µs.
 const int sustainedJankCaptureBudgetUs = 16667;
 
-/// Whether [timing] is severe by the screen's rule: raster time, or the
-/// start delay (vsync start to build start) plus build time, over twice
-/// [budgetUs]. The detector subtracts Sleuth's own share of the start
+/// Whether [timing] is severe by the screen's rule, which compares raster
+/// time, or the start delay (vsync start to build start) plus build time,
+/// with twice [budgetUs]. The detector subtracts Sleuth's own share of the start
 /// delay first, so every frame it judges severe is severe here too.
 bool isCaptureSevere(
   FrameTiming timing, {
@@ -241,12 +241,12 @@ LegRefusal? sustainedJankLastRecordRefusal(
   Map<Object?, Object?>? lastArgs;
   for (final event in events) {
     if (event is! Map || event['name'] != bracket.eventName) continue;
-    // Instant events only, as the capture audit reads them.
+    // Only instant events count, as in the capture audit.
     final ph = event['ph'];
     if (ph != 'i' && ph != 'I' && ph != 'n') continue;
     final ts = event['ts'];
     if (ts is! num || ts < begin || ts > end) continue;
-    // The latest record; a tie goes to the later one in file order.
+    // Keep the latest record. A tie goes to the later one in file order.
     if (lastTs != null && ts < lastTs) continue;
     lastTs = ts.toInt();
     final args = event['args'];
@@ -288,8 +288,8 @@ typedef _FrameCost = ({int delayUs, int buildUs, int rasterUs, bool severe});
 class _FrameTimingSustainedJankCaptureScreenState
     extends State<FrameTimingSustainedJankCaptureScreen>
     with SingleTickerProviderStateMixin {
-  // One ticker for the State, started and stopped per leg: the mixin
-  // allows only one `createTicker` call.
+  // One ticker for the State, started and stopped per leg, because the
+  // mixin allows only one `createTicker` call.
   late final Ticker _ticker;
   bool _busy = false;
   double? _refreshRate;
@@ -548,7 +548,7 @@ class _FrameTimingSustainedJankCaptureScreenState
         try {
           await done.future.timeout(_tickerTimeout);
         } on TimeoutException {
-          // Judged below as missing spins.
+          // The frame check below reports the missing spins.
         }
       }
       if (_ticker.isActive) _ticker.stop();
