@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // Search-bar autocomplete + paginated photo gallery. Bad path fires
-// requests with no debounce and pulls 1.1 MiB pages; fixed path debounces
+// requests with no debounce and pulls 1.1 MB pages; fixed path debounces
 // to 300 ms and pulls 200 KB pages. NetworkMonitor flags
 // `request_frequency` (>30 reqs/5 s window), `large_response` (>1 MiB),
 // and `slow_request` warning + critical (>1000 ms / >3000 ms).
@@ -28,11 +28,26 @@ const _maxSessionRequests = 30;
 // hundred ms to RTT scheduling jitter.
 const _slowEndpoint = 'https://httpbin.org/delay/4';
 const _searchEndpoint = 'https://httpbin.org/get';
-const _largeEndpoint = 'https://httpbin.org/bytes/$_largePayloadBytes';
-const _smallEndpoint = 'https://httpbin.org/bytes/$_smallPayloadBytes';
+// httpbin caps `/bytes/N` at 102,400 bytes, so its pages could never cross
+// the 1 MiB `large_response` line. Cloudflare's speed-test endpoint returns
+// exactly N bytes as `application/octet-stream`, which the media skip
+// leaves alone.
+const _payloadEndpoint = 'https://speed.cloudflare.com/__down?bytes=';
+const _largeEndpoint = '$_payloadEndpoint$_largePayloadBytes';
+const _smallEndpoint = '$_payloadEndpoint$_smallPayloadBytes';
+
+// One tile does not fill a phone screen, so the bad gallery's
+// load-on-scroll could never start. After a page loads while the list
+// still cannot scroll, the bad gallery loads the next page itself, at most
+// this many times per fill.
+const _maxAutoFillPages = 3;
 
 class NetworkStressDemo extends StatefulWidget {
-  const NetworkStressDemo({super.key});
+  const NetworkStressDemo({super.key, this.fetchBytes});
+
+  /// Replaces the network fetch in tests. Resolves to the body length.
+  @visibleForTesting
+  final Future<int> Function(String url)? fetchBytes;
 
   @override
   State<NetworkStressDemo> createState() => _NetworkStressDemoState();
@@ -74,7 +89,8 @@ class _NetworkStressDemoState extends State<NetworkStressDemo>
       title: 'Search + Gallery',
       description:
           'Bad: Search fires a request on every keystroke (no debounce). '
-          'Gallery loads 1.1 MiB pages on its own as you scroll. '
+          'Gallery loads 1.1 MB pages on its own, filling the screen and '
+          'then loading more as you scroll. '
           'NetworkMonitor flags `request_frequency` (more than 30 requests '
           'in 5 s) and `large_response` (more than 1 MiB). Toggle the Slow '
           'API switch to fire `slow_request.critical` (over 3000 ms).\n'
@@ -83,7 +99,8 @@ class _NetworkStressDemoState extends State<NetworkStressDemo>
           'Type quickly in Search and scroll Gallery. Issue cards appear '
           'in the Sleuth overlay.\n\n'
           'Requires internet. The demo stops at $_maxSessionRequests '
-          'requests per session to stay under httpbin.org\'s rate limit.',
+          'requests per session to stay under the public endpoints\' rate '
+          'limits.',
       metricsBar: MetricsBar(
         chips: [
           ValueListenableBuilder<int>(
@@ -97,11 +114,17 @@ class _NetworkStressDemoState extends State<NetworkStressDemo>
         ],
       ),
       onToggle: _handleToggle,
-      body: _TabbedBody(tabs: _tabs, bad: true, requestCount: _requestCount),
+      body: _TabbedBody(
+        tabs: _tabs,
+        bad: true,
+        requestCount: _requestCount,
+        fetchBytes: widget.fetchBytes ?? _fetchBytes,
+      ),
       fixedBody: _TabbedBody(
         tabs: _tabs,
         bad: false,
         requestCount: _requestCount,
+        fetchBytes: widget.fetchBytes ?? _fetchBytes,
       ),
     );
   }
@@ -112,11 +135,13 @@ class _TabbedBody extends StatelessWidget {
     required this.tabs,
     required this.bad,
     required this.requestCount,
+    required this.fetchBytes,
   });
 
   final TabController tabs;
   final bool bad;
   final ValueNotifier<int> requestCount;
+  final Future<int> Function(String url) fetchBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -133,8 +158,16 @@ class _TabbedBody extends StatelessWidget {
           child: TabBarView(
             controller: tabs,
             children: [
-              _SearchTab(bad: bad, requestCount: requestCount),
-              _GalleryTab(bad: bad, requestCount: requestCount),
+              _SearchTab(
+                bad: bad,
+                requestCount: requestCount,
+                fetchBytes: fetchBytes,
+              ),
+              _GalleryTab(
+                bad: bad,
+                requestCount: requestCount,
+                fetchBytes: fetchBytes,
+              ),
             ],
           ),
         ),
@@ -146,10 +179,15 @@ class _TabbedBody extends StatelessWidget {
 // ── Search tab ───────────────────────────────────────────────────────
 
 class _SearchTab extends StatefulWidget {
-  const _SearchTab({required this.bad, required this.requestCount});
+  const _SearchTab({
+    required this.bad,
+    required this.requestCount,
+    required this.fetchBytes,
+  });
 
   final bool bad;
   final ValueNotifier<int> requestCount;
+  final Future<int> Function(String url) fetchBytes;
 
   @override
   State<_SearchTab> createState() => _SearchTabState();
@@ -214,7 +252,7 @@ class _SearchTabState extends State<_SearchTab> {
             _searchEndpoint,
           ).replace(queryParameters: {'q': query}).toString();
     try {
-      final bytes = await _fetchBytes(url);
+      final bytes = await widget.fetchBytes(url);
       if (!mounted || seq != _seq) return;
       setState(() {
         _result = '$bytes bytes returned for "$query"';
@@ -324,10 +362,15 @@ class _SearchTabState extends State<_SearchTab> {
 // ── Gallery tab ──────────────────────────────────────────────────────
 
 class _GalleryTab extends StatefulWidget {
-  const _GalleryTab({required this.bad, required this.requestCount});
+  const _GalleryTab({
+    required this.bad,
+    required this.requestCount,
+    required this.fetchBytes,
+  });
 
   final bool bad;
   final ValueNotifier<int> requestCount;
+  final Future<int> Function(String url) fetchBytes;
 
   @override
   State<_GalleryTab> createState() => _GalleryTabState();
@@ -338,6 +381,7 @@ class _GalleryTabState extends State<_GalleryTab> {
   final List<int> _pages = [];
   bool _loading = false;
   String? _error;
+  int _autoFillPages = 0;
 
   @override
   void initState() {
@@ -380,12 +424,15 @@ class _GalleryTabState extends State<_GalleryTab> {
     });
     final url = widget.bad ? _largeEndpoint : _smallEndpoint;
     try {
-      final bytes = await _fetchBytes(url);
+      final bytes = await widget.fetchBytes(url);
       if (!mounted) return;
       setState(() {
         _pages.add(bytes);
         _loading = false;
       });
+      if (widget.bad) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _fillScreen());
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -395,10 +442,21 @@ class _GalleryTabState extends State<_GalleryTab> {
     }
   }
 
+  // Loads the next page while the list is too short to scroll, so the
+  // load-on-scroll listener gets a scrollable list to watch.
+  void _fillScreen() {
+    if (!mounted || !_scroll.hasClients || _loading || _error != null) return;
+    if (_autoFillPages >= _maxAutoFillPages) return;
+    if (_scroll.position.maxScrollExtent > 0) return;
+    _autoFillPages++;
+    _loadNextPage();
+  }
+
   Future<void> _refresh() async {
     setState(() {
       _pages.clear();
       _error = null;
+      _autoFillPages = 0;
     });
     await _loadNextPage();
   }
@@ -432,7 +490,8 @@ class _GalleryTabState extends State<_GalleryTab> {
               padding: const EdgeInsets.all(16),
               child: Text(
                 _pages.isEmpty
-                    ? 'Pull to load first page (auto-load on scroll once seeded).'
+                    ? 'Pull to load the first page. More pages load on '
+                          'their own.'
                     : 'Scrolling near the bottom triggers auto-load.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 12, color: Colors.grey),

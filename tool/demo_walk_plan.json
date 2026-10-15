@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Steps per demo for tool/demo_walk.dart. Start the walk at least 30 s after the app launches; heap_growing ignores the first 30 s. Titles match the home list in example/lib/main.dart. Each demo runs its bad pattern first and reads it as phase 'bad'; demos with a Fixed Pattern side then switch and read 'fixed' after at least 10 s. Frame-based cards (jank_detected, sustained_jank, raster_dominance) judge the last 240 frames, and a static screen renders none, so after a switch to Fixed they can still show the bad pattern's frames. Network demos need internet. The empty bad-pattern gallery has nothing to scroll, so its pull-to-refresh is a real-touch swipe inside the list after collapsing Instructions (Android only, physical pixels for a 720 x 1600 screen); the Fixed side's Load next page button covers iOS. Migrated App has no back arrow; the walk's final pop closes it. Update this file when a demo's controls change.",
+  "notes": "Steps per demo for tool/demo_walk.dart. Start the walk at least 30 s after the app launches; heap_growing ignores the first 30 s. Titles match the home list in example/lib/main.dart. Each demo runs its bad pattern first and reads it as phase 'bad'; demos with a Fixed Pattern side then switch and read 'fixed' after at least 10 s. Frame-based cards (jank_detected, sustained_jank, raster_dominance) judge the last 240 frames, and a static screen renders none, so after a switch to Fixed they can still show the bad pattern's frames. Network demos need internet. The empty bad-pattern gallery has nothing to scroll, so its pull-to-refresh is a real-touch swipe inside the list after collapsing Instructions (Android only, physical pixels for a 720 x 1600 screen); after the first page the bad gallery loads up to 3 more on its own while the list cannot scroll, so the wait after the swipe covers 4 downloads of 1.1 MB. The Fixed side's Load next page button covers iOS. Migrated App has no back arrow; the walk's final pop closes it. Update this file when a demo's controls change.",
   "demos": [
     {
       "title": "High-Level setState",
@@ -161,7 +161,7 @@
         ["call", "ext.sleuthDemo.type", {"text": "flutter perf", "submit": "true"}],
         ["wait", 6], ["read", "slow"],
         ["tap", "Instructions"], ["tap", "Gallery"], ["wait", 1],
-        ["swipe", 360, 900, 360, 1500, 500], ["wait", 5],
+        ["swipe", 360, 900, 360, 1500, 500], ["wait", 10],
         ["scroll", 3000, 1500], ["wait", 2], ["scroll", 3000, 1500], ["wait", 2],
         ["scroll", 3000, 1500], ["wait", 3], ["read", "gallery"],
         ["tap", "Fixed Pattern"], ["tap", "Gallery"], ["wait", 1],
