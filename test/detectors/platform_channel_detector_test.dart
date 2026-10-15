@@ -1169,6 +1169,39 @@ void main() {
         expect(identities, hasLength(2));
       });
 
+      test('many reports inside the retention window keep the first one '
+          'covered', () {
+        final identities = <int?>{};
+        void record() {
+          for (final issue in detector.issues) {
+            identities.add(issue.dedupIdentityMicros);
+          }
+        }
+
+        detector.processTimelineData(calls(spaced(s, 25, 40000)));
+        check();
+        record();
+        // 64 more reports, each one call later, all within 3.6 s of event
+        // time.
+        for (var j = 0; j < 64; j++) {
+          for (var i = 0; i < 3; i++) {
+            check();
+          }
+          detector.processTimelineData(calls([s + 1000000 + j * 40000]));
+          check();
+          record();
+        }
+        expect(identities, hasLength(65));
+        for (var i = 0; i < 3; i++) {
+          check();
+        }
+        // A late call inside the first reported span adds no issue.
+        detector.processTimelineData(calls([s + 1000], tids: [100]));
+        check();
+        record();
+        expect(identities, hasLength(65));
+      });
+
       test('a reset forgets the reported span', () {
         detector.processTimelineData(calls(spaced(s, 25, 10000)));
         check();

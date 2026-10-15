@@ -111,9 +111,6 @@ class PlatformChannelDetector extends BaseDetector
   /// The most threads whose dropped-begin marks are kept.
   static const int _maxThreadMarks = 256;
 
-  /// The most reported spans kept.
-  static const int _maxReportedSpans = 64;
-
   static const int _spanUs = 1000000;
 
   /// Reads the controller's interaction state at emission so a
@@ -156,9 +153,13 @@ class PlatformChannelDetector extends BaseDetector
   // by then.
   _SpanStats? _evictedBusiest;
   _SpanStats? _evictedEmitting;
-  // Start and severity of each span behind a fresh emission, kept while
-  // the span is within retention.
-  final List<({int startUs, IssueSeverity severity})> _reportedSpans = [];
+  // Event-time ranges `[start, end)` covered by the spans of fresh
+  // emissions: all of them, and the critical ones. Overlapping ranges are
+  // merged and ranges that leave retention are dropped. Every span starts
+  // at a held begin and lasts 1 s, so each list holds at most about a
+  // dozen ranges.
+  final List<(int, int)> _reportedRanges = [];
+  final List<(int, int)> _criticalRanges = [];
   int? _newestBeginUs;
   // [reset] sets this to the newest begin seen, and the detector drops
   // later begins at or before it, so a retained-buffer replay from before
@@ -298,7 +299,8 @@ class PlatformChannelDetector extends BaseDetector
         return old;
       });
       _raiseFloor(cutoff);
-      _reportedSpans.removeWhere((r) => r.startUs + _spanUs <= cutoff);
+      _reportedRanges.removeWhere((r) => r.$2 <= cutoff);
+      _criticalRanges.removeWhere((r) => r.$2 <= cutoff);
     }
     if (_droppedUpToByTid.length > _maxThreadMarks) {
       // Raise the floor to the oldest mark kept, which forgets the older
@@ -363,14 +365,8 @@ class PlatformChannelDetector extends BaseDetector
       var inReported = false;
       var inCritical = false;
       if (isNew) {
-        for (final r in _reportedSpans) {
-          if (begin.ts < r.startUs || begin.ts >= r.startUs + _spanUs) continue;
-          inReported = true;
-          if (r.severity == IssueSeverity.critical) {
-            inCritical = true;
-            break;
-          }
-        }
+        inReported = _covers(_reportedRanges, begin.ts);
+        inCritical = inReported && _covers(_criticalRanges, begin.ts);
       }
       newBefore[i + 1] = newBefore[i] + (isNew ? 1 : 0);
       freshForWarning[i + 1] =
@@ -463,6 +459,25 @@ class PlatformChannelDetector extends BaseDetector
       methodCounts: methodCounts,
       heldDurations: heldDurations,
     );
+  }
+
+  static bool _covers(List<(int, int)> ranges, int ts) =>
+      ranges.any((r) => ts >= r.$1 && ts < r.$2);
+
+  /// Adds the 1 s span from [startUs] to [ranges], which stay sorted and
+  /// disjoint: every range the span overlaps or touches merges into it.
+  static void _cover(List<(int, int)> ranges, int startUs) {
+    var start = startUs;
+    var end = startUs + _spanUs;
+    ranges.removeWhere((r) {
+      if (r.$1 > end || r.$2 < start) return false;
+      if (r.$1 < start) start = r.$1;
+      if (r.$2 > end) end = r.$2;
+      return true;
+    });
+    ranges
+      ..add((start, end))
+      ..sort((a, b) => a.$1.compareTo(b.$1));
   }
 
   /// The one of [a] and [b] with more begins; [a] on a tie.
@@ -566,15 +581,8 @@ class PlatformChannelDetector extends BaseDetector
       }
       _cooldownCyclesRemaining = 3;
       _lastEmittedAt = _clock();
-      _reportedSpans.add((
-        startUs: emitting.startUs,
-        severity: wouldBeCritical
-            ? IssueSeverity.critical
-            : IssueSeverity.warning,
-      ));
-      if (_reportedSpans.length > _maxReportedSpans) {
-        _reportedSpans.removeAt(0);
-      }
+      _cover(_reportedRanges, emitting.startUs);
+      if (wouldBeCritical) _cover(_criticalRanges, emitting.startUs);
       final maxUs = _lastWindowStats!.maxCallDurationUs;
       final p95Us = _lastWindowStats!.p95CallDurationUs;
       final overCount = _lastWindowStats!.callsOverThreshold;
@@ -677,7 +685,8 @@ class PlatformChannelDetector extends BaseDetector
     _droppedUpToByTid.clear();
     _evictedBusiest = null;
     _evictedEmitting = null;
-    _reportedSpans.clear();
+    _reportedRanges.clear();
+    _criticalRanges.clear();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
@@ -708,7 +717,8 @@ class PlatformChannelDetector extends BaseDetector
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
-    _reportedSpans.clear();
+    _reportedRanges.clear();
+    _criticalRanges.clear();
     _lastWindowStats = null;
     _issues.clear();
   }
