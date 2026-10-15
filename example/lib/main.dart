@@ -29,6 +29,7 @@ import 'demos/custom_painter_demo.dart';
 import 'demos/font_loading_demo.dart';
 import 'demos/fps_stress_test_demo.dart';
 import 'demos/frame_timing_capture_screen.dart';
+import 'demos/frame_timing_sustained_jank_capture_screen.dart';
 import 'demos/gpu_pressure_demo.dart';
 import 'demos/heavy_compute_capture_screen.dart';
 import 'demos/heavy_compute_demo.dart';
@@ -590,6 +591,13 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
         subtitle: 'jank_detected warning bracket (60Hz)',
         color: Colors.indigo,
         builder: (_) => const FrameTimingCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.timeline,
+        title: 'FrameTiming (sustained_jank)',
+        subtitle: 'sustained_jank critical bracket (60Hz)',
+        color: Colors.indigo,
+        builder: (_) => const FrameTimingSustainedJankCaptureScreen(),
       ),
       _DemoRoute(
         icon: Icons.data_array,

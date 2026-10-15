@@ -2230,17 +2230,15 @@ void main() {
       );
       expect(meta.effectiveTierFor('unknown:x'), EvidenceTier.reproducerOnly);
     });
-    test('FrameTimingDetector pinned: base reproducerOnly + jank_detected '
-        'runtimeVerified via perStableIdTier (v0.19.7); sustained_jank '
-        'stays reproducerOnly (v0.19.17 raise withdrawn)', () {
-      // Anti-tautology anchor. Base tier stays reproducerOnly — the
-      // hermetic reproducer still backs raster_cache_thrashing /
-      // raster_cache_growing and the non-bracketed evaluation paths
-      // of jank_detected. One perStableIdTier raise: jank_detected.warning
-      // (jankPercent gate) backed by three on-device captures.
-      // sustained_jank stays at base reproducerOnly: the bracket axis
-      // (sliding-window severeCount) is non-composable with operator-
-      // claimed K under any current schema reduction.
+    test('FrameTimingDetector pinned: base reproducerOnly; jank_detected '
+        'warning (v0.19.7) and sustained_jank critical (v0.38.0) '
+        'runtimeVerified via perStableIdTier', () {
+      // Anti-tautology anchor. Base tier stays reproducerOnly: the
+      // hermetic reproducer still backs raster_cache_thrashing and
+      // raster_cache_growing. Two perStableIdTier raises, each backed by
+      // three on-device captures: jank_detected.warning (canonical
+      // bracket, jankPercent) and sustained_jank.critical
+      // (additionalBrackets[0], severe frames since the scenario began).
       final BaseDetector? ft = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.frameTiming)
           .cast<BaseDetector?>()
@@ -2275,16 +2273,16 @@ void main() {
             'evidence is the captured detector behaviour itself.',
       );
 
-      // perStableIdTier raise — single family (jank_detected only).
+      // perStableIdTier raises: jank_detected and sustained_jank.
       expect(
         meta.perStableIdTier,
-        equals(const {'jank_detected': EvidenceTier.runtimeVerified}),
+        equals(const {
+          'jank_detected': EvidenceTier.runtimeVerified,
+          'sustained_jank': EvidenceTier.runtimeVerified,
+        }),
         reason:
-            'v0.19.7 raises jank_detected.warning. sustained_jank '
-            'stays at base reproducerOnly: a v0.19.17 raise via '
-            'additionalBrackets[0] was withdrawn before ship after the '
-            'severeCount axis was found non-composable with operator-'
-            'claimed K under any current schema reduction.',
+            'jank_detected.warning (v0.19.7) and sustained_jank.critical '
+            '(v0.38.0) each have a capture triad.',
       );
       expect(
         meta.effectiveTierFor('jank_detected'),
@@ -2292,9 +2290,16 @@ void main() {
         reason: 'effectiveTierFor must reflect the perStableIdTier override.',
       );
       expect(
-        meta.effectiveTierFor('sustained_jank'),
+        meta.effectiveTierFor('sustained_jank', severity: 'critical'),
+        EvidenceTier.runtimeVerified,
+        reason: 'The critical bracket covers sustained_jank.critical.',
+      );
+      expect(
+        meta.effectiveTierFor('sustained_jank', severity: 'warning'),
         EvidenceTier.reproducerOnly,
-        reason: 'sustained_jank stays at the detector\'s base tier.',
+        reason:
+            'sustained_jank only emits critical; no bracket covers a '
+            'warning, so it reads the base tier.',
       );
 
       // Three on-device captures.
@@ -2354,11 +2359,10 @@ void main() {
       );
       expect(
         meta.coveredThresholds,
-        equals(const {'jank_detected.warning'}),
+        equals(const {'jank_detected.warning', 'sustained_jank.critical'}),
         reason:
-            'Single severity-scoped entry — canonical jank_detected '
-            'warning. The v0.19.17 sustained_jank.critical raise was '
-            'withdrawn; the entry was removed from coveredThresholds.',
+            'The canonical jank_detected warning plus the '
+            'sustained_jank critical entry backed by additionalBrackets[0].',
       );
       expect(
         meta.observedAxisArgKey,
@@ -2421,18 +2425,50 @@ void main() {
             'in-app capture screen depends on it short-circuiting warmup.',
       );
 
-      // No additionalBrackets — the v0.19.17 sustained_jank.critical
-      // bracket was removed before ship.
+      // sustained_jank.critical bracket. The capture screen injects an
+      // exact count of severe frames inside a span shorter than the
+      // 240-frame buffer, and refuses a leg with any other severe frame,
+      // so the count since the scenario began equals the injected count.
+      final brackets = meta.additionalBrackets;
+      expect(brackets, hasLength(1));
+      final sustained = brackets!.single;
+      expect(sustained.stableId, 'sustained_jank');
+      expect(sustained.severityLabel, 'critical');
       expect(
-        meta.additionalBrackets,
-        isNull,
-        reason:
-            'v0.19.17 attempted a sustained_jank.critical raise via '
-            'additionalBrackets[0]; the bracket was removed before ship '
-            'because sliding-window severeCount cannot be cross-checked '
-            'against operator-claimed K under any current schema '
-            'reduction. Captures retained as reproducer-tier provisional '
-            'evidence; bracket spec withdrawn.',
+        sustained.threshold,
+        3,
+        reason: 'sustained_jank fires at 3 severe frames.',
+      );
+      expect(sustained.unit, 'frames');
+      expect(sustained.coveredThresholds, {'sustained_jank.critical'});
+      expect(sustained.profileCapturePaths, const [
+        'test/validation/captures/frame_timing/sustained_jank_below.json',
+        'test/validation/captures/frame_timing/sustained_jank_at.json',
+        'test/validation/captures/frame_timing/sustained_jank_above.json',
+      ]);
+      expect(
+        sustained.atTolerance,
+        0.5,
+        reason: 'At band [3, 4.5]: 3 or 4 severe frames.',
+      );
+      expect(
+        sustained.aboveCeilingMultiplier,
+        2.5,
+        reason: 'Above band (4.5, 7.5]: 5 to 7 severe frames.',
+      );
+      expect(sustained.observedAxisArgKey, 'observedSevereCount');
+      expect(sustained.observedAxisTolerance, 0.25);
+      expect(
+        sustained.observedAxisReduction,
+        'last',
+        reason: 'The count grows during a leg; the last record has it all.',
+      );
+      expect(sustained.requireUniqueDetectedAtMicros, isTrue);
+      expect(sustained.requireDetectorTraceRecord, isTrue);
+      expect(
+        sustained.minInBandSamples,
+        2,
+        reason: 'Each timing batch after the last spin records again.',
       );
     });
 
