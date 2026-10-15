@@ -25,7 +25,7 @@ import 'capture_driver.dart';
 /// independently.
 ///
 /// Capture mode makes `FrameTimingDetector` skip its 3 s warmup and keeps
-/// its budget at 16,667 µs, and the screen accepts only a 59 to 61 Hz
+/// its budget at 16,667 µs. The screen accepts only a 59 to 61 Hz
 /// display. The detector reads frames through FrameTiming, so the screen
 /// calls `flushTimelineNow` before `markScenarioEnd` to record the last
 /// issue inside the span.
@@ -100,9 +100,9 @@ const _aboveTargetJankPercent = 27;
 // severe line. Legs differ in how often they spin, not how long.
 const _spinPerFrameMs = 18;
 
-// Scenario span. A spin frame takes about two vsync intervals, so a 4 s
-// span delivered only about 167 frames. 6 s fills the 240-frame buffer
-// past the 180-frame freshness check at every leg's rate.
+// A spin frame takes about two vsync intervals, so a 4 s span delivered
+// only about 167 frames. A 6 s span fills the 240-frame buffer past the
+// 180-frame freshness check at every leg's rate.
 const _scenarioDurationSec = 6;
 
 // Wait after the ticker stops, so the last frames' timings reach Sleuth
@@ -219,7 +219,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     final sw = Stopwatch()..start();
     const targetUs = _spinPerFrameMs * 1000;
     while (sw.elapsedMicroseconds < targetUs) {
-      // Busy-wait: no await, so the frame's build holds the UI thread.
+      // Busy-wait with no await, so the frame's build holds the UI thread.
     }
   }
 
@@ -335,8 +335,8 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       // Narrow the VM timeline streams to `Dart` for the scenario span.
       // 6 s of rendering under the default streams (Dart, Embedder, GC)
       // can overflow the VM's event ring buffer and roll the begin marker
-      // off before the export reads it. Marked first: a suspension that
-      // times out may still land later.
+      // off before the export reads it. The flag is set before the call,
+      // because a suspension that times out may still land later.
       _streamsSuspended = true;
       await withCallTimeout(
         widget.calls.suspendStreams(),
@@ -399,13 +399,12 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           Sleuth.exportCaptureJson(
             scenario: scenario,
             role: leg.label,
-            // Schema requires magnitudeMin > 0; below leg's bracket-min
-            // is 0 so clamp to a 1-percent epsilon (still strictly under
-            // the 16% threshold).
+            // The schema needs a magnitudeMin above 0 and the below band
+            // starts at 0, so the below leg exports 1 %, still under the
+            // 16 % threshold.
             magnitudeMin: leg.jankPercentMin == 0 ? 1.0 : leg.jankPercentMin,
-            // Operator's claim — calibrated target jankPercent. Audit-gate
-            // observedAxisArgKey cross-check compares this against the
-            // detector-emitted observedJankPercent within ±25 %.
+            // The leg's target jank percent. The audit compares it with the
+            // detector's observedJankPercent and allows a 25 % difference.
             magnitudeObserved: leg.targetJankPercent.toDouble(),
             magnitudeMax: leg.jankPercentMax.toDouble(),
             unit: 'percent',
@@ -413,9 +412,9 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
             deviceOsVersion: provenance.deviceOsVersion,
             flutterVersion: provenance.flutterVersion,
             captureCommand: provenance.captureCommand,
-            // jank_detected source event is the FrameTiming pipeline,
-            // NOT a VM Timeline BUILD/PAINT event. Skip BUILD-derivation;
-            // operator's measured jank count is authoritative.
+            // The jank percent comes from FrameTiming, not from a VM
+            // timeline event, so the export derives nothing from BUILD
+            // events.
             magnitudeSourceEventName: '',
           ),
           'exportCaptureJson',
@@ -431,9 +430,8 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       }
 
       if (!mounted) return;
-      // Validator runs on the stashed JSON before the user can export —
-      // out-of-band runs are rejected before clipboard-copy, preventing
-      // bad evidence from reaching the operator's repo.
+      // The validator checks the stashed JSON before the operator can
+      // export it, so an out-of-band leg never reaches the clipboard.
       final validationFailure = stashed == null
           ? null
           : _validateTraceRecords(stashed, leg);
@@ -487,11 +485,11 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
   }
 
   /// Checks the in-span `sleuth.issue.jank_detected.warning` records of
-  /// the exported capture: none for below; for at and above at least one,
-  /// whose last record saw 180 frames or more and carries an
-  /// `observedJankPercent` inside the leg's band. A
-  /// `sustained_jank.critical` record does not fail the check. Returns
-  /// null on success or the reason the leg is refused.
+  /// the exported capture. A below leg must hold none. An at or above leg
+  /// must hold at least one, and its last record must have seen 180
+  /// frames or more and carry an `observedJankPercent` inside the leg's
+  /// band. A `sustained_jank.critical` record does not fail the check.
+  /// Returns null on success or the reason the leg is refused.
   String? _validateTraceRecords(String json, _JankLeg leg) {
     Map<String, dynamic> wrapped;
     try {
@@ -536,14 +534,13 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           'end=$scenarioEndTs). Re-tap the leg.';
     }
 
-    // Walk in-span jank_detected.warning records and select the LAST
-    // (highest-ts) one. Rolling-aggregate observable on a growing buffer
-    // is non-monotone — early small-sample-size ratios can spike high,
-    // settle lower as buffer fills, then drift down on eviction. MAX
-    // would pick the early transient; LAST picks the post-settle steady
-    // state. Mirrors the `observedAxisReduction: 'last'` schema-side
-    // selection. Also tracks bufferSize on the selected
-    // record for the freshness invariant.
+    // Walk the in-span jank_detected.warning records and keep the latest.
+    // The percentage over a growing buffer is not monotone. Early ratios
+    // over few frames can spike, settle as the buffer fills, then drift
+    // on eviction, so the largest value would pick the early spike and
+    // the latest picks the settled value, as the schema's
+    // `observedAxisReduction: 'last'` does. The latest record's
+    // bufferSize feeds the freshness check.
     var jankWarningCount = 0;
     int lastJankTs = -1;
     int? lastObservedJankPercent;
@@ -565,9 +562,9 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         if (args is Map) {
           final pctRaw = args['observedJankPercent'];
           if (pctRaw is String) {
-            // jankPercent emitted as `.toStringAsFixed(2)` from int —
-            // round-trip through double-parse + truncate to int for
-            // band-comparison.
+            // The detector stamps the int percentage with
+            // `toStringAsFixed(2)`; parse it and round it back to an int
+            // for the band check.
             final parsed = double.tryParse(pctRaw);
             if (parsed != null) lastObservedJankPercent = parsed.round();
           }
@@ -579,11 +576,10 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       }
     }
 
-    // Sustained_jank.critical co-fire is BENIGN under parallel-emission
-    // semantics — both stableIds report on the same frames; the bracket
-    // axis (jank_detected.warning) is independent. Helper does
-    // NOT reject on co-fire (audit pipeline doesn't enforce mutual
-    // exclusion either).
+    // A sustained_jank.critical record in the span does not refuse the
+    // leg. Both stable ids report on the same frames, the bracket reads
+    // only jank_detected.warning, and the audit does not require the two
+    // to be exclusive.
 
     if (leg == _JankLeg.below) {
       if (jankWarningCount > 0) {
@@ -601,10 +597,9 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
             'buffer did not reach steady state, so extend the scenario '
             'beyond $_scenarioDurationSec s.';
       }
-      // Freshness invariant: the LAST in-span emission must
-      // reflect a near-full buffer. Rolling-aggregate axis is unreliable
-      // on partial buffers — reject if the captured terminal-sample
-      // doesn't prove steady-state coverage.
+      // Freshness check. The latest in-span emission must reflect a
+      // near-full buffer, because the percentage over a partial buffer is
+      // not reliable.
       if (lastObservedBufferSize == null) {
         return 'jank_detected event present but missing `bufferSize` arg. '
             'extraTraceArgs plumbing failed; check FrameTimingDetector '

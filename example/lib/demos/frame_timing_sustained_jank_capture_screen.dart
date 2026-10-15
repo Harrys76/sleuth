@@ -527,7 +527,8 @@ class _FrameTimingSustainedJankCaptureScreenState
     try {
       // The span is short, but a full stream set can still roll the
       // scenario markers out of the VM ring buffer; restored in finally.
-      // Marked first: a suspension that times out may still land later.
+      // The flag is set before the call, because a suspension that times
+      // out may still land later.
       _streamsSuspended = true;
       await withCallTimeout(
         widget.calls.suspendStreams(),
