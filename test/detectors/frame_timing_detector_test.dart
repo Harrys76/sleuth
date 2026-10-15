@@ -105,6 +105,34 @@ void main() {
         expect(hasJank(detector), isFalse);
       });
 
+      group('on a quiet screen', () {
+        /// One frame a second for 10 s, the first [late] of them 25 ms late
+        /// (a missed deadline, not severe).
+        List<FrameStats> ticks(int late) => [
+          for (var t = 0; t < 10; t++)
+            timed(t * 1000000, uiMs: t < late ? 25 : 2),
+        ];
+
+        bool jankDetected(FrameTimingDetector d) =>
+            d.issues.any((i) => i.stableId == 'jank_detected');
+
+        test('two late frames among ten are not jank_detected', () {
+          // 20 % is over the percentage, but two hitches in 10 s is not
+          // frequent jank.
+          ticks(2).forEach(detector.addFrameForTest);
+          expect(jankDetected(detector), isFalse);
+        });
+
+        test('three late frames among ten are', () {
+          ticks(3).forEach(detector.addFrameForTest);
+          expect(jankDetected(detector), isTrue);
+          final issue = detector.issues.firstWhere(
+            (i) => i.stableId == 'jank_detected',
+          );
+          expect(issue.extraTraceArgs!['observedJankCount'], '3');
+        });
+      });
+
       test('capture mode judges the whole buffer, as before', () {
         final capture = FrameTimingDetector(
           warmupFrameCount: 0,

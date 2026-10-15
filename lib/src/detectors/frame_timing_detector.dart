@@ -38,7 +38,7 @@ import '../vm/timeline_parser.dart';
 /// A startup-phase frame whose `addTimingsCallback` delivery is delayed
 /// past the window boundary tags as `'steady'` even when the underlying
 /// frame timestamp was inside startup. Buffer-aggregated emissions
-/// (`sustained_jank` over a 240-frame window, raster-cache trends over
+/// (`sustained_jank` over the judged frames, raster-cache trends over
 /// 30+ frames) tag from emission-time `Timeline.now`; a buffer that
 /// straddles the boundary tags as `'steady'` once `Timeline.now` exceeds
 /// the window even if most contributing frames landed inside startup.
@@ -275,12 +275,18 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   // device refresh (e.g. 60 at fpsTarget=30 on a 120 Hz panel).
   static const int _bufferCapacity = 240;
 
-  /// `jank_detected` fires when more than this percentage of the frames
-  /// since the route epoch missed their deadline.
+  /// `jank_detected` fires when more than this percentage of the judged
+  /// frames missed their deadline.
   static const int jankPercentThreshold = 15;
 
-  /// Frames since the route epoch needed before jank is evaluated.
+  /// Judged frames needed before jank is evaluated.
   static const int minJankSampleFrames = 5;
+
+  /// Late frames `jank_detected` needs besides the percentage. A quiet
+  /// screen draws only Sleuth's own scan frames, about one a second, so
+  /// one late frame among the ten in [jankWindow] already reads 10 % and
+  /// two read 20 %. On an animated screen the percentage needs many more.
+  static const int minJankFrameCount = 3;
 
   /// `sustained_jank` fires at this many severe frames (see
   /// [FrameStats.severeJankBudgetMultiplier]).
@@ -592,12 +598,15 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   /// Only report jank as an issue when it's a sustained pattern:
-  /// - Critical: ≥3 severe jank frames (>2x budget) in the buffer
-  /// - Warning: >15% of recent frames are janky (> budget)
+  /// - Critical: ≥3 severe jank frames (>2x budget) among the judged frames
+  /// - Warning: >15% of the judged frames are janky (> budget), with at
+  ///   least [minJankFrameCount] of them
   ///
-  /// Both read the frames since the last [markRouteEpoch] (the whole
-  /// buffer when no epoch is set); the 5-frame minimum, percentages and
-  /// `bufferSize` apply to that slice.
+  /// Both judge the frames since the last [markRouteEpoch] (the whole
+  /// buffer when no epoch is set) and, outside [captureMode], only those
+  /// within [jankWindow] of the newest frame's vsync; when the newest frame
+  /// has no vsync time the window does not apply. The 5-frame minimum,
+  /// percentages and `bufferSize` apply to that slice.
   ///
   /// **Parallel emission semantics (v0.19.6+).** When both gates are
   /// satisfied (severeCount ≥ 3 AND jankPercent > 15), BOTH stableIds
@@ -684,7 +693,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         ),
       );
     }
-    if (jankPercent > jankPercentThreshold) {
+    if (jankPercent > jankPercentThreshold && jankCount >= minJankFrameCount) {
       final (hint2, effort2) = FixHintBuilder.jankDetected();
       final worstMs = _deadlineUs(worst) / 1000.0;
       // Wall-clock micros plus an instance-monotonic counter so back-to-back
