@@ -564,13 +564,13 @@ class TimelineParser {
   /// [ParsedTimelineData.duplicatesDropped]); the poll loop sets it when
   /// it had to read the whole buffer instead of a window.
   ///
-  /// [frameThreadIdle] carries the frame threads across calls: its keys
+  /// [frameThreadIdle] carries the frame threads across calls. Its keys
   /// are the threads seen running frames, its values the start of the
   /// idle stretch open on the thread at the end of the previous call
-  /// (null while the thread was inside a scope). A gap that spans two
-  /// batches, or two stream blocks, is then found, and a batch without
-  /// `Animator::BeginFrame` still measures the frame thread. Null = fresh
-  /// per call.
+  /// (null while the thread was inside a scope). The parser then finds a
+  /// gap that spans two batches, or two stream blocks, and still measures
+  /// the frame thread in a batch without `Animator::BeginFrame`. Null
+  /// starts fresh on every call.
   static ParsedTimelineData parse(
     List<TimelineEvent> events, {
     Map<int, List<Map<String, dynamic>>>? pendingBuildBegins,

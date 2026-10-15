@@ -1,12 +1,12 @@
-// VmServiceClient's stream mode against recorded Timeline streams: the
-// blocks a Galaxy A07 and an iPhone 12 posted, in arrival order, with the
-// frames Sleuth held for the same span (`tool/timeline_cost_probe.dart
-// stream-dump`; each fixture's provenance names the screen). The replay
-// runs the client's 500 ms ticks on the recording's clock and delivers
-// each block at its arrival. A read makes the VM post every thread's
-// unfinished block before it answers, as both phones did: the replay
-// posts each thread's events written by then that no delivered block
-// held, and the recorded block still arrives later, as a repeat.
+// VmServiceClient's stream mode against recorded Timeline streams. Each
+// fixture holds the blocks a Galaxy A07 or an iPhone 12 posted, in arrival
+// order, with the frames Sleuth held for the same span
+// (`tool/timeline_cost_probe.dart stream-dump`; the provenance names the
+// screen). The replay runs the client's 500 ms ticks on the recording's
+// clock and delivers each block at its arrival. On both phones a read
+// makes the VM post every thread's unfinished block before it answers, so
+// the replay posts each thread's events written by then that no delivered
+// block held. The recorded block still arrives later, as a repeat.
 import 'dart:convert';
 import 'dart:io';
 
@@ -35,7 +35,7 @@ class _Recording {
         ),
     ];
     _allFrames = (json['frames'] as List).cast<Map<String, dynamic>>();
-    // The block's arrival on the device clock: the host arrival plus the
+    // A block's arrival on the device clock is the host arrival plus the
     // smallest offset that puts no event after its block's arrival.
     var offset = -1 << 62;
     for (final b in blocks) {
@@ -48,7 +48,7 @@ class _Recording {
       }
     }
     _offsetUs = offset;
-    // The frames list was read after the stream stopped; frames that
+    // The tool read the frames list after the stream stopped. Frames that
     // finished after the last block posted have their events in blocks
     // that never filled, which the recording does not hold.
     frames = [
@@ -197,8 +197,8 @@ void main() {
         final result = await _replay(rec);
         expect(result.client.catchUpReads, 0);
 
-        // What an immediate read would hand each tick: the events stamped
-        // since the previous tick.
+        // Each tick gets the events stamped since the previous tick, as an
+        // immediate read would hand them.
         final byTs = <(int, ParsedTimelineData)>[];
         final cursors = <int, TimelineCursor>{};
         final all = [for (final e in rec.allEvents) TimelineEvent.parse(e)!];

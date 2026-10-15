@@ -86,23 +86,24 @@ class VmServiceClient {
   /// instead of a `getVMTimeline` request every tick.
   ///
   /// A `getVMTimeline` request makes the VM write every event in its
-  /// window while the app's threads wait to record theirs: on a Galaxy
+  /// window while the app's threads wait to record theirs. On a Galaxy
   /// A07 a 1 s window (about 6,900 events) held the raster thread up to
   /// 41 ms and a whole-buffer read 110 ms, every poll. The stream posts
   /// each thread's events in blocks of 64 as the block fills, which cost
-  /// the measured frames nothing. The 500 ms tick stays: it drains the
+  /// the measured frames nothing. The 500 ms tick stays. It drains the
   /// blocks that arrived, parses them as one batch and dispatches it, so
   /// detectors keep their cadence. A thread that writes few events holds
   /// them in an unfinished block. Any `getVMTimeline` request makes the VM
   /// post every thread's unfinished block before it answers, so a request
-  /// for an empty window (a catch-up read) delivers them for almost
-  /// nothing: when a frame ([newestFrameRasterFinishUs]) outran the newest
-  /// event seen on a frame or raster thread, and at least every
+  /// for an empty window (a catch-up read) delivers them at little cost.
+  /// The tick sends one when a frame ([newestFrameRasterFinishUs]) outran
+  /// the newest event seen on a frame or raster thread, and at least every
   /// [catchUpMaxInterval].
   ///
-  /// False polls, as capture mode does so its recorded brackets keep the
-  /// path they were recorded with. A session also polls when the stream
-  /// cannot be subscribed, or delivers no block while frames are drawn.
+  /// False polls. Capture mode passes false so its brackets keep the read
+  /// path their captures used. A session also polls when the VM refuses
+  /// the stream, or when the stream delivers no block while the app draws
+  /// frames.
   final bool streamTimeline;
 
   /// The raster finish of the newest presented frame, in timeline
@@ -207,12 +208,12 @@ class VmServiceClient {
   bool _disposed = false;
   bool _connected = false;
 
-  /// One-shot guard: startup events are extracted from the first read of
-  /// the client's first session only.
+  /// Whether the client extracted the startup events. Only the first read
+  /// of the client's first session extracts them.
   bool _startupEventsExtracted = false;
 
   /// Whether a read of the whole buffer has run. Later sessions (after a
-  /// reconnect) start from a window ending at the VM clock instead: a
+  /// reconnect) start from a window ending at the VM clock instead. A
   /// whole-buffer read on a Galaxy A07 wrote 31,474 events and held the
   /// raster thread for 110 ms.
   bool _wholeBufferRead = false;
@@ -235,8 +236,9 @@ class VmServiceClient {
   int _streamBufferedEvents = 0;
 
   /// Most events held between two ticks. A tick normally drains about
-  /// 3,500; each decoded event holds its JSON map. Beyond this the
-  /// oldest whole block is dropped and counted in [streamEventsDropped].
+  /// 3,500, and each decoded event holds its JSON map. Beyond this the
+  /// client drops the oldest whole block and counts its events in
+  /// [streamEventsDropped].
   static const int streamBufferCap = 16384;
 
   int _streamBlocks = 0;
@@ -271,7 +273,7 @@ class VmServiceClient {
   final Set<int> _rasterTids = {};
 
   /// A frame finishing this long after a frame or raster thread's newest
-  /// event seen means that thread holds unsent events: a catch-up read
+  /// event seen means that thread holds unsent events, so a catch-up read
   /// follows.
   static const int catchUpStaleMicros = 250000;
 
@@ -293,15 +295,15 @@ class VmServiceClient {
   /// any age, so they do not count for [lastStreamLagMs].
   bool _readInFlight = false;
 
-  /// Events older than this are dropped in stream ticks: the start of the
-  /// session's first read (0 for a whole-buffer read). A thread with no
-  /// event in that read posts its unfinished block later, and the events
-  /// in it from before the session were never read under polling either.
+  /// The start of the session's first read (0 for a whole-buffer read).
+  /// Stream ticks drop older events. A thread with no event in that read
+  /// posts its unfinished block later, and polling never read the events
+  /// in it from before the session either.
   int _streamFloorUs = 0;
 
-  /// How long a subscribed stream may deliver no block at all while
-  /// frames are drawn before the session falls back to polling. A stream
-  /// that has delivered blocks never falls back: on a static screen they
+  /// How long a subscribed stream may deliver no block at all while the
+  /// app draws frames before the session falls back to polling. A stream
+  /// that has delivered blocks never falls back. On a static screen blocks
   /// arrive seconds apart.
   final Duration streamSilentFallback;
   bool _reconnecting = false;
@@ -611,8 +613,9 @@ class VmServiceClient {
       _timelineSource = TimelineSource.stream;
       _streamSubscribedAtUs = _streamNowUs();
     } catch (_) {
-      // An older VM or an embedder without the stream: poll. A later
-      // session owns the subscription field by now; leave it alone.
+      // The VM is older or the embedder has no stream, so the session
+      // polls. A later session owns the subscription field by now and
+      // keeps its subscription.
       if (gen != _sessionGeneration) return;
       await _timelineSub?.cancel();
       _timelineSub = null;
@@ -679,9 +682,9 @@ class VmServiceClient {
   }
 
   /// Switches the session to polling when the stream delivered no block
-  /// while frames were drawn for [streamSilentFallback]. A quiet
-  /// stream that has delivered blocks stays: on a static screen blocks
-  /// arrive seconds apart.
+  /// while the app drew frames for [streamSilentFallback]. A quiet stream
+  /// that has delivered blocks stays. On a static screen blocks arrive
+  /// seconds apart.
   Future<void> _fallBackIfStreamSilent() async {
     final subscribedAt = _streamSubscribedAtUs;
     if (_timelineSource != TimelineSource.stream ||
@@ -702,15 +705,15 @@ class VmServiceClient {
     try {
       await _service?.streamCancel(EventStreams.kTimeline);
     } catch (_) {
-      // Already gone with the session.
+      // The subscription ended with the session.
     }
   }
 
-  /// Whether a catch-up read is due: the newest frame finished more than
-  /// [catchUpStaleMicros] after the newest event seen on a frame or raster
-  /// thread and the last read is [catchUpMinInterval] old, or the last
-  /// read (or the subscription) is [catchUpMaxInterval] old. [force] (a
-  /// flush) is always due.
+  /// Whether a catch-up read is due. It is due when the newest frame
+  /// finished more than [catchUpStaleMicros] after the newest event seen
+  /// on a frame or raster thread and the last read is [catchUpMinInterval]
+  /// old, or when the last read (or the subscription) is
+  /// [catchUpMaxInterval] old. A flush ([force]) is always due.
   bool _catchUpDue({required int nowUs, required bool force}) {
     if (force) return true;
     final last = _lastCatchUpAtUs ?? _streamSubscribedAtUs;
@@ -735,10 +738,10 @@ class VmServiceClient {
   Set<int> get _catchUpTids => {..._frameThreadIdle.keys, ..._rasterTids};
 
   Future<void> _subscribeToStreams(VmService service) async {
-    // Before the first read, which runs at the first tick: a block that
-    // finished between that read and a later subscription would never be
-    // posted, and its events after the read would reach neither path. The
-    // per-thread cursors drop what both deliver.
+    // Subscribe before the first read, which runs at the first tick. The
+    // VM never posts a block that finished between that read and a later
+    // subscription, so its events after the read would reach neither
+    // path. The per-thread cursors drop what both deliver.
     await _subscribeTimeline(service);
     try {
       await service.streamListen(EventStreams.kGC);
@@ -848,8 +851,8 @@ class VmServiceClient {
   /// updating both consumers.
   Future<void> pollTimelineSync() => _pollTimeline(forceFresh: true);
 
-  /// Test-only: one ordinary tick, as the periodic timer runs it (no
-  /// forced catch-up read).
+  /// Test-only. Runs one ordinary tick, as the periodic timer does, with
+  /// no forced catch-up read.
   @visibleForTesting
   Future<void> tickForTest() => _pollTimeline();
 
@@ -1083,8 +1086,9 @@ class VmServiceClient {
       var floorUs = 0;
       var readFailed = false;
       if (_timelineSource == TimelineSource.stream && _sessionFirstReadDone) {
-        // Stream tick: the blocks that arrived since the last tick, plus
-        // every thread's unfinished block when a catch-up read is due.
+        // A stream tick parses the blocks that arrived since the last tick,
+        // plus every thread's unfinished block when a catch-up read is
+        // due.
         floorUs = _streamFloorUs;
         events = _drainStream();
         // The drained blocks count as seen before deciding on a read;
@@ -1099,10 +1103,10 @@ class VmServiceClient {
             ..start();
           _readInFlight = true;
           try {
-            // A window no event falls in: the VM posts every thread's
-            // unfinished block before it answers, so the blocks are in the
-            // buffer once the response arrives. The answer itself carries
-            // only the threads' metadata.
+            // No event falls in this window. The VM still posts every
+            // thread's unfinished block before it answers, so the blocks
+            // are in the buffer once the response arrives. The answer
+            // itself carries only the threads' metadata.
             await _fetchTimeline(nowUs + catchUpWindowAheadMicros, 1);
             final receivedUs = _timelineResponseReceivedUs;
             if (receivedUs >= 0) decodeUs = _rpcClockUs() - receivedUs;
@@ -1193,8 +1197,8 @@ class VmServiceClient {
         if (decodeUs != null && decodeUs > rpcUs) decodeUs = rpcUs;
         // Drop stale poll if reconnect/dispose ran during the await.
         if (myGen != _sessionGeneration || _disposed) return;
-        // An empty whole-buffer read leaves the next read whole too: it
-        // found nothing to start from.
+        // An empty whole-buffer read leaves the next read whole too, since
+        // it found nothing to start from.
         if (originUs == null && (timeline.traceEvents?.isNotEmpty ?? false)) {
           _wholeBufferRead = true;
         }
@@ -1335,7 +1339,7 @@ class VmServiceClient {
     }
   }
 
-  /// One failed RPC retries on the next tick; a run of failures means the
+  /// The next tick retries a failed RPC; a run of failures means the
   /// connection is gone (see [_consecutivePollFailures]).
   void _countPollFailure() {
     _consecutivePollFailures++;

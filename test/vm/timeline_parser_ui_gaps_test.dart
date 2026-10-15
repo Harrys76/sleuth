@@ -74,8 +74,8 @@ void main() {
         vsync,
         build,
       );
-      // A poll that ends while the thread is held: the events before the
-      // middle of the delay arrive in one batch, the rest in the next.
+      // A poll ends while the thread is held. The events before the middle
+      // of the delay arrive in one batch, the rest in the next.
       final cut = vsync + (build - vsync) ~/ 2;
       final first = events.where((e) => (e.json!['ts'] as int? ?? 0) < cut);
       final second = events.where((e) => (e.json!['ts'] as int? ?? 0) >= cut);

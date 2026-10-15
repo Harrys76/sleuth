@@ -7,7 +7,7 @@
 //       [--fixed] [--seconds n] [--keep-ms n] --out <file.json>
 //
 // Start the example app from example/ with
-// `fvm flutter run --profile -d <device>` (DDS on) to measure the VM alone:
+// `fvm flutter run --profile -d <device>` (DDS on) to measure the VM alone.
 // Sleuth then has no VM link and reads nothing itself. With `--no-dds`
 // Sleuth reads the timeline too, which `measure none` shows.
 //
@@ -153,8 +153,8 @@ Future<void> _measure(
       await service.streamCancel(EventStreams.kTimeline);
       await sub.cancel();
     } else {
-      // `stream-empty`: empty-window reads while listening to the stream,
-      // as a stream session's catch-up reads run.
+      // `stream-empty` sends empty-window reads while listening to the
+      // stream, as a stream session's catch-up reads do.
       final listening = mode == 'stream-empty';
       final sub = listening ? service.onTimelineEvent.listen((_) {}) : null;
       if (listening) await service.streamListen(EventStreams.kTimeline);

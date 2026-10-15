@@ -1,7 +1,7 @@
-// VmServiceClient reading the VM's Timeline stream: blocks drained once
-// per tick, the session's first read, catch-up reads for threads whose
-// last events wait in an unfinished block, the buffer cap, the fallback
-// to polling and the reset on a new session.
+// VmServiceClient reading the VM's Timeline stream. The tests cover the
+// blocks drained once per tick, the session's first read, catch-up reads
+// for threads whose last events wait in an unfinished block, the buffer
+// cap, the fallback to polling and the reset on a new session.
 import 'dart:developer' show Timeline;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -16,8 +16,8 @@ const _raster = 2;
 const _other = 3;
 
 void main() {
-  // Timestamps sit just behind the in-app timeline clock, which the
-  // catch-up read measures its window against.
+  // Timestamps sit behind the in-app timeline clock, which the lag and
+  // the catch-up read's window use.
   late int base;
   late List<ParsedTimelineData> batches;
   late FakeVmService service;
@@ -174,7 +174,8 @@ void main() {
         for (final b in batches) ...b.platformChannelEvents,
       ], hasLength(1));
 
-      // The blocks those threads fill later repeat nothing.
+      // The blocks those threads fill later repeat the events, and nothing
+      // counts twice.
       service.flushOnRead = null;
       service.timelineController.add(
         timelineBlock([...frame(late, buildUs: 1500), channel]),
@@ -274,7 +275,7 @@ void main() {
         newestFrame = now - 10000;
         await client.tickForTest();
       }
-      // 4 s of ticks: one read at 2 s and one at 4 s.
+      // Over 4 s of ticks, one read runs at 2 s and one at 4 s.
       expect(client.catchUpReads, 2);
     });
 

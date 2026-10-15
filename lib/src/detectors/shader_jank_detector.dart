@@ -136,8 +136,8 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
         return 'cold_start';
       }
     }
-    // One-sided keyframe window: build BEFORE shader (causal direction),
-    // against the builds of this batch and earlier ones.
+    // The build must start before the shader compile, in this batch or an
+    // earlier one.
     final keyframeWindowUs = shaderKeyframeWindowMs * 1000;
     final hasNearbyBuild = _recentBuildBatches.any(
       (batch) => batch.any(

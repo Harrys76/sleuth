@@ -58,7 +58,7 @@ class FakeVmService implements VmService {
   final StreamController<Event> isolateController =
       StreamController<Event>.broadcast(sync: true);
 
-  /// `Timeline` stream: push [timelineBlock] events to deliver blocks.
+  /// The `Timeline` stream. Push [timelineBlock] events to deliver blocks.
   final StreamController<Event> timelineController =
       StreamController<Event>.broadcast(sync: true);
 

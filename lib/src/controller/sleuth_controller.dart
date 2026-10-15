@@ -851,9 +851,9 @@ class SleuthController {
   /// the first poll.
   int? get pollWindowFallbacks => _vmClient?.pollWindowFallbacks;
 
-  /// Where the current VM session reads its timeline from: `stream`
-  /// (the VM's Timeline stream with catch-up reads) or `poll`; null
-  /// without a VM session.
+  /// `stream` when the current VM session reads the VM's Timeline stream
+  /// with catch-up reads, `poll` when it requests the timeline every tick,
+  /// null without a VM session.
   String? get timelineSource => _vmClient?.timelineSource?.name;
 
   bool get _hasTimelineSession => _vmClient?.timelineSource != null;
@@ -986,7 +986,7 @@ class SleuthController {
       onStartupTimelineEvents: _onStartupTimelineEvents,
       retainTimeline: config.captureMode,
       readDispatchSegments: () => _lastDispatchSegments,
-      // Capture legs keep the poll their brackets were recorded with.
+      // Capture legs keep the poll their recorded brackets used.
       streamTimeline: !config.captureMode,
       newestFrameRasterFinishUs: () =>
           _frameTiming.frameBuffer.latest?.rasterFinishUs,
