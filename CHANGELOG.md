@@ -285,6 +285,14 @@
   On such a screen ten frames fill the window, so `jank_detected` also needs
   at least 3 late frames (`FrameTimingDetector.minJankFrameCount`); one or
   two hitches no longer read as 10 to 20 % jank.
+- The VM timeline parser no longer lets async events move its per-thread
+  duplicate cursor. The engine posts `SceneDisplayLag` on the raster
+  thread whenever frames are late, as an async pair whose end carries the
+  frame's target time, ahead of the thread's next events; the cursor then
+  dropped the raster frames that followed as duplicates. On a Galaxy A07
+  the GPU Pressure demo parsed 2 raster frames out of 76, so every VM
+  raster reading came from the few frames that survived. Async events are
+  still dropped when read again.
 - Example: the gallery's pages come from Cloudflare's speed-test endpoint,
   because httpbin caps `/bytes/N` at 102,400 bytes and the 1.1 MB page
   never reached the `large_response` threshold. The bad gallery loads more
