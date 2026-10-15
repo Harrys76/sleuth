@@ -1076,6 +1076,69 @@ void main() {
         expect(detector.lastWindowStats!.callCount, 0);
       });
 
+      test('a late call that joins a reported span adds no second issue', () {
+        detector.processTimelineData(calls(spaced(s, 25, 10000)));
+        check();
+        final first = detector.issues.single;
+        // Three checks drain the cooldown.
+        check();
+        check();
+        check();
+        // A call from the same second arrives late on another thread.
+        detector.processTimelineData(calls([s + 300000], tids: [100]));
+        check();
+        expect(detector.lastWindowStats!.callCount, 26);
+        expect(
+          detector.issues.single.dedupIdentityMicros,
+          first.dedupIdentityMicros,
+        );
+      });
+
+      test('late calls that raise a reported span to critical still emit', () {
+        detector.processTimelineData(calls(spaced(s, 25, 10000)));
+        check();
+        final first = detector.issues.single;
+        check();
+        check();
+        check();
+        detector.processTimelineData(
+          calls(
+            spaced(s + 300000, 20, 10000),
+            tids: [for (var i = 0; i < 20; i++) 100 + i],
+          ),
+        );
+        check();
+        final second = detector.issues.single;
+        expect(detector.lastWindowStats!.callCount, 45);
+        expect(second.severity, IssueSeverity.critical);
+        expect(second.dedupIdentityMicros, isNot(first.dedupIdentityMicros));
+      });
+
+      test('a reset forgets the reported span', () {
+        detector.processTimelineData(calls(spaced(s, 25, 10000)));
+        check();
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+        detector.reset(horizonUs: s + 300000);
+        // The next scenario's calls begin inside the span reported before
+        // the reset.
+        detector.processTimelineData(calls(spaced(s + 400000, 25, 10000)));
+        check();
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+      });
+
+      test('a sustained overload still emits after each cooldown', () {
+        final identities = <int?>{};
+        for (var k = 0; k < 6; k++) {
+          detector.processTimelineData(
+            calls(spaced(s + k * 1000000, 25, 40000)),
+          );
+          check();
+          identities.add(detector.issues.single.dedupIdentityMicros);
+        }
+        // One emission, three cooldown checks, then a fresh emission.
+        expect(identities, hasLength(2));
+      });
+
       test('a call more than 10 s behind the newest is skipped', () {
         detector.processTimelineData(calls([s + 12000000]));
         check();

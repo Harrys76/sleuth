@@ -54,7 +54,10 @@ typedef PlatformChannelWindowStats = ({
 /// records one trace event), then stays in [issues] until
 /// [emissionPersistence] has passed since the emission, so a short burst
 /// remains visible long enough to read. Another overload after the
-/// cooldown emits a fresh issue with a new identity.
+/// cooldown emits a fresh issue with a new identity. A check whose new
+/// calls all began inside the span of the last emission, at the same
+/// severity, has counted late calls that joined that overload, so it emits
+/// nothing new.
 class PlatformChannelDetector extends BaseDetector
     with DetectorMetadataProvider {
   PlatformChannelDetector({
@@ -149,6 +152,9 @@ class PlatformChannelDetector extends BaseDetector
   // eviction plus the ones held at the check.
   _SpanStats? _evictedPeak;
   Map<String, int> _evictedPeakDurations = const {};
+  // Start and severity of the span behind the last fresh emission.
+  int? _reportedSpanStartUs;
+  IssueSeverity? _reportedSeverity;
   int? _newestBeginUs;
   // [reset] sets this to the newest begin seen, and the detector drops
   // later begins at or before it, so a retained-buffer replay from before
@@ -395,19 +401,27 @@ class PlatformChannelDetector extends BaseDetector
   static String _ms(int us) =>
       us % 1000 == 0 ? '${us ~/ 1000}' : (us / 1000).toStringAsFixed(1);
 
-  /// The start, count and method counts of the span from index `first` to
-  /// index `last` of [_begins].
+  /// The start, count, method counts and new-begin times of the span from
+  /// index `first` to index `last` of [_begins].
   _SpanStats _spanStats((int, int) span) {
     final (first, last) = span;
     final methodCounts = <String, int>{};
+    int? newFirstUs;
+    int? newLastUs;
     for (var i = first; i <= last; i++) {
-      final method = _begins[i].method;
-      methodCounts[method] = (methodCounts[method] ?? 0) + 1;
+      final begin = _begins[i];
+      methodCounts[begin.method] = (methodCounts[begin.method] ?? 0) + 1;
+      if (begin.seq >= _checkSeq) {
+        newFirstUs ??= begin.ts;
+        newLastUs = begin.ts;
+      }
     }
     return (
       startUs: _begins[first].ts,
       count: last - first + 1,
       methodCounts: methodCounts,
+      newFirstUs: newFirstUs,
+      newLastUs: newLastUs,
     );
   }
 
@@ -464,9 +478,24 @@ class PlatformChannelDetector extends BaseDetector
           .where((d) => d > durationThresholdUs)
           .length,
     );
+    final wouldBeCritical = count > callsPerSecThreshold * criticalMultiplier;
+    // Late calls can join a span that was already reported. When every new
+    // begin lies inside the last reported span and the severity is the
+    // same, this check found that overload again, so it keeps the reported
+    // issue instead of emitting a second one.
+    final reportedStartUs = _reportedSpanStartUs;
+    final newFirstUs = stats?.newFirstUs;
+    final newLastUs = stats?.newLastUs;
+    final sameOverload =
+        reportedStartUs != null &&
+        newFirstUs != null &&
+        newLastUs != null &&
+        newFirstUs >= reportedStartUs &&
+        newLastUs < reportedStartUs + _spanUs &&
+        _reportedSeverity ==
+            (wouldBeCritical ? IssueSeverity.critical : IssueSeverity.warning);
     // Emission is count-only; call durations annotate the issue.
-    if (count > callsPerSecThreshold) {
-      final wouldBeCritical = count > callsPerSecThreshold * criticalMultiplier;
+    if (count > callsPerSecThreshold && !sameOverload) {
       // Cooldown semantics: suppress fresh emissions during the
       // 3-cycle drain after a fire so sustained overload collapses
       // to a single trace record per cooldown window (composite-key
@@ -499,6 +528,10 @@ class PlatformChannelDetector extends BaseDetector
       }
       _cooldownCyclesRemaining = 3;
       _lastEmittedAt = _clock();
+      _reportedSpanStartUs = stats!.startUs;
+      _reportedSeverity = wouldBeCritical
+          ? IssueSeverity.critical
+          : IssueSeverity.warning;
       final maxUs = _lastWindowStats!.maxCallDurationUs;
       final p95Us = _lastWindowStats!.p95CallDurationUs;
       final overCount = _lastWindowStats!.callsOverThreshold;
@@ -601,6 +634,8 @@ class PlatformChannelDetector extends BaseDetector
     _droppedUpToByTid.clear();
     _evictedPeak = null;
     _evictedPeakDurations = const {};
+    _reportedSpanStartUs = null;
+    _reportedSeverity = null;
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
@@ -631,6 +666,8 @@ class PlatformChannelDetector extends BaseDetector
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
     _lastEmittedAt = null;
+    _reportedSpanStartUs = null;
+    _reportedSeverity = null;
     _lastWindowStats = null;
     _issues.clear();
   }
@@ -736,7 +773,16 @@ class PlatformChannelDetector extends BaseDetector
 }
 
 /// Start time, count and method counts of one span of call begins.
-typedef _SpanStats = ({int startUs, int count, Map<String, int> methodCounts});
+///
+/// `newFirstUs` and `newLastUs` are the event times of the first and last
+/// begins in the span that arrived since the last check.
+typedef _SpanStats = ({
+  int startUs,
+  int count,
+  Map<String, int> methodCounts,
+  int? newFirstUs,
+  int? newLastUs,
+});
 
 /// A platform channel call begin kept for span counting.
 class _ChannelBegin {
