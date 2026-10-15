@@ -265,10 +265,7 @@
   the last scan (the jank detector is off), the VM timeline reports alone
   once one poll holds 3 such frames, critical at 10. A route change drops
   the VM timing seen before it. `effectiveMaxFrameRasterFloorUs` is the
-  resolved frame budget, or `maxFrameRasterFloorUs` when larger. On some
-  Android phones Sleuth's own timeline poll stalls the raster thread about
-  twice a second (a 30 to 48 ms raster frame every 500 ms on a Galaxy A07),
-  which the detector does not yet take out.
+  resolved frame budget, or `maxFrameRasterFloorUs` when larger.
 - Behavior change: on displays faster than `fpsTarget`, `heavy_compute`
   warns at three quarters of the frame budget, at most 8 ms (it was half
   the budget): 8 ms at 90 Hz and 6.25 ms at 120 Hz, critical at twice that.
@@ -285,6 +282,36 @@
   On such a screen ten frames fill the window, so `jank_detected` also needs
   at least 3 late frames (`FrameTimingDetector.minJankFrameCount`); one or
   two hitches no longer read as 10 to 20 % jank.
+- Behavior change: outside capture mode Sleuth reads the VM timeline from
+  the VM's `Timeline` stream instead of a `getVMTimeline` request every
+  500 ms. The request made the VM write every event in its window while
+  the app's threads waited to record theirs: on a Galaxy A07 the 1 s window
+  (about 6,900 events) held the raster thread up to 41 ms and delayed frame
+  starts up to 60 ms at every poll, an iPhone 12 showed the late starts,
+  and Sleuth raised `sustained_jank`, `jank_detected` and `raster_dominance`
+  cards for frames it slowed itself. The stream posts each thread's events
+  in blocks of 64 as a block fills, which cost the measured frames
+  nothing. The 500 ms tick stays and parses the blocks that arrived as one
+  batch, so detectors keep their cadence. A thread that writes few events
+  holds them in an unfinished block, so when a frame finished more than
+  250 ms after the newest event seen on the frame or raster thread, the
+  tick reads those two threads' last second (at most once a second);
+  events from other threads that rarely fill a block arrive later.
+  Capture mode keeps the request, as do sessions whose VM refuses the
+  stream or sends no block at all for 10 s while frames are drawn.
+  `PollTimings` and the `lastPoll*` / `maxPoll*` diagnose keys describe the
+  tick, with the request readings taken from its catch-up read. New
+  diagnose keys: `timelineSource`, `streamBlocks`, `streamEvents`,
+  `streamEventsDropped`, `catchUpReads`, `lastStreamLagMs`.
+- Only a client's first VM session reads the whole timeline buffer, for
+  the engine startup events; a reconnect starts from the last second. A
+  whole-buffer read on a Galaxy A07 held the raster thread for 110 ms.
+  `onStartupTimelineEvents` runs once per client, as documented.
+- A stretch in which the frame thread recorded nothing, spanning two
+  timeline batches, is found: the parser carries each frame thread's open
+  idle stretch across calls (`frameThreadIdle`). Before, the part before
+  the second batch's first event was lost, and some late starts on a
+  Galaxy A07 kept 18 ms of Sleuth's own 36 ms delay as jank.
 - The VM timeline parser no longer lets async events move its per-thread
   duplicate cursor. The engine posts `SceneDisplayLag` on the raster
   thread whenever frames are late, as an async pair whose end carries the
