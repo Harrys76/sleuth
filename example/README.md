@@ -53,9 +53,9 @@ These screens record on-device capture brackets for the audit gate.
 | RebuildActivity | `rebuild_activity` warning + critical (build-time share; legs via `ext.sleuthDemo.captureLeg`) |
 | FrameTiming (jank_detected) | `jank_detected` warning (60Hz) |
 | MemoryPressure | `heap_growing` warning |
-| NetworkMonitor | `slow_request` warning + critical |
-| PlatformChannel | `platform_channel_traffic` warning |
-| Repaint | `excessive_repaint` warning (paint-time share; legs via `ext.sleuthDemo.captureLeg`) |
+| NetworkMonitor | `slow_request` warning + critical, `large_response`, `request_frequency`, `http_error_spike` and `high_frequency_same_path` warnings |
+| PlatformChannel | `platform_channel_traffic` warning + critical |
+| Repaint | `excessive_repaint` warning + critical (paint-time share; legs via `ext.sleuthDemo.captureLeg`) |
 | StreamResource | `stream_resource_growth` warning |
 | TrackedResource | `tracked_resource_concurrent` warning + `tracked_resource_long_lived` warning |
 

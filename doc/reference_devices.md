@@ -29,9 +29,9 @@ static const Set<String> approvedFlutterMajorMinors = {
 A capture may use any member of `approvedFlutterMajorMinors`. The three
 legs of one bracket must share one exact `flutterVersion` (the bracket
 provenance check enforces this), so triads recorded on 3.41 stay valid
-next to triads recorded on 3.47. The `rebuild_activity` and
-`excessive_repaint` triads were recorded on 3.47.6, the others on
-3.41.4.
+next to triads recorded on 3.47. The `heavy_compute`, tracked
+resource and first three network monitor triads were recorded on
+3.41.4, the others on 3.47.6.
 
 ## Android coverage gap
 
@@ -74,8 +74,8 @@ with behaviour that diverges on Android must wait.
 app's iOS bootstrap uses the `FlutterImplicitEngineDelegate` /
 `FlutterSceneDelegate` bindings introduced in 3.41, and the
 `vm_service` patch level the validation tooling requires ships on
-3.41+. 3.47 is the development pin, and the `rebuild_activity` and
-`excessive_repaint` triads were recorded on 3.47.6. A triad must use
+3.41+. 3.47 is the development pin, and every triad recorded since
+v0.37.0 uses 3.47.6. A triad must use
 one exact version. Both minors stay accepted until every triad has been
 recorded again on the newer one.
 
