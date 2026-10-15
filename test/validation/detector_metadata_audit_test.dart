@@ -2122,6 +2122,38 @@ void main() {
         EvidenceTier.reproducerOnly,
       );
     });
+
+    test('effectiveTierFor reads a colon-parametric id through its '
+        'family', () {
+      const meta = DetectorMetadata(
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'synthetic',
+        coveredStableIds: {'family', 'other'},
+        perStableIdTier: {
+          'family': EvidenceTier.runtimeVerified,
+          'other:exact': EvidenceTier.externallyCited,
+        },
+        coveredThresholds: {'family.warning'},
+      );
+      expect(
+        meta.effectiveTierFor('family:a1b2'),
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.effectiveTierFor('family:a1b2', severity: 'warning'),
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.effectiveTierFor('family:a1b2', severity: 'critical'),
+        EvidenceTier.reproducerOnly,
+      );
+      // An entry for the exact id wins over its family.
+      expect(
+        meta.effectiveTierFor('other:exact'),
+        EvidenceTier.externallyCited,
+      );
+      expect(meta.effectiveTierFor('unknown:x'), EvidenceTier.reproducerOnly);
+    });
     test('FrameTimingDetector pinned: base reproducerOnly + jank_detected '
         'runtimeVerified via perStableIdTier (v0.19.7); sustained_jank '
         'stays reproducerOnly (v0.19.17 raise withdrawn)', () {
