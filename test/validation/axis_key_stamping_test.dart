@@ -7,11 +7,14 @@
 // emission, and every bracket's `(stableId, severity)` must produce an
 // issue carrying that key.
 
+import 'dart:developer' as developer;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart' show Sleuth, StartupMetrics;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart';
 import 'package:sleuth/src/detectors/image_memory_detector.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
@@ -369,6 +372,33 @@ _widgetRecipes = {
       );
       await decodeImages(tester);
       issues.addAll(rescanIssues(tester, detector));
+    }
+    return issues;
+  },
+  // Raster-bound frames 16.7 ms apart, 20 ms of raster against 1 ms of
+  // UI: 3 in a second (warning), then 10 (critical).
+  DetectorType.gpuPressure: (tester) async {
+    final issues = <PerformanceIssue>[];
+    for (final count in [3, 10]) {
+      final detector = GpuPressureDetector(
+        appStartMonotonicUsForTest: () => developer.Timeline.now - 60000000,
+      );
+      addTearDown(detector.dispose);
+      for (var i = 0; i < count; i++) {
+        final vsync = i * 16667;
+        detector.processFrame(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(microseconds: 1000),
+            rasterDuration: const Duration(microseconds: 20000),
+            timestamp: DateTime.utc(2026),
+            frameBudgetUs: 16667,
+            vsyncStartUs: vsync,
+            rasterFinishUs: vsync + 20000,
+          ),
+        );
+      }
+      issues.addAll(await scanAndIssues(tester, detector, const SizedBox()));
     }
     return issues;
   },

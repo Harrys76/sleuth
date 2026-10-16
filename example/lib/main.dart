@@ -46,6 +46,7 @@ import 'demos/non_lazy_list_demo.dart';
 import 'demos/platform_channel_capture_screen.dart';
 import 'demos/repaint_capture_screen.dart';
 import 'demos/platform_channel_demo.dart';
+import 'demos/raster_dominance_capture_screen.dart';
 import 'demos/rebuild_activity_capture_screen.dart';
 import 'demos/rebuild_hotspot_demo.dart';
 import 'demos/repaint_boundary_demo.dart';
@@ -610,6 +611,13 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
         builder: (_) => const FrameTimingSustainedJankCaptureScreen(),
       ),
       _DemoRoute(
+        icon: Icons.memory_outlined,
+        title: 'GpuPressure (raster_dominance)',
+        subtitle: 'raster_dominance warning + critical',
+        color: Colors.deepOrange,
+        builder: (_) => const RasterDominanceCaptureScreen(),
+      ),
+      _DemoRoute(
         icon: Icons.restart_alt,
         title: 'StartupDetector (slow_startup_ttff)',
         subtitle: 'slow_startup_ttff warning + critical',
@@ -939,6 +947,57 @@ void _registerDemoExtensions() {
     return developer.ServiceExtensionResponse.result(
       jsonEncode({'scheduledMs': ms}),
     );
+  });
+  // Draws `frames=N` heavy frames of a `paths=P` picture on the foreground
+  // raster_dominance capture screen, with no scenario and no export, and
+  // returns each frame's timing and dominant flag at `budgetUs` (default
+  // 16667). Any build; used to calibrate the legs and on Android.
+  developer.registerExtension('ext.sleuthDemo.rasterBurst', (
+    method,
+    params,
+  ) async {
+    final frames = int.tryParse(params['frames'] ?? '');
+    final paths = int.tryParse(params['paths'] ?? '') ?? rasterLegPaths;
+    final budgetUs =
+        int.tryParse(params['budgetUs'] ?? '') ?? rasterCaptureBudgetUs;
+    if (frames == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        'frames is required',
+      );
+    }
+    final element = findForeground(
+      (e) => e is StatefulElement && e.state is RasterBurstRunner,
+    );
+    if (element == null) {
+      return developer.ServiceExtensionResponse.result(
+        jsonEncode({
+          'error': 'open GpuPressure (raster_dominance) under Capture Helpers',
+        }),
+      );
+    }
+    final runner = (element as StatefulElement).state as RasterBurstRunner;
+    final result = await runner.runBurst(
+      frames: frames,
+      paths: paths,
+      budgetUs: budgetUs,
+    );
+    return developer.ServiceExtensionResponse.result(jsonEncode(result));
+  });
+  // The foreground raster_dominance capture screen's state: whether a leg
+  // runs, the last attempt's result line and counts, and the stashed leg.
+  developer.registerExtension('ext.sleuthDemo.rasterState', (
+    method,
+    params,
+  ) async {
+    final element = findForeground(
+      (e) => e is StatefulElement && e.state is RasterBurstRunner,
+    );
+    final state = element == null
+        ? {'error': 'open GpuPressure (raster_dominance) under Capture Helpers'}
+        : ((element as StatefulElement).state as RasterBurstRunner)
+              .harnessState();
+    return developer.ServiceExtensionResponse.result(jsonEncode(state));
   });
   // Lists every BackdropFilter on screen with the blur sigma Sleuth's
   // reader returns (null when unknown), its filter class and whether it

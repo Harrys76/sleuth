@@ -786,12 +786,78 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         'otherwise. The VM-disconnect setter removes a VM-sourced '
         '`raster_dominance`, returns a VM-confirmed frame-leg issue to '
         '`likely`, and downgrades `expensive_gpu_nodes` only when no '
-        'frame-sourced `raster_dominance` remains. The detector has no '
-        'runtime '
-        'verification against Impeller or Skia budgets and no external '
-        'citation.',
+        'frame-sourced `raster_dominance` remains. '
+        'Runtime verification covers the frame leg of `raster_dominance` '
+        '(warning at 3, critical at 10) on an iPhone 12 at 60 Hz with '
+        'Impeller on Metal. A capture screen draws a prerecorded picture of '
+        '700 stroked paths on a chosen run of consecutive frames, which '
+        'cost the raster thread 28 to 80 ms each against under 6 ms of UI, '
+        'and counts the dominant frames in its busiest one-second span from '
+        'its own `FrameTiming` listener with the same rule. The issue '
+        'stamps that span count as `observedDominantFrames`, and the leg is '
+        'stashed only when the most the detector stamped equals the '
+        'screen\'s count. The frame that hides the picture, and a frame '
+        'drawn within 250 ms after it, belong to the run: their raster time '
+        'can include waiting for the GPU to finish the heavy frames. A '
+        'dominant frame anywhere else refuses the leg as ambient instead of '
+        'being subtracted. Warning below 1 dominant frame (silent), at 3, '
+        'above 7; critical below 7 (a warning only), at 12, above 20 within '
+        '985 ms; the detector matched the screen in every leg, and the '
+        'critical above leg wrote 14 and then 20 across two scans. '
+        'The leg narrows the timeline to the Dart stream, so the VM leg '
+        'sees no raster frames and the records are `likely`; the step to '
+        '`confirmed` that the VM leg gives in other sessions is not part of '
+        'the captures. `expensive_gpu_nodes` has no runtime verification.',
     reproducerPath: 'test/validation/gpu_pressure_reproducer_test.dart',
     coveredStableIds: {'raster_dominance', 'expensive_gpu_nodes'},
+    perStableIdTier: {'raster_dominance': EvidenceTier.runtimeVerified},
+    profileCapturePaths: [
+      'test/validation/captures/gpu_pressure/raster_dominance_below.json',
+      'test/validation/captures/gpu_pressure/raster_dominance_at.json',
+      'test/validation/captures/gpu_pressure/raster_dominance_above.json',
+    ],
+    // The warning fires at 3 dominant frames in a one-second span. The at
+    // band is [3, 4.5] frames and the above band (4.5, 9]. The above band
+    // ends below 10, where the detector records critical instead.
+    bracketThreshold: 3,
+    bracketUnit: 'frames',
+    bracketStableId: 'raster_dominance',
+    bracketSeverityLabel: 'warning',
+    bracketAtTolerance: 0.5,
+    aboveCeilingMultiplier: 3.0,
+    observedAxisArgKey: 'observedDominantFrames',
+    // Relative, so any count below 100 must match exactly.
+    observedAxisTolerance: 0.01,
+    observedAxisReduction: 'max',
+    bracketRequireUniqueDetectedAtMicros: true,
+    coveredThresholds: {
+      'raster_dominance.warning',
+      'raster_dominance.critical',
+    },
+    additionalBrackets: [
+      // The critical fires at 10. The at band is [10, 15] frames and the
+      // above band (15, 25]. A run writes one or two critical records, so
+      // there is no in-band minimum.
+      BracketSpec(
+        stableId: 'raster_dominance',
+        severityLabel: 'critical',
+        threshold: 10,
+        unit: 'frames',
+        coveredThresholds: {'raster_dominance.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/gpu_pressure/raster_dominance_critical_below.json',
+          'test/validation/captures/gpu_pressure/raster_dominance_critical_at.json',
+          'test/validation/captures/gpu_pressure/raster_dominance_critical_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.5,
+        observedAxisArgKey: 'observedDominantFrames',
+        observedAxisTolerance: 0.01,
+        observedAxisReduction: 'max',
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+    ],
   );
 }
 
