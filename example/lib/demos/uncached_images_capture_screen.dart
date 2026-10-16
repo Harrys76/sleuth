@@ -290,8 +290,9 @@ class UncachedImageSpecimens {
     }
   }
 
-  /// Decodes [provider] for [configuration], or throws on a decode error.
-  Future<ImageInfo> decode(
+  /// Starts decoding [provider] for [configuration]. The result fails on
+  /// a decode error.
+  SpecimenDecode decode(
     ImageProvider provider,
     ImageConfiguration configuration,
   ) {
@@ -301,16 +302,33 @@ class UncachedImageSpecimens {
     listener = ImageStreamListener(
       (info, _) {
         stream.removeListener(listener);
-        if (!done.isCompleted) done.complete(info);
+        done.complete(info);
       },
       onError: (error, stack) {
         stream.removeListener(listener);
-        if (!done.isCompleted) done.completeError(error, stack);
+        done.completeError(error, stack);
       },
     );
     stream.addListener(listener);
-    return done.future;
+    return SpecimenDecode(done.future, () {
+      if (done.isCompleted) return;
+      stream.removeListener(listener);
+      done.completeError(StateError('image decode cancelled'));
+    });
   }
+}
+
+/// A decode in flight. [cancel] removes its listener and fails [image] at
+/// once, so a decode that finishes later delivers nothing.
+class SpecimenDecode {
+  SpecimenDecode(this.image, void Function() cancel) : _cancel = cancel;
+
+  /// The decoded image. The receiver owns it and disposes it.
+  final Future<ImageInfo> image;
+  final void Function() _cancel;
+
+  /// Stops the decode. A no-op once [image] has completed.
+  void cancel() => _cancel();
 }
 
 // Leg phases.
@@ -346,6 +364,7 @@ class _UncachedImagesCaptureScreenState
   // end the scenario, restore the streams and drop the image while the
   // leg still awaits.
   MemoryImage? _shown;
+  SpecimenDecode? _decoding;
   ImageInfo? _decoded;
   String? _openScenario;
   bool _streamsSuspended = false;
@@ -419,17 +438,21 @@ class _UncachedImagesCaptureScreenState
   }) {
     final shown = _shown;
     _shown = null;
+    _decoding?.cancel();
+    _decoding = null;
     _decoded?.dispose();
     _decoded = null;
     if (shown != null) unawaited(shown.evict());
     if (rebuild && mounted) setState(() => _caption = caption);
   }
 
-  /// The leg's last log line without its `[label]` prefix, for the
-  /// announced outcome line.
-  String? _lastLegLine(String label) {
+  /// The leg's last line among the first [upTo] log lines, without its
+  /// `[label]` prefix, for the announced outcome line. The leg passes the
+  /// log length before its cleanup, so a cleanup error stays in the log
+  /// and does not replace the verdict.
+  String? _lastLegLine(String label, {required int upTo}) {
     final prefix = '[$label] ';
-    for (final line in _log.reversed) {
+    for (final line in _log.take(upTo).toList().reversed) {
       if (line.startsWith(prefix)) {
         return 'Last leg ($label): ${line.substring(prefix.length)}';
       }
@@ -524,9 +547,20 @@ class _UncachedImagesCaptureScreenState
       setState(() => _caption = 'Decoding');
       final provider = MemoryImage(bytes);
       _shown = provider;
-      final decoded = _decoded = await widget.specimens
-          .decode(provider, configuration)
-          .timeout(_specimenTimeout);
+      final decoding = _decoding = widget.specimens.decode(
+        provider,
+        configuration,
+      );
+      final decoded = _decoded = await decoding.image.timeout(
+        _specimenTimeout,
+        onTimeout: () {
+          // Detach the decode now, so one that finishes later cannot hand
+          // over an image nobody disposes.
+          decoding.cancel();
+          throw TimeoutException('image decode', _specimenTimeout);
+        },
+      );
+      _decoding = null;
       if (!mounted) return;
 
       widget.calls.markScenarioBegin(leg.scenario);
@@ -659,6 +693,7 @@ class _UncachedImagesCaptureScreenState
       // failure still ends the leg with an outcome line.
       _say('[$label] FAILED: $e. Tap the leg again.');
     } finally {
+      final verdictLines = _log.length;
       // All of these are no-ops when the leg or dispose already did them.
       _endScenario(label: label);
       _dropImage();
@@ -666,7 +701,7 @@ class _UncachedImagesCaptureScreenState
       if (mounted) {
         setState(() {
           _busy = false;
-          _outcome = _lastLegLine(label);
+          _outcome = _lastLegLine(label, upTo: verdictLines);
         });
       }
     }
@@ -707,140 +742,120 @@ class _UncachedImagesCaptureScreenState
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: LayoutBuilder(
-            builder: (context, box) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // The controls take their natural height up to 45 % of the
-                // body and scroll past that. Export, the leg image and the
-                // outcome stay in view below them, and the log fills the
-                // rest of the body.
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: box.maxHeight * 0.45),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        CapturePreflightBanner(
-                          captureMode: capture.captureMode,
-                          vmConnected: capture.vmConnected,
-                          provenanceProblem: _provenance.problem,
-                        ),
-                        Text(
-                          'Pixel ratio: '
-                          '${MediaQuery.devicePixelRatioOf(context).toStringAsFixed(1)}x',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        if (stamp != null)
-                          Text(
-                            'Provenance: ${stamp.device} / '
-                            '${stamp.deviceOsVersion} / '
-                            'Flutter ${stamp.flutterVersion}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Shows one generated PNG decoded larger than its '
-                          '${uncachedImageBoxDp.toStringAsFixed(0)} dp box '
-                          'needs and records the uncached_images issue, a '
-                          'warning at $_warningMiB MiB wasted and critical '
-                          'at $_criticalMiB MiB.',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                        const SizedBox(height: 12),
-                        for (final leg in UncachedImagesLeg.values) ...[
-                          if (leg == UncachedImagesLeg.criticalBelow)
-                            const SizedBox(height: 8),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: FilledButton.tonal(
-                              onPressed: ready ? () => _runLeg(leg) : null,
-                              child: Text(leg.buttonLabel),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+          // Export, the leg image and the outcome stay in view below the
+          // controls on a tall body.
+          child: CaptureBodyLayout(
+            controlsShare: 0.45,
+            controls: [
+              CapturePreflightBanner(
+                captureMode: capture.captureMode,
+                vmConnected: capture.vmConnected,
+                provenanceProblem: _provenance.problem,
+              ),
+              Text(
+                'Pixel ratio: '
+                '${MediaQuery.devicePixelRatioOf(context).toStringAsFixed(1)}x',
+                style: const TextStyle(fontSize: 12),
+              ),
+              if (stamp != null)
+                Text(
+                  'Provenance: ${stamp.device} / '
+                  '${stamp.deviceOsVersion} / '
+                  'Flutter ${stamp.flutterVersion}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                'Shows one generated PNG decoded larger than its '
+                '${uncachedImageBoxDp.toStringAsFixed(0)} dp box needs and '
+                'records the uncached_images issue, a warning at '
+                '$_warningMiB MiB wasted and critical at $_criticalMiB MiB.',
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              for (final leg in UncachedImagesLeg.values) ...[
+                if (leg == UncachedImagesLeg.criticalBelow)
+                  const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FilledButton.tonal(
+                    onPressed: ready ? () => _runLeg(leg) : null,
+                    child: Text(leg.buttonLabel),
                   ),
                 ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: _busy ? null : _exportLastLeg,
-                  icon: const Icon(Icons.save_alt),
-                  label: const Text('Export last leg'),
-                ),
-                const SizedBox(height: 12),
-                // The leg image. Its box is pinned, so a large decode cannot
-                // change the layout; the placeholder is not an Image, so the
-                // detector sees one image per leg.
-                Row(
-                  children: [
-                    SizedBox(
-                      key: _boxKey,
-                      width: uncachedImageBoxDp,
-                      height: uncachedImageBoxDp,
-                      child: shown == null
-                          ? DecoratedBox(
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: scheme.outlineVariant,
-                                ),
-                              ),
-                            )
-                          : Image(
-                              image: shown,
-                              width: uncachedImageBoxDp,
-                              height: uncachedImageBoxDp,
-                              fit: BoxFit.fill,
-                              excludeFromSemantics: true,
+              ],
+            ],
+            pinned: [
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _busy ? null : _exportLastLeg,
+                icon: const Icon(Icons.save_alt),
+                label: const Text('Export last leg'),
+              ),
+              const SizedBox(height: 12),
+              // The leg image. Its box is pinned, so a large decode cannot
+              // change the layout; the placeholder is not an Image, so the
+              // detector sees one image per leg.
+              Row(
+                children: [
+                  SizedBox(
+                    key: _boxKey,
+                    width: uncachedImageBoxDp,
+                    height: uncachedImageBoxDp,
+                    child: shown == null
+                        ? DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: scheme.outlineVariant),
                             ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _caption,
-                        style: evidenceStyle,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                if (_outcome != null) ...[
-                  const SizedBox(height: 8),
-                  // Three lines at most so a large text scale cannot push
-                  // the log off the screen; the log keeps the full line.
-                  Semantics(
-                    liveRegion: true,
+                          )
+                        : Image(
+                            image: shown,
+                            width: uncachedImageBoxDp,
+                            height: uncachedImageBoxDp,
+                            fit: BoxFit.fill,
+                            excludeFromSemantics: true,
+                          ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
                     child: Text(
-                      _outcome!,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                      ),
+                      _caption,
+                      style: evidenceStyle,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
-                const Divider(height: 24),
-                Expanded(
-                  child: ListView.builder(
-                    reverse: true,
-                    itemCount: _log.length,
-                    itemBuilder: (context, i) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Text(
-                        _log[_log.length - 1 - i],
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                        ),
-                      ),
+              ),
+              if (_outcome != null) ...[
+                const SizedBox(height: 8),
+                // Three lines at most so a large text scale cannot push the
+                // log off the screen; the log keeps the full line.
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _outcome!,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
                     ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
+              const Divider(height: 24),
+            ],
+            log: ListView.builder(
+              reverse: true,
+              itemCount: _log.length,
+              itemBuilder: (context, i) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  _log[_log.length - 1 - i],
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                ),
+              ),
             ),
           ),
         ),

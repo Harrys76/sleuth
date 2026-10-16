@@ -676,7 +676,7 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
       await _resumeStreams(label: label);
       if (!mounted) return;
 
-      _setStatus('Composing capture');
+      _setStatus('Composing the capture');
       final provenance = requireCaptureProvenance(
         check: widget.provenanceCheck,
       );
@@ -747,6 +747,7 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
       // failure still ends the leg with an outcome line.
       _say('[$label] FAILED: $e. Tap the leg again.');
     } finally {
+      final verdictLines = _log.length;
       _allocator.stop();
       // All of these are no-ops when the leg or dispose already did them.
       _endScenario(label: label);
@@ -757,17 +758,19 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
         setState(() {
           _busy = false;
           _status = 'Idle.';
-          _outcome = _lastLegLine(label);
+          _outcome = _lastLegLine(label, upTo: verdictLines);
         });
       }
     }
   }
 
-  /// The leg's last log line without its `[label]` prefix, for the
-  /// announced outcome line.
-  String? _lastLegLine(String label) {
+  /// The leg's last line among the first [upTo] log lines, without its
+  /// `[label]` prefix, for the announced outcome line. The leg passes the
+  /// log length before its cleanup, so a cleanup error stays in the log
+  /// and does not replace the verdict.
+  String? _lastLegLine(String label, {required int upTo}) {
     final prefix = '[$label] ';
-    for (final line in _log.reversed) {
+    for (final line in _log.take(upTo).toList().reversed) {
       if (line.startsWith(prefix)) {
         return 'Last leg ($label): ${line.substring(prefix.length)}';
       }
@@ -803,101 +806,84 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: LayoutBuilder(
-            builder: (context, box) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // The controls take their natural height up to just over
-                // half the body and scroll past that. Export, the status
-                // and the outcome stay in view below them, and the log
-                // fills the rest of the body.
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: box.maxHeight * 0.55),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        CapturePreflightBanner(
-                          captureMode: capture.captureMode,
-                          vmConnected: capture.vmConnected,
-                          provenanceProblem: _provenance.problem,
-                        ),
-                        if (stamp != null)
-                          Text(
-                            'Provenance: ${stamp.device} / '
-                            '${stamp.deviceOsVersion} / '
-                            'Flutter ${stamp.flutterVersion}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Allocates short-lived garbage to hold a young-GC '
-                          'rate, counts the collections itself, and records '
-                          'the gc_pressure warning, which fires at '
-                          '${_firesAt ?? '?'} young GCs in 10 s.',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                        const SizedBox(height: 12),
-                        for (final leg in GcPressureLeg.values)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: FilledButton.tonal(
-                              onPressed: ready ? () => _runLeg(leg) : null,
-                              child: Text(leg.buttonLabel),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: _busy ? null : _exportLastLeg,
-                  icon: const Icon(Icons.save_alt),
-                  label: const Text('Export last leg'),
-                ),
-                const SizedBox(height: 8),
+          // Export, the status and the outcome stay in view below the
+          // controls on a tall body.
+          child: CaptureBodyLayout(
+            controlsShare: 0.55,
+            controls: [
+              CapturePreflightBanner(
+                captureMode: capture.captureMode,
+                vmConnected: capture.vmConnected,
+                provenanceProblem: _provenance.problem,
+              ),
+              if (stamp != null)
                 Text(
-                  _status,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                  'Provenance: ${stamp.device} / '
+                  '${stamp.deviceOsVersion} / '
+                  'Flutter ${stamp.flutterVersion}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                'Allocates short-lived garbage to hold a young-GC rate, '
+                'counts the collections itself, and records the gc_pressure '
+                'warning, which fires at ${_firesAt ?? '?'} young GCs in '
+                '10 s.',
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              for (final leg in GcPressureLeg.values)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FilledButton.tonal(
+                    onPressed: ready ? () => _runLeg(leg) : null,
+                    child: Text(leg.buttonLabel),
                   ),
                 ),
-                // Three lines at most so a large text scale cannot push the
-                // log off the screen; the log keeps the full line.
-                if (_outcome != null)
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      _outcome!,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                      ),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
+            ],
+            pinned: [
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _busy ? null : _exportLastLeg,
+                icon: const Icon(Icons.save_alt),
+                label: const Text('Export last leg'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _status,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              // Three lines at most so a large text scale cannot push the
+              // log off the screen; the log keeps the full line.
+              if (_outcome != null)
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _outcome!,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
                     ),
-                  ),
-                const Divider(height: 24),
-                Expanded(
-                  child: ListView.builder(
-                    reverse: true,
-                    itemCount: _log.length,
-                    itemBuilder: (context, i) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Text(
-                        _log[_log.length - 1 - i],
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              ],
+              const Divider(height: 24),
+            ],
+            log: ListView.builder(
+              reverse: true,
+              itemCount: _log.length,
+              itemBuilder: (context, i) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  _log[_log.length - 1 - i],
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                ),
+              ),
             ),
           ),
         ),

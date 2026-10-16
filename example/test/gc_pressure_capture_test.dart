@@ -75,11 +75,17 @@ class _RecordingCalls extends CaptureLegCalls {
   /// 2 s limit.
   bool flushTimesOut = false;
 
+  /// Whether restoring the streams throws after it is logged.
+  bool resumeThrows = false;
+
   @override
   Future<void> suspendStreams() async => log.add('suspend');
 
   @override
-  Future<void> resumeStreams() async => log.add('resume');
+  Future<void> resumeStreams() async {
+    log.add('resume');
+    if (resumeThrows) throw StateError('resume refused');
+  }
 
   @override
   Future<void> flushTimeline() {
@@ -422,24 +428,56 @@ void main() {
       expect(allocator.batches.first, 1000, reason: 'the calibration seed');
     });
 
-    testWidgets('on an iPhone 12 at twice the text size, Export, the status '
-        'and the outcome stay on screen above the log', (tester) async {
-      tester.platformDispatcher.textScaleFactorTestValue = 2;
-      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      final calls = _RecordingCalls()..flush = (Completer<void>()..complete());
-      await pumpScreen(tester, calls: calls, size: const Size(390, 844));
+    for (final size in const [Size(390, 844), Size(844, 390), Size(320, 568)]) {
+      for (final textScale in const [1.0, 2.0]) {
+        testWidgets('at $size and text scale $textScale Export, the status and '
+            'the outcome stay in view, or the body scrolls as one column', (
+          tester,
+        ) async {
+          tester.platformDispatcher.textScaleFactorTestValue = textScale;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          final calls = _RecordingCalls()
+            ..flush = (Completer<void>()..complete());
+          await pumpScreen(tester, calls: calls, size: size);
+          await startLeg(tester, GcPressureLeg.at);
+          await runToFlush(tester);
+          await tester.pump(const Duration(seconds: 1));
+          expect(tester.takeException(), isNull);
+          expect(find.textContaining('Last leg (at)'), findsOneWidget);
+          final log = tester.getSize(find.byType(ListView)).height;
+          final body = size.height - kToolbarHeight - 32;
+          final split = body >= CaptureBodyLayout.minSplitHeight(textScale);
+          if (size == const Size(390, 844)) expect(split, isTrue);
+          if (!split) {
+            expect(log, CaptureBodyLayout.compactLogHeight);
+            return;
+          }
+          for (final finder in [
+            find.text('Export last leg'),
+            find.text('Idle.'),
+            find.textContaining('Last leg (at)'),
+          ]) {
+            expect(tester.getRect(finder).bottom, lessThan(size.height));
+          }
+          expect(log, greaterThan(48));
+        });
+      }
+    }
+
+    testWidgets('a cleanup error after the verdict stays in the log and the '
+        'outcome keeps the verdict', (tester) async {
+      final calls = _RecordingCalls()
+        ..flush = (Completer<void>()..complete())
+        ..resumeThrows = true;
+      await pumpScreen(tester, calls: calls);
       await startLeg(tester, GcPressureLeg.at);
       await runToFlush(tester);
       await tester.pump(const Duration(seconds: 1));
-      expect(tester.takeException(), isNull);
-      for (final finder in [
-        find.text('Export last leg'),
-        find.text('Idle.'),
-        find.textContaining('Last leg (at)'),
-      ]) {
-        expect(tester.getRect(finder).bottom, lessThan(844));
-      }
-      expect(tester.getSize(find.byType(ListView)).height, greaterThan(48));
+      expect(
+        find.textContaining('[at] resumeAllTimelineStreams'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Last leg (at): UNMEASURED'), findsOneWidget);
     });
 
     testWidgets('a stopped feed of an earlier leg does not count in the '

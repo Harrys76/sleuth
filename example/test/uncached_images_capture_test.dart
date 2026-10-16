@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/image_memory_detector.dart';
@@ -24,11 +25,17 @@ class _RecordingCalls extends CaptureLegCalls {
   /// 2 s limit.
   bool flushTimesOut = false;
 
+  /// Whether restoring the streams throws after it is logged.
+  bool resumeThrows = false;
+
   @override
   Future<void> suspendStreams() async => log.add('suspend');
 
   @override
-  Future<void> resumeStreams() async => log.add('resume');
+  Future<void> resumeStreams() async {
+    log.add('resume');
+    if (resumeThrows) throw StateError('resume refused');
+  }
 
   @override
   Future<void> flushTimeline() {
@@ -51,11 +58,17 @@ class _RecordingCalls extends CaptureLegCalls {
 /// Specimens that skip the codec, with a tiny PNG for the widget and a
 /// pre-made decode of [side] pixels for the leg's own read.
 class _FakeSpecimens extends UncachedImageSpecimens {
-  _FakeSpecimens(this.png8, this.decoded);
+  _FakeSpecimens(this.png8, this.decoded, {this.hangDecode = false});
 
   final Uint8List png8;
   final ui.Image decoded;
   final List<int> sides = [];
+
+  /// Whether the decode never finishes on its own.
+  final bool hangDecode;
+
+  /// Cancels that stopped a pending decode.
+  int cancels = 0;
 
   @override
   Future<Uint8List> png(
@@ -68,10 +81,59 @@ class _FakeSpecimens extends UncachedImageSpecimens {
   }
 
   @override
-  Future<ImageInfo> decode(
+  SpecimenDecode decode(
     ImageProvider provider,
     ImageConfiguration configuration,
-  ) async => ImageInfo(image: decoded.clone());
+  ) {
+    if (!hangDecode) {
+      return SpecimenDecode(
+        Future.value(ImageInfo(image: decoded.clone())),
+        () => cancels++,
+      );
+    }
+    final pending = Completer<ImageInfo>();
+    return SpecimenDecode(pending.future, () {
+      if (pending.isCompleted) return;
+      cancels++;
+      pending.completeError(StateError('image decode cancelled'));
+    });
+  }
+}
+
+/// An image stream the test completes by hand. The image cache listens
+/// too, so the test compares [listeners] before and after.
+class _ManualCompleter extends ImageStreamCompleter {
+  int listeners = 0;
+
+  @override
+  void addListener(ImageStreamListener listener) {
+    listeners++;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(ImageStreamListener listener) {
+    listeners--;
+    super.removeListener(listener);
+  }
+
+  void deliver(ImageInfo info) => setImage(info);
+}
+
+class _ManualProvider extends ImageProvider<_ManualProvider> {
+  _ManualProvider(this.completer);
+
+  final _ManualCompleter completer;
+
+  @override
+  Future<_ManualProvider> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture(this);
+
+  @override
+  ImageStreamCompleter loadImage(
+    _ManualProvider key,
+    ImageDecoderCallback decode,
+  ) => completer;
 }
 
 /// A capture whose span holds `uncached_images.warning` records with the
@@ -264,6 +326,49 @@ void main() {
     });
   });
 
+  group('UncachedImageSpecimens.decode', () {
+    tearDown(() => PaintingBinding.instance.imageCache.clear());
+
+    testWidgets('cancel removes the listener and fails the result', (
+      tester,
+    ) async {
+      final completer = _ManualCompleter();
+      final decoding = const UncachedImageSpecimens().decode(
+        _ManualProvider(completer),
+        ImageConfiguration.empty,
+      );
+      final listening = completer.listeners;
+      decoding.cancel();
+      expect(completer.listeners, listening - 1);
+      await expectLater(decoding.image, throwsStateError);
+      // An image that arrives after the cancel reaches no listener of the
+      // decode, which would fail on its completed result.
+      final image = await tester.runAsync(
+        () => createTestImage(width: 4, height: 4),
+      );
+      completer.deliver(ImageInfo(image: image!));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a finished decode hands over its image, and a later '
+        'cancel changes nothing', (tester) async {
+      final completer = _ManualCompleter();
+      final decoding = const UncachedImageSpecimens().decode(
+        _ManualProvider(completer),
+        ImageConfiguration.empty,
+      );
+      final image = await tester.runAsync(
+        () => createTestImage(width: 4, height: 4),
+      );
+      completer.deliver(ImageInfo(image: image!));
+      final info = await decoding.image;
+      expect(info.image.width, 4);
+      // A cancel after the image arrived changes nothing.
+      decoding.cancel();
+      info.dispose();
+    });
+  });
+
   group('leg lifecycle', () {
     // The test runs outside capture mode, without a VM link and without a
     // Sleuth instance, and the seams let a leg run anyway. With no Sleuth
@@ -277,6 +382,7 @@ void main() {
       CaptureLegCalls calls = const CaptureLegCalls(),
       int decodedSide = 579,
       Size logicalSize = const Size(1200, 2400),
+      bool hangDecode = false,
     }) async {
       tester.view.physicalSize = logicalSize * 3;
       tester.view.devicePixelRatio = 3;
@@ -290,7 +396,7 @@ void main() {
         );
         return (png: data!.buffer.asUint8List(), image: big);
       });
-      specimens = _FakeSpecimens(made!.png, made.image);
+      specimens = _FakeSpecimens(made!.png, made.image, hangDecode: hangDecode);
       await tester.pumpWidget(
         MaterialApp(
           home: UncachedImagesCaptureScreen(
@@ -400,25 +506,89 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
     });
 
-    testWidgets('on an iPhone 12 at twice the text size, Export, the image '
-        'row and the outcome stay on screen above the log', (tester) async {
-      tester.platformDispatcher.textScaleFactorTestValue = 2;
-      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      final calls = _RecordingCalls()..flush = (Completer<void>()..complete());
-      await pumpScreen(tester, calls: calls, logicalSize: const Size(390, 844));
-      await startLeg(tester, UncachedImagesLeg.at);
-      await finishLeg(tester);
-      expect(tester.takeException(), isNull);
-      final bottom =
-          tester.view.physicalSize.height / tester.view.devicePixelRatio;
-      for (final finder in [
-        find.text('Export last leg'),
-        find.textContaining('No leg image'),
-        find.textContaining('Last leg (at)'),
-      ]) {
-        expect(tester.getRect(finder).bottom, lessThan(bottom));
+    for (final size in const [Size(390, 844), Size(844, 390), Size(320, 568)]) {
+      for (final textScale in const [1.0, 2.0]) {
+        testWidgets('at $size and text scale $textScale Export, the image row '
+            'and the outcome stay in view, or the body scrolls as one column', (
+          tester,
+        ) async {
+          tester.platformDispatcher.textScaleFactorTestValue = textScale;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          final calls = _RecordingCalls()
+            ..flush = (Completer<void>()..complete());
+          await pumpScreen(tester, calls: calls, logicalSize: size);
+          await startLeg(tester, UncachedImagesLeg.at);
+          await finishLeg(tester);
+          expect(tester.takeException(), isNull);
+          expect(find.textContaining('Last leg (at)'), findsOneWidget);
+          final log = tester.getSize(find.byType(ListView)).height;
+          final body = size.height - kToolbarHeight - 32;
+          final split = body >= CaptureBodyLayout.minSplitHeight(textScale);
+          if (size == const Size(390, 844)) expect(split, isTrue);
+          if (!split) {
+            expect(log, CaptureBodyLayout.compactLogHeight);
+            return;
+          }
+          for (final finder in [
+            find.text('Export last leg'),
+            find.textContaining('No leg image'),
+            find.textContaining('Last leg (at)'),
+          ]) {
+            expect(tester.getRect(finder).bottom, lessThan(size.height));
+          }
+          expect(log, greaterThan(48));
+        });
       }
-      expect(tester.getSize(find.byType(ListView)).height, greaterThan(48));
+    }
+
+    testWidgets('a cleanup error after the verdict stays in the log and the '
+        'outcome keeps the verdict', (tester) async {
+      final calls = _RecordingCalls()
+        ..flush = (Completer<void>()..complete())
+        ..resumeThrows = true;
+      await pumpScreen(tester, calls: calls);
+      // A 579 px decode wastes about 1.2 MiB, far below the critical
+      // above band, so the screen refuses the leg before it restores the
+      // streams.
+      await startLeg(tester, UncachedImagesLeg.criticalAbove);
+      await finishLeg(tester);
+      expect(
+        find.textContaining('[critical/above] resumeAllTimelineStreams'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Last leg (critical/above): OUT-OF-BAND'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a decode past its limit is detached and the leg ends with a '
+        'FAILED line', (tester) async {
+      final calls = _RecordingCalls();
+      await pumpScreen(tester, calls: calls, hangDecode: true);
+      await startLeg(tester, UncachedImagesLeg.at);
+      await tester.pump(const Duration(seconds: 31));
+      await tester.pump();
+      expect(
+        find.textContaining('[at] FAILED: TimeoutException'),
+        findsOneWidget,
+      );
+      expect(specimens.cancels, 1);
+      expect(calls.log, ['suspend', 'resume']);
+    });
+
+    testWidgets('closing the screen during the decode detaches it', (
+      tester,
+    ) async {
+      final calls = _RecordingCalls();
+      await pumpScreen(tester, calls: calls, hangDecode: true);
+      await startLeg(tester, UncachedImagesLeg.at);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(specimens.cancels, 1);
+      expect(calls.log, ['suspend', 'resume']);
+      await tester.pump(const Duration(seconds: 31));
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('two legs in a row run on one screen', (tester) async {
