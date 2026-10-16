@@ -382,8 +382,7 @@
   10 s, the first silent). `uncached_images` warning and critical are
   `runtimeVerified` too, each backed by an iPhone 12 triad at pixel ratio
   3.0 (warning 0.5, 1.2 and 2.0 MiB wasted; critical 8.0, 20.0 and
-  32.0 MiB). Twenty-three pairs across 17 stable ids are now
-  `runtimeVerified`.
+  32.0 MiB).
 - `gc_pressure` gives each emission its own capture identity, its
   `detectedAt` moved 1 µs past the previous one on a shared clock
   reading. One identity per overage had kept only the count at the first
@@ -395,6 +394,33 @@
   An uncached_images capture screen generates a PNG sized for each leg at
   the device pixel ratio, shows it in a 48 dp box, and exports the waste it
   computes from its own reads. The example app depends on `vm_service`.
+- `slow_startup_ttff` warning and critical are `runtimeVerified`, backed
+  by iPhone 12 cold-launch triads on Flutter 3.47.6 (warning 1003 ms
+  silent, 1650 and 2399 ms; critical 2398 ms as a warning only, 3298 and
+  4502 ms). Twenty-five pairs across 18 stable ids are now
+  `runtimeVerified`.
+- `slow_startup_ttff` stamps `observedTtffMs`, and
+  `StartupDetector.evaluated` is true once the detector has read the
+  first-frame metrics. `Sleuth.startupDetector` returns the instance.
+  `Sleuth.startupClockForTest` sets the clock `Sleuth.init` reads, and
+  `Sleuth.resetStartupForTest` removes a first-frame callback that has
+  not fired. `Sleuth.suspendNonEssentialTimelineStreams` and
+  `Sleuth.resumeAllTimelineStreams` return whether the VM accepted the
+  stream list. The explanation now says 3000 ms or more is critical and
+  that the time runs to the first frame's timing report.
+- Example: a slow_startup_ttff leg runs at launch. The host copies a
+  request file that names the leg into the app container and relaunches
+  the app with `xcrun devicectl`. `main()` blocks for the leg's delay
+  between `Sleuth.init` and `runApp`, opens the scenario after the first
+  frame, exports the first frame's `rasterFinishWallTime` minus its own
+  reading before `Sleuth.init` as the observed value, and writes the
+  capture and a verdict record to the app's temp directory. A leg records
+  itself as running before its delay, so a launch killed during the delay
+  reads as FAILED instead of leaving the previous capture in place. A leg
+  whose timeline-stream restore does not land fails instead of stashing.
+  `SLEUTH_STARTUP_DELAY_MS` adds a plain delay to any build. The
+  StartupDetector (slow_startup_ttff) screen shows the last leg and copies
+  each leg's launch commands.
 
 ## 0.37.0
 

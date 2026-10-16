@@ -61,6 +61,7 @@ import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
+import 'package:sleuth/src/detectors/startup_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 
 import '_support/audit_invariants.dart';
@@ -109,10 +110,6 @@ const _v0171Expectations = <DetectorType, (String, Set<String>)>{
   DetectorType.setStateScope: (
     'test/validation/setstate_scope_reproducer_test.dart',
     {'setstate_scope'},
-  ),
-  DetectorType.startup: (
-    'test/validation/startup_reproducer_test.dart',
-    {'slow_startup_ttff'},
   ),
 };
 
@@ -204,6 +201,7 @@ const legacyObservedAxisAllowlist = <String, LegacyObservedAxisEntry>{};
 
 const _singleDetectorAnchors = <DetectorType>{
   DetectorType.imageMemory,
+  DetectorType.startup,
   DetectorType.networkMonitor,
   DetectorType.frameTiming,
   DetectorType.heavyCompute,
@@ -1599,6 +1597,100 @@ void main() {
       expect(critical.requireUniqueDetectedAtMicros, isTrue);
       expect(critical.requireDetectorTraceRecord, isTrue);
       expect(critical.minInBandSamples, 2);
+    });
+
+    test('StartupDetector pinned: base reproducerOnly, slow_startup_ttff '
+        'warning and critical runtimeVerified (v0.38.0)', () {
+      // Anti-tautology anchor. slow_startup_ttff reaches runtimeVerified
+      // through perStableIdTier, warning on the canonical bracket and
+      // critical on additionalBrackets[0], each backed by three iPhone 12
+      // cold-launch captures whose app exports the engine's raster-finish
+      // wall time minus its own reading before Sleuth.init.
+      final meta = StartupDetector().validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly);
+      expect(
+        meta.reproducerPath,
+        'test/validation/startup_reproducer_test.dart',
+      );
+      expect(meta.coveredStableIds, const {'slow_startup_ttff'});
+      expect(meta.perStableIdTier, const {
+        'slow_startup_ttff': EvidenceTier.runtimeVerified,
+      });
+      for (final severity in ['warning', 'critical']) {
+        expect(
+          meta.effectiveTierFor('slow_startup_ttff', severity: severity),
+          EvidenceTier.runtimeVerified,
+          reason: severity,
+        );
+      }
+      expect(meta.coveredThresholds, const {
+        'slow_startup_ttff.warning',
+        'slow_startup_ttff.critical',
+      });
+
+      // The thresholds track the detector and controller defaults.
+      final detector = StartupDetector();
+      const thresholds = DetectorThresholds();
+      expect(detector.ttffWarningMs, thresholds.startupTtffWarningMs);
+      expect(detector.ttffCriticalMs, thresholds.startupTtffCriticalMs);
+
+      // Warning, canonical bracket.
+      expect(meta.bracketStableId, 'slow_startup_ttff');
+      expect(meta.bracketSeverityLabel, 'warning');
+      expect(
+        meta.bracketThreshold,
+        detector.ttffWarningMs,
+        reason: 'Default drift: the warning bracket tracks ttffWarningMs.',
+      );
+      expect(meta.bracketUnit, 'ms');
+      expect(meta.bracketAtTolerance, 0.2);
+      expect(meta.aboveCeilingMultiplier, 1.9);
+      expect(
+        meta.bracketThreshold! * meta.aboveCeilingMultiplier!,
+        lessThan(detector.ttffCriticalMs),
+        reason:
+            'The warning above band must end below the critical line, '
+            'where the detector records critical instead.',
+      );
+      expect(meta.observedAxisArgKey, 'observedTtffMs');
+      expect(meta.observedAxisTolerance, 0.01);
+      expect(meta.observedAxisReduction, 'max');
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
+      expect(meta.profileCapturePaths, const [
+        'test/validation/captures/startup/slow_startup_ttff_below.json',
+        'test/validation/captures/startup/slow_startup_ttff_at.json',
+        'test/validation/captures/startup/slow_startup_ttff_above.json',
+      ]);
+
+      // Critical, additionalBrackets[0].
+      expect(meta.additionalBrackets, hasLength(1));
+      final critical = meta.additionalBrackets!.single;
+      expect(critical.stableId, 'slow_startup_ttff');
+      expect(critical.severityLabel, 'critical');
+      expect(
+        critical.threshold,
+        detector.ttffCriticalMs,
+        reason: 'Default drift: the critical bracket tracks ttffCriticalMs.',
+      );
+      expect(critical.unit, 'ms');
+      expect(critical.coveredThresholds, {'slow_startup_ttff.critical'});
+      expect(critical.profileCapturePaths, const [
+        'test/validation/captures/startup/slow_startup_ttff_critical_below.json',
+        'test/validation/captures/startup/slow_startup_ttff_critical_at.json',
+        'test/validation/captures/startup/slow_startup_ttff_critical_above.json',
+      ]);
+      expect(critical.atTolerance, 0.2);
+      expect(critical.aboveCeilingMultiplier, 2.0);
+      expect(critical.observedAxisArgKey, 'observedTtffMs');
+      expect(critical.observedAxisTolerance, meta.observedAxisTolerance);
+      expect(critical.observedAxisReduction, 'max');
+      expect(critical.requireUniqueDetectedAtMicros, isTrue);
+      expect(critical.requireDetectorTraceRecord, isTrue);
+      expect(
+        critical.minInBandSamples,
+        isNull,
+        reason: 'A launch writes one record.',
+      );
     });
 
     test('RebuildDetector pinned at runtimeVerified for rebuild_activity', () {

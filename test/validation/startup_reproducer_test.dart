@@ -4,11 +4,16 @@
 // path — element methods are no-ops because startup timing is
 // FrameTiming/wall-clock-based, not tree-structural).
 //
-// Injects [StartupMetrics] through the `@visibleForTesting` hooks on
-// [Sleuth] (`setStartupMetricsForTest` / `resetStartupForTest`) so the
-// detector reads deterministic values without booting the real
-// `Sleuth.init` pipeline. Each test uses a fresh detector instance to
-// keep the `_consumed` one-shot guard isolated.
+// The first group injects [StartupMetrics] through the
+// `@visibleForTesting` hooks on [Sleuth] (`setStartupMetricsForTest` /
+// `resetStartupForTest`). The second runs the real measurement. It calls
+// `Sleuth.init()` with `Sleuth.startupClockForTest` set and delivers a
+// first-frame timing report through the binding's `onReportTimings`, so
+// the timings callback that the app uses computes `ttffMs`. Each test
+// uses a fresh detector instance to keep the `_consumed` one-shot guard
+// isolated.
+
+import 'dart:ui' show FrameTiming;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -129,6 +134,99 @@ void main() {
         1,
         reason: 'Second prepareScan must be a no-op.',
       );
+    });
+  });
+
+  group('Sleuth.init measurement path', () {
+    late DateTime now;
+
+    setUp(() {
+      Sleuth.resetStartupForTest();
+      now = DateTime.utc(2026, 10, 16, 12);
+      Sleuth.startupClockForTest = () => now;
+    });
+
+    // Delivers one first-frame timing report to every registered timings
+    // callback, as the engine does after the first frame's raster.
+    void reportFirstFrame(WidgetTester tester) {
+      tester.binding.platformDispatcher.onReportTimings?.call([
+        FrameTiming(
+          vsyncStart: 1000,
+          buildStart: 1100,
+          buildFinish: 2100,
+          rasterStart: 2200,
+          rasterFinish: 3200,
+          rasterFinishWallTime: 3200,
+        ),
+      ]);
+    }
+
+    Future<StartupDetector> scan(WidgetTester tester) async {
+      final detector = StartupDetector();
+      await _pumpEmpty(tester);
+      detector.prepareScan(_root(tester));
+      return detector;
+    }
+
+    for (final (ms, severity) in [
+      (1499.9, null),
+      (1500.0, IssueSeverity.warning),
+      (2999.9, IssueSeverity.warning),
+      (3000.0, IssueSeverity.critical),
+    ]) {
+      testWidgets('$ms ms from init to the first timing report gives '
+          '${severity?.name ?? 'no issue'}', (tester) async {
+        Sleuth.init();
+        now = now.add(Duration(microseconds: (ms * 1000).round()));
+        reportFirstFrame(tester);
+        expect(Sleuth.startupMetrics!.ttffMs, ms);
+
+        final detector = await scan(tester);
+        expect(detector.evaluated, isTrue);
+        if (severity == null) {
+          expect(detector.issues, isEmpty);
+        } else {
+          final issue = detector.issues.single;
+          expect(issue.severity, severity);
+          expect(
+            issue.extraTraceArgs?['observedTtffMs'],
+            ms.toStringAsFixed(1),
+          );
+        }
+      });
+    }
+
+    testWidgets('a second timing report leaves the measurement alone', (
+      tester,
+    ) async {
+      Sleuth.init();
+      now = now.add(const Duration(milliseconds: 1600));
+      reportFirstFrame(tester);
+      now = now.add(const Duration(milliseconds: 900));
+      reportFirstFrame(tester);
+      expect(Sleuth.startupMetrics!.ttffMs, 1600.0);
+    });
+
+    testWidgets('a clock that moves backward gives no time and no issue', (
+      tester,
+    ) async {
+      Sleuth.init();
+      now = now.subtract(const Duration(seconds: 1));
+      reportFirstFrame(tester);
+      expect(Sleuth.startupMetrics!.ttffMs, isNull);
+
+      final detector = await scan(tester);
+      expect(detector.evaluated, isTrue);
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('a reset removes a timings callback that has not fired', (
+      tester,
+    ) async {
+      Sleuth.init();
+      Sleuth.resetStartupForTest();
+      reportFirstFrame(tester);
+      expect(Sleuth.startupMetrics, isNull);
     });
   });
 }

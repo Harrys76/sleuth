@@ -1153,6 +1153,96 @@ sides 390, 579 and 738 px gave 525,456 B (silent), 1,258,020 B and
 20,966,800 B and 33,557,056 B. The detector's `wastedBytes` equalled the
 screen's value in every record.
 
+## Startup slow_startup_ttff capture (v0.38.0)
+
+`slow_startup_ttff` measures the wall-clock time from `Sleuth.init` to the
+arrival of the first frame's `FrameTiming` report. It is a warning at
+1500 ms and critical at 3000 ms. The detector judges the metrics once, on
+the first scan after they exist, so a launch writes one record, and it
+stamps the time as `observedTtffMs`.
+
+A leg cannot run on a screen, because the measurement starts at
+`Sleuth.init`. Each leg is a cold launch. The host copies a request file
+that names the leg into the app container, then relaunches the app.
+`main()` reads and deletes the file before `Sleuth.init`, takes its own
+wall-clock reading, and blocks for the leg's delay between `Sleuth.init`
+and `runApp`. iOS 17.5 does not pass `devicectl`'s environment variables
+(`-e` or the `DEVICECTL_CHILD_` prefix) to the app, so the file carries
+the leg. The runner (`example/lib/demos/startup_leg.dart`) opens the
+scenario in the first post-frame callback, before the first scan, and the
+app exports the first frame's `rasterFinishWallTime` minus its own reading
+as `expectedMagnitude.observed`. That end point is the engine's raster
+finish, not the timing report that ends the detector's measurement, and
+the audit compares the two within 1 %.
+
+### Launch
+
+```
+cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
+  --dart-define=SLEUTH_CAPTURE_MODE=true \
+  --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"
+```
+
+The first launch runs under `flutter run` and does not count. Launches
+under the tool read 75 to 100 ms more than devicectl launches. Stop the
+tool, then run each leg from the host:
+
+```
+printf slow_startup_ttff_at > /tmp/sleuth_startup_leg_request.txt && \
+xcrun devicectl device copy to --device <device> \
+  --domain-type appDataContainer --domain-identifier com.example.example \
+  --source /tmp/sleuth_startup_leg_request.txt \
+  --destination tmp/sleuth_startup_leg_request.txt && \
+xcrun devicectl device process launch --device <device> \
+  --terminate-existing com.example.example
+```
+
+Wait about 20 s, then copy `tmp/sleuth_startup_legs/last_leg.json` (the
+verdict) and `tmp/sleuth_startup_legs/<scenario>.json` (the capture) with
+`xcrun devicectl device copy from`. The "StartupDetector
+(slow_startup_ttff)" screen shows the same verdict and copies each leg's
+commands.
+
+### Per-leg sequence (StartupLegRunner)
+
+```
+main(): read and delete the request file
+  └── capture mode and provenance checked; a refused leg gets no delay
+  └── wall-clock reading
+Sleuth.init()
+  └── own timings callback keeps the first FrameTiming
+  └── sleep(delay)                                 // blocks the main thread
+runApp(...)
+first post-frame callback: markScenarioBegin(name)
+  └── wait for the VM link (15 s limit)
+  └── suspendNonEssentialTimelineStreams()
+  └── wait for StartupDetector.evaluated (10 s limit)
+  └── observed = rasterFinishWallTime − reading; in the role band
+  └── Sleuth.flushTimelineNow()
+markScenarioEnd(name)
+  └── 800 ms, resumeAllTimelineStreams()
+exportCaptureJson(..., magnitudeSourceEventName: '')   // observed = own value
+  └── checkCaptureJson: no record for below; for at and above, one
+      in-band record within 1 % of observed
+write <scenario>.json and last_leg.json (temp file, then rename)
+```
+
+The whole leg has a 25 s limit, and leaving the foreground ends it as
+UNMEASURED. A `running` record that another launch left reads as FAILED.
+The delays are the leg's target minus 74 ms; six devicectl launches
+measured the delay plus 71 to 75 ms, and the runner refuses a launch whose
+own time falls outside its band.
+
+The triads come from an iPhone 12 (iOS 17.5, Flutter 3.47.6), and each leg
+passed on its first attempt. The observed times were 1003 ms (below,
+silent), 1650 ms and 2399 ms for the warning, and 2398 ms (a warning
+only), 3298 ms and 4502 ms for the critical. The detector read 0.4 to
+1.2 ms more than the observed value in every leg; the record lands about
+1 s after the scenario begins (the first scan after the VM link). On a
+Galaxy A07 normal build, `--dart-define=SLEUTH_STARTUP_DELAY_MS=1800` gave
+2177 ms and a warning card, 3500 gave 3814 ms and a critical card, and no
+delay gave 296 ms and no card.
+
 ## NetworkMonitor large_response and request_frequency capture (v0.19.9)
 
 Two more families reach runtimeVerified through `additionalBrackets`,

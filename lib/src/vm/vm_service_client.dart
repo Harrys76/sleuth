@@ -874,12 +874,14 @@ class VmServiceClient {
   /// ring buffer and roll scenario markers off mid-leg. Pass
   /// `['Dart']` to keep only Dart-side Timeline events (scenario
   /// markers, issue trace events). Pass `['Dart', 'Embedder', 'GC']` to
-  /// restore the default allowlist.
-  Future<void> setTimelineStreams(List<String> streams) async {
+  /// restore the default allowlist. Returns whether the VM accepted
+  /// [streams]; false without a session or when the RPC failed.
+  Future<bool> setTimelineStreams(List<String> streams) async {
     final service = _service;
-    if (service == null || _disposed || !_connected) return;
+    if (service == null || _disposed || !_connected) return false;
     try {
       await service.setVMTimelineFlags(streams);
+      return true;
     } catch (e) {
       // Stream-flag updates are best-effort; capture procedures fall
       // back to the existing stream set if the call fails. Surface the
@@ -893,6 +895,7 @@ class VmServiceClient {
         'buffer will likely overflow if a scenario runs longer than '
         'about 5 s with the Embedder or GC streams on.',
       );
+      return false;
     }
   }
 

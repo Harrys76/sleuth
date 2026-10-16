@@ -58,15 +58,14 @@ import 'demos/tracked_resource_capture_screen.dart';
 import 'demos/tracked_resource_demo.dart';
 import 'demos/shader_jank_demo.dart';
 import 'demos/uncached_image_demo.dart';
+import 'demos/slow_startup_capture_screen.dart';
+import 'demos/startup_leg.dart';
 import 'demos/uncached_images_capture_screen.dart';
 import 'fake_ai_adapter.dart';
 import 'file_state_store.dart';
 import 'harness_targeting.dart';
 
 void main() {
-  Sleuth.init();
-  _countOverflowErrors();
-  _registerDemoExtensions();
   // Capture mode gated behind a dart-define so ordinary profile-mode runs
   // see no extra Timeline.instantSync traffic. Flip on for the
   // runtimeVerified capture procedure:
@@ -74,6 +73,14 @@ void main() {
   // Capture screens emit `sleuth.scenario.{begin,end}` +
   // `sleuth.issue.<id>.<severity>` instant events while enabled.
   const captureMode = bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
+  // A slow_startup_ttff capture leg or a plain startup delay, named by the
+  // launch (see demos/startup_leg.dart). With neither, nothing changes.
+  final startup = StartupLaunch.read(captureMode: captureMode);
+  Sleuth.init();
+  startup.afterInit();
+  _countOverflowErrors();
+  _registerDemoExtensions();
+  startup.delay();
   runApp(
     Sleuth.track(
       child: const SleuthDemoApp(),
@@ -129,6 +136,7 @@ void main() {
       ),
     ),
   );
+  unawaited(startup.afterRunApp());
 }
 
 /// The overlay's AI chat adapter.
@@ -600,6 +608,13 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
         subtitle: 'sustained_jank critical bracket (60Hz)',
         color: Colors.indigo,
         builder: (_) => const FrameTimingSustainedJankCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.restart_alt,
+        title: 'StartupDetector (slow_startup_ttff)',
+        subtitle: 'slow_startup_ttff warning + critical',
+        color: Colors.blueGrey,
+        builder: (_) => const SlowStartupCaptureScreen(),
       ),
       _DemoRoute(
         icon: Icons.data_array,
