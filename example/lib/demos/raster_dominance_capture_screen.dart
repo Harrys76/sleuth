@@ -642,6 +642,9 @@ class _RasterDominanceCaptureScreenState
   // the attempt still awaits.
   String? _openScenario;
   bool _streamsSuspended = false;
+  // Whether this attempt's scenario has ended, after which an inactive
+  // app (Control Center) no longer stops the export.
+  bool _spanClosed = false;
   _Stop? _stop;
   Completer<void>? _stopSignal;
   Timer? _frontTimer;
@@ -669,9 +672,7 @@ class _RasterDominanceCaptureScreenState
         // Once the span has closed, a pulled-down Control Center
         // (inactive) no longer touches the measurement; only leaving the
         // app stops the export.
-        if (state == AppLifecycleState.inactive && _openScenario == null) {
-          return;
-        }
+        if (state == AppLifecycleState.inactive && _spanClosed) return;
         _stopAttempt('UNMEASURED', 'the app left the foreground ($state)');
       },
     );
@@ -1111,6 +1112,7 @@ class _RasterDominanceCaptureScreenState
       _recordPicture(rasterLegPaths, null);
     }
     _stop = null;
+    _spanClosed = false;
     _stopSignal = Completer<void>();
     setState(() {
       _lastRefusal = null;
@@ -1148,7 +1150,10 @@ class _RasterDominanceCaptureScreenState
         suspend,
         'suspendNonEssentialTimelineStreams',
       );
-      if (!mounted) return;
+      // An app that went inactive (Control Center) while the suspension was
+      // pending has already stopped the attempt; it ends here, before its
+      // scenario begins.
+      if (!mounted || _stop != null) return;
       if (!narrowed) {
         _say('[$label] the VM kept every timeline stream on; continuing');
       }
@@ -1203,6 +1208,7 @@ class _RasterDominanceCaptureScreenState
       if (!mounted || _stop != null) return;
       _frontTimer?.cancel();
       _endScenario(label: label);
+      _spanClosed = true;
       _stopTimings();
 
       final frames = List.of(_frames);

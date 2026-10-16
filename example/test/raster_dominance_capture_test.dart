@@ -833,6 +833,24 @@ void main() {
       expect(logged(tester, 'capture stashed: 3 dominant frames'), isTrue);
     });
 
+    testWidgets('going inactive while the suspension is pending ends the '
+        'attempt before its scenario begins', (tester) async {
+      final calls = _FakeCalls()..suspendGate = Completer<bool>();
+      await open(tester, calls);
+      await tapLeg(tester, RasterLeg.at);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      calls.suspendGate!.complete(true);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(logged(tester, 'UNMEASURED: the app left the foreground'), isTrue);
+      expect(calls.log, ['suspend', 'suspend landed', 'resume']);
+    });
+
     testWidgets('closing the screen while the suspension is unanswered '
         'restores the streams after it lands', (tester) async {
       final calls = _FakeCalls()..suspendGate = Completer<bool>();
