@@ -1,0 +1,5468 @@
+{
+  "traceEvents": [
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 28675,
+      "args": {
+        "name": "FlutterConcurrentMessageLoopWorker (28675)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 34563,
+      "args": {
+        "name": "DartWorker (34563)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 259,
+      "args": {
+        "name": "io.flutter.1.ui (259)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 31747,
+      "args": {
+        "name": "io.flutter.1.raster (31747)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 27139,
+      "args": {
+        "name": "DartWorker (27139)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 34311,
+      "args": {
+        "name": "DartWorker (34311)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 26883,
+      "args": {
+        "name": "FlutterConcurrentMessageLoopWorker (26883)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 25347,
+      "args": {
+        "name": "io.flutter.1.profiler (25347)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 23555,
+      "args": {
+        "name": "io.flutter.1.io (23555)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 43283,
+      "args": {
+        "name": "DartWorker (43283)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 28931,
+      "args": {
+        "name": "FlutterConcurrentMessageLoopWorker (28931)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 8083,
+      "tid": 36463,
+      "args": {
+        "name": "DartWorker (36463)",
+        "mode": "basic"
+      }
+    },
+    {
+      "name": "Scavenge",
+      "cat": "GC",
+      "tid": 27139,
+      "pid": 8083,
+      "ts": 463224520813,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateStoreBuffers",
+      "cat": "GC",
+      "tid": 27139,
+      "pid": 8083,
+      "ts": 463224520815,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateStoreBuffers",
+      "cat": "GC",
+      "tid": 27139,
+      "pid": 8083,
+      "ts": 463224520848,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateRememberedCards",
+      "cat": "GC",
+      "tid": 27139,
+      "pid": 8083,
+      "ts": 463224520848,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateRememberedCards",
+      "cat": "GC",
+      "tid": 27139,
+      "pid": 8083,
+      "ts": 463224520852,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Scavenge",
+      "cat": "GC",
+      "tid": 27139,
+      "pid": 8083,
+      "ts": 463224522417,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "GPUSurfaceMetalImpeller::AcquireFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224516983,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceMTL::WrapCurrentMetalLayerDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224516990,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "WaitForNextDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224516991,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "WaitForNextDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518918,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "SurfaceMTL::WrapCurrentMetalLayerDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518918,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "GPUSurfaceMetalImpeller::AcquireFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518932,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CompositorContext::ScopedFrame::Raster",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518934,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Preroll",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518942,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Preroll",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518950,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Paint",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518950,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Paint",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518963,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CompositorContext::ScopedFrame::Raster",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518963,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::SubmitFlutterView",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518963,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::SubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224518984,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Submit",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224519035,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Encode",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224519035,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::BuildDisplayList",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224519035,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::BuildDisplayList",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224519037,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CreateGlyphAtlas",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224519892,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "BulkUpdateAtlasBitmap",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224520627,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "BulkUpdateAtlasBitmap",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224525863,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CreateGlyphAtlas",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224525897,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "AllocatorMTL",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527483,
+      "ph": "C",
+      "args": {
+        "MemoryBudgetUsageMB": "4.000004"
+      }
+    },
+    {
+      "name": "SurfaceFrame::Encode",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527486,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Submit",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527539,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::SubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527540,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::DidSubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527543,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::DidSubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527543,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::SubmitFlutterView",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527543,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Rasterizer::DrawToSurfaces",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527559,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "SceneDisplayLag",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527545,
+      "ph": "b",
+      "id": "3",
+      "args": {
+        "frame_target_time": "463224516890458",
+        "current_frame_target_time": "463224536172375",
+        "vsync_transitions_missed": "1"
+      }
+    },
+    {
+      "name": "SceneDisplayLag",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224536172,
+      "ph": "e",
+      "id": "3",
+      "args": {
+        "frame_target_time": "463224516890458",
+        "current_frame_target_time": "463224536172375",
+        "vsync_transitions_missed": "1"
+      }
+    },
+    {
+      "name": "Rasterizer::DoDraw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527572,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527573,
+      "ph": "f",
+      "bp": "e",
+      "id": "1",
+      "args": {}
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527574,
+      "ph": "e",
+      "id": "1",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::EndFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527574,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::EndFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527575,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "GPURasterizer::Draw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527575,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "GPURasterizer::Draw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527619,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "Rasterizer::DoDraw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527620,
+      "ph": "B",
+      "args": {
+        "frame_number": "3"
+      }
+    },
+    {
+      "name": "Rasterizer::DrawToSurfaces",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527620,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "GPUSurfaceMetalImpeller::AcquireFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527624,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceMTL::WrapCurrentMetalLayerDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527627,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "WaitForNextDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224527627,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "WaitForNextDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528881,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "SurfaceMTL::WrapCurrentMetalLayerDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528881,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "GPUSurfaceMetalImpeller::AcquireFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528886,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CompositorContext::ScopedFrame::Raster",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528887,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Preroll",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528900,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Preroll",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528908,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Paint",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528908,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Paint",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528919,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CompositorContext::ScopedFrame::Raster",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528919,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::SubmitFlutterView",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528919,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::SubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528920,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Submit",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528930,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Encode",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528930,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "CpuUsage",
+      "cat": "Embedder",
+      "tid": 25347,
+      "pid": 8083,
+      "ts": 463224602355,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "total_cpu_usage": "28.000000",
+        "num_threads": "19"
+      }
+    },
+    {
+      "name": "sleuth.scenario.begin",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224516979,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "name": "slow_startup_ttff_critical_above",
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517089,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517090,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517110,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleHandler",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517157,
+      "ph": "b",
+      "id": "5",
+      "args": {
+        "channel": "flutter/platform",
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Warm-up frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517166,
+      "ph": "e",
+      "id": "3c1956862e6bed8",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Lock events",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517167,
+      "ph": "e",
+      "id": "3c1956862e6bed9",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PlatformChannel ScheduleHandler",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517325,
+      "ph": "e",
+      "id": "3",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleResult",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517325,
+      "ph": "b",
+      "id": "5",
+      "args": {
+        "channel": "flutter/platform"
+      }
+    },
+    {
+      "name": "PlatformChannel ScheduleHandler",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517380,
+      "ph": "e",
+      "id": "4",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleResult",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517380,
+      "ph": "b",
+      "id": "6",
+      "args": {
+        "channel": "flutter/platform"
+      }
+    },
+    {
+      "name": "PlatformChannel ScheduleHandler",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517409,
+      "ph": "e",
+      "id": "5",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleResult",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224517410,
+      "ph": "b",
+      "id": "7",
+      "args": {
+        "channel": "flutter/platform"
+      }
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519218,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519251,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519298,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519310,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleResult",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519785,
+      "ph": "e",
+      "id": "3",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleResult",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519795,
+      "ph": "e",
+      "id": "4",
+      "args": {}
+    },
+    {
+      "name": "AsyncWaitForVsync",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519801,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "AsyncWaitForVsync",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519826,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleResult",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519830,
+      "ph": "e",
+      "id": "5",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleResult",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519869,
+      "ph": "e",
+      "id": "6",
+      "args": {}
+    },
+    {
+      "name": "PlatformChannel ScheduleResult",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519879,
+      "ph": "e",
+      "id": "7",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::PerformResize",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519888,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::PerformResize",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519890,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformVsync",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519923,
+      "ph": "B",
+      "args": {
+        "frame_start_time": "436907034142",
+        "frame_target_time": "436907050845"
+      }
+    },
+    {
+      "name": "PlatformVsync",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519924,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "VsyncFireCallback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519926,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "VsyncFlow",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519926,
+      "ph": "s",
+      "id": "2",
+      "args": {}
+    },
+    {
+      "name": "VsyncFireCallback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224519934,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "VsyncProcessCallback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520166,
+      "ph": "B",
+      "args": {
+        "StartTime": "463224519505709",
+        "TargetTime": "463224536172375"
+      }
+    },
+    {
+      "name": "Frame Request Pending",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520167,
+      "ph": "e",
+      "id": "2",
+      "args": {}
+    },
+    {
+      "name": "Animator::BeginFrame",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520170,
+      "ph": "B",
+      "args": {
+        "frame_number": "3"
+      }
+    },
+    {
+      "name": "Pipeline Depth",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520171,
+      "ph": "C",
+      "args": {
+        "frames in flight": "2"
+      }
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520171,
+      "ph": "b",
+      "id": "2",
+      "args": {}
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520171,
+      "ph": "s",
+      "id": "2",
+      "args": {}
+    },
+    {
+      "name": "PipelineProduce",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520172,
+      "ph": "b",
+      "id": "2",
+      "args": {}
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520181,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520182,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520185,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520188,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520189,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520190,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520190,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520191,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520192,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520192,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520192,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520193,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520194,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520194,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520194,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520195,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animator::Render",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520215,
+      "ph": "B",
+      "args": {
+        "frame_number": "3",
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animator::Render",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520216,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PipelineProduce",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520217,
+      "ph": "e",
+      "id": "2",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520217,
+      "ph": "t",
+      "id": "2",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520222,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520223,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520224,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520225,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520225,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520225,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animator::BeginFrame",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520226,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "VsyncFlow",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520226,
+      "ph": "f",
+      "bp": "e",
+      "id": "2",
+      "args": {}
+    },
+    {
+      "name": "VsyncProcessCallback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520228,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520231,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520239,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520347,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520351,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520504,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520517,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520626,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520629,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Frame Request Pending",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520712,
+      "ph": "b",
+      "id": "3",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "AsyncWaitForVsync",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520739,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "AsyncWaitForVsync",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520744,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "NotifyIdle",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520745,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "RSS",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520746,
+      "ph": "C",
+      "args": {
+        "value": "88850432"
+      }
+    },
+    {
+      "name": "CollectNewGeneration",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520754,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Prologue",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520754,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Prologue",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520755,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Scavenge",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520759,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateIsolateRoots",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520760,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateIsolateRoots",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520907,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateStoreBuffers",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520907,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateStoreBuffers",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520907,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateRememberedCards",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520907,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "IterateRememberedCards",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224520908,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "MournWeakHandles",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522394,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "MournWeakHandles",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522410,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "MournWeakTables",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522410,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "MournWeakTables",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522412,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Scavenge",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522414,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Epilogue",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522425,
+      "ph": "B",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Epilogue",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522432,
+      "ph": "E",
+      "args": {
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "RSS",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522432,
+      "ph": "C",
+      "args": {
+        "value": "89980928"
+      }
+    },
+    {
+      "name": "CollectNewGeneration",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522442,
+      "ph": "E",
+      "args": {
+        "Reason": "idle",
+        "Before.New.Used (kB)": "1995",
+        "After.New.Used (kB)": "872",
+        "Before.Old.Used (kB)": "14633",
+        "After.Old.Used (kB)": "15419",
+        "Before.New.Capacity (kB)": "2048",
+        "After.New.Capacity (kB)": "1536",
+        "Before.Old.Capacity (kB)": "14928",
+        "After.Old.Capacity (kB)": "15952",
+        "Before.New.External (kB)": "5",
+        "After.New.External (kB)": "3",
+        "Before.Old.External (kB)": "0",
+        "After.Old.External (kB)": "1",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "NotifyIdle",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522499,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522612,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224522624,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224523131,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224523168,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224523497,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224523511,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224523806,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224523816,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224524246,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224524249,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224524605,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224524611,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224524941,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224524943,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224525268,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224525274,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224525699,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224525705,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224525756,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224525760,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224525877,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224525879,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526167,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526186,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526447,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526451,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526595,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526603,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526726,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526728,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526825,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224526829,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224527082,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224527089,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Rasterized first useful frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224528259,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PlatformViewsController::PerformResize",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224529011,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::PerformResize",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224529015,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformVsync",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536467,
+      "ph": "B",
+      "args": {
+        "frame_start_time": "436907050845",
+        "frame_target_time": "436907067548"
+      }
+    },
+    {
+      "name": "PlatformVsync",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536468,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "VsyncFireCallback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536471,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "VsyncFlow",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536471,
+      "ph": "s",
+      "id": "4",
+      "args": {}
+    },
+    {
+      "name": "VsyncFireCallback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536482,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "VsyncProcessCallback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536658,
+      "ph": "B",
+      "args": {
+        "StartTime": "463224536209041",
+        "TargetTime": "463224552875707"
+      }
+    },
+    {
+      "name": "Frame Request Pending",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536660,
+      "ph": "e",
+      "id": "3",
+      "args": {}
+    },
+    {
+      "name": "Animator::BeginFrame",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536660,
+      "ph": "B",
+      "args": {
+        "frame_number": "4"
+      }
+    },
+    {
+      "name": "Pipeline Depth",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536661,
+      "ph": "C",
+      "args": {
+        "frames in flight": "1"
+      }
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536662,
+      "ph": "b",
+      "id": "3",
+      "args": {}
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536662,
+      "ph": "s",
+      "id": "3",
+      "args": {}
+    },
+    {
+      "name": "PipelineProduce",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536662,
+      "ph": "b",
+      "id": "3",
+      "args": {}
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536685,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536688,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536692,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536697,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536881,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536882,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224536883,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537397,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537397,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537398,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537399,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "SurfaceFrame::BuildDisplayList",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528930,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::BuildDisplayList",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224528933,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CreateGlyphAtlas",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529071,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "CreateGlyphAtlas",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529096,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "AllocatorMTL",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529273,
+      "ph": "C",
+      "args": {
+        "MemoryBudgetUsageMB": "4.000004"
+      }
+    },
+    {
+      "name": "SurfaceFrame::Encode",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529278,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Submit",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529310,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::SubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529311,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::DidSubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529312,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::DidSubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529312,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::SubmitFlutterView",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529312,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Rasterizer::DrawToSurfaces",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529316,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Rasterizer::DoDraw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529319,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529319,
+      "ph": "f",
+      "bp": "e",
+      "id": "2",
+      "args": {}
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529319,
+      "ph": "e",
+      "id": "2",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::EndFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529319,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::EndFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529320,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "GPURasterizer::Draw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224529320,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "GPURasterizer::Draw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224537554,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "Rasterizer::DoDraw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224537555,
+      "ph": "B",
+      "args": {
+        "frame_number": "4"
+      }
+    },
+    {
+      "name": "Rasterizer::DrawToSurfaces",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224537555,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "GPUSurfaceMetalImpeller::AcquireFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224537558,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceMTL::WrapCurrentMetalLayerDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224537560,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "WaitForNextDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224537560,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "WaitForNextDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550610,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "SurfaceMTL::WrapCurrentMetalLayerDrawable",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550610,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "GPUSurfaceMetalImpeller::AcquireFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550617,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CompositorContext::ScopedFrame::Raster",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550618,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Preroll",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550625,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Preroll",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550629,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Paint",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550629,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "LayerTree::Paint",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550637,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CompositorContext::ScopedFrame::Raster",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550637,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::SubmitFlutterView",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550637,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::SubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550637,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Submit",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550647,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Encode",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550647,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::BuildDisplayList",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550647,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::BuildDisplayList",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550648,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CreateGlyphAtlas",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550711,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "AppendToExistingAtlas",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550774,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "AppendToExistingAtlas",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550780,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "UpdateAtlasBitmap",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550793,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "UpdateAtlasBitmap",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224550994,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "CreateGlyphAtlas",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551007,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "AllocatorMTL",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551302,
+      "ph": "C",
+      "args": {
+        "MemoryBudgetUsageMB": "4.000004"
+      }
+    },
+    {
+      "name": "SurfaceFrame::Encode",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551304,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "SurfaceFrame::Submit",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551311,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::SubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551311,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::DidSubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551312,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::DidSubmitFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551312,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::SubmitFlutterView",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551312,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Rasterizer::DrawToSurfaces",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551314,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Rasterizer::DoDraw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551315,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551316,
+      "ph": "f",
+      "bp": "e",
+      "id": "3",
+      "args": {}
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551316,
+      "ph": "e",
+      "id": "3",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::EndFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551316,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "IOSExternalViewEmbedder::EndFrame",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551316,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "GPURasterizer::Draw",
+      "cat": "Embedder",
+      "tid": 31747,
+      "pid": 8083,
+      "ts": 463224551316,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537405,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537406,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537407,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537407,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537490,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537491,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537491,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animator::Render",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537510,
+      "ph": "B",
+      "args": {
+        "frame_number": "4",
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animator::Render",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537512,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PipelineProduce",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537513,
+      "ph": "e",
+      "id": "3",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PipelineItem",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537514,
+      "ph": "t",
+      "id": "3",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537528,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537529,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537533,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537534,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537535,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537536,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animator::BeginFrame",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537537,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "VsyncFlow",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537537,
+      "ph": "f",
+      "bp": "e",
+      "id": "4",
+      "args": {}
+    },
+    {
+      "name": "VsyncProcessCallback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224537540,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::PerformResize",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224550714,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "PlatformViewsController::PerformResize",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224550716,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "BeginFrame idle callback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224571785,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "NotifyIdle",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224571788,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "NotifyIdle",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224571790,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BeginFrame idle callback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224571791,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224578246,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224578268,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "BeginFrame idle callback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224589629,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "NotifyIdle",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224589630,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "NotifyIdle",
+      "cat": "GC",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224589631,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BeginFrame idle callback",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224589631,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224619352,
+      "ph": "B",
+      "args": {}
+    },
+    {
+      "name": "DartIsolate::HandleMessage",
+      "cat": "Embedder",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224619534,
+      "ph": "E",
+      "args": {}
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224635945,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224635947,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224635950,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224635952,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636026,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636028,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636029,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636255,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636256,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636257,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636258,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636259,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636259,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636260,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636261,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636350,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636351,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636352,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636386,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636387,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636389,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636391,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636392,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224636392,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786422,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786427,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786441,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786455,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786460,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786465,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "GPUTracer",
+      "cat": "Embedder",
+      "tid": 3843,
+      "pid": 8083,
+      "ts": 463224548696,
+      "ph": "C",
+      "args": {
+        "FrameTimeMS": "31.250000"
+      }
+    },
+    {
+      "name": "GPUTracer",
+      "cat": "Embedder",
+      "tid": 3843,
+      "pid": 8083,
+      "ts": 463224552661,
+      "ph": "C",
+      "args": {
+        "FrameTimeMS": "0.000000"
+      }
+    },
+    {
+      "name": "GPUTracer",
+      "cat": "Embedder",
+      "tid": 8963,
+      "pid": 8083,
+      "ts": 463224549410,
+      "ph": "C",
+      "args": {
+        "FrameTimeMS": "31.250000"
+      }
+    },
+    {
+      "name": "MemoryUsage",
+      "cat": "Embedder",
+      "tid": 25347,
+      "pid": 8083,
+      "ts": 463224602357,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "dirty_memory_usage": "130.157837",
+        "owned_shared_memory_usage": "-44.439087"
+      }
+    },
+    {
+      "name": "GpuUsage",
+      "cat": "Embedder",
+      "tid": 25347,
+      "pid": 8083,
+      "ts": 463224602362,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "gpu_usage": "51.000000"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786471,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786474,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786483,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786485,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786487,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786489,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786514,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786516,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786517,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786523,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786660,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786665,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786670,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786673,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786676,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224786678,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903285,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903290,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903301,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903307,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903514,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903523,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903529,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903531,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903532,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903538,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903541,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903544,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903546,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903548,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903553,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903555,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903557,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903560,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903706,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903709,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903713,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903720,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903745,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463224903750,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "sleuth.issue.heavy_compute.warning",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225045643,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "detectedAtMicros": "463224489086",
+        "observedDurationMs": "9.238",
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225053459,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225053461,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225053470,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225053473,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225053795,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225053797,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225053798,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054349,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054350,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054352,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054353,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054358,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054359,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054362,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054364,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054475,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054476,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054478,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054560,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054565,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054568,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054569,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054571,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225054572,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170384,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170391,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170397,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170406,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170517,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170520,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170535,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170536,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170537,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170539,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170540,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170541,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170542,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170544,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170545,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170546,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170547,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170551,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170720,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170724,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170729,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170732,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170734,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225170734,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543249,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543258,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543267,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543279,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543282,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543288,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543289,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543292,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543295,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543296,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543297,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543299,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543304,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543306,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543307,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543310,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543440,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543443,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543447,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225543450,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "sleuth.issue.slow_startup_ttff.critical",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225547474,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "detectedAtMicros": "1792157317454235",
+        "observedTtffMs": "4501.7",
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225547599,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225547600,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225554583,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225554586,
+      "ph": "b",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Animate",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225554590,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225554593,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "BUILD",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225554910,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225554912,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225554914,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555438,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "LAYOUT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555439,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555441,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555443,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555443,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "UPDATING COMPOSITING BITS (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555444,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555445,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555447,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555694,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "PAINT (root)",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555695,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555697,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "COMPOSITING",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555760,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555762,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "FINALIZE TREE",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555764,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555766,
+      "ph": "B",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "POST_FRAME",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555767,
+      "ph": "E",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "Frame",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225555768,
+      "ph": "e",
+      "id": "3c1956862e6bed6",
+      "args": {
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    },
+    {
+      "name": "sleuth.scenario.end",
+      "cat": "Dart",
+      "tid": 259,
+      "pid": 8083,
+      "ts": 463225646092,
+      "ph": "i",
+      "s": "p",
+      "args": {
+        "name": "slow_startup_ttff_critical_above",
+        "isolateId": "isolates/6693449141434731",
+        "isolateGroupId": "isolateGroups/628684314025493"
+      }
+    }
+  ],
+  "sleuthMetadata": {
+    "schemaVersion": "v1",
+    "device": "iPhone 12",
+    "deviceOsVersion": "iOS 17.5",
+    "flutterVersion": "3.47.6",
+    "captureCommand": "fvm flutter run --profile --no-dds -d \"iPhone 12\" --dart-define=SLEUTH_CAPTURE_MODE=true --dart-define=SLEUTH_CAPTURE_DEVICE=\"iPhone 12\", then printf slow_startup_ttff_critical_above > /tmp/sleuth_startup_leg_request.txt && xcrun devicectl device copy to --device <device> --domain-type appDataContainer --domain-identifier com.example.example --source /tmp/sleuth_startup_leg_request.txt --destination tmp/sleuth_startup_leg_request.txt && xcrun devicectl device process launch --device <device> --terminate-existing com.example.example",
+    "scenario": "slow_startup_ttff_critical_above",
+    "expectedMagnitude": {
+      "min": 3600.0,
+      "observed": 4501.051,
+      "max": 6000.0,
+      "unit": "ms"
+    },
+    "captureDate": "2026-10-16T13:28:38.376679Z",
+    "role": "above",
+    "captureNotes": "Cold launch through devicectl after a request file named slow_startup_ttff_critical_above; 4426 ms blocking delay between Sleuth.init and runApp. observed = first FrameTiming rasterFinishWallTime 1792157316437564 us - app wall-clock reading before Sleuth.init 1792157311936513 us = 4501.1 ms; detector ttffMs 4501.7 ms."
+  }
+}

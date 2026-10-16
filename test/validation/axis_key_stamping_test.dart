@@ -9,6 +9,7 @@
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/sleuth.dart' show Sleuth, StartupMetrics;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart';
@@ -18,6 +19,7 @@ import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
+import 'package:sleuth/src/detectors/startup_detector.dart';
 import 'package:sleuth/src/detectors/stream_resource_detector.dart';
 import 'package:sleuth/src/detectors/tracked_resource_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
@@ -367,6 +369,22 @@ _widgetRecipes = {
       );
       await decodeImages(tester);
       issues.addAll(rescanIssues(tester, detector));
+    }
+    return issues;
+  },
+  // One launch's metrics per severity: 1650 ms (warning) and 3300 ms
+  // (critical), the at legs of the two brackets.
+  DetectorType.startup: (tester) async {
+    addTearDown(Sleuth.resetStartupForTest);
+    final issues = <PerformanceIssue>[];
+    for (final ttffMs in [1650.0, 3300.0]) {
+      Sleuth.resetStartupForTest();
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(dartEntryTimestamp: DateTime.utc(2026), ttffMs: ttffMs),
+      );
+      final detector = StartupDetector();
+      addTearDown(detector.dispose);
+      issues.addAll(await scanAndIssues(tester, detector, const SizedBox()));
     }
     return issues;
   },

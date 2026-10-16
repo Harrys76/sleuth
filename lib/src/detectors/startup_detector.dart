@@ -254,9 +254,72 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
         'when ttffMs is null and when there are no StartupMetrics at all. '
         'A no-op second prepareScan pins the one-shot `_consumed` guard. '
         'The detector works only in `prepareScan` (its element methods are '
-        'no-ops). No reference cold-start profile capture verifies it at '
-        'runtime yet.',
+        'no-ops). A second group runs the real measurement: `Sleuth.init` '
+        'with a test clock and a first-frame timing report through '
+        '`onReportTimings`, at the 1500 and 3000 ms edges.\n\n'
+        'v0.38.0 raises `slow_startup_ttff` to runtimeVerified through '
+        '`perStableIdTier`, warning (1500 ms, canonical bracket) and '
+        'critical (3000 ms, `additionalBrackets[0]`), each on three iPhone '
+        '12 captures (iOS 17.5, Flutter 3.47.6). Each leg is a cold launch '
+        'that `xcrun devicectl` starts after copying a request file that '
+        'names the leg into the app container; the app blocks for the '
+        'leg\'s delay between '
+        '`Sleuth.init` and `runApp`. The app takes its own wall-clock '
+        'reading before `Sleuth.init` and exports the first frame\'s '
+        '`rasterFinishWallTime` minus that reading as the observed value. '
+        'That end point is the engine\'s raster finish, not the timing '
+        'report that ends the detector\'s measurement; the audit compares '
+        'the two within 1 % (the detector read 0.4 to 1.0 ms more on six '
+        'launches). A launch writes one record.',
     reproducerPath: 'test/validation/startup_reproducer_test.dart',
     coveredStableIds: {'slow_startup_ttff'},
+    perStableIdTier: {'slow_startup_ttff': EvidenceTier.runtimeVerified},
+    profileCapturePaths: [
+      'test/validation/captures/startup/slow_startup_ttff_below.json',
+      'test/validation/captures/startup/slow_startup_ttff_at.json',
+      'test/validation/captures/startup/slow_startup_ttff_above.json',
+    ],
+    // The warning fires at 1500 ms. The at band is [1500, 1800] ms and
+    // the above band (1800, 2850] ms. The above band ends below the
+    // 3000 ms critical line, where the detector records critical instead.
+    // The delay sets the time within a few ms, so the at band is narrower
+    // than the 0.5 the other brackets use.
+    bracketThreshold: 1500,
+    bracketUnit: 'ms',
+    bracketStableId: 'slow_startup_ttff',
+    bracketSeverityLabel: 'warning',
+    bracketAtTolerance: 0.2,
+    aboveCeilingMultiplier: 1.9,
+    observedAxisArgKey: 'observedTtffMs',
+    observedAxisTolerance: 0.01,
+    observedAxisReduction: 'max',
+    bracketRequireUniqueDetectedAtMicros: true,
+    coveredThresholds: {
+      'slow_startup_ttff.warning',
+      'slow_startup_ttff.critical',
+    },
+    additionalBrackets: [
+      // The critical fires at 3000 ms. The at band is [3000, 3600] ms and
+      // the above band (3600, 6000] ms.
+      BracketSpec(
+        stableId: 'slow_startup_ttff',
+        severityLabel: 'critical',
+        threshold: 3000,
+        unit: 'ms',
+        coveredThresholds: {'slow_startup_ttff.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/startup/slow_startup_ttff_critical_below.json',
+          'test/validation/captures/startup/slow_startup_ttff_critical_at.json',
+          'test/validation/captures/startup/slow_startup_ttff_critical_above.json',
+        ],
+        atTolerance: 0.2,
+        aboveCeilingMultiplier: 2.0,
+        observedAxisArgKey: 'observedTtffMs',
+        observedAxisTolerance: 0.01,
+        observedAxisReduction: 'max',
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+    ],
   );
 }
