@@ -87,8 +87,9 @@ list every change.
   critical, `sustained_jank` critical, `gc_pressure` warning,
   `uncached_images` warning and critical, `slow_startup_ttff` warning and
   critical, and `raster_dominance` warning and critical.
-- New Flutter 3.47.6 triads replace the `heap_growing` warning and
-  `platform_channel_traffic` warning captures.
+- New Flutter 3.47.6 triads replace the `jank_detected` warning captures
+  (recorded under the deadline rule), the `heap_growing` warning captures
+  and the `platform_channel_traffic` warning captures.
 
 ## 0.37.0
 

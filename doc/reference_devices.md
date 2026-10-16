@@ -7,7 +7,7 @@ later reader can clone the repo, boot the same hardware and Flutter
 version, and record a capture that passes the same schema. A looser
 policy would let a claim stand that nobody can reproduce.
 
-## Current matrix (v0.37.0)
+## Current matrix (v0.38.0)
 
 | Role | Device | SoC | OS | Flutter stable |
 |---|---|---|---|---|
@@ -30,13 +30,40 @@ A capture may use any member of `approvedFlutterMajorMinors`. The three
 legs of one bracket must share one exact `flutterVersion` (the bracket
 provenance check enforces this), so triads recorded on 3.41 stay valid
 next to triads recorded on 3.47. The `heavy_compute`, tracked
-resource and first three network monitor triads were recorded on
-3.41.4, the others on 3.47.6.
+resource and four earlier network monitor triads (`slow_request`
+warning and critical, `large_response`, `request_frequency`) come from
+3.41.4, the others from 3.47.6.
+
+## Android check device
+
+| Role | Device | SoC | OS | Refresh | Flutter |
+|---|---|---|---|---|---|
+| Android checks, not a capture pin | Samsung Galaxy A07 | MediaTek Helio G99 | Android 16 | 90 Hz | 3.47.6 (3.32.8 for the floor) |
+
+The Galaxy A07 is not in `approvedDevicePairs`, so no capture comes from
+it. Capture mode still requests the VM timeline every 500 ms, and on this
+phone each request held the raster thread for 30 to 48 ms, which left 1
+to 4 stray severe frames in every 240-frame window of a leg. The phone
+does three other jobs:
+
+- It checked the 0.38.0 raises in a normal build, where Sleuth reads the
+  timeline stream instead. A 3-frame `raster_dominance` run read a
+  warning of 4 frames, an 11-frame run read a critical of 11, and three
+  60 ms UI blocks raised one `sustained_jank` critical card.
+- Its recordings replay in tests: the 90 Hz raster frame sets under
+  `test/detectors/_fixtures/raster/`, the GC dumps under
+  `test/detectors/_fixtures/gc/`, the memory samples under
+  `test/detectors/_fixtures/native/`, and the Android timeline fixtures
+  under `test/vm/_fixtures/`.
+- It runs the demo walk (`tool/demo_walk.dart`). The walk found that
+  `native_memory_growing` read the one-time RSS jump of opening a demo
+  as growth, which 0.38.0 fixes.
 
 ## Android coverage gap
 
-The current matrix covers iOS only. Sleuth needs a real Android
-reference device to validate `runtimeVerified` raises that depend on
+The capture matrix covers iOS only. The Galaxy A07 checks detector
+behaviour on Android but backs no tier claim. Sleuth needs an Android
+capture reference to validate `runtimeVerified` raises that depend on
 Android-specific signal sources:
 
 - Shader compilation timing (Skia warmup behaviour differs from iOS Metal)

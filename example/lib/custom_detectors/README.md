@@ -66,5 +66,5 @@ Start at the top of this list and stop at the first "yes":
   `vmConnected` setter.
 - [`SimpleStructuralDetector`](../../../lib/src/models/simple_structural_detector.dart)
   is the helper that file 01 uses.
-- [`lib/src/detectors/`](../../../lib/src/detectors/) holds the 20
+- [`lib/src/detectors/`](../../../lib/src/detectors/) holds the 21
   built-in detectors, each a production reference implementation.
