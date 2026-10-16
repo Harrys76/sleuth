@@ -99,14 +99,19 @@ final Map<DetectorType, Future<List<PerformanceIssue>> Function()> _recipes = {
           .issues,
   ],
   DetectorType.platformChannel: () async {
-    var now = DateTime(2026);
-    final d = PlatformChannelDetector(clock: () => now)
-      ..processTimelineData(
-        platformChannelData(channelEventCount: 25, durUs: 2000),
-      );
-    now = now.add(const Duration(seconds: 2));
-    d.processTimelineData(emptyTimelineData());
-    return d.issues;
+    // One detector per severity: 25 calls is a warning, 45 critical.
+    final issues = <PerformanceIssue>[];
+    for (final calls in [25, 45]) {
+      var now = DateTime(2026);
+      final d = PlatformChannelDetector(clock: () => now)
+        ..processTimelineData(
+          platformChannelData(channelEventCount: calls, durUs: 2000),
+        );
+      now = now.add(const Duration(seconds: 2));
+      d.processTimelineData(emptyTimelineData());
+      issues.addAll(d.issues);
+    }
+    return issues;
   },
   DetectorType.frameTiming: () async {
     final d = FrameTimingDetector(warmupDuration: Duration.zero);
@@ -173,13 +178,14 @@ final Map<DetectorType, Future<List<PerformanceIssue>> Function()> _recipes = {
     final now = DateTime(2026);
     RequestRecord record({
       String url = 'https://example.com/api',
+      int statusCode = 200,
       int durationMs = 100,
       int responseBytes = 1024,
       DateTime? startedAt,
     }) => RequestRecord(
       url: url,
       method: 'GET',
-      statusCode: 200,
+      statusCode: statusCode,
       durationMs: durationMs,
       responseBytes: responseBytes,
       startedAt: startedAt ?? now,
@@ -200,8 +206,35 @@ final Map<DetectorType, Future<List<PerformanceIssue>> Function()> _recipes = {
         ),
       );
     }
+    final errors = NetworkMonitorDetector(clock: () => now);
+    for (var i = 0; i < 3; i++) {
+      errors.processRecord(
+        record(
+          url: 'http://127.0.0.1/err?seq=$i',
+          statusCode: 500,
+          startedAt: now.add(Duration(milliseconds: i * 700)),
+        ),
+      );
+    }
+    final samePath = NetworkMonitorDetector(clock: () => now);
+    for (var i = 0; i < 3; i++) {
+      samePath.processRecord(
+        record(
+          url: 'http://127.0.0.1/same?seq=$i',
+          startedAt: now.add(Duration(milliseconds: i * 50)),
+        ),
+      );
+    }
     return [
-      for (final d in [slowWarning, slowCritical, large, frequent]) ...d.issues,
+      for (final d in [
+        slowWarning,
+        slowCritical,
+        large,
+        frequent,
+        errors,
+        samePath,
+      ])
+        ...d.issues,
     ];
   },
   DetectorType.trackedResource: () async {

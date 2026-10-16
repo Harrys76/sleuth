@@ -68,7 +68,12 @@ class NetworkMonitorCaptureScreen extends StatefulWidget {
 enum _CaptureMode {
   slowRequest('slow_request', 'Slow request (ms)'),
   largeResponse('large_response', 'Large response (bytes)'),
-  requestFrequency('request_frequency', 'Request frequency (events/5s)');
+  requestFrequency('request_frequency', 'Request frequency (events/5s)'),
+  httpErrorSpike('http_error_spike', 'HTTP error spike (errors/5s)'),
+  highFrequencySamePath(
+    'high_frequency_same_path',
+    'Same-path requests (GETs/500 ms)',
+  );
 
   const _CaptureMode(this.stableId, this.label);
 
@@ -225,9 +230,13 @@ class _NetworkMonitorCaptureScreenState
                 int.tryParse(req.uri.queryParameters['delay'] ?? '') ?? 0;
             final bytes =
                 int.tryParse(req.uri.queryParameters['bytes'] ?? '') ?? 0;
+            final status = int.tryParse(
+              req.uri.queryParameters['status'] ?? '',
+            );
             if (delayMs > 0) {
               await Future<void>.delayed(Duration(milliseconds: delayMs));
             }
+            if (status != null) req.response.statusCode = status;
             req.response.headers.contentType = ContentType.json;
             if (bytes > 0) {
               // Pad the JSON envelope toward the requested `bytes`
@@ -715,6 +724,137 @@ class _NetworkMonitorCaptureScreenState
     }
   }
 
+  /// Runs one leg of the two count families. It sends [requestCount] GETs
+  /// to one path, [spacingMs] apart by start time. `http_error_spike` legs ask the
+  /// server for status 500; `high_frequency_same_path` legs get 200. The
+  /// exported magnitude is the detector's peak (largest 5 s error window
+  /// or 500 ms same-path cluster), which it holds below the threshold
+  /// too, so a below leg has a measured value.
+  Future<void> _runCountCapture({
+    required _CaptureMode mode,
+    required String label,
+    required int requestCount,
+    required int spacingMs,
+  }) async {
+    final server = _server;
+    final client = _client;
+    if (server == null || client == null || _busy) return;
+    final bracket = _preflight(label, mode, 'warning');
+    if (bracket == null) return;
+    final errors = mode == _CaptureMode.httpErrorSpike;
+    final path = errors ? 'err' : 'same';
+    setState(() {
+      _busy = true;
+      _resetLastLeg();
+      _log.add(
+        '[$label] scenario.begin, then $requestCount GET /$path '
+        '${spacingMs}ms apart${errors ? ' (status 500)' : ''}',
+      );
+    });
+
+    final scenarioName = '${mode.stableId}_$label';
+    Sleuth.suspendNonEssentialTimelineStreams();
+    Sleuth.markScenarioBegin(scenarioName);
+    _inFlightScenarioName = scenarioName;
+    final messenger = ScaffoldMessenger.of(context);
+    final scenarioStart = DateTime.now();
+    try {
+      final futures = <Future<void>>[];
+      for (var i = 0; i < requestCount; i++) {
+        if (i > 0) {
+          await Future<void>.delayed(Duration(milliseconds: spacingMs));
+        }
+        futures.add(() async {
+          final uri = Uri.parse(
+            'http://127.0.0.1:${server.port}/$path?seq=$i'
+            '${errors ? '&status=500' : ''}',
+          );
+          final req = await client.getUrl(uri);
+          final resp = await req.close();
+          // Use `await for`, not `.drain()`; the monitor emits the record
+          // when the monitored stream completes.
+          await for (final _ in resp) {}
+        }());
+      }
+      await Future.wait(futures);
+
+      // Dwell so a timeline dispatch records the issue inside the span.
+      // On a static screen the tick dispatches on data or a 1 s
+      // heartbeat, so 1.6 s holds at least one after the last response.
+      // The VM-poll barrier follows, as in the request_frequency legs.
+      await Future<void>.delayed(const Duration(milliseconds: 1600));
+      final monitor = Sleuth.networkMonitor;
+      if (monitor == null) {
+        _endScenarioOnce(scenarioName);
+        Sleuth.resumeAllTimelineStreams();
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _log.add('[$label] FAILED: Sleuth.networkMonitor is null.');
+        });
+        return;
+      }
+      final int observed;
+      if (errors) {
+        monitor.flushErrorSpikeEvaluation();
+        observed = monitor.lastObservedErrorCount;
+      } else {
+        monitor.flushSamePathEvaluation();
+        observed = monitor.lastObservedSamePathCluster;
+      }
+      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
+      _endScenarioOnce(scenarioName);
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      Sleuth.resumeAllTimelineStreams();
+
+      if (!mounted) return;
+      if (!_acceptMeasurement(
+        label,
+        observed,
+        role: label,
+        bracket: bracket,
+        what: errors ? 'detector error peak' : 'detector cluster size',
+        unit: 'events',
+        messenger: messenger,
+      )) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _lastCompletedLeg = label;
+        _lastCompletedMode = mode;
+        _lastCompletedBracket = bracket;
+        _lastObservedCount = observed;
+        _log.add(
+          '[$label] scenario.end (detector read $observed of $requestCount '
+          'sent across '
+          '${DateTime.now().difference(scenarioStart).inMilliseconds}ms). '
+          'Tap "Export last leg" to write the wrapped capture.',
+        );
+      });
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('$label OK (detector $observed). Tap Export now.'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e, st) {
+      _endScenarioOnce(scenarioName);
+      Sleuth.resumeAllTimelineStreams();
+      developer.log(
+        '[sleuth.capture] FAILED $label: $e',
+        name: 'sleuth.capture',
+        error: e,
+        stackTrace: st,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _log.add('[$label] FAILED: $e');
+      });
+    }
+  }
+
   /// Composes the wrapped capture JSON for the most recent completed
   /// leg and copies it to the iOS clipboard. Operator pastes into
   /// Notes / Mail / AirDrop note → sends to Mac → saves under
@@ -773,6 +913,14 @@ class _NetworkMonitorCaptureScreenState
           return;
         }
         magnitude = (math.max(1, count - 2), count, count + 2, 'events');
+      case _CaptureMode.httpErrorSpike:
+      case _CaptureMode.highFrequencySamePath:
+        final count = _lastObservedCount;
+        if (count == null) {
+          setState(() => _log.add('Export: missing ${mode.stableId} count.'));
+          return;
+        }
+        magnitude = (math.max(1, count - 1), count, count + 1, 'events');
     }
 
     setState(() {
@@ -1012,6 +1160,14 @@ class _NetworkMonitorCaptureScreenState
             'sliding window). At-band [30, 45] (atTolerance 0.50 '
             'absorbs iOS scheduling jitter on Dart HttpClient). '
             'Above-ceiling 60 (2.0×). No critical tier.';
+      case _CaptureMode.httpErrorSpike:
+        return 'http_error_spike WARNING tier (3 or more errors in 5 s). '
+            'The loopback server answers 500. At-band [3, 4.5], above '
+            'ceiling 7.5, under the 10-error critical.';
+      case _CaptureMode.highFrequencySamePath:
+        return 'high_frequency_same_path WARNING tier (3 or more GETs to '
+            'one path in 500 ms). At-band [3, 4.5], above ceiling 7.5, '
+            'under the 10-request critical.';
     }
   }
 
@@ -1120,6 +1276,34 @@ class _NetworkMonitorCaptureScreenState
             onTap: () =>
                 _runRequestFrequencyCapture(label: 'above', requestCount: 52),
           ),
+        ];
+      case _CaptureMode.httpErrorSpike:
+      case _CaptureMode.highFrequencySamePath:
+        final mode = _mode;
+        final errors = mode == _CaptureMode.httpErrorSpike;
+        // Errors 700 ms apart stay inside one 5 s window and never form
+        // a 500 ms same-path cluster; same-path GETs 50 ms apart do.
+        final spacingMs = errors ? 700 : 50;
+        final what = errors ? 'errors' : 'GETs';
+        Widget leg(String label, int count, String subtitle) => _CaptureButton(
+          label:
+              '${label[0].toUpperCase()}${label.substring(1)} '
+              '($count $what), ${label == 'below' ? 'passes' : 'warning'}',
+          subtitle: subtitle,
+          enabled: ready && !_busy,
+          onTap: () => _runCountCapture(
+            mode: mode,
+            label: label,
+            requestCount: count,
+            spacingMs: spacingMs,
+          ),
+        );
+        return [
+          leg('below', 2, 'Under the threshold of 3; detector silent'),
+          const SizedBox(height: 8),
+          leg('at', 3, 'In [3, 4.5] at-band'),
+          const SizedBox(height: 8),
+          leg('above', 6, 'In (4.5, 7.5] above-band; under critical 10'),
         ];
     }
   }

@@ -1370,4 +1370,135 @@ void main() {
       );
     }, tags: ['benchmark']);
   });
+
+  group('NetworkMonitorDetector capture stamps', () {
+    late NetworkMonitorDetector detector;
+    late DateTime fakeNow;
+
+    setUp(() {
+      fakeNow = DateTime(2026, 1, 1);
+      detector = NetworkMonitorDetector(clock: () => fakeNow);
+    });
+
+    tearDown(() => detector.dispose());
+
+    PerformanceIssue errorSpike() =>
+        detector.issues.singleWhere((i) => i.stableId == 'http_error_spike');
+
+    PerformanceIssue samePath() => detector.issues.singleWhere(
+      (i) => i.stableId?.startsWith('high_frequency_same_path:') == true,
+    );
+
+    test('http_error_spike stamps the error count and an identity from '
+        'detectedAt', () {
+      for (var i = 0; i < 3; i++) {
+        detector.processRecord(
+          makeRecord(
+            statusCode: 500,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 700)),
+          ),
+        );
+      }
+      final issue = errorSpike();
+      expect(issue.extraTraceArgs, {'observedErrorCount': '3'});
+      expect(
+        issue.dedupIdentityMicros,
+        issue.detectedAt!.microsecondsSinceEpoch,
+      );
+    });
+
+    test('errors that finish out of start order count in one window', () {
+      // The first error to finish started 6 s after the other three.
+      for (final ms in [6000, 0, 100, 200]) {
+        detector.processRecord(
+          makeRecord(
+            statusCode: 500,
+            startedAt: fakeNow.add(Duration(milliseconds: ms)),
+          ),
+        );
+      }
+      expect(errorSpike().extraTraceArgs?['observedErrorCount'], '3');
+      expect(detector.lastObservedErrorCount, 3);
+    });
+
+    test('high_frequency_same_path routes capture records to the bare '
+        'family and stamps the cluster size', () {
+      for (var i = 0; i < 3; i++) {
+        detector.processRecord(
+          makeRecord(
+            url: 'http://127.0.0.1:51234/same?seq=$i',
+            startedAt: fakeNow.add(Duration(milliseconds: i * 50)),
+          ),
+        );
+      }
+      final issue = samePath();
+      expect(issue.captureTraceStableId, 'high_frequency_same_path');
+      expect(issue.extraTraceArgs, {'observedClusterSize': '3'});
+      expect(
+        issue.dedupIdentityMicros,
+        issue.detectedAt!.microsecondsSinceEpoch,
+      );
+    });
+
+    test('the peak getters read below the thresholds after a flush', () {
+      for (var i = 0; i < 2; i++) {
+        detector.processRecord(
+          makeRecord(
+            url: 'https://example.com/err?seq=$i',
+            statusCode: 500,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 700)),
+          ),
+        );
+        detector.processRecord(
+          makeRecord(
+            url: 'https://example.com/same?seq=$i',
+            startedAt: fakeNow.add(Duration(milliseconds: 3000 + i * 50)),
+          ),
+        );
+      }
+      detector
+        ..flushErrorSpikeEvaluation()
+        ..flushSamePathEvaluation();
+      expect(
+        detector.issues.where((i) => i.stableId == 'http_error_spike'),
+        isEmpty,
+      );
+      expect(detector.lastObservedErrorCount, 2);
+      expect(detector.lastObservedSamePathCluster, 2);
+
+      for (var i = 2; i < 6; i++) {
+        detector.processRecord(
+          makeRecord(
+            url: 'https://example.com/same?seq=$i',
+            startedAt: fakeNow.add(Duration(milliseconds: 3000 + i * 50)),
+          ),
+        );
+      }
+      detector.flushSamePathEvaluation();
+      expect(detector.lastObservedSamePathCluster, 6);
+
+      detector.clearRecords();
+      expect(detector.lastObservedErrorCount, 0);
+      expect(detector.lastObservedSamePathCluster, 0);
+    });
+
+    test('two evaluations at one clock reading get identities 1 us apart', () {
+      for (var i = 0; i < 3; i++) {
+        detector.processRecord(
+          makeRecord(
+            statusCode: 500,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+          ),
+        );
+      }
+      final first = errorSpike().dedupIdentityMicros!;
+      detector.processRecord(
+        makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(const Duration(milliseconds: 300)),
+        ),
+      );
+      expect(errorSpike().dedupIdentityMicros, first + 1);
+    });
+  });
 }

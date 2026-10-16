@@ -7,6 +7,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/src/detectors/platform_channel_detector.dart';
+import 'package:sleuth/src/detectors/repaint_detector.dart';
 
 import 'package:example/demos/capture_driver.dart';
 
@@ -1071,6 +1073,35 @@ void main() {
       );
       expect(read(network, 'large_response').threshold, 1048576);
       expect(read(network, 'request_frequency').bandText('at'), '[30, 45]');
+
+      // The count families fire at 3 and turn critical at 10, so the
+      // above band stops at 7.5.
+      for (final id in ['http_error_spike', 'high_frequency_same_path']) {
+        final bracket = read(network, id);
+        expect(bracket.bandText('below'), '(0, 3)', reason: id);
+        expect(bracket.bandText('at'), '[3, 4.5]', reason: id);
+        expect(bracket.bandText('above'), '(4.5, 7.5]', reason: id);
+        expect(bracket.observedAxisTolerance, 0.10, reason: id);
+      }
+      expect(read(network, 'http_error_spike').argKey, 'observedErrorCount');
+      expect(
+        read(network, 'high_frequency_same_path').argKey,
+        'observedClusterSize',
+      );
+
+      final channel = read(
+        PlatformChannelDetector(),
+        'platform_channel_traffic',
+        'critical',
+      );
+      expect(channel.bandText('at'), '[40, 60]');
+      expect(channel.bandText('above'), '(60, 100]');
+      expect(channel.argKey, 'observedCount');
+
+      final repaint = read(RepaintDetector(), 'excessive_repaint', 'critical');
+      expect(repaint.bandText('at'), '[30, 45]');
+      expect(repaint.aboveCeiling, closeTo(81, 1e-9));
+      expect(repaint.requiredInBand, 2);
     });
   });
 }

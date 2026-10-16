@@ -8,14 +8,15 @@ import 'package:sleuth/sleuth.dart';
 
 import 'capture_driver.dart';
 
-/// Capture helper for the v0.19.4 `runtimeVerified` raise on
-/// `PlatformChannelDetector.platform_channel_traffic` **WARNING tier**
-/// (frequency axis only — `> 20` calls per 1 s evaluation window).
+/// Capture helper for the `runtimeVerified` brackets on
+/// `PlatformChannelDetector.platform_channel_traffic`: the warning tier
+/// (more than 20 calls in a 1 s span) and the critical tier (more than
+/// 40), frequency axis only.
 ///
 /// **VM-service connection required.** Same constraint as the other
 /// runtimeVerified capture screens: SleuthController's VmServiceClient
 /// must be connected (VM+ overlay) so `_recordIssuesForCapture` lands
-/// the `sleuth.issue.platform_channel_traffic.warning` trace event
+/// the `sleuth.issue.platform_channel_traffic.<tier>` trace event
 /// inside the scenario span. Sleuth connects to the app's own VM service
 /// from inside the app, so USB and wireless both work. `flutter run`
 /// starts DDS by default, and DDS keeps the VM service as its only
@@ -52,19 +53,20 @@ import 'capture_driver.dart';
 ///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
 ///   2. Wait ≥ 3 s after app launch (lets VM service connection settle
 ///      and the parser's per-tid cursor map initialize).
-///   3. Tap a leg (Below / At / Above). Workload runs ≥ 1.5 s of
+///   3. Tap a leg (Below / At / Above, warning or critical). Workload runs ≥ 1.5 s of
 ///      `MethodChannel.invokeMethod('ping')` calls in parallel batches
 ///      followed by a 2.5 s dwell, then `markScenarioEnd`.
 ///   4. Wait for "ready to Export" log line.
 ///   5. Tap **Export last leg**. The wrapped capture JSON is parsed
 ///      to verify EXACTLY ONE
-///      `sleuth.issue.platform_channel_traffic.warning` trace record
+///      `sleuth.issue.platform_channel_traffic.<tier>` trace record
 ///      exists inside the scenario span (zero for below, exactly one
 ///      for at / above; two means the cooldown failed and is a
 ///      capture-quality failure that aborts export). On success, JSON
 ///      is copied to the iOS clipboard.
 ///   6. Paste into Notes / Mail / AirDrop, save as
-///      `platform_channel_traffic_${leg}.json` under
+///      the leg's scenario name (`platform_channel_traffic_<role>.json`
+///      or `platform_channel_traffic_critical_<role>.json`) under
 ///      `test/validation/captures/platform_channel/`.
 ///
 /// **Bands enforced by this screen** (tied to the schema settings the
@@ -124,6 +126,15 @@ const _warningThresholdCallsPerSec = 20;
 const _belowTargetCps = 15;
 const _atTargetCps = 25;
 const _aboveTargetCps = 35;
+
+// Critical-tier rates. Critical fires above 40 calls (strict):
+//
+//   below band (no critical record, warning fires)  30/sec
+//   at    band (detector in [41, 60])               50/sec
+//   above band (detector in [61, 100])              90/sec
+const _criticalBelowTargetCps = 30;
+const _criticalAtTargetCps = 50;
+const _criticalAboveTargetCps = 90;
 
 // The call phase runs longer than 1 s, so the detector's busiest 1 s span
 // holds a full second of calls.
@@ -285,7 +296,7 @@ class _PlatformChannelCaptureScreenState
     try {
       if (!mounted) return;
 
-      Sleuth.markScenarioBegin('platform_channel_traffic_${leg.label}');
+      Sleuth.markScenarioBegin(leg.scenario);
 
       final sw = Stopwatch()..start();
       final intervalUs = 1000000 ~/ leg.targetCps;
@@ -325,7 +336,7 @@ class _PlatformChannelCaptureScreenState
       );
       if (!mounted) return;
 
-      Sleuth.markScenarioEnd('platform_channel_traffic_${leg.label}');
+      Sleuth.markScenarioEnd(leg.scenario);
 
       // Post-end barrier before exportCaptureJson: VM service buffer
       // needs to flush the just-emitted scenario.end marker before
@@ -354,8 +365,8 @@ class _PlatformChannelCaptureScreenState
         // Checked when the leg started; this is a safety net.
         final provenance = requireCaptureProvenance();
         stashed = await Sleuth.exportCaptureJson(
-          scenario: 'platform_channel_traffic_${leg.label}',
-          role: leg.label,
+          scenario: leg.scenario,
+          role: leg.role,
           // Schema requires magnitudeMin > 0. Below leg's cpsMin is
           // 1 (not 0) by construction so no clamp needed.
           magnitudeMin: leg.cpsMin.toDouble(),
@@ -372,6 +383,10 @@ class _PlatformChannelCaptureScreenState
           // post-process step replaces the placeholder with detector
           // count.
           magnitudeSourceEventName: '',
+          // Refuse at export when the span holds the wrong records for
+          // the leg's tier (none below, at least one at and above).
+          bracketStableId: 'platform_channel_traffic',
+          bracketSeverityLabel: leg.tier,
           // The observed value is the detector's count; the notes keep the
           // send rate so a later check can compare the two.
           captureNotes:
@@ -403,13 +418,13 @@ class _PlatformChannelCaptureScreenState
           } on StateError catch (e) {
             rewriteError = e.message;
           }
-        } else if (leg == _ChannelLeg.below) {
+        } else if (leg.isBelow) {
           rewrittenJson = stashed;
         }
       }
 
       bool inBand;
-      if (leg == _ChannelLeg.below) {
+      if (leg.isBelow) {
         inBand = leg.isCpsInBand(operatorCps);
       } else {
         inBand = detectorCps != null && leg.isCpsInBand(detectorCps);
@@ -417,7 +432,7 @@ class _PlatformChannelCaptureScreenState
 
       if (!mounted) return;
       final marker = inBand ? '✓ IN-BAND' : '✗ OUT-OF-BAND';
-      final reportedCps = leg == _ChannelLeg.below
+      final reportedCps = leg.isBelow
           ? operatorCps
           : (detectorCps ?? operatorCps);
       // A leg is offered for export only with an in-band value and a
@@ -440,7 +455,7 @@ class _PlatformChannelCaptureScreenState
           '($totalCallsSent sent over '
           '${(callPhaseElapsedMs / 1000).toStringAsFixed(2)} s, '
           '$callFailures failures; role-band uses '
-          '${leg == _ChannelLeg.below ? 'operator' : 'detector'}: '
+          '${leg.isBelow ? 'operator' : 'detector'}: '
           '[${leg.cpsMin}, ${leg.cpsMax}] calls/sec)',
         );
         if (stashedJson != null) {
@@ -469,10 +484,10 @@ class _PlatformChannelCaptureScreenState
               'up the retry budget so the same failure does not repeat. '
               'Restart the screen after fixing.',
             );
-          } else if (leg != _ChannelLeg.below && detectorCps == null) {
+          } else if (!leg.isBelow && detectorCps == null) {
             _log.add(
               '[${leg.label}] capture has no detector count arg in any '
-              'in-span platform_channel_traffic.warning event. Detector '
+              'in-span ${leg.eventName} event. Detector '
               'did not fire in scenario span. Likely cause: parser '
               'dropped channel events because '
               'debugProfilePlatformChannels was not enabled. Re-tap.',
@@ -504,7 +519,7 @@ class _PlatformChannelCaptureScreenState
 
   /// Reads the wrapped capture JSON stashed by `_runLeg` immediately
   /// after `markScenarioEnd`, parses it to verify the expected
-  /// `sleuth.issue.platform_channel_traffic.warning` trace-record
+  /// `sleuth.issue.platform_channel_traffic.<tier>` trace-record
   /// count inside the scenario span (zero for below; exactly one for
   /// at / above), and copies it to the iOS clipboard.
   Future<void> _exportLastLeg() async {
@@ -561,7 +576,7 @@ class _PlatformChannelCaptureScreenState
         _log.add(
           '[${leg.label}] Paste it into Notes, Mail or an AirDrop note '
           'and send it to the Mac. Save the pasted JSON as '
-          'platform_channel_traffic_${leg.label}.json under '
+          '${leg.scenario}.json under '
           'test/validation/captures/platform_channel/.',
         );
       });
@@ -583,7 +598,7 @@ class _PlatformChannelCaptureScreenState
   }
 
   /// Validates that the exported capture JSON contains the expected
-  /// number of `sleuth.issue.platform_channel_traffic.warning` trace
+  /// number of `sleuth.issue.platform_channel_traffic.<tier>` trace
   /// events: zero for `below`, exactly one for `at` / `above`.
   /// Returns null on success or a human-readable failure reason.
   String? _validateTraceRecords(String json, _ChannelLeg leg) {
@@ -601,7 +616,7 @@ class _PlatformChannelCaptureScreenState
 
     int? scenarioBeginTs;
     int? scenarioEndTs;
-    final scenarioName = 'platform_channel_traffic_${leg.label}';
+    final scenarioName = leg.scenario;
     for (final raw in traceEvents) {
       if (raw is! Map<String, dynamic>) continue;
       final name = raw['name'];
@@ -631,7 +646,7 @@ class _PlatformChannelCaptureScreenState
     }
 
     var trafficCount = 0;
-    const trafficEventName = 'sleuth.issue.platform_channel_traffic.warning';
+    final trafficEventName = leg.eventName;
     final inSpanRecords = <Map<String, dynamic>>[];
     for (final raw in traceEvents) {
       if (raw is! Map<String, dynamic>) continue;
@@ -644,7 +659,7 @@ class _PlatformChannelCaptureScreenState
       inSpanRecords.add(raw);
     }
 
-    final expected = leg == _ChannelLeg.below ? 0 : 1;
+    final expected = leg.isBelow ? 0 : 1;
     if (trafficCount != expected) {
       final cause = trafficCount == 0
           ? 'Detector did not fire. Likely causes: (1) The parser '
@@ -718,7 +733,7 @@ class _PlatformChannelCaptureScreenState
   }
 
   /// Walks the wrapped capture's `traceEvents` for in-span
-  /// `sleuth.issue.platform_channel_traffic.warning` events and returns
+  /// `sleuth.issue.platform_channel_traffic.<tier>` events and returns
   /// the maximum `args.observedCount` value the detector stamped during
   /// the scenario. Returns null when the detector did not fire (below
   /// leg) or the arg is missing/unparseable. Reduction `'max'` matches
@@ -732,7 +747,7 @@ class _PlatformChannelCaptureScreenState
     }
     final traceEvents = wrapped['traceEvents'];
     if (traceEvents is! List) return null;
-    final scenarioName = 'platform_channel_traffic_${leg.label}';
+    final scenarioName = leg.scenario;
     int? beginTs;
     int? endTs;
     for (final raw in traceEvents) {
@@ -759,7 +774,7 @@ class _PlatformChannelCaptureScreenState
       if (name == 'sleuth.scenario.end') endTs = ts.toInt();
     }
     if (beginTs == null || endTs == null) return null;
-    const eventName = 'sleuth.issue.platform_channel_traffic.warning';
+    final eventName = leg.eventName;
     double? max;
     for (final raw in traceEvents) {
       if (raw is! Map<String, dynamic>) continue;
@@ -839,13 +854,11 @@ class _PlatformChannelCaptureScreenState
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Records profile-mode captures for '
-              'platform_channel_traffic WARNING-tier bracketing '
-              '(20 calls/sec threshold, frequency axis only). '
-              'Above preset stays under any critical-tier collision '
-              '(critical = 41 calls/sec; above-band ceiling = 39). '
-              'See the class doc comment and doc/capture_procedure.md '
-              'for the full recording protocol.',
+              'Records profile-mode captures for platform_channel_traffic '
+              'brackets: warning above 20 calls/sec (warning legs stay '
+              'under the critical boundary of 41) and critical above 40 '
+              'calls/sec. See the class doc comment and '
+              'doc/capture_procedure.md for the full recording protocol.',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 16),
@@ -874,6 +887,27 @@ class _PlatformChannelCaptureScreenState
                   '(under critical=41)',
               enabled: ready,
               onTap: () => _runLeg(_ChannelLeg.above),
+            ),
+            const SizedBox(height: 16),
+            _CaptureButton(
+              label: 'Critical below ($_criticalBelowTargetCps calls/sec)',
+              subtitle: 'Warning fires; no critical record',
+              enabled: ready,
+              onTap: () => _runLeg(_ChannelLeg.criticalBelow),
+            ),
+            const SizedBox(height: 8),
+            _CaptureButton(
+              label: 'Critical at (op $_criticalAtTargetCps calls/sec)',
+              subtitle: 'Detector count must land in [41, 60]',
+              enabled: ready,
+              onTap: () => _runLeg(_ChannelLeg.criticalAt),
+            ),
+            const SizedBox(height: 8),
+            _CaptureButton(
+              label: 'Critical above (op $_criticalAboveTargetCps calls/sec)',
+              subtitle: 'Detector count must land in [61, 100]',
+              enabled: ready,
+              onTap: () => _runLeg(_ChannelLeg.criticalAbove),
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
@@ -913,8 +947,8 @@ class _PlatformChannelCaptureScreenState
 }
 
 enum _ChannelLeg {
-  // Bands match what ProfileCaptureSchema.validateBracket accepts when
-  // the detector's metadata declares `bracketAtTolerance: 0.50` and
+  // Warning bands match what ProfileCaptureSchema.validateBracket accepts
+  // when the metadata declares `bracketAtTolerance: 0.50` and
   // `aboveCeilingMultiplier: 1.95`:
   //   below:  1 ≤ calls/sec ≤ 19   (sub-threshold; detector silent.
   //                                  cpsMin = 1 because the schema
@@ -923,20 +957,77 @@ enum _ChannelLeg {
   //   above: 31 ≤ calls/sec ≤ 39   (above-ceiling 1.95×T = 39, kept
   //                                  strictly under the 41-call
   //                                  critical-escalation boundary).
-  below(label: 'below', targetCps: _belowTargetCps, cpsMin: 1, cpsMax: 19),
-  at(label: 'at', targetCps: _atTargetCps, cpsMin: 20, cpsMax: 30),
-  above(label: 'above', targetCps: _aboveTargetCps, cpsMin: 31, cpsMax: 39);
+  // Critical bands follow the critical bracket (threshold 40, strict,
+  // atTolerance 0.50, ceiling 2.5): below 1 to 40 with no critical
+  // record, at 41 to 60, above 61 to 100.
+  below(
+    tier: 'warning',
+    role: 'below',
+    targetCps: _belowTargetCps,
+    cpsMin: 1,
+    cpsMax: 19,
+  ),
+  at(
+    tier: 'warning',
+    role: 'at',
+    targetCps: _atTargetCps,
+    cpsMin: 20,
+    cpsMax: 30,
+  ),
+  above(
+    tier: 'warning',
+    role: 'above',
+    targetCps: _aboveTargetCps,
+    cpsMin: 31,
+    cpsMax: 39,
+  ),
+  criticalBelow(
+    tier: 'critical',
+    role: 'below',
+    targetCps: _criticalBelowTargetCps,
+    cpsMin: 1,
+    cpsMax: 40,
+  ),
+  criticalAt(
+    tier: 'critical',
+    role: 'at',
+    targetCps: _criticalAtTargetCps,
+    cpsMin: 41,
+    cpsMax: 60,
+  ),
+  criticalAbove(
+    tier: 'critical',
+    role: 'above',
+    targetCps: _criticalAboveTargetCps,
+    cpsMin: 61,
+    cpsMax: 100,
+  );
 
   const _ChannelLeg({
-    required this.label,
+    required this.tier,
+    required this.role,
     required this.targetCps,
     required this.cpsMin,
     required this.cpsMax,
   });
-  final String label;
+  final String tier;
+  final String role;
   final int targetCps;
   final int cpsMin;
   final int cpsMax;
+
+  /// The leg as the log names it.
+  String get label => tier == 'critical' ? 'critical $role' : role;
+
+  /// Scenario name, which is also the capture's file basename.
+  String get scenario => tier == 'critical'
+      ? 'platform_channel_traffic_critical_$role'
+      : 'platform_channel_traffic_$role';
+
+  /// Trace event the leg's tier records.
+  String get eventName => 'sleuth.issue.platform_channel_traffic.$tier';
+
+  bool get isBelow => role == 'below';
 
   bool isCpsInBand(double cps) => cps >= cpsMin && cps <= cpsMax;
 }

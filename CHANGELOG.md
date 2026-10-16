@@ -336,6 +336,34 @@
   its own message with no retry, and a pull at the cap keeps the loaded
   pages. The Memory Pressure demo fills its native buffers with random
   bytes, because iOS compresses zero pages and RSS did not grow.
+- Four more family-severity pairs are `runtimeVerified`, each backed by an
+  iPhone 12 capture triad on Flutter 3.47.6: `http_error_spike` warning
+  (2, 3 and 6 errors), `high_frequency_same_path` warning (2, 3 and 6
+  GETs to one path), `platform_channel_traffic` critical (30 calls per
+  second with no critical record, then 51 and 68) and `excessive_repaint`
+  critical (26.2, 31.8 and 53.6 % of UI-thread time). Nineteen pairs
+  across 14 stable ids are now `runtimeVerified`.
+- `http_error_spike` stamps `observedErrorCount` and
+  `high_frequency_same_path` stamps `observedClusterSize`, each with an
+  identity taken from its `detectedAt`. The same-path issue sets
+  `captureTraceStableId: 'high_frequency_same_path'`, because its id
+  hashes the host and port. `NetworkMonitorDetector.lastObservedErrorCount`
+  and `lastObservedSamePathCluster`, with `flushErrorSpikeEvaluation()` and
+  `flushSamePathEvaluation()`, hold the peak window and cluster below the
+  thresholds too. The error window sorts its records by start time. They
+  arrive in completion order, so an error that finished late could be
+  counted in one window with errors that started more than 5 s from it.
+- `DetectorMetadata.effectiveTierFor` reads a colon-parametric id, such as
+  `high_frequency_same_path:<fingerprint>` or
+  `tracked_resource_concurrent:<name>`, through its family's tier and
+  coverage.
+- Example: the network capture screen's loopback server answers a
+  requested status, and the screen gains error and same-path modes. The
+  platform channel screen gains critical legs at 30, 50 and 90 calls per
+  second. The repaint screen gains critical legs, which lay out long
+  wrapped texts and draw one per tile, because short texts left the paint
+  share near 30 % however many ran. `ext.sleuthDemo.captureLeg` accepts
+  repaint critical legs.
 
 ## 0.37.0
 

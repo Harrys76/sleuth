@@ -801,12 +801,14 @@ HeavyCompute and MemoryPressure in three ways:
      detector's `observedCount` and writes that count into
      `expectedMagnitude.observed`.
    - Tap **Export last leg**. The validator parses the stashed JSON,
-     checks the number of `sleuth.issue.platform_channel_traffic.warning`
+     checks the number of `sleuth.issue.platform_channel_traffic.<tier>`
      records inside the scenario span (0 for below, exactly 1 for at
      and above), and copies the JSON to the iOS clipboard when it
      passes.
 5. Paste the clipboard into Notes, Mail or AirDrop and send it to the
-   Mac. Save it as `platform_channel_traffic_${leg}.json` under
+   Mac. Save it under the leg's scenario name,
+   `platform_channel_traffic_<role>.json` or, for a critical leg,
+   `platform_channel_traffic_critical_<role>.json`, under
    `test/validation/captures/platform_channel/`.
 6. Repeat for all three legs. Each leg allows 5 attempts.
 
@@ -820,11 +822,23 @@ HeavyCompute and MemoryPressure in three ways:
   critical boundary, so the above leg cannot also bracket the critical
   tier.
 
+**Critical legs (v0.38.0: threshold 40, strict, `atTolerance` 0.50,
+`aboveCeilingMultiplier` 2.5).** The Critical buttons send 30, 50 and 90
+calls per second. The exported records and the export check use the
+`.critical` event name.
+
+- below: 1 to 40 calls/s. The warning fires; no critical record may sit
+  in the span.
+- at: 41 to 60 calls/s.
+- above: 61 to 100 calls/s. At 90 calls per second the sends are 11 ms
+  apart and the iPhone 12 delivered about 75 % of them (68), still
+  inside the band.
+
 **Rejected legs and exports:**
 
 - **The detector did not fire (count 0).** For the at and above legs
   this shows when the leg ends, as OUT-OF-BAND with "capture has no
-  detector count arg in any in-span platform_channel_traffic.warning
+  detector count arg in any in-span sleuth.issue.platform_channel_traffic.<tier>
   event". The likely cause is that the parser dropped the channel
   events because `debugProfilePlatformChannels` was off. The screen
   sets the flag in a try/finally, so only a manual change during the
@@ -1031,6 +1045,23 @@ export; re-run the leg.` instead of marking the leg complete. At the
 Export tap the composed JSON must pass the same record check as the
 other screens (`checkCaptureRecords`), or the screen logs
 `[<leg>] OUT-OF-BAND: <reason>. Nothing copied; re-run the leg.`
+
+**http_error_spike and high_frequency_same_path (v0.38.0).** Two more
+modes in the mode menu record the count families at warning (threshold
+3, both fire at 3 or more and turn critical at 10). The error legs ask
+the loopback server for `status=500` and send 2, 3 and 6 requests 700 ms
+apart, inside one 5 s window and never three within 500 ms. The
+same-path legs send 2, 3 and 6 GETs to `/same?seq=i` 50 ms apart; the
+detector strips the query, so they form one cluster. Each leg exports
+the detector's peak, `lastObservedErrorCount` after
+`flushErrorSpikeEvaluation()` or `lastObservedSamePathCluster` after
+`flushSamePathEvaluation()`, which the detector computes below the
+threshold too, so a below leg of 2 reads 2. A leg dwells 1.6 s after its
+last response before the flush. In capture mode the timeline tick
+records issues only when it dispatches, on data or on a 1 s heartbeat,
+and a 200 ms dwell let the at leg's issue land after the span closed.
+Bands: below (0, 3), at [3, 4.5], above (4.5, 7.5]. Save the captures as
+`http_error_spike_<role>.json` and `high_frequency_same_path_<role>.json`.
 
 ## StreamResource stream_resource_growth capture (v0.26.0)
 
@@ -1344,8 +1375,8 @@ fvm flutter test test/validation/detector_metadata_audit_test.dart \
 
 ## RebuildActivity and Repaint time-share captures (hands-free)
 
-`rebuild_activity` (warning and critical) and `excessive_repaint`
-(warning) bracket the share of UI-thread time spent inside BUILD and
+`rebuild_activity` and `excessive_repaint` (warning and critical each)
+bracket the share of UI-thread time spent inside BUILD and
 PAINT scopes (`unit: 'percent'`, arg keys `observedBuildPercent` and
 `observedPaintPercent`). Their capture screens vary the cost per frame,
 not the event count, and service extensions drive the legs instead of
@@ -1353,6 +1384,12 @@ taps. Record on a device and SDK the schema approves (today iPhone 12 /
 iOS 17.5 with Flutter 3.41.x or 3.47.x). Record the three legs of a
 bracket with one build, because the audit requires one exact
 `flutterVersion` across a triad.
+
+Repaint critical legs (0.8, 1.23 and 2.0 times 30 %) lay out a long text
+wrapped to the tile width per op and draw only the first text per tile.
+With short texts the paint share stopped near 30 % on the iPhone 12.
+Each short layout cost about 3 µs, so the 32 tiles took most of the
+paint time however many layouts ran.
 
 ### Launch
 
@@ -1412,7 +1449,7 @@ screens refuse the leg when it starts, before any workload, and log
 ### Per leg
 
 1. Call `ext.sleuthDemo.captureLeg` with `detector=rebuild|repaint`,
-   `tier=warning|critical` (repaint: `warning` only) and
+   `tier=warning|critical` and
    `leg=below|at|above`. It brings the capture screen to the front (it
    pops the routes above a covered one, or opens one when none is
    mounted) and returns `{started: true, leg: ...}` at once, or

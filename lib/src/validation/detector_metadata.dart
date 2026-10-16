@@ -565,13 +565,22 @@ class DetectorMetadata {
   /// [additionalBrackets] spec. Otherwise the result is the base [tier], or
   /// [EvidenceTier.reproducerOnly] when the base itself is runtimeVerified
   /// or above.
+  ///
+  /// A colon-parametric id (`high_frequency_same_path:<fingerprint>`,
+  /// `tracked_resource_concurrent:<name>`) with no entry of its own reads
+  /// its family's tier and coverage.
   EvidenceTier effectiveTierFor(String stableId, {String? severity}) {
-    final effective = perStableIdTier?[stableId] ?? tier;
+    final colon = stableId.indexOf(':');
+    final family =
+        colon > 0 && !(perStableIdTier?.containsKey(stableId) ?? false)
+        ? stableId.substring(0, colon)
+        : stableId;
+    final effective = perStableIdTier?[family] ?? tier;
     if (severity == null ||
         effective.index < EvidenceTier.runtimeVerified.index) {
       return effective;
     }
-    final key = '$stableId.$severity';
+    final key = '$family.$severity';
     final covered =
         (coveredThresholds?.contains(key) ?? false) ||
         (additionalBrackets?.any((b) => b.coveredThresholds.contains(key)) ??
