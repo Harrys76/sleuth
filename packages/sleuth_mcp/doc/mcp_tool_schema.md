@@ -258,7 +258,7 @@ The tool returns the extension's `data` block with two keys the sidecar adds, pl
 | `sidecarBuiltAgainstSleuth` | String | yes | `sleuthPackageVersionPin` |
 | `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` or `disconnected`, or `basic` with `vmConnected: false`, which means the VM-only detectors are off. The `basic` text suggests reopening the app and names DDS as one possible cause. A `basic` session with `vmConnected: true` gets none. |
 
-Apps on sleuth 0.36 do not report the keys added in sleuth 0.37.0: `effectiveFrameRateHz`, `frameBudgetUs`, `frameRateSource`, and the `lastPoll*`, `maxPoll*`, `pollDuplicatesDropped` and `pollWindowFallbacks` timings. Apps before sleuth 0.38.0 do not report `eventLoopStallTimerStream`, `eventLoopStallExcused` and `eventLoopStallIgnored`.
+Apps on sleuth 0.36 do not report the keys added in sleuth 0.37.0: `effectiveFrameRateHz`, `frameBudgetUs`, `frameRateSource`, and the `lastPoll*`, `maxPoll*`, `pollDuplicatesDropped` and `pollWindowFallbacks` timings. Apps before sleuth 0.38.0 do not report `eventLoopStallTimerStream`, `eventLoopStallExcused`, `eventLoopStallIgnored`, `timelineSource`, `streamBlocks`, `streamEvents`, `streamEventsDropped`, `catchUpReads` and `lastStreamLagMs`.
 
 ## get_snapshot
 

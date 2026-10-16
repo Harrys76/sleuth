@@ -1292,11 +1292,11 @@ class IssueExplanationBuilder {
           'visual effects on lower-end devices.',
       whenToIgnore:
           'A short burst during a page transition or the first frames of a '
-          'heavy effect can be acceptable when the screen settles. On some '
-          'Android phones Sleuth\'s own VM timeline poll stalls the raster '
-          'thread about twice a second, so a warning from frames about '
-          '500 ms apart on an otherwise smooth screen can be Sleuth\'s '
-          'cost.',
+          'heavy effect can be acceptable when the screen settles. In '
+          'capture mode Sleuth requests the VM timeline every 500 ms, which '
+          'on some Android phones holds the raster thread for a frame each '
+          'time; outside capture mode it reads the timeline stream, which '
+          'does not.',
       relatedIssues: [
         'always_repaint_painter',
         'frequent_repaint_painter',

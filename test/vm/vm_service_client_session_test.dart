@@ -46,7 +46,40 @@ void main() {
 
       expect(await client.startSessionForTest(service), isTrue);
 
-      expect(service.calls, ['setVMTimelineFlags', 'getVM', 'streamListen:GC']);
+      // The Timeline stream comes before the poll loop's first read, so
+      // no block finishes between that read and the subscription.
+      expect(service.calls, [
+        'setVMTimelineFlags',
+        'getVM',
+        'streamListen:Timeline',
+        'streamListen:GC',
+      ]);
+      expect(client.timelineSource, TimelineSource.stream);
+      expect(client.isConnected, isTrue);
+    });
+
+    test('a client that does not stream never subscribes to the timeline '
+        'and polls', () async {
+      final service = FakeVmService();
+      final client = VmServiceClient(
+        ownIsolateIdResolver: () => 'isolates/1',
+        streamTimeline: false,
+      );
+      addTearDown(client.dispose);
+
+      expect(await client.startSessionForTest(service), isTrue);
+      expect(service.streamListenCalls, isNot(contains('Timeline')));
+      expect(client.timelineSource, TimelineSource.poll);
+    });
+
+    test('a VM that refuses the Timeline stream leaves the session '
+        'polling', () async {
+      final service = FakeVmService()
+        ..streamListenErrors['Timeline'] = RPCError('streamListen', 100, 'no');
+      final client = makeClient(resolver: () => 'isolates/1');
+
+      expect(await client.startSessionForTest(service), isTrue);
+      expect(client.timelineSource, TimelineSource.poll);
       expect(client.isConnected, isTrue);
     });
 

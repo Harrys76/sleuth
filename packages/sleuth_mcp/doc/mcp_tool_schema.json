@@ -375,6 +375,12 @@
         "eventLoopStallTimerStream": {"type": "bool", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
         "eventLoopStallExcused": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
         "eventLoopStallIgnored": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
+        "timelineSource": {"type": "String", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
+        "streamBlocks": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
+        "streamEvents": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
+        "streamEventsDropped": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
+        "catchUpReads": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
+        "lastStreamLagMs": {"type": "int", "required": false, "nullable": true, "presence": "app on sleuth 0.38.0 or later"},
         "sidecarVersion": {"type": "String", "required": true, "nullable": false},
         "sidecarBuiltAgainstSleuth": {"type": "String", "required": true, "nullable": false},
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup or disconnected, or basic with vmConnected false, which means the VM-only detectors are off; the basic text suggests reopening the app and names DDS as one possible cause. A basic session with vmConnected true gets none."}

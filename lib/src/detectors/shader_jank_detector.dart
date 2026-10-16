@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import '../../sleuth.dart' show Sleuth;
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
@@ -50,6 +52,13 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
   int _totalShaderEvents = 0;
   int _emptyPollsSinceLastShader = 0;
 
+  /// Build start times of the last [_buildMemoryBatches] batches that
+  /// held builds. A pipeline worker's shader events reach Sleuth when the
+  /// worker's timeline block fills or a catch-up read makes the VM post
+  /// it, often a batch after the build that asked for the pipeline.
+  final ListQueue<List<int>> _recentBuildBatches = ListQueue();
+  static const int _buildMemoryBatches = 20;
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -63,6 +72,7 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
 
+    _rememberBuilds(data);
     final shaderEvents = data.phaseEvents
         .where((e) => e.phase == TimelinePhase.shader)
         .toList(growable: false);
@@ -83,7 +93,7 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
       final ms = event.durationUs / 1000;
       if (ms >= thresholdMs) {
         final (hint, effort) = FixHintBuilder.shaderCompilation();
-        final context = _classifyShaderWarmup(event.timestampUs, data);
+        final context = _classifyShaderWarmup(event.timestampUs);
         _issues.add(
           PerformanceIssue(
             stableId: 'shader_compilation',
@@ -112,7 +122,7 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  String _classifyShaderWarmup(int shaderTsUs, ParsedTimelineData data) {
+  String _classifyShaderWarmup(int shaderTsUs) {
     final appStart = _appStartForTest?.call() ?? Sleuth.dartEntryMonotonicUs;
     // cold_start takes precedence over keyframe — lifecycle is more specific.
     if (appStart != null) {
@@ -126,30 +136,35 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
         return 'cold_start';
       }
     }
-    // One-sided keyframe window: build BEFORE shader (causal direction).
-    // Limitation: correlation only checks build events in the SAME
-    // poll batch. A causal build that lands in the previous poll's
-    // batch and a shader compile that lands in the next poll's batch
-    // are not correlated — those classify as `'hot_path'` instead of
-    // `'keyframe'`. Cross-poll correlation would require a sliding
-    // build-event window kept across `processTimelineData` calls; not
-    // implemented because typical poll batches (~500 ms) exceed the
-    // keyframe window (default 100 ms), so most causal pairs land in
-    // the same batch.
+    // The build must start before the shader compile, in this batch or an
+    // earlier one.
     final keyframeWindowUs = shaderKeyframeWindowMs * 1000;
-    final hasNearbyBuild = data.phaseEvents.any(
-      (e) =>
-          e.phase == TimelinePhase.build &&
-          shaderTsUs >= e.timestampUs &&
-          shaderTsUs - e.timestampUs < keyframeWindowUs,
+    final hasNearbyBuild = _recentBuildBatches.any(
+      (batch) => batch.any(
+        (buildUs) =>
+            shaderTsUs >= buildUs && shaderTsUs - buildUs < keyframeWindowUs,
+      ),
     );
     return hasNearbyBuild ? 'keyframe' : 'hot_path';
+  }
+
+  void _rememberBuilds(ParsedTimelineData data) {
+    final starts = <int>[
+      for (final e in data.phaseEvents)
+        if (e.phase == TimelinePhase.build) e.timestampUs,
+    ];
+    if (starts.isEmpty) return;
+    _recentBuildBatches.addLast(starts);
+    if (_recentBuildBatches.length > _buildMemoryBatches) {
+      _recentBuildBatches.removeFirst();
+    }
   }
 
   @override
   void dispose() {
     _issues.clear();
     _emptyPollsSinceLastShader = 0;
+    _recentBuildBatches.clear();
   }
 
   @override

@@ -387,6 +387,46 @@ void main() {
         );
       });
 
+      test('keyframe: the build came in an earlier batch than the shader '
+          'compile', () {
+        // A pipeline worker's events reach Sleuth when its timeline block
+        // is posted, a batch after the UI thread's build.
+        attrDetector.processTimelineData(
+          parseAndAssertShape(
+            [buildEvent(name: 'BUILD', ph: 'X', dur: 5000, ts: 9950000)],
+            (
+              buildEventCount: 1,
+              buildScopeCount: 1,
+              layoutCount: 0,
+              paintCount: 0,
+              rasterCount: 0,
+              shaderCount: 0,
+              channelCount: 0,
+              gcCount: 0,
+              phaseEventCount: 1,
+            ),
+          ),
+        );
+        attrDetector.processTimelineData(
+          parseAndAssertShape(pipelineBuild(dur: 150000, ts: 10000000), (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          )),
+        );
+        expect(attrDetector.issues, hasLength(1));
+        expect(
+          attrDetector.issues.first.extraTraceArgs?['shaderWarmupContext'],
+          'keyframe',
+        );
+      });
+
       test(
         'hot_path: shader event timestamp BEFORE app-start (negative delta)',
         () {

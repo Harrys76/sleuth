@@ -18,6 +18,9 @@ class ParsedTimelineData {
     this.duplicatesDropped = 0,
     this.maxTimestampUs = -1,
     this.uiThreadGaps = const [],
+    this.newestTsByTid = const {},
+    this.frameTids = const {},
+    this.rasterTids = const {},
   });
 
   /// Exact buildScope durations in microseconds.
@@ -72,7 +75,20 @@ class ParsedTimelineData {
   /// callback.
   /// A thread blocked outside Dart (the VM holding its timeline lock,
   /// native work) leaves such a gap inside a late frame's start delay.
+  /// With `frameThreadIdle`, a stretch that began in an earlier call ends
+  /// at this call's first event on the thread.
   final List<(int, int)> uiThreadGaps;
+
+  /// Newest `ts` per thread among the ordered events this call accepted
+  /// (async and flow events excluded).
+  final Map<int, int> newestTsByTid;
+
+  /// Threads that ran frames (`Animator::BeginFrame`) in this call, or
+  /// earlier calls that shared the same `frameThreadIdle` map.
+  final Set<int> frameTids;
+
+  /// Threads that recorded raster scopes in this call.
+  final Set<int> rasterTids;
 
   bool get hasData =>
       buildScopeDurations.isNotEmpty ||
@@ -547,6 +563,14 @@ class TimelineParser {
   /// [minTimestampUs] skips every event with a smaller `ts` (counted in
   /// [ParsedTimelineData.duplicatesDropped]); the poll loop sets it when
   /// it had to read the whole buffer instead of a window.
+  ///
+  /// [frameThreadIdle] carries the frame threads across calls. Its keys
+  /// are the threads seen running frames, its values the start of the
+  /// idle stretch open on the thread at the end of the previous call
+  /// (null while the thread was inside a scope). The parser then finds a
+  /// gap that spans two batches, or two stream blocks, and still measures
+  /// the frame thread in a batch without `Animator::BeginFrame`. Null
+  /// starts fresh on every call.
   static ParsedTimelineData parse(
     List<TimelineEvent> events, {
     Map<int, List<Map<String, dynamic>>>? pendingBuildBegins,
@@ -557,6 +581,7 @@ class TimelineParser {
     PendingChannelBegins? pendingChannelBegins,
     Map<int, TimelineCursor>? cursorsByTid,
     int minTimestampUs = 0,
+    Map<int, int?>? frameThreadIdle,
   }) {
     final buildScopes = <int>[];
     final layouts = <int>[];
@@ -591,7 +616,9 @@ class TimelineParser {
     // The (ts, ph, dur) of every event except PlatformVsync, per thread,
     // for uiThreadGaps. The frame threads are picked afterwards.
     final threadEvents = <int, List<(int, String, int)>>{};
-    final frameTids = <int>{};
+    final frameTids = <int>{...?frameThreadIdle?.keys};
+    final rasterTids = <int>{};
+    final newestTsByTid = <int, int>{};
     int? cachedTid;
     TimelineCursor? cachedCursor;
 
@@ -654,7 +681,11 @@ class TimelineParser {
           duplicates++;
           continue;
         }
-        if (ordered && ts > maxTs) maxTs = ts;
+        if (ordered) {
+          if (ts > maxTs) maxTs = ts;
+          final newestOnTid = newestTsByTid[tid];
+          if (newestOnTid == null || ts > newestOnTid) newestTsByTid[tid] = ts;
+        }
       }
 
       final name = json['name'] as String? ?? '';
@@ -667,6 +698,7 @@ class TimelineParser {
         final tid = rawTid is int ? rawTid : 0;
         (threadEvents[tid] ??= []).add((ts, ph, dur ?? 0));
         if (name == 'Animator::BeginFrame') frameTids.add(tid);
+        if (_rasterNames.contains(name)) rasterTids.add(tid);
       }
 
       // Complete duration events (ph == 'X') have a 'dur' field
@@ -952,9 +984,27 @@ class TimelineParser {
       duplicatesDropped: duplicates,
       maxTimestampUs: maxTs,
       uiThreadGaps: [
-        for (final tid in frameTids) ..._idleGaps(threadEvents[tid]!),
+        for (final tid in frameTids)
+          if (threadEvents[tid] case final events?)
+            ..._idleGapsCarried(tid, events, frameThreadIdle),
       ],
+      newestTsByTid: newestTsByTid,
+      frameTids: frameTids,
+      rasterTids: rasterTids,
     );
+  }
+
+  static List<(int, int)> _idleGapsCarried(
+    int tid,
+    List<(int, String, int)> events,
+    Map<int, int?>? frameThreadIdle,
+  ) {
+    final (gaps, idleAtEnd) = _idleGaps(
+      events,
+      idleFrom: frameThreadIdle?[tid],
+    );
+    frameThreadIdle?[tid] = idleAtEnd;
+    return gaps;
   }
 
   /// Shortest gap reported in [ParsedTimelineData.uiThreadGaps].
@@ -962,14 +1012,19 @@ class TimelineParser {
 
   /// The stretches between one thread's busy intervals: `B`/`E` pairs
   /// (nested pairs merge), `X` events with their `dur`, and other events
-  /// as points. Only gaps between two events of the batch count; an `E`
-  /// whose begin came in an earlier batch closes a stretch busy since the
-  /// batch's first event, so no gap before it counts.
-  static List<(int, int)> _idleGaps(List<(int, String, int)> events) {
+  /// as points, and the start of the stretch still idle at the end (null
+  /// when the thread ended inside a scope). [idleFrom] is that start from
+  /// the previous batch; without it only gaps between two events of the
+  /// batch count. An `E` whose begin came in an earlier batch closes a
+  /// stretch busy since the batch's first event, so no gap before it
+  /// counts.
+  static (List<(int, int)>, int?) _idleGaps(
+    List<(int, String, int)> events, {
+    int? idleFrom,
+  }) {
     events.sort((a, b) => a.$1.compareTo(b.$1));
     final gaps = <(int, int)>[];
     var depth = 0;
-    int? idleFrom;
     for (final (ts, ph, dur) in events) {
       if (depth == 0 && idleFrom != null && ts - idleFrom >= minIdleGapUs) {
         gaps.add((idleFrom, ts));
@@ -998,7 +1053,7 @@ class TimelineParser {
           }
       }
     }
-    return gaps;
+    return (gaps, depth == 0 ? idleFrom : null);
   }
 
   /// Extract engine-level startup timestamps and first-frame sub-phase
