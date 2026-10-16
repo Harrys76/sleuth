@@ -24,19 +24,20 @@ import 'capture_driver.dart';
 ///
 /// Each leg draws a prerecorded picture of [rasterLegPaths] stroked cubic
 /// paths on a run of consecutive frames. The raster thread tessellates the
-/// picture again on every frame it is shown, so each such frame costs the
-/// raster thread far more than the UI thread. The frame after the run
-/// hides the picture. It, or the next frame drawn within
-/// [rasterRunTailUs] of it, can still be dominant, because its raster time
-/// includes waiting for the GPU to finish the heavy frames, so those
-/// frames belong to the run ([inRasterRun]).
+/// picture again on every frame that shows it, so each such frame costs
+/// the raster thread far more than the UI thread. The frame after the run
+/// hides the picture. That frame, and the first frame drawn after it when
+/// it starts within [rasterRunTailUs], can still be dominant, because
+/// their raster time includes waiting for the GPU to finish the heavy
+/// frames. Both belong to the run ([inRasterRun]).
 ///
 /// The screen judges every frame of the span itself from its own
 /// `FrameTiming` listener with the detector's rule ([isRasterDominant]) and
 /// counts the dominant frames in the busiest one-second span
-/// ([busiestSpanCount]). A leg is exported only when no dominant frame
-/// falls outside the run, the count lands in the leg's band, and the most
-/// the detector stamped as `observedDominantFrames` equals the count.
+/// ([busiestSpanCount]). The screen exports a leg only when every heavy
+/// frame is dominant, no dominant frame falls outside the run, the count
+/// lands in the leg's band, and the most the detector stamped as
+/// `observedDominantFrames` equals the count.
 ///
 /// **Procedure per leg:**
 ///
@@ -110,9 +111,10 @@ const int rasterCaptureBudgetUs = 16667;
 /// to 80 ms a frame against under 6 ms of UI.
 const int rasterLegPaths = 700;
 
-/// How long after the hide frame's vsync a dominant frame still belongs to
-/// the run. On an iPhone 12 the frame drawn after the hide frame waited 50
-/// to 83 ms for the GPU (22 to 58 ms of raster against under 1 ms of UI).
+/// How long after the hide frame's vsync the next frame may start and still
+/// belong to the run. On an iPhone 12 the frame drawn after the hide frame
+/// waited 50 to 83 ms for the GPU (22 to 58 ms of raster against under
+/// 1 ms of UI).
 const int rasterRunTailUs = 250000;
 
 /// Cubic segments per path.
@@ -358,8 +360,8 @@ enum RasterLeg {
   String get buttonLabel => '$title: ${rasterFrameCount(heavyFrames, 'heavy')}';
 }
 
-/// The bracket [tier] is judged against, read from [metadata] (the
-/// detector's `validationMetadata`).
+/// The bracket a [tier] leg records, read from [metadata] (the detector's
+/// `validationMetadata`).
 CaptureBracket? rasterBracket(DetectorMetadata metadata, String tier) =>
     CaptureBracket.fromMetadata(
       metadata,
@@ -458,9 +460,8 @@ bool inRasterRun(
   }
   bool dominantFrame(RasterFrame f) =>
       isRasterDominant(uiUs: f.uiUs, rasterUs: f.rasterUs, budgetUs: budgetUs);
-  // Every heavy frame must be dominant, so the run, not a frame around it,
-  // sets the count: H heavy frames, plus at most the hide frame and the
-  // frame after it.
+  // Every heavy frame must be dominant, so the count is the H heavy frames
+  // plus at most the hide frame and the frame after it.
   for (final n in heavyFrames) {
     final f = frames.where((f) => f.number == n).firstOrNull;
     if (f == null) {
@@ -580,7 +581,7 @@ const TextStyle _monoStyle = TextStyle(
   fontFeatures: [FontFeature.tabularFigures()],
 );
 
-/// What a running attempt was stopped by.
+/// What stopped a running attempt.
 typedef _Stop = ({String verdict, String reason});
 
 class _RasterDominanceCaptureScreenState
@@ -771,8 +772,8 @@ class _RasterDominanceCaptureScreenState
     if (signal != null && !signal.isCompleted) signal.complete();
   }
 
-  /// Ends the attempt's open scenario once. A throw is logged, not
-  /// rethrown, so it cannot replace the attempt's outcome.
+  /// Ends the attempt's open scenario once. It logs a throw instead of
+  /// rethrowing it, so a throw cannot replace the attempt's outcome.
   void _endScenario({String label = '', bool log = true}) {
     final scenario = _openScenario;
     if (scenario == null) return;
@@ -812,7 +813,8 @@ class _RasterDominanceCaptureScreenState
       try {
         await pending.timeout(widget.timing.suspendWait);
       } catch (_) {
-        // Still unanswered: restore once more when it lands, then go on.
+        // The suspension is still unanswered. Restore once more when it
+        // lands, and go on.
         pending
             .then((_) => widget.calls.resumeStreams(), onError: (_) => false)
             .ignore();
@@ -1071,8 +1073,8 @@ class _RasterDominanceCaptureScreenState
       _refuse(refusal);
       return;
     }
-    // Read again at every tap, so a display switched to 60 Hz in Settings
-    // is picked up without reopening the screen.
+    // The leg reads the rate again at every tap, so it sees a display
+    // switched to 60 Hz in Settings without a reopen.
     _refreshRate = View.maybeOf(context)?.display.refreshRate ?? _refreshRate;
     if (!_refreshRateOk) {
       _refuse(
@@ -1137,8 +1139,8 @@ class _RasterDominanceCaptureScreenState
 
     var step = 'suspending the timeline streams';
     try {
-      // The flag is set before the call, because a suspension that times
-      // out may still land later.
+      // The leg sets the flag before the call, because a suspension that
+      // times out may still land later.
       _streamsSuspended = true;
       final suspend = widget.calls.suspendStreams();
       _pendingSuspend = suspend;
@@ -1157,8 +1159,9 @@ class _RasterDominanceCaptureScreenState
       if (!narrowed) {
         _say('[$label] the VM kept every timeline stream on; continuing');
       }
-      // Registered in the same synchronous block as markScenarioBegin, so
-      // the screen and the detector judge the same timing batches.
+      // The callback goes in the same synchronous block as
+      // markScenarioBegin, so the screen and the detector judge the same
+      // timing batches.
       _startTimings();
       widget.calls.markScenarioBegin(leg.scenario);
       _openScenario = leg.scenario;
@@ -1576,8 +1579,8 @@ class _RasterDominanceCaptureScreenState
     final capture = Sleuth.diagnoseCaptureState();
     final scheme = Theme.of(context).colorScheme;
     final evidenceStyle = _monoStyle.copyWith(fontSize: 12);
-    // The refresh rate is read again at each tap, so it does not disable
-    // the legs.
+    // The leg reads the refresh rate again at each tap, so the rate does
+    // not disable the legs.
     final ready = _captureModeOn && _provenance.provenance != null && !_busy;
     final rate = _refreshRate;
     final stamp = _provenance.provenance;

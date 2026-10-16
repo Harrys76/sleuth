@@ -1826,8 +1826,8 @@ The screen (`example/lib/demos/raster_dominance_capture_screen.dart`,
 tile "GpuPressure (raster_dominance)") draws a prerecorded picture of 700
 stroked cubic paths (60 segments each) in a 224 x 112 box on a chosen run
 of consecutive frames. The raster thread tessellates the picture on every
-frame it is shown, which cost 28 to 80 ms of raster against under 6 ms of
-UI on an iPhone 12. The screen judges every frame from its own
+frame that shows it; on an iPhone 12 each such frame cost 28 to 80 ms of
+raster against under 6 ms of UI. The screen judges every frame from its own
 `FrameTiming` listener with the detector's rule and counts the dominant
 frames in its busiest one-second span with the detector's loop.
 
@@ -1860,12 +1860,12 @@ exportCaptureJson(...)                           // observed = screen count
 Every heavy frame must be dominant. The frame that hides the picture,
 and the first frame drawn after it when it starts within 250 ms, belong
 to the run. Their raster time can include waiting for the GPU to finish
-the heavy frames: on the iPhone 12 the frame drawn after the hide frame
+the heavy frames. On the iPhone 12 the frame drawn after the hide frame
 read 22 to 58 ms of raster against under 1 ms of UI. A run of N heavy
 frames therefore gives N or N + 1 dominant frames, and each leg's N keeps
 both in its band. A dominant frame anywhere else in the span, including
-one after a light frame that follows the hide frame, refuses the leg
-instead of being subtracted. The capture notes record whether the hide
+one after a light frame that follows the hide frame, refuses the leg; the
+screen does not subtract it. The capture notes record whether the hide
 frame and the frame after it were dominant. The screen matches heavy
 frames to `FrameTiming.frameNumber` through
 `PlatformDispatcher.frameData.frameNumber`, read in a post-frame callback.
@@ -1878,15 +1878,15 @@ and 2.5 (at [10, 15], above (15, 25]). The 1 % `observedAxisTolerance`
 makes any count below 100 match exactly. A critical-bracket leg may hold
 warning records; the audit counts only records of the bracket's severity.
 
-The legs were recorded on an iPhone 12 (iOS 17.5, Flutter 3.47.6), each on
-its first attempt: warning below 1 (silent), at 3, above 6; critical
+The six legs ran on an iPhone 12 (iOS 17.5, Flutter 3.47.6), each passing
+on its first attempt: warning below 1 (silent), at 3, above 6; critical
 below 6 (a warning only), at 11, above 20 within 718 ms, which wrote 8
 and then 20 across two scans. No hide frame or frame after it was
 dominant in these legs. The screen bounds each attempt (run 5 s,
 hide timing 2 s, attempt 30 s) and allows 5 attempts per leg. An attempt
 ends UNMEASURED when the app leaves the foreground, another screen covers
-this one or the dashboard opens; once the span has closed, only leaving the app stops the
-export. A tap refused before an attempt starts shows its reason in the
+this one or the dashboard opens; once the span has closed, only leaving
+the app stops the export. A tap refused before an attempt starts shows its reason in the
 status line and in `ext.sleuthDemo.rasterState` (`lastRefusal`).
 `ext.sleuthDemo.rasterBurst frames=N paths=P budgetUs=B`
 draws a run outside a leg in any build and returns each frame's timing;
@@ -1900,10 +1900,10 @@ result for hands-free legs driven through `ext.sleuthDemo.tap` and
 ### The VM leg's ratio stays unbracketed
 
 The VM leg sets each raster frame against the UI time of an average frame
-in its poll. A bracket on that ratio would have no independent witness:
-`ProfileCaptureSchema._crossCheckTraceVsObserved` skips non-time units,
-and a ratio checked against a ratio the detector stamps would certify
-itself. The VM leg only raises a frame-leg issue to `confirmed`, and the
+in its poll. A bracket on that ratio would have no independent check,
+because `ProfileCaptureSchema._crossCheckTraceVsObserved` skips non-time
+units, and comparing a ratio with a ratio the detector stamps checks the
+detector against itself. The VM leg only raises a frame-leg issue to `confirmed`, and the
 capture legs narrow the timeline so their records stay `likely`.
 
 ## Required sleuthMetadata fields (v0.18.0)

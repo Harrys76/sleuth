@@ -951,7 +951,8 @@ void _registerDemoExtensions() {
   // Draws `frames=N` heavy frames of a `paths=P` picture on the foreground
   // raster_dominance capture screen, with no scenario and no export, and
   // returns each frame's timing and dominant flag at `budgetUs` (default
-  // 16667). Any build; used to calibrate the legs and on Android.
+  // 16667). It runs in any build, for calibrating the legs and for checks
+  // on Android.
   developer.registerExtension('ext.sleuthDemo.rasterBurst', (
     method,
     params,

@@ -651,8 +651,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         ),
       );
     } else if (vmAlone) {
-      // No extra trace args: this path counts frames in one poll, not in a
-      // one-second span, so it carries no `observedDominantFrames`.
+      // This path counts frames in one poll, not in a one-second span, so
+      // it stamps no extra trace args and no `observedDominantFrames`.
       final (hint, effort) = FixHintBuilder.rasterDominance();
       _issues.add(
         PerformanceIssue(
@@ -790,21 +790,22 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         'Runtime verification covers the frame leg of `raster_dominance` '
         '(warning at 3, critical at 10) on an iPhone 12 at 60 Hz with '
         'Impeller on Metal. A capture screen draws a prerecorded picture of '
-        '700 stroked paths on a chosen run of consecutive frames, which '
-        'cost the raster thread 28 to 80 ms each against under 6 ms of UI, '
-        'and counts the dominant frames in its busiest one-second span from '
-        'its own `FrameTiming` listener with the same rule. The issue '
-        'stamps that span count as `observedDominantFrames`, and the leg is '
-        'stashed only when the most the detector stamped equals the '
-        'screen\'s count. Every heavy frame must be dominant. The frame '
-        'that hides the picture, and the first frame drawn after it when it '
-        'starts within 250 ms, belong to the run, because their raster time '
-        'can include waiting for the GPU to finish the heavy frames; a '
-        'dominant frame anywhere else refuses the leg as ambient instead of '
-        'being subtracted. Warning below 1 dominant frame (silent), at 3, '
-        'above 6; critical below 6 (a warning only), at 11, above 20 within '
-        '718 ms; the detector matched the screen in every leg, and the '
-        'critical above leg wrote 8 and then 20 across two scans. '
+        '700 stroked paths on a chosen run of consecutive frames. Each such '
+        'frame cost the raster thread 28 to 80 ms against under 6 ms of UI. '
+        'The screen counts the dominant frames in its busiest one-second '
+        'span from its own `FrameTiming` listener with the same rule. The '
+        'issue stamps that span count as `observedDominantFrames`, and the '
+        'screen stashes a leg only when the most the detector stamped '
+        'equals the screen\'s count. Every heavy frame must be dominant. The '
+        'frame that hides the picture, and the first frame drawn after it '
+        'when it starts within 250 ms, belong to the run, because their '
+        'raster time can include waiting for the GPU to finish the heavy '
+        'frames. A dominant frame anywhere else refuses the leg as ambient; '
+        'the screen does not subtract it. The warning legs read 1 dominant '
+        'frame (silent), 3 and 6; the critical legs read 6 (a warning '
+        'only), 11 and 20 within 718 ms. The detector matched the screen in '
+        'every leg, and the critical above leg wrote 8 and then 20 across '
+        'two scans. '
         'The leg narrows the timeline to the Dart stream, so the VM leg '
         'sees no raster frames and the records are `likely`; the step to '
         '`confirmed` that the VM leg gives in other sessions is not part of '
@@ -827,7 +828,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     bracketAtTolerance: 0.5,
     aboveCeilingMultiplier: 3.0,
     observedAxisArgKey: 'observedDominantFrames',
-    // Relative, so any count below 100 must match exactly.
+    // The tolerance is relative, so any count below 100 must match exactly.
     observedAxisTolerance: 0.01,
     observedAxisReduction: 'max',
     bracketRequireUniqueDetectedAtMicros: true,

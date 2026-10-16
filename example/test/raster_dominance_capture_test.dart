@@ -444,7 +444,8 @@ void main() {
         ],
         bracket: _bracket('warning'),
       );
-      // Light heavy frames: the run did not draw what it should.
+      // The heavy frames are light, so the run did not draw what the leg
+      // needs.
       expect(wide.refusal!.verdict, 'UNMEASURED');
       expect(wide.refusal!.reason, contains('was not raster-dominant'));
       expect(wide.count, isNull);
