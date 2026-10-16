@@ -75,7 +75,7 @@ class _RecordingCalls extends CaptureLegCalls {
   /// 2 s limit.
   bool flushTimesOut = false;
 
-  /// Whether restoring the streams throws after it is logged.
+  /// Whether [resumeStreams] throws after it logs the call.
   bool resumeThrows = false;
 
   @override
@@ -323,7 +323,8 @@ void main() {
   group('leg lifecycle', () {
     // The test runs outside capture mode, without a VM link and without a
     // Sleuth instance, and the seams let a leg run anyway. The fake GC
-    // feed sends nothing, so a finished leg is refused as unmeasured.
+    // feed sends nothing, so the screen refuses a finished leg as
+    // unmeasured.
     late _FakeGcSource source;
     late _RecordingAllocator allocator;
 

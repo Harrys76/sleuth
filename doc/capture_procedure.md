@@ -1101,8 +1101,8 @@ space, and writes each batch's length to a field so the AOT compiler keeps
 the allocation. The status line shows the screen's count next to the
 detector's `gcWindowStats.young` once a second.
 
-The triad was recorded on an iPhone 12 (iOS 17.5, Flutter 3.47.6), each
-leg on its first attempt. The ambient young rate was 0 to 2.5 per 10 s.
+The triad comes from an iPhone 12 (iOS 17.5, Flutter 3.47.6), and each
+leg passed on its first attempt. The ambient young rate was 0 to 2.5 per 10 s.
 The screen peaks were 27 (below, silent), 53 and 84, and the detector's
 largest record equalled the screen peak in the at and above legs (32 and
 54 records). Set Auto-Lock to Never, because a leg takes about 30 s and
@@ -1142,12 +1142,12 @@ exportCaptureJson(...)                           // observed = computed waste
 └── checkCaptureJson; the last record measured one image
 ```
 
-Structural issues are recorded only by scans, about once a second, and a
-flush adds no record of its own. A 2.5 s dwell gave the critical at leg
+Only scans record structural issues, about once a second, and a flush
+adds no record of its own. A 2.5 s dwell gave the critical at leg
 one scan on two of three attempts, so the dwell is 3.5 s.
 
-The triads were recorded on an iPhone 12 (iOS 17.5, Flutter 3.47.6, pixel
-ratio 3.0), each leg on its first attempt with the 3.5 s dwell. Decode
+The triads come from an iPhone 12 (iOS 17.5, Flutter 3.47.6, pixel ratio
+3.0), and each leg passed on its first attempt with the 3.5 s dwell. Decode
 sides 390, 579 and 738 px gave 525,456 B (silent), 1,258,020 B and
 2,095,632 B; 1455, 2294 and 2900 px gave 8,385,156 B (a warning only),
 20,966,800 B and 33,557,056 B. The detector's `wastedBytes` equalled the

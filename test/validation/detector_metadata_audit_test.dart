@@ -1263,7 +1263,7 @@ void main() {
         '(v0.19.3) and gc_pressure (v0.38.0)', () {
       // Anti-tautology anchor. heap_growing (warning, 512 KB/s sustained
       // for 10 s) and gc_pressure (warning, more than 40 young
-      // collections in 10 s) are raised to runtimeVerified via
+      // collections in 10 s) reach runtimeVerified through
       // perStableIdTier, each backed by on-device captures (iPhone 12 /
       // iOS 17.5 / Flutter 3.47.6). heap_near_capacity and
       // native_memory_growing stay at base reproducerOnly.
@@ -1522,10 +1522,10 @@ void main() {
 
     test('ImageMemoryDetector pinned: base reproducerOnly, '
         'uncached_images warning and critical runtimeVerified (v0.38.0)', () {
-      // Anti-tautology anchor. uncached_images is raised through
-      // perStableIdTier, warning on the canonical bracket and critical on
-      // additionalBrackets[0], each backed by three iPhone 12 captures
-      // whose screen exports its own computed waste.
+      // Anti-tautology anchor. uncached_images reaches runtimeVerified
+      // through perStableIdTier, warning on the canonical bracket and
+      // critical on additionalBrackets[0], each backed by three iPhone 12
+      // captures whose screen exports its own computed waste.
       final meta = ImageMemoryDetector().validationMetadata;
       expect(meta.tier, EvidenceTier.reproducerOnly);
       expect(

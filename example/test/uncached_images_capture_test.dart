@@ -25,7 +25,7 @@ class _RecordingCalls extends CaptureLegCalls {
   /// 2 s limit.
   bool flushTimesOut = false;
 
-  /// Whether restoring the streams throws after it is logged.
+  /// Whether [resumeStreams] throws after it logs the call.
   bool resumeThrows = false;
 
   @override
@@ -499,7 +499,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       // The span has ended and the 800 ms wait before the export runs; the
-      // decode is released already.
+      // screen has released the decode already.
       expect(calls.log.last, 'end uncached_images_at');
       expect(find.byType(Image), findsNothing);
       expect(find.text('Composing the capture'), findsOneWidget);

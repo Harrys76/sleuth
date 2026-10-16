@@ -228,7 +228,7 @@ The dashboard's Export button copies the JSON snapshot to the clipboard. These c
 
 Issues rank by evidence tier: confirmed critical, likely critical, confirmed warning, possible critical, likely warning, possible warning, ok. A structural guess ranks below a warning observed at runtime, and a `possible` issue is never shown as the cause of a `likely` or `confirmed` one. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#ranking-and-causal-graph) has the scoring.
 
-Every detector declares the evidence behind its thresholds, and a CI audit enforces it. Every detector has at least a reproducer test, and 23 detector and severity pairs (17 issue types) are verified with on-device captures; the [validation ledger](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) lists each one.
+Every detector declares the evidence behind its thresholds, and a CI audit enforces it. Every detector has at least a reproducer test, and on-device captures verify 23 detector and severity pairs (17 issue types); the [validation ledger](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) lists each one.
 
 ## Limitations
 

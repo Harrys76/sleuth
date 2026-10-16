@@ -197,8 +197,8 @@ class MemoryPressureDetector extends BaseDetector
   // The identity of the last gc_pressure emission is its `detectedAt` in
   // microseconds, moved 1 µs past the previous identity when two
   // evaluations share a clock reading. Every evaluation over the threshold
-  // gets its own identity, so capture mode records the young count each
-  // time it is recorded instead of only the count at the first crossing.
+  // gets its own identity, so capture mode writes the young count at every
+  // recording point instead of only the count at the first crossing.
   // Kept across `reset()`, because the controller's capture dedup set
   // outlives every leg.
   int _lastGcIdentityMicros = 0;
@@ -982,11 +982,12 @@ class MemoryPressureDetector extends BaseDetector
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
   }
 
-  /// Clears every window, issue and episode. The GC pause baseline is
-  /// kept, because `SleuthController.resetCaptureState` calls this at every
-  /// capture leg start and the first GC of the leg still has a measurable
-  /// pause against the last one before it. The last gc_pressure identity
-  /// is kept too, so a new leg's identities never repeat an earlier one.
+  /// Clears every window, issue and episode. It keeps the GC pause
+  /// baseline, because `SleuthController.resetCaptureState` calls this at
+  /// every capture leg start and the first GC of the leg still has a
+  /// measurable pause against the last one before it. It keeps the last
+  /// gc_pressure identity too, so a new leg's identities never repeat an
+  /// earlier one.
   void reset() {
     _gcWindow.clear();
     _heapSamples.clear();

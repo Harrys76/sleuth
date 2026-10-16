@@ -460,7 +460,8 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
     // The warning fires at 1 MiB of wasted decode bytes. The at band is
     // [1, 1.5] MiB and the above band (1.5, 2.5] MiB, well under the
     // 16 MiB critical line.
-    // Each scan measures the same layout, so the last record holds it.
+    // Each scan measures the same layout, so the last record carries the
+    // leg's waste.
     bracketThreshold: 1048576,
     bracketUnit: 'bytes',
     bracketStableId: 'uncached_images',

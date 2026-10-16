@@ -28,10 +28,10 @@ import 'capture_driver.dart';
 /// reads). The capture audit compares it with the `wastedBytes` the
 /// detector stamps on each scan within 10 %.
 ///
-/// The image is shown with no `cacheWidth` or `cacheHeight` (a
-/// `ResizeImage` is skipped by the detector) and `BoxFit.fill`, and stays
-/// for at least two Sleuth scans (one per second). Every leg end removes
-/// it and evicts it from the image cache.
+/// The screen shows the image with no `cacheWidth` or `cacheHeight` (the
+/// detector skips a `ResizeImage`) and with `BoxFit.fill`, and keeps it up
+/// for at least two Sleuth scans (one per second). Each leg removes the
+/// image when it ends and evicts it from the image cache.
 ///
 /// **Procedure per leg:**
 ///
@@ -202,9 +202,9 @@ String uncachedImagesThresholdMiB(CaptureBracket? bracket) {
   _ => (min: bracket.atUpper, max: bracket.aboveCeiling),
 };
 
-/// Why an at or above [leg]'s capture [json] cannot be exported given its
-/// last in-span record, or null when that record measured exactly one
-/// image. Below legs carry no record of their tier and return null.
+/// The reason an at or above [leg]'s capture [json] fails on its last
+/// in-span record, or null when that record measured exactly one image.
+/// Below legs carry no record of their tier and return null.
 LegRefusal? uncachedImagesLastRecordRefusal(
   String json,
   UncachedImagesLeg leg, {
@@ -402,8 +402,8 @@ class _UncachedImagesCaptureScreenState
     setState(() => _log.add(line));
   }
 
-  /// Ends the leg's open scenario once. A throw is logged, not rethrown,
-  /// so it cannot replace the leg's outcome.
+  /// Ends the leg's open scenario once. It logs a throw instead of
+  /// rethrowing it, so the throw cannot replace the leg's outcome.
   void _endScenario({String label = '', bool log = true}) {
     final scenario = _openScenario;
     if (scenario == null) return;
@@ -525,8 +525,8 @@ class _UncachedImagesCaptureScreenState
     });
 
     try {
-      // Only the Dart timeline stream during the leg, as the other capture
-      // screens do. The flag is set before the call, because a suspension
+      // The leg keeps only the Dart timeline stream, as the other capture
+      // screens do. It sets the flag before the call, because a suspension
       // that times out may still land later.
       _streamsSuspended = true;
       await withCallTimeout(
@@ -565,8 +565,9 @@ class _UncachedImagesCaptureScreenState
 
       widget.calls.markScenarioBegin(leg.scenario);
       _openScenario = leg.scenario;
-      // The decode is cached under the same provider, so the Image shows
-      // it at once and Sleuth's next scan reads it from the RawImage.
+      // The image cache holds the decode under the same provider, so the
+      // Image shows it at once and Sleuth's next scan reads it from the
+      // RawImage.
       setState(() {});
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;

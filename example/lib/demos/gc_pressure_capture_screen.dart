@@ -437,8 +437,8 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
     setState(() => _status = status);
   }
 
-  /// Ends the leg's open scenario once. A throw is logged, not rethrown,
-  /// so it cannot replace the leg's outcome.
+  /// Ends the leg's open scenario once. It logs a throw instead of
+  /// rethrowing it, so the throw cannot replace the leg's outcome.
   void _endScenario({String label = '', bool log = true}) {
     final scenario = _openScenario;
     if (scenario == null) return;
@@ -566,8 +566,8 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
     });
 
     try {
-      // Only the Dart timeline stream during the leg, as the other capture
-      // screens do. The flag is set before the call, because a suspension
+      // The leg keeps only the Dart timeline stream, as the other capture
+      // screens do. It sets the flag before the call, because a suspension
       // that times out may still land later.
       _streamsSuspended = true;
       await withCallTimeout(
@@ -575,8 +575,8 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
         'suspendNonEssentialTimelineStreams',
       );
       if (!mounted) return;
-      // Sleuth's allocation-profile reads allocate on this isolate; held,
-      // they cannot add collections to the count.
+      // Sleuth's allocation-profile reads allocate on this isolate. While
+      // the screen holds them, they cannot add collections to the count.
       _readsHeld = true;
       if (!await Sleuth.holdAllocationProfileReads()) {
         _say(
