@@ -85,7 +85,8 @@ class _FakeCalls extends StartupLegCalls {
   /// When set, the suspension completes only when this does.
   Completer<void>? suspendGate;
 
-  /// Restores the VM refuses before one lands; negative refuses all.
+  /// How many restores the VM refuses before it accepts one; a negative
+  /// count refuses every restore.
   int resumeRefusals = 0;
   int _resumeCalls = 0;
 
@@ -1054,7 +1055,7 @@ void main() {
       File('${dir.path}/$kStartupLegRecordFile').writeAsStringSync('{"x":');
       await pumpScreen(tester);
       expect(
-        find.textContaining('The last result could not be read'),
+        find.textContaining('The screen could not read the last result'),
         findsWidgets,
       );
       expect(find.text('No readable leg record.'), findsOneWidget);

@@ -449,7 +449,7 @@ class Sleuth {
       try {
         SchedulerBinding.instance.removeTimingsCallback(pending);
       } catch (_) {
-        // No binding: nothing was registered with one.
+        // Without a binding, init registered nothing.
       }
     }
     startupClockForTest = null;

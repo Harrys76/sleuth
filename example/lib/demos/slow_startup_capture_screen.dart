@@ -27,7 +27,7 @@ import 'startup_leg.dart';
 ///      of `<device>`.
 ///   3. Wait about 20 s, copy `tmp/sleuth_startup_legs/last_leg.json` from
 ///      the app container with `xcrun devicectl device copy from`, and
-///      read its verdict. Only a `stashed` verdict has a capture: copy
+///      read its verdict. Only a `stashed` verdict has a capture. Copy
 ///      `tmp/sleuth_startup_legs/<scenario>.json` the same way, or open
 ///      this screen and tap **Export last leg**.
 class SlowStartupCaptureScreen extends StatefulWidget {
@@ -126,8 +126,8 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
       record = _results.readRecord();
     } on Object catch (e) {
       problem =
-          'The last result could not be read ($e). The next leg writes a '
-          'new one.';
+          'The screen could not read the last result ($e). The next leg '
+          'writes a new one.';
     }
     final here = '${widget.currentPid ?? pid}-';
     var runningHere = false;

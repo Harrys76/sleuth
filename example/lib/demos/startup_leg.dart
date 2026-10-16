@@ -172,7 +172,7 @@ class StartupLegRequest {
   /// A delay with no capture, used when [leg] is null.
   final int plainDelayMs;
 
-  /// Why a value was ignored, or null.
+  /// Why [read] ignored a value, or null.
   final String? problem;
 
   /// The delay this launch blocks for.
@@ -249,7 +249,7 @@ String? _takeRequestFile(File file, List<String> problems) {
     try {
       if (file.existsSync()) file.deleteSync();
     } on Object {
-      // Nothing more to do; the problem is reported.
+      // Nothing more to do; [problems] carries the error.
     }
     return null;
   }
@@ -667,8 +667,8 @@ class StartupLegRunner {
   }
 
   Future<StartupLegRecord> _finish(StartupLegRecord running) async {
-    // A launch that is already in the background (the phone was locked
-    // during the delay) sends no change the listener would see.
+    // A launch that is already in the background (the operator locked the
+    // phone during the delay) sends no change the listener would see.
     final state = _lifecycleState();
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
@@ -804,7 +804,8 @@ class StartupLegRunner {
       FramePhase.rasterFinishWallTime,
     );
     final notes =
-        'Cold launch through devicectl after a request file named '
+        'Cold launch through devicectl after copying a request file that '
+        'names '
         '${leg.scenario}; ${leg.delayMs} ms blocking delay between '
         'Sleuth.init and runApp. observed = first FrameTiming '
         'rasterFinishWallTime $rasterWallUs us - app wall-clock reading '
@@ -974,10 +975,11 @@ class StartupLaunch {
     final resultsFor = results ?? StartupLegResults.new;
     final launchId = '$pid-${DateTime.now().microsecondsSinceEpoch}';
     if (leg != null && refusal == null) {
-      // Before the delay, so a launch killed during it leaves a running
-      // record (read later as FAILED) instead of the previous launch's
-      // stashed verdict and capture. The file work runs before the
-      // marker, outside the measured time.
+      // The leg records itself before the delay, so a launch killed during
+      // it leaves a running record, which the screen and the next launch
+      // read as FAILED, instead of the previous launch's stashed verdict
+      // and capture. The file work runs before the marker, outside the
+      // measured time.
       try {
         resultsFor()
           ..repairStale(currentLaunchId: launchId)

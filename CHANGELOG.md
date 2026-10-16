@@ -416,9 +416,8 @@
   reading before `Sleuth.init` as the observed value, and writes the
   capture and a verdict record to the app's temp directory. A leg records
   itself as running before its delay, so a launch killed during the delay
-  reads as FAILED instead of leaving the previous capture in place, and a
-  leg whose timeline-stream restore does not land fails instead of
-  stashing.
+  reads as FAILED instead of leaving the previous capture in place. A leg
+  whose timeline-stream restore does not land fails instead of stashing.
   `SLEUTH_STARTUP_DELAY_MS` adds a plain delay to any build. The
   StartupDetector (slow_startup_ttff) screen shows the last leg and copies
   each leg's launch commands.
