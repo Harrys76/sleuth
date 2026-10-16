@@ -273,8 +273,8 @@ void main() {
       await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
-      // "GC/min" appears only in gc_pressure's readingTheData
-      await tester.enterText(find.byType(TextField), 'GC/min');
+      // "young GCs/min" appears only in gc_pressure's readingTheData
+      await tester.enterText(find.byType(TextField), 'young GCs/min');
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
 

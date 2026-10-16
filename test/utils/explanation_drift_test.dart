@@ -48,6 +48,7 @@ void main() {
   const jankPercent = FrameTimingDetector.jankPercentThreshold;
   const jankFrames = FrameTimingDetector.minJankSampleFrames;
   const severeFrames = FrameTimingDetector.sustainedSevereFrameCount;
+  final jankWindowSeconds = FrameTimingDetector.jankWindow.inSeconds;
   const severeX = FrameStats.severeJankBudgetMultiplier;
 
   final rows = <(String stableId, _Field field, String expected)>[
@@ -120,8 +121,33 @@ void main() {
     (
       'jank_detected',
       _Field.whatItIs,
-      'More than $jankPercent% of the buffered frames (with at least '
-          '$jankFrames frames',
+      'More than $jankPercent% of the frames from the last '
+          '$jankWindowSeconds seconds (with at least $jankFrames frames',
+    ),
+    (
+      'jank_detected',
+      _Field.whatItIs,
+      'at least ${FrameTimingDetector.minJankFrameCount} of them late',
+    ),
+    (
+      'jank_detected',
+      _Field.readingTheData,
+      'at least ${FrameTimingDetector.minJankFrameCount} of them were late',
+    ),
+    (
+      'jank_detected',
+      _Field.readingTheData,
+      'share of the last $jankWindowSeconds seconds of frames',
+    ),
+    (
+      'sustained_jank',
+      _Field.whatItIs,
+      'within the last $jankWindowSeconds seconds of frames',
+    ),
+    (
+      'sustained_jank',
+      _Field.readingTheData,
+      'clears about $jankWindowSeconds seconds after the jank stops',
     ),
     (
       'jank_detected',
@@ -206,7 +232,13 @@ void main() {
     (
       'gc_pressure',
       _Field.readingTheData,
-      'more than ${config.gcRateThresholdPerMin ~/ 6} cycles in 10 seconds',
+      'more than ${config.gcRateThresholdPerMin ~/ 6} scavenges in 10 seconds',
+    ),
+    (
+      'native_memory_growing',
+      _Field.readingTheData,
+      'above ${MemoryPressureDetector.nativeGrowthThresholdBytesPerSec ~/ 1048576} MB/s over the last 30 seconds and over each half of '
+          'them, for ${MemoryPressureDetector.sustainedGrowthDurationSec} seconds or more',
     ),
     (
       'heap_near_capacity',
@@ -248,7 +280,7 @@ void main() {
     (
       'sustained_jank',
       _Field.readingTheData,
-      '${frameTiming.frameBuffer.capacity}-frame buffer',
+      'seconds of frames (at most ${frameTiming.frameBuffer.capacity})',
     ),
     (
       'setstate_scope',
@@ -306,23 +338,21 @@ void main() {
     (
       'raster_dominance',
       _Field.readingTheData,
-      'above ${thresholds.gpuPressureRatio} times (warning)',
-    ),
-    (
-      'raster_dominance',
-      _Field.readingTheData,
-      'above ${thresholds.gpuPressureRatio * 2} times (critical)',
-    ),
-    (
-      'raster_dominance',
-      _Field.readingTheData,
       '${gpu.minRasterDominantFrames} raster-dominant frames within one '
           'second',
     ),
     (
       'raster_dominance',
       _Field.readingTheData,
-      '${gpu.maxFrameRasterFloorUs ~/ 1000} ms at 60 Hz',
+      '${gpu.criticalRasterDominantFrames} within one second make it '
+          'critical',
+    ),
+    (
+      'raster_dominance',
+      _Field.readingTheData,
+      '${gpu.minRasterDominantFrames} such frames in one poll (about half a '
+          'second) are a warning, and ${gpu.criticalRasterDominantFrames} are '
+          'critical',
     ),
     (
       'non_lazy_shrinkwrap',

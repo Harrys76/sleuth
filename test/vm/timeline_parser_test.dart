@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:sleuth/src/models/phase_event.dart';
@@ -1829,6 +1832,88 @@ void main() {
 
       final result = TimelineParser.extractStartupEvents(events);
       expect(result, isNull);
+    });
+  });
+
+  group('async events ahead of the thread', () {
+    // The engine posts SceneDisplayLag as an async pair whose end carries
+    // the frame's target time, ahead of the raster thread's next events.
+    // Recorded on a Galaxy A07 while the GPU Pressure demo dropped frames.
+    final fixture =
+        jsonDecode(
+              File(
+                'test/vm/_fixtures/scene_display_lag_android_profile.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final recorded = [
+      for (final e in fixture['traceEvents'] as List)
+        TimelineEvent.parse(Map<String, dynamic>.from(e as Map))!,
+    ];
+    final rasterFrames =
+        (fixture['expected'] as Map<String, dynamic>)['rasterFrames'] as int;
+
+    test('do not hide the raster frames that follow them', () {
+      final data = TimelineParser.parse(
+        recorded,
+        cursorsByTid: <int, TimelineCursor>{},
+      );
+      expect(data.rasterDurations, hasLength(rasterFrames));
+      expect(data.rasterDurations, everyElement(greaterThan(0)));
+      // The SceneDisplayLag events themselves carry target times that can
+      // also fall behind the thread; those 34 are dropped. Nothing reads
+      // them.
+      expect(data.duplicatesDropped, 34);
+    });
+
+    test('are still dropped when read again', () {
+      final cursors = <int, TimelineCursor>{};
+      TimelineParser.parse(recorded, cursorsByTid: cursors);
+      final again = TimelineParser.parse(recorded, cursorsByTid: cursors);
+      expect(again.rasterDurations, isEmpty);
+      expect(again.duplicatesDropped, recorded.length);
+    });
+
+    test('a recording split across two polls yields every frame once', () {
+      final cursors = <int, TimelineCursor>{};
+      final pending = <int, List<Map<String, dynamic>>>{};
+      final half = recorded.length ~/ 2;
+      final first = TimelineParser.parse(
+        recorded.sublist(0, half),
+        cursorsByTid: cursors,
+        pendingRasterBegins: pending,
+      );
+      // The second poll overlaps the first by a few hundred events, as
+      // the client's fetch window does.
+      final second = TimelineParser.parse(
+        recorded.sublist(half - 200),
+        cursorsByTid: cursors,
+        pendingRasterBegins: pending,
+      );
+      expect(
+        first.rasterDurations.length + second.rasterDurations.length,
+        rasterFrames,
+      );
+    });
+
+    test('an async end ahead of the thread does not drop an earlier '
+        'begin and end', () {
+      Map<String, dynamic> event(String name, String ph, int ts) => {
+        'name': name,
+        'cat': 'Embedder',
+        'ph': ph,
+        'ts': ts,
+        'tid': 7,
+        'pid': 1,
+        if (ph == 'b' || ph == 'e') 'id': '0x1',
+      };
+      final data = TimelineParser.parse([
+        TimelineEvent.parse(event('SceneDisplayLag', 'b', 1000))!,
+        TimelineEvent.parse(event('SceneDisplayLag', 'e', 30000))!,
+        TimelineEvent.parse(event('GPURasterizer::Draw', 'B', 1100))!,
+        TimelineEvent.parse(event('GPURasterizer::Draw', 'E', 21100))!,
+      ], cursorsByTid: <int, TimelineCursor>{});
+      expect(data.rasterDurations, [20000]);
     });
   });
 }

@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../demo_scaffold.dart';
 
 // Search-bar autocomplete + paginated photo gallery. Bad path fires
-// requests with no debounce and pulls 1.1 MiB pages; fixed path debounces
+// requests with no debounce and pulls 1.1 MB pages; fixed path debounces
 // to 300 ms and pulls 200 KB pages. NetworkMonitor flags
 // `request_frequency` (>30 reqs/5 s window), `large_response` (>1 MiB),
 // and `slow_request` warning + critical (>1000 ms / >3000 ms).
@@ -28,11 +28,32 @@ const _maxSessionRequests = 30;
 // hundred ms to RTT scheduling jitter.
 const _slowEndpoint = 'https://httpbin.org/delay/4';
 const _searchEndpoint = 'https://httpbin.org/get';
-const _largeEndpoint = 'https://httpbin.org/bytes/$_largePayloadBytes';
-const _smallEndpoint = 'https://httpbin.org/bytes/$_smallPayloadBytes';
+// httpbin caps `/bytes/N` at 102,400 bytes, so its pages could never cross
+// the 1 MiB `large_response` line. Cloudflare's speed-test endpoint returns
+// exactly N bytes as `application/octet-stream`, which the media skip
+// leaves alone.
+const _payloadEndpoint = 'https://speed.cloudflare.com/__down?bytes=';
+const _largeEndpoint = '$_payloadEndpoint$_largePayloadBytes';
+const _smallEndpoint = '$_payloadEndpoint$_smallPayloadBytes';
+
+// One tile does not fill a phone screen, so the bad gallery's
+// load-on-scroll could never start. After a page loads while the list
+// still cannot scroll, the bad gallery loads the next page itself until
+// the list can scroll: about 6 pages on a phone with the instructions
+// collapsed. This bound stops a fill on a tall tablet, inside the session
+// request cap.
+const _maxAutoFillPages = 10;
+
+String get _capMessage =>
+    'All $_maxSessionRequests requests used. Switch between Bad and Fixed, '
+    'or reopen the demo, to reset the count.';
 
 class NetworkStressDemo extends StatefulWidget {
-  const NetworkStressDemo({super.key});
+  const NetworkStressDemo({super.key, this.fetchBytes});
+
+  /// Replaces the network fetch in tests. Resolves to the body length.
+  @visibleForTesting
+  final Future<int> Function(String url)? fetchBytes;
 
   @override
   State<NetworkStressDemo> createState() => _NetworkStressDemoState();
@@ -74,7 +95,8 @@ class _NetworkStressDemoState extends State<NetworkStressDemo>
       title: 'Search + Gallery',
       description:
           'Bad: Search fires a request on every keystroke (no debounce). '
-          'Gallery loads 1.1 MiB pages on its own as you scroll. '
+          'Gallery loads 1.1 MB pages on its own, filling the screen and '
+          'then loading more as you scroll. '
           'NetworkMonitor flags `request_frequency` (more than 30 requests '
           'in 5 s) and `large_response` (more than 1 MiB). Toggle the Slow '
           'API switch to fire `slow_request.critical` (over 3000 ms).\n'
@@ -83,7 +105,8 @@ class _NetworkStressDemoState extends State<NetworkStressDemo>
           'Type quickly in Search and scroll Gallery. Issue cards appear '
           'in the Sleuth overlay.\n\n'
           'Requires internet. The demo stops at $_maxSessionRequests '
-          'requests per session to stay under httpbin.org\'s rate limit.',
+          'requests per session to stay under the public endpoints\' rate '
+          'limits.',
       metricsBar: MetricsBar(
         chips: [
           ValueListenableBuilder<int>(
@@ -97,11 +120,17 @@ class _NetworkStressDemoState extends State<NetworkStressDemo>
         ],
       ),
       onToggle: _handleToggle,
-      body: _TabbedBody(tabs: _tabs, bad: true, requestCount: _requestCount),
+      body: _TabbedBody(
+        tabs: _tabs,
+        bad: true,
+        requestCount: _requestCount,
+        fetchBytes: widget.fetchBytes ?? _fetchBytes,
+      ),
       fixedBody: _TabbedBody(
         tabs: _tabs,
         bad: false,
         requestCount: _requestCount,
+        fetchBytes: widget.fetchBytes ?? _fetchBytes,
       ),
     );
   }
@@ -112,11 +141,13 @@ class _TabbedBody extends StatelessWidget {
     required this.tabs,
     required this.bad,
     required this.requestCount,
+    required this.fetchBytes,
   });
 
   final TabController tabs;
   final bool bad;
   final ValueNotifier<int> requestCount;
+  final Future<int> Function(String url) fetchBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -133,8 +164,16 @@ class _TabbedBody extends StatelessWidget {
           child: TabBarView(
             controller: tabs,
             children: [
-              _SearchTab(bad: bad, requestCount: requestCount),
-              _GalleryTab(bad: bad, requestCount: requestCount),
+              _SearchTab(
+                bad: bad,
+                requestCount: requestCount,
+                fetchBytes: fetchBytes,
+              ),
+              _GalleryTab(
+                bad: bad,
+                requestCount: requestCount,
+                fetchBytes: fetchBytes,
+              ),
             ],
           ),
         ),
@@ -146,10 +185,15 @@ class _TabbedBody extends StatelessWidget {
 // ── Search tab ───────────────────────────────────────────────────────
 
 class _SearchTab extends StatefulWidget {
-  const _SearchTab({required this.bad, required this.requestCount});
+  const _SearchTab({
+    required this.bad,
+    required this.requestCount,
+    required this.fetchBytes,
+  });
 
   final bool bad;
   final ValueNotifier<int> requestCount;
+  final Future<int> Function(String url) fetchBytes;
 
   @override
   State<_SearchTab> createState() => _SearchTabState();
@@ -197,7 +241,7 @@ class _SearchTabState extends State<_SearchTab> {
 
   Future<void> _runSearch(String query, int seq) async {
     if (widget.requestCount.value >= _maxSessionRequests) {
-      setState(() => _error = 'Session request cap reached. Restart screen.');
+      setState(() => _error = _capMessage);
       return;
     }
     // Reserve the slot BEFORE the network round-trip so concurrent
@@ -214,7 +258,7 @@ class _SearchTabState extends State<_SearchTab> {
             _searchEndpoint,
           ).replace(queryParameters: {'q': query}).toString();
     try {
-      final bytes = await _fetchBytes(url);
+      final bytes = await widget.fetchBytes(url);
       if (!mounted || seq != _seq) return;
       setState(() {
         _result = '$bytes bytes returned for "$query"';
@@ -324,10 +368,15 @@ class _SearchTabState extends State<_SearchTab> {
 // ── Gallery tab ──────────────────────────────────────────────────────
 
 class _GalleryTab extends StatefulWidget {
-  const _GalleryTab({required this.bad, required this.requestCount});
+  const _GalleryTab({
+    required this.bad,
+    required this.requestCount,
+    required this.fetchBytes,
+  });
 
   final bool bad;
   final ValueNotifier<int> requestCount;
+  final Future<int> Function(String url) fetchBytes;
 
   @override
   State<_GalleryTab> createState() => _GalleryTabState();
@@ -338,6 +387,9 @@ class _GalleryTabState extends State<_GalleryTab> {
   final List<int> _pages = [];
   bool _loading = false;
   String? _error;
+  bool _capReached = false;
+  bool _canScroll = false;
+  int _autoFillPages = 0;
 
   @override
   void initState() {
@@ -357,18 +409,20 @@ class _GalleryTabState extends State<_GalleryTab> {
   void _onScroll() {
     if (!_scroll.hasClients) return;
     if (_loading) return;
-    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 100) {
-      _loadNextPage();
-    }
+    final position = _scroll.position;
+    // A pull on a list that cannot scroll moves the offset too (iOS
+    // bounces), and is the refresh gesture, not a scroll to the end.
+    if (position.maxScrollExtent <= 0) return;
+    if (position.extentAfter < 100) _loadNextPage();
   }
 
   Future<void> _loadNextPage() async {
     // Idempotent while a fetch is in flight — pull-to-refresh and the
     // scroll listener can both call this concurrently otherwise, and
     // both completions would append into the freshly-cleared list.
-    if (_loading) return;
+    if (_loading || _capReached) return;
     if (widget.requestCount.value >= _maxSessionRequests) {
-      setState(() => _error = 'Session request cap reached.');
+      setState(() => _capReached = true);
       return;
     }
     // Reserve the slot before the await so concurrent callers respect
@@ -380,12 +434,15 @@ class _GalleryTabState extends State<_GalleryTab> {
     });
     final url = widget.bad ? _largeEndpoint : _smallEndpoint;
     try {
-      final bytes = await _fetchBytes(url);
+      final bytes = await widget.fetchBytes(url);
       if (!mounted) return;
       setState(() {
         _pages.add(bytes);
         _loading = false;
       });
+      if (widget.bad) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _fillScreen());
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -395,10 +452,29 @@ class _GalleryTabState extends State<_GalleryTab> {
     }
   }
 
+  // Loads the next page while the list is too short to scroll, so the
+  // load-on-scroll listener gets a scrollable list to watch.
+  void _fillScreen() {
+    if (!mounted || !_scroll.hasClients) return;
+    final canScroll = _scroll.position.maxScrollExtent > 0;
+    if (canScroll != _canScroll) setState(() => _canScroll = canScroll);
+    if (canScroll || _loading || _error != null || _capReached) return;
+    if (_autoFillPages >= _maxAutoFillPages) return;
+    _autoFillPages++;
+    _loadNextPage();
+  }
+
   Future<void> _refresh() async {
+    // At the cap a refresh would clear the gallery and load nothing.
+    if (widget.requestCount.value >= _maxSessionRequests) {
+      setState(() => _capReached = true);
+      return;
+    }
     setState(() {
       _pages.clear();
       _error = null;
+      _canScroll = false;
+      _autoFillPages = 0;
     });
     await _loadNextPage();
   }
@@ -409,19 +485,27 @@ class _GalleryTabState extends State<_GalleryTab> {
       onRefresh: _refresh,
       child: ListView.builder(
         controller: _scroll,
+        // With its own controller the list is not primary, so a short list
+        // on Android's clamping physics could not be pulled to refresh.
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         itemCount: _pages.length + 1,
         itemBuilder: (context, i) {
           if (i < _pages.length) {
             return _PhotoTile(index: i, bytes: _pages[i]);
           }
+          if (_capReached) return _ErrorTile(message: _capMessage);
           if (_error != null) {
             return _ErrorTile(message: _error!, onRetry: _loadNextPage);
           }
           if (_loading) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: CircularProgressIndicator()),
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: CircularProgressIndicator(
+                  semanticsLabel: 'Loading page ${_pages.length + 1}',
+                ),
+              ),
             );
           }
           if (widget.bad) {
@@ -429,10 +513,16 @@ class _GalleryTabState extends State<_GalleryTab> {
               padding: const EdgeInsets.all(16),
               child: Text(
                 _pages.isEmpty
-                    ? 'Pull to load first page (auto-load on scroll once seeded).'
-                    : 'Scrolling near the bottom triggers auto-load.',
+                    ? 'Pull down to load the first page. More pages load '
+                          'until the list can scroll.'
+                    : _canScroll
+                    ? 'Scroll near the end to load more.'
+                    : 'Pull down to load again.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             );
           }
@@ -486,10 +576,12 @@ class _PhotoTile extends StatelessWidget {
 }
 
 class _ErrorTile extends StatelessWidget {
-  const _ErrorTile({required this.message, required this.onRetry});
+  const _ErrorTile({required this.message, this.onRetry});
 
   final String message;
-  final VoidCallback onRetry;
+
+  /// Null when retrying cannot help, as at the request cap.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -497,17 +589,22 @@ class _ErrorTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Retry page'),
-          ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry page'),
+            ),
+          ],
         ],
       ),
     );
@@ -536,6 +633,12 @@ Future<int> _fetchBytes(String url) async {
       await for (final chunk in response) {
         bytes += chunk.length;
       }
+      // Drained first, so Sleuth still records the request. A rate limit or
+      // server error is not a page.
+      final status = response.statusCode;
+      if (status < 200 || status >= 300) {
+        throw HttpException('HTTP $status', uri: request.uri);
+      }
       return bytes;
     }().timeout(
       const Duration(seconds: 10),
@@ -550,8 +653,23 @@ Future<int> _fetchBytes(String url) async {
 }
 
 String _friendlyError(Object e) {
-  if (e is TimeoutException) return 'Request timed out (network slow?).';
-  if (e is SocketException) return 'Network unavailable.';
-  if (e is HttpException) return 'HTTP error: ${e.message}';
-  return 'Request failed: $e';
+  if (e is TimeoutException) return 'The request timed out. Try again.';
+  if (e is SocketException) {
+    return e.message.contains('timed out')
+        ? 'The connection timed out. Try again.'
+        : 'No connection. Check the network, then try again.';
+  }
+  if (e is HandshakeException) {
+    return 'The secure connection failed. Check the network and the '
+        'device date, then try again.';
+  }
+  if (e is HttpException) {
+    if (e.message == 'HTTP 429') {
+      return 'The server answered 429 (rate limited). Wait a minute, then '
+          'try again.';
+    }
+    return 'The server answered ${e.message.replaceFirst('HTTP ', '')}. '
+        'Try again.';
+  }
+  return 'The request failed. Try again.';
 }

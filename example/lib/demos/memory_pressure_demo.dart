@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:ffi' as ffi;
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
@@ -22,7 +24,7 @@ import '../demo_scaffold.dart';
 ///   (`nativeBytes = rss - heapUsage`).
 /// * **GC pressure** — continuously churn short-lived allocations via a
 ///   periodic timer to force the scavenger to run repeatedly, triggering
-///   `gc_pressure` (>180 GC/min default; configurable via
+///   `gc_pressure` (>240 young GCs/min default; configurable via
 ///   `SleuthConfig.gcRateThresholdPerMin`).
 ///
 /// `heap_near_capacity` stays silent here: it measures process RSS
@@ -49,6 +51,16 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
   /// what `_evaluateNativeGrowth()` detects.
   final List<ffi.Pointer<ffi.Uint8>> _ffiBuffers = [];
   static const int _ffiBufferBytes = 10 * 1024 * 1024; // 10 MB per allocation
+
+  /// Random bytes copied through each native buffer. Pages of zeros or of
+  /// one repeated byte compress well, and iOS then leaves most of the
+  /// buffer out of RSS.
+  static final Uint8List _noise = () {
+    final random = math.Random(7);
+    return Uint8List.fromList([
+      for (var i = 0; i < 65536; i++) random.nextInt(256),
+    ]);
+  }();
 
   /// Continuous GC churn timer. Generates short-lived garbage on every tick
   /// to force the scavenger to run repeatedly.
@@ -113,10 +125,11 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
     // The VM's heapUsage stays flat — only process RSS grows — so the
     // detector's `nativeBytes = rss - heapUsage` trend rises sharply.
     final buffer = calloc<ffi.Uint8>(_ffiBufferBytes);
-    // Touch one byte per 4KB page to force physical commit. Without this,
-    // lazy allocators may defer RSS growth until the memory is written.
-    for (var i = 0; i < _ffiBufferBytes; i += 4096) {
-      buffer[i] = 1;
+    // Writing every page commits it, and random contents keep the memory
+    // compressor from shrinking it, so RSS grows by the full buffer.
+    final bytes = buffer.asTypedList(_ffiBufferBytes);
+    for (var i = 0; i < _ffiBufferBytes; i += _noise.length) {
+      bytes.setRange(i, math.min(i + _noise.length, _ffiBufferBytes), _noise);
     }
     setState(() => _ffiBuffers.add(buffer));
     if (_isFixedMode) _enforcePoolCap();
@@ -135,8 +148,8 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
       setState(() => _churning = true);
       // Every 25 ms, allocate ~4 MB of garbage that immediately becomes
       // unreachable. New-space overflows several times a second, so the
-      // scavenger runs well above the 180 GC/min floor (an idle app with
-      // the VM service attached already sees 1–2 scavenges per second).
+      // scavenger runs well above the 240/min gate (an idle app with the
+      // VM service attached already sees 1–2 scavenges per second).
       _churnTimer = Timer.periodic(const Duration(milliseconds: 25), (_) {
         final garbage = List.generate(
           4000,
@@ -284,10 +297,13 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
           'because the detector needs the slope to stay above 512 KB/s for '
           '10 consecutive seconds. A few manual taps are usually too spiky '
           'to sustain that window.\n'
-          'Tap "Native +10MB" several times over 15 seconds to trigger '
-          '`native_memory_growing` (FFI-allocated, outside the Dart heap).\n'
+          'Tap "Native +10MB" every 2 or 3 seconds for about 30 seconds to '
+          'trigger `native_memory_growing` (FFI-allocated, outside the Dart '
+          'heap). The detector needs growth that keeps going, so a few '
+          'quick taps read as one jump.\n'
           'Toggle "GC Churn" on for about 5 seconds to trigger '
-          '`gc_pressure` (more than 180 GCs a minute by default, '
+          '`gc_pressure` (more than 240 young-generation GCs a minute by '
+          'default, '
           'configurable). The "Retained (Dart)" counter stays at 0 during '
           'churn because the allocations are short-lived by design.\n'
           '`heap_near_capacity` does not appear, because it compares '

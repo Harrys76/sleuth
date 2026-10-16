@@ -49,6 +49,106 @@ void main() {
       }
     }
 
+    group('jank window', () {
+      /// A frame whose vsync and phase times are filled in, with [uiMs] of
+      /// build and [rasterMs] of raster.
+      FrameStats timed(int vsyncUs, {required int uiMs, int rasterMs = 4}) {
+        final buildEnd = vsyncUs + uiMs * 1000;
+        return FrameStats(
+          frameNumber: 0,
+          uiDuration: Duration(milliseconds: uiMs),
+          rasterDuration: Duration(milliseconds: rasterMs),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+          frameBudgetUs: 16667,
+          vsyncStartUs: vsyncUs,
+          buildStartUs: vsyncUs,
+          buildFinishUs: buildEnd,
+          rasterStartUs: buildEnd,
+          rasterFinishUs: buildEnd + rasterMs * 1000,
+        );
+      }
+
+      /// 30 janky frames at 60 Hz from vsync 0, then one quiet frame a
+      /// second (what Sleuth's own scans draw on a still screen), through
+      /// [lastTickSeconds].
+      void jankThenQuietTicks(
+        FrameTimingDetector d,
+        int lastTickSeconds, {
+        bool timedJank = true,
+      }) {
+        for (var i = 0; i < 30; i++) {
+          final vsync = i * 16667;
+          d.addFrameForTest(
+            timedJank
+                ? timed(vsync, uiMs: 40)
+                : makeFrame(uiMs: 40, rasterMs: 4, frameNumber: i + 1),
+          );
+        }
+        for (var t = 1; t <= lastTickSeconds; t++) {
+          d.addFrameForTest(timed(t * 1000000, uiMs: 2));
+        }
+      }
+
+      bool hasJank(FrameTimingDetector d) => d.issues.any(
+        (i) => i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+      );
+
+      test('jank inside the last 10 s keeps the card', () {
+        jankThenQuietTicks(detector, 9);
+        expect(hasJank(detector), isTrue);
+      });
+
+      test('the card clears once the janky frames are more than 10 s older '
+          'than the newest frame', () {
+        jankThenQuietTicks(detector, 12);
+        expect(hasJank(detector), isFalse);
+      });
+
+      group('on a quiet screen', () {
+        /// One frame a second for 10 s, the first [late] of them 25 ms late
+        /// (a missed deadline, not severe).
+        List<FrameStats> ticks(int late) => [
+          for (var t = 0; t < 10; t++)
+            timed(t * 1000000, uiMs: t < late ? 25 : 2),
+        ];
+
+        bool jankDetected(FrameTimingDetector d) =>
+            d.issues.any((i) => i.stableId == 'jank_detected');
+
+        test('two late frames among ten are not jank_detected', () {
+          // 20 % is over the percentage, but two hitches in 10 s is not
+          // frequent jank.
+          ticks(2).forEach(detector.addFrameForTest);
+          expect(jankDetected(detector), isFalse);
+        });
+
+        test('three late frames among ten are', () {
+          ticks(3).forEach(detector.addFrameForTest);
+          expect(jankDetected(detector), isTrue);
+          final issue = detector.issues.firstWhere(
+            (i) => i.stableId == 'jank_detected',
+          );
+          expect(issue.extraTraceArgs!['observedJankCount'], '3');
+        });
+      });
+
+      test('capture mode judges the whole buffer, as before', () {
+        final capture = FrameTimingDetector(
+          warmupFrameCount: 0,
+          warmupDuration: Duration.zero,
+          captureMode: true,
+        );
+        jankThenQuietTicks(capture, 12);
+        expect(hasJank(capture), isTrue);
+      });
+
+      test('frames without a vsync time still count', () {
+        jankThenQuietTicks(detector, 12, timedJank: false);
+        expect(hasJank(detector), isTrue);
+      });
+    });
+
     test('no issues when disabled', () {
       detector.isEnabled = false;
       for (var i = 0; i < 10; i++) {

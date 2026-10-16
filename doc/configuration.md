@@ -45,7 +45,7 @@ Sleuth.track(
     suppressedIssues: {'non_lazy_list', 'rebuild_debug_*'}, // drop known issues by stableId (exact or trailing *) before ranking
     thresholds: DetectorThresholds(
       shaderJankMs: 50,              // shader compilation warning threshold
-      heavyComputeGapMs: 8,          // BUILD-scope warning threshold, critical at 2×; omit for auto (8 ms at 60 Hz, half the frame budget above it)
+      heavyComputeGapMs: 8,          // BUILD-scope warning threshold, critical at 2×; omit for auto (8 ms at 60 Hz, three quarters of a faster frame budget, at most 8 ms)
       gpuPressureRatio: 1.5,         // raster/UI time ratio for GPU pressure
       buildTimePercentThreshold: 10, // rebuild_activity: % of UI-thread time in BUILD, critical at 3×
       paintTimePercentThreshold: 10, // excessive_repaint: % of UI-thread time in PAINT, critical at 3×

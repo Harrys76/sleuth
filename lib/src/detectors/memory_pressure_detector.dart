@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:math' as math;
 
+import 'package:meta/meta.dart';
+
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
@@ -84,19 +86,20 @@ class MemoryPressureDetector extends BaseDetector
   /// nothing about how close the process is to being killed.
   final int? memoryBudgetBytes;
 
-  /// GC events per minute (extrapolated from a 10s sliding window) above
-  /// which `gc_pressure` fires. Dart's `EventStreams.kGC` emits one event
-  /// per GC cycle, new-space scavenges included. An idle app with Sleuth
-  /// attached produces 1 to 2 scavenges per second from the VM-service
-  /// poll traffic alone (66 to 138 per minute measured on an iPhone 12),
-  /// while allocation churn runs at thousands per minute. The default of
-  /// 180 (3 per second sustained over 10 s) sits above the idle band.
-  /// Each emission stamps the young-generation / old-generation /
-  /// marking-start split of the window, and the GC pause time when it can
-  /// be measured.
+  /// Young-generation collections (scavenges) per minute, extrapolated
+  /// from a 10 s sliding window, above which `gc_pressure` fires.
+  /// Old-generation sweeps and concurrent-marking starts do not count: on
+  /// animated screens they follow promotion and pause the app briefly.
+  /// On an iPhone 12 and a Galaxy A07 at 60 Hz, ordinary screens ran 168
+  /// scavenges a minute or fewer, and the GC Churn demo ran 390 to 810.
+  /// Scavenges rise with the frame rate: Live Waveform at 90 Hz on the
+  /// Galaxy ran 186 to 246 a minute with 3.7 to 4.9 % of the time in GC
+  /// pauses, more than the churn demo. Each emission stamps the
+  /// young-generation / old-generation / marking-start split of the window,
+  /// and the GC pause time when it can be measured.
   final int gcRateThresholdPerMin;
 
-  static const int _defaultGcRateThresholdPerMin = 180;
+  static const int _defaultGcRateThresholdPerMin = 240;
 
   /// Whether this detector runs in a capture session. Only then does
   /// [setLegsEnabledForCapture] change anything.
@@ -171,8 +174,19 @@ class MemoryPressureDetector extends BaseDetector
   // -- Heap trend rolling window --
 
   static const int _windowCapacity = 60; // 30 seconds at 500ms
-  static const int _sustainedGrowthDurationSec = 10;
-  static const int _nativeGrowthThresholdBytesPerSec = 1048576; // 1 MB/sec
+  /// Seconds a growth rate must stay above its threshold before
+  /// `heap_growing` (sample leg) or `native_memory_growing` emits.
+  @visibleForTesting
+  static const int sustainedGrowthDurationSec = 10;
+
+  /// `native_memory_growing` threshold in bytes per second (1 MiB/s).
+  @visibleForTesting
+  static const int nativeGrowthThresholdBytesPerSec = 1048576;
+
+  /// Fewest heap samples each half of the window needs before
+  /// `native_memory_growing` evaluates.
+  @visibleForTesting
+  static const int nativeMinSamplesPerHalf = 4;
 
   final Queue<HeapSample> _heapSamples = Queue<HeapSample>();
   // Sample leg: when the sample regression first crossed the threshold in
@@ -506,12 +520,19 @@ class MemoryPressureDetector extends BaseDetector
       return;
     }
 
+    // Young-generation collections set the rate. Each concurrent old-gen
+    // cycle posts a marking start and then a sweep; counting them doubled
+    // the old-gen cycles that ordinary animation triggers.
+    //
     // Fixed-window denominator: (events / window seconds) * 60.
     // Using the window size rather than elapsed-since-first-event keeps
     // the rate stable under bursty traffic and prevents a lone event
     // from registering as "infinite rate" before the window has filled.
-    final gcPerMinute = (windowEvents / _gcWindowDuration.inSeconds) * 60;
-    if (gcPerMinute > gcRateThresholdPerMin) {
+    final youngCount = _gcWindow
+        .where((r) => r.gcClass == _GcClass.young)
+        .length;
+    final youngPerMinute = (youngCount / _gcWindowDuration.inSeconds) * 60;
+    if (youngPerMinute > gcRateThresholdPerMin) {
       // Pin overage-start on first cross. Persists across consecutive
       // re-emissions during the same overage so CaptureHelper's
       // dedup collapses them to one trace record. Cleared in the
@@ -524,7 +545,6 @@ class MemoryPressureDetector extends BaseDetector
       final markStartCount = _gcWindow
           .where((r) => r.gcClass == _GcClass.markStart)
           .length;
-      final youngCount = windowEvents - oldGenCount - markStartCount;
       final pauseMs = _windowPauseMs(_gcWindow);
       final pausePercent = pauseMs == null
           ? null
@@ -542,10 +562,12 @@ class MemoryPressureDetector extends BaseDetector
           severity: IssueSeverity.warning,
           category: IssueCategory.memory,
           confidence: IssueConfidence.likely,
-          title: 'High GC Pressure: ${gcPerMinute.toStringAsFixed(0)} GC/min',
+          title:
+              'High GC Pressure: '
+              '${youngPerMinute.toStringAsFixed(0)} young GCs/min',
           detail:
-              'Garbage collection runs '
-              '${gcPerMinute.toStringAsFixed(0)}/min ($youngCount '
+              'Young-generation garbage collection runs '
+              '${youngPerMinute.toStringAsFixed(0)}/min ($youngCount '
               'young-generation collections, $oldGenCount old-generation '
               'collections and $markStartCount concurrent-marking starts in '
               'the last $windowSeconds s). $pauseSentence'
@@ -625,7 +647,7 @@ class MemoryPressureDetector extends BaseDetector
     final sustained = _heapSamples.last.timestamp.difference(
       _sampleSustainedStart!,
     );
-    if (sustained.inSeconds < _sustainedGrowthDurationSec) return null;
+    if (sustained.inSeconds < sustainedGrowthDurationSec) return null;
     return (slope: slope, sustained: sustained);
   }
 
@@ -853,21 +875,14 @@ class MemoryPressureDetector extends BaseDetector
       if (sinceFirst.inMilliseconds < warmupDurationMs) return;
     }
 
-    // Native growth must show in the RSS itself. When RSS keeps the pages
-    // of freed Dart objects, a heap drop raises RSS minus the heap without
-    // moving RSS; a drop of about 25 MB or more read above 1 MiB/s for
-    // longer than 10 s.
-    final slope = math.min(
-      _slopeBytesPerSec(nativeSamples, (s) => s.nativeBytes!),
-      _slopeBytesPerSec(nativeSamples, (s) => s.rssBytes!),
-    );
+    final slope = continuedGrowthSlope(nativeSamples);
 
-    if (slope > _nativeGrowthThresholdBytesPerSec) {
+    if (slope > nativeGrowthThresholdBytesPerSec) {
       _sustainedNativeGrowthStart ??= nativeSamples.last.timestamp;
       final sustained = nativeSamples.last.timestamp.difference(
         _sustainedNativeGrowthStart!,
       );
-      if (sustained.inSeconds >= _sustainedGrowthDurationSec) {
+      if (sustained.inSeconds >= sustainedGrowthDurationSec) {
         final slopeMbSec = slope / (1024 * 1024);
         final (hint, effort) = FixHintBuilder.nativeMemoryGrowth();
         _issues.add(
@@ -883,8 +898,9 @@ class MemoryPressureDetector extends BaseDetector
             detail:
                 'Process memory outside the Dart heap has grown at '
                 '${slopeMbSec.toStringAsFixed(2)} MB/sec for '
-                '${sustained.inSeconds} seconds, and the process RSS grew '
-                'at least as fast. Possible causes are '
+                '${sustained.inSeconds} seconds, in both halves of the last '
+                '30 seconds, and the process RSS grew at least as fast. '
+                'Possible causes are '
                 'undisposed GPU textures, images decoded at full resolution, '
                 'or platform channel buffers that keep growing. The current '
                 'native estimate is '
@@ -904,9 +920,45 @@ class MemoryPressureDetector extends BaseDetector
     }
   }
 
+  /// The slowest growth rate across [samples], in bytes/sec, over the
+  /// whole window and over each half split at its time midpoint. Each
+  /// rate is the lower of the native and RSS regressions. Zero while a
+  /// half holds fewer than [nativeMinSamplesPerHalf] samples.
+  ///
+  /// Native growth must show in the RSS itself. When RSS keeps the pages
+  /// of freed Dart objects, a heap drop raises RSS minus the heap without
+  /// moving RSS; a drop of about 25 MB or more read above 1 MiB/s for
+  /// longer than 10 s.
+  ///
+  /// Growth must also continue through the window. A one-time jump of D
+  /// bytes in the middle of a 30 s window reads about 1.5 D / 30 s as one
+  /// slope, so a screen that allocated 25 MB once read as growth for more
+  /// than 10 s. A jump leaves one half flat. Growth that arrives in chunks
+  /// more than about 15 s apart can leave a half flat too and is not
+  /// reported.
+  @visibleForTesting
+  static double continuedGrowthSlope(List<HeapSample> samples) {
+    double rate(List<HeapSample> part) => math.min(
+      _slopeBytesPerSec(part, (s) => s.nativeBytes!),
+      _slopeBytesPerSec(part, (s) => s.rssBytes!),
+    );
+    final start = samples.first.timestamp;
+    final middle = start.add(samples.last.timestamp.difference(start) ~/ 2);
+    final split = samples.indexWhere((s) => !s.timestamp.isBefore(middle));
+    if (split < nativeMinSamplesPerHalf ||
+        samples.length - split < nativeMinSamplesPerHalf) {
+      return 0;
+    }
+    return [
+      rate(samples),
+      rate(samples.sublist(0, split)),
+      rate(samples.sublist(split)),
+    ].reduce(math.min);
+  }
+
   /// Growth rate of [value] across [samples] in bytes/sec, by linear
   /// regression.
-  double _slopeBytesPerSec(
+  static double _slopeBytesPerSec(
     List<HeapSample> samples,
     int Function(HeapSample sample) value,
   ) {
@@ -979,8 +1031,12 @@ class MemoryPressureDetector extends BaseDetector
     rationale:
         'VM-only detector. A hermetic reproducer pins 4 families at the '
         'detector entry points (`processHeapSample` and `recordGcCycle`). '
-        '`gc_pressure` fires above 30 cycles in a 10s sliding window, a '
-        'rate above 180/min, by default. The threshold is configurable, and '
+        '`gc_pressure` fires above 40 young-generation collections in a '
+        '10s sliding window, a rate above 240/min, by default; old-gen '
+        'sweeps and marking starts do not count. Recorded GC dumps from an '
+        'iPhone 12 and a Galaxy A07 pin the rule: GC Churn fires on both, '
+        'and Live Waveform is silent at 60 Hz. The threshold is '
+        'configurable, and '
         'the issue stamps the young-generation, old-generation and '
         'marking-start split, plus GC pause time when every event in the '
         'window has a measured pause. `heap_growing` '
@@ -990,9 +1046,12 @@ class MemoryPressureDetector extends BaseDetector
         'samples and `heap_growing` emitted in the same evaluation. It '
         'stays silent when the budget is unset, and RSS-null samples never '
         'count. `native_memory_growing` fires when the slope of the '
-        'RSS-heap gap and the slope of RSS itself are both above 1MB/s, '
-        'sustained for at least 10s; RSS stays flat while the Dart heap '
-        'collects, so the heap sawtooth never fires it. The '
+        'RSS-heap gap and the slope of RSS itself are both above 1MB/s '
+        'over the 30 s window and over each half of it, sustained for at '
+        'least 10s; RSS stays flat while the Dart heap collects, so the '
+        'heap sawtooth never fires it, and a one-time jump leaves one half '
+        'flat. Recorded Galaxy A07 and iPhone 12 staircases (10 MB every '
+        '2.5 s) fire it, and a Galaxy screen-open jump does not. The '
         'reproducer asserts that null rssBytes (web) and the zero-heap and '
         'zero-capacity null-coalesce edges emit nothing.\n\n'
         'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s) to '

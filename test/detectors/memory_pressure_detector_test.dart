@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/models/allocation_entry.dart';
@@ -30,7 +32,7 @@ void main() {
         warmupDurationMs: 0, // Disable warmup for existing tests.
         // Mechanism tests in this group drive 10 cycles in the 10 s window
         // (60 GC/min). Pin the threshold to 30/min so 60 stays "above";
-        // the 180/min default has its own tests below.
+        // the 240/min default has its own tests below.
         gcRateThresholdPerMin: 30,
       );
     });
@@ -105,7 +107,7 @@ void main() {
       expect(detector.issues.first.detail, contains('/min'));
     });
 
-    // -- GC threshold parameterisation (default 180/min + opt-in lower) --
+    // -- GC threshold parameterisation (default 240/min + opt-in lower) --
 
     /// Feeds [count] GC cycles spread evenly across 9 s, all inside the
     /// 10 s window at the last call.
@@ -121,11 +123,11 @@ void main() {
       }
     }
 
-    test('default threshold is 180/min', () {
-      expect(MemoryPressureDetector().gcRateThresholdPerMin, 180);
+    test('default threshold is 240/min', () {
+      expect(MemoryPressureDetector().gcRateThresholdPerMin, 240);
     });
 
-    test('default 180/min threshold suppresses the idle GC band', () {
+    test('default 240/min threshold suppresses the idle GC band', () {
       // 28 cycles in 10 s = 168/min, inside the band an idle app with
       // VM-service polling produces.
       final defaultDetector = MemoryPressureDetector(
@@ -139,32 +141,50 @@ void main() {
       );
     });
 
-    test('default 180/min threshold is strict-greater (30 cycles silent)', () {
+    test('default 240/min threshold is strict-greater (40 young '
+        'collections silent)', () {
       final defaultDetector = MemoryPressureDetector(
         clock: () => fakeNow,
         warmupDurationMs: 0,
       );
-      feedCycles(defaultDetector, 30);
+      feedCycles(defaultDetector, 40);
       expect(
         defaultDetector.issues.where((i) => i.stableId == 'gc_pressure'),
         isEmpty,
-        reason: 'gcPerMinute == 180 must not fire when the threshold is 180.',
+        reason: '240 young GCs/min must not fire when the threshold is 240.',
       );
     });
 
-    test('default 180/min threshold fires above the idle band', () {
-      // 32 cycles in 10 s = 192/min.
+    test('default 240/min threshold fires at 41 young collections', () {
+      // 41 cycles in 10 s = 246/min.
       final defaultDetector = MemoryPressureDetector(
         clock: () => fakeNow,
         warmupDurationMs: 0,
       );
-      feedCycles(defaultDetector, 32);
+      feedCycles(defaultDetector, 41);
       final issue = defaultDetector.issues.singleWhere(
         (i) => i.stableId == 'gc_pressure',
       );
       expect(issue.severity, IssueSeverity.warning);
       expect(issue.confidence, IssueConfidence.likely);
-      expect(issue.extraTraceArgs!['observedGcEvents'], '32');
+      expect(issue.title, 'High GC Pressure: 246 young GCs/min');
+      expect(issue.extraTraceArgs!['observedGcEvents'], '41');
+    });
+
+    test('old-generation sweeps and marking starts do not count toward the '
+        'default rate', () {
+      // 20 young, 20 marking starts and 20 sweeps in 10 s: 360 events a
+      // minute, 120 of them young.
+      final defaultDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0,
+      );
+      const types = ['Scavenge', 'StartCMark', 'MarkSweep'];
+      feedCycles(defaultDetector, 60, gcType: (i) => types[i % 3]);
+      expect(
+        defaultDetector.issues.where((i) => i.stableId == 'gc_pressure'),
+        isEmpty,
+      );
     });
 
     test('opt-in 30/min threshold fires below the default', () {
@@ -192,22 +212,22 @@ void main() {
         clock: () => fakeNow,
         warmupDurationMs: 0,
       );
-      // 32 cycles: 20 Scavenge, 5 MarkSweep, 3 MarkCompact, 2 null,
-      // 2 unknown.
+      // 52 cycles: 40 Scavenge, 5 MarkSweep, 3 MarkCompact, 2 null,
+      // 2 unknown; 44 young.
       String? type(int i) {
-        if (i < 20) return 'Scavenge';
-        if (i < 25) return 'MarkSweep';
-        if (i < 28) return 'MarkCompact';
-        if (i < 30) return null;
+        if (i < 40) return 'Scavenge';
+        if (i < 45) return 'MarkSweep';
+        if (i < 48) return 'MarkCompact';
+        if (i < 50) return null;
         return 'SomethingNew';
       }
 
-      feedCycles(defaultDetector, 32, gcType: type);
+      feedCycles(defaultDetector, 52, gcType: type);
       final args = defaultDetector.issues
           .singleWhere((i) => i.stableId == 'gc_pressure')
           .extraTraceArgs!;
-      expect(args['observedGcEvents'], '32');
-      expect(args['scavengeCount'], '24');
+      expect(args['observedGcEvents'], '52');
+      expect(args['scavengeCount'], '44');
       expect(args['oldGenCount'], '8');
       expect(
         int.parse(args['scavengeCount']!) + int.parse(args['oldGenCount']!),
@@ -235,16 +255,16 @@ void main() {
         'MarkCompact',
         'StartCMark',
       ];
-      for (var i = 0; i < 10; i++) {
+      for (var i = 0; i < 20; i++) {
         detector.recordGcCycle(gcType: types[i % types.length]);
       }
       final issue = detector.issues.singleWhere(
         (i) => i.stableId == 'gc_pressure',
       );
       final args = issue.extraTraceArgs!;
-      expect(args['scavengeCount'], '4');
-      expect(args['oldGenCount'], '4');
-      expect(args['markStartCount'], '2');
+      expect(args['scavengeCount'], '8');
+      expect(args['oldGenCount'], '8');
+      expect(args['markStartCount'], '4');
       expect(
         int.parse(args['scavengeCount']!) +
             int.parse(args['oldGenCount']!) +
@@ -254,15 +274,15 @@ void main() {
       expect(
         issue.detail,
         contains(
-          '4 young-generation collections, 4 old-generation collections '
-          'and 2 concurrent-marking starts',
+          '8 young-generation collections, 8 old-generation collections '
+          'and 4 concurrent-marking starts',
         ),
       );
     });
 
     test('a concurrent cycle counts one old-generation collection and one '
         'marking start', () {
-      for (var i = 0; i < 5; i++) {
+      for (var i = 0; i < 6; i++) {
         detector.recordGcCycle(gcType: 'Scavenge');
       }
       detector
@@ -273,7 +293,7 @@ void main() {
           .extraTraceArgs!;
       expect(args['oldGenCount'], '1');
       expect(args['markStartCount'], '1');
-      expect(args['scavengeCount'], '5');
+      expect(args['scavengeCount'], '6');
     });
 
     test('old cycles age out of the split with the window', () {
@@ -1396,8 +1416,9 @@ void main() {
     test(
       'flags native_memory_growing when growth > 1MB/s sustained 10+ seconds',
       () {
-        // 2MB/s native growth for 12 seconds (24 samples), flat heap
-        for (var i = 0; i < 24; i++) {
+        // 2MB/s native growth for 14 seconds (28 samples), flat heap; the
+        // both-halves rule needs 4 samples per half before it evaluates
+        for (var i = 0; i < 28; i++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
           detector.processHeapSample(
             _sample(
@@ -1416,7 +1437,7 @@ void main() {
     );
 
     test('native_memory_growing stableId, confidence, category correct', () {
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 28; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         detector.processHeapSample(
           _sample(
@@ -1438,7 +1459,7 @@ void main() {
     });
 
     test('native_memory_growing detail contains rate and native estimate', () {
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 28; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         detector.processHeapSample(
           _sample(
@@ -1471,6 +1492,91 @@ void main() {
       }
       return seen;
     }
+
+    // The seconds, since the first sample, of each 0.5 s step that showed
+    // native_memory_growing, for an RSS curve over a flat 50 MB heap.
+    List<double> nativeCardTimes(int seconds, double Function(double t) rss) {
+      final times = <double>[];
+      for (var i = 0; i < seconds * 2; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(
+          _sample(rssBytes: rss(i / 2).round(), timestamp: fakeNow),
+        );
+        if (detector.issues.any((x) => x.stableId == 'native_memory_growing')) {
+          times.add(i / 2);
+        }
+      }
+      return times;
+    }
+
+    group('continued growth', () {
+      const mib = 1048576.0;
+
+      test('a 2 MiB/s ramp with 5 MB of jitter is native growth', () {
+        final random = math.Random(1);
+        final times = nativeCardTimes(
+          30,
+          (t) => 150e6 + 2 * mib * t + random.nextDouble() * 10e6 - 5e6,
+        );
+        expect(times, isNotEmpty);
+        expect(times.first, lessThanOrEqualTo(18));
+      });
+
+      test('a ramp that stops loses the card within 10 s of the plateau', () {
+        final times = nativeCardTimes(
+          50,
+          (t) => 150e6 + 2 * mib * math.min(t, 20),
+        );
+        expect(times, contains(20.0));
+        expect(times.last, lessThanOrEqualTo(30));
+      });
+
+      test('a one-time 50 MB jump is not native growth', () {
+        expect(
+          nativeCardTimes(60, (t) => 150e6 + (t >= 20 ? 50e6 : 0)),
+          isEmpty,
+        );
+      });
+
+      test('10 MB every 5 s is native growth', () {
+        expect(
+          nativeCardTimes(60, (t) => 150e6 + 10e6 * (math.max(0, t - 10) ~/ 5)),
+          isNotEmpty,
+        );
+      });
+
+      test('two 20 MB jumps 20 s apart are too far apart to read as '
+          'growth', () {
+        // The documented limit: a half without a jump stays flat.
+        expect(
+          nativeCardTimes(
+            70,
+            (t) => 150e6 + (t >= 10 ? 20e6 : 0) + (t >= 30 ? 20e6 : 0),
+          ),
+          isEmpty,
+        );
+      });
+
+      test('a half with fewer than 4 samples does not evaluate', () {
+        HeapSample at(double t) => _sample(
+          rssBytes: (150e6 + 2 * mib * t).round(),
+          timestamp: DateTime(
+            2026,
+          ).add(Duration(milliseconds: (t * 1000).round())),
+        );
+        // Three samples, a gap, then five: the time midpoint leaves three
+        // in the first half.
+        final sparse = [
+          for (final t in [0.0, 0.5, 1.0, 8.0, 8.5, 9.0, 9.5, 10.0]) at(t),
+        ];
+        expect(MemoryPressureDetector.continuedGrowthSlope(sparse), 0);
+        final even = [for (var i = 0; i < 8; i++) at(i / 2)];
+        expect(
+          MemoryPressureDetector.continuedGrowthSlope(even),
+          greaterThan(mib),
+        );
+      });
+    });
 
     test('a large Dart heap drop with flat RSS is not native growth', () {
       // Freeing 50 MB of Dart objects lowers heap usage while RSS keeps
@@ -1514,7 +1620,7 @@ void main() {
 
     test('native_memory_growing coexists with heap_growing', () {
       // Both heap and native growing
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 28; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         detector.processHeapSample(
           _sample(
@@ -1585,7 +1691,7 @@ void main() {
 
     test('reset clears native sustained growth tracking', () {
       // Trigger native_memory_growing
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 28; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         detector.processHeapSample(
           _sample(

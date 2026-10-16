@@ -235,7 +235,7 @@ Every detector declares the evidence behind its thresholds, and a CI audit enfor
 - Sleuth does not replace DevTools heap snapshots or interactive flame charts.
 - Per-widget attribution depends on the mode. Debug mode gives per-widget rebuild and paint counts. Profile mode gives per-widget rebuild counts only in the Rebuild stats panel, and its rebuild and repaint issues measure the share of UI-thread time, not single widgets.
 - VM full mode depends on the platform and on how the app was launched.
-- Memory detection watches GC frequency, heap growth and, when you set a budget, process memory. When the heap grows it adds per-class allocation deltas to the issue, but it does not track individual object leaks or retention paths.
+- Memory detection watches young-generation GC frequency, heap growth and, when you set a budget, process memory. When the heap grows it adds per-class allocation deltas to the issue, but it does not track individual object leaks or retention paths.
 - CPU attribution of jank frames is off by default (`SleuthConfig(cpuAttribution: true)` turns it on): the VM builds each answer on the app's UI isolate, which froze the UI for about 300 ms per request on an iPhone 12. It samples at about 1 kHz, so functions that run for less than 1 ms may not appear.
 - iOS profile builds made with `flutter build ios` or `flutter build ipa` show issues without source locations. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#ios-builds-from-flutter-build-ios-lose-source-locations) has a build step that keeps them.
 

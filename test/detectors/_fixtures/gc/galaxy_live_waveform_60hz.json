@@ -1,0 +1,1784 @@
+{
+ "provenance": {
+  "device": "Galaxy A07 (SM-A075F)",
+  "osVersion": "Android 16",
+  "flutterVersion": "3.47.6",
+  "vmVersion": "3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"android_arm64\"",
+  "operatingSystem": "android",
+  "capturedAt": "2026-10-15T12:32:18.186602",
+  "durationSeconds": 10,
+  "screen": "Live Waveform (bad pattern), 10 s, 60 Hz",
+  "appIsolateId": "isolates/7393183842568239",
+  "isolates": [
+   {
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   }
+  ],
+  "source": "tool/device_pass.dart gc-dump: raw kGC Event.json payloads as the VM sent them"
+ },
+ "events": [
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042338437,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 296,
+    "avgCollectionPeriodMillis": 1207.144945945946,
+    "used": 9959040,
+    "capacity": 9961472,
+    "external": 1029184,
+    "time": 1.83553
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 159,
+    "used": 22411280,
+    "capacity": 23773184,
+    "external": 5072,
+    "time": 0.34454,
+    "avgCollectionPeriodMillis": 2247.2636540880503
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042338465,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 296,
+    "avgCollectionPeriodMillis": 1207.2407533783783,
+    "used": 4361296,
+    "capacity": 14155776,
+    "external": 800,
+    "time": 1.83553
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 160,
+    "used": 18099232,
+    "capacity": 23773184,
+    "external": 5072,
+    "time": 0.348668,
+    "avgCollectionPeriodMillis": 2233.39546875
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042338481,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 297,
+    "avgCollectionPeriodMillis": 1203.2312255892257,
+    "used": 3546000,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.843236
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 160,
+    "used": 18277216,
+    "capacity": 19578880,
+    "external": 5168,
+    "time": 0.348668,
+    "avgCollectionPeriodMillis": 2233.4981187500002
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042338978,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 298,
+    "avgCollectionPeriodMillis": 1200.8612986577182,
+    "used": 3519392,
+    "capacity": 4194304,
+    "external": 800,
+    "time": 1.852415
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 160,
+    "used": 20385664,
+    "capacity": 21676032,
+    "external": 5072,
+    "time": 0.348668,
+    "avgCollectionPeriodMillis": 2236.6042375
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042339443,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 298,
+    "avgCollectionPeriodMillis": 1202.4216610738256,
+    "used": 9959008,
+    "capacity": 9961472,
+    "external": 1007936,
+    "time": 1.852415
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 161,
+    "used": 22384016,
+    "capacity": 23773184,
+    "external": 5072,
+    "time": 0.34941,
+    "avgCollectionPeriodMillis": 2225.6004347826088
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042339472,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 298,
+    "avgCollectionPeriodMillis": 1202.5177516778522,
+    "used": 4161056,
+    "capacity": 14155776,
+    "external": 800,
+    "time": 1.852415
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 162,
+    "used": 18080976,
+    "capacity": 23773184,
+    "external": 5072,
+    "time": 0.353587,
+    "avgCollectionPeriodMillis": 2212.0391666666665
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042339489,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 299,
+    "avgCollectionPeriodMillis": 1198.5512575250837,
+    "used": 3625744,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.859465
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 162,
+    "used": 18224112,
+    "capacity": 19554304,
+    "external": 5168,
+    "time": 0.353587,
+    "avgCollectionPeriodMillis": 2212.140962962963
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042339952,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 300,
+    "avgCollectionPeriodMillis": 1196.1003166666667,
+    "used": 3675296,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.867487
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 162,
+    "used": 20279376,
+    "capacity": 21651456,
+    "external": 5168,
+    "time": 0.353587,
+    "avgCollectionPeriodMillis": 2215.0006481481482
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042340432,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 300,
+    "avgCollectionPeriodMillis": 1197.6994366666668,
+    "used": 9959040,
+    "capacity": 9961472,
+    "external": 1072352,
+    "time": 1.867487
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 163,
+    "used": 22404992,
+    "capacity": 24797184,
+    "external": 5168,
+    "time": 0.354153,
+    "avgCollectionPeriodMillis": 2204.3548588957055
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042340460,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 300,
+    "avgCollectionPeriodMillis": 1197.79281,
+    "used": 4837328,
+    "capacity": 14680064,
+    "external": 704,
+    "time": 1.867487
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 164,
+    "used": 18146608,
+    "capacity": 24797184,
+    "external": 5168,
+    "time": 0.358057,
+    "avgCollectionPeriodMillis": 2191.0845914634147
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042340474,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 301,
+    "avgCollectionPeriodMillis": 1193.8625780730897,
+    "used": 3725776,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.874515
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 164,
+    "used": 18291472,
+    "capacity": 19619840,
+    "external": 5168,
+    "time": 0.358057,
+    "avgCollectionPeriodMillis": 2191.1746707317075
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042340949,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 302,
+    "avgCollectionPeriodMillis": 1191.481152317881,
+    "used": 3358576,
+    "capacity": 4194304,
+    "external": 800,
+    "time": 1.882443
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 164,
+    "used": 20500288,
+    "capacity": 22765568,
+    "external": 5072,
+    "time": 0.358057,
+    "avgCollectionPeriodMillis": 2194.069018292683
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042341443,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 302,
+    "avgCollectionPeriodMillis": 1193.1179668874172,
+    "used": 11007344,
+    "capacity": 11010048,
+    "external": 1053696,
+    "time": 1.882443
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 165,
+    "used": 22589008,
+    "capacity": 24862720,
+    "external": 5072,
+    "time": 0.358946,
+    "avgCollectionPeriodMillis": 2183.767521212121
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042341473,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 302,
+    "avgCollectionPeriodMillis": 1193.2159139072849,
+    "used": 4849024,
+    "capacity": 15728640,
+    "external": 800,
+    "time": 1.882443
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 166,
+    "used": 18136816,
+    "capacity": 24862720,
+    "external": 5072,
+    "time": 0.364665,
+    "avgCollectionPeriodMillis": 2170.790831325301
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042341484,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 303,
+    "avgCollectionPeriodMillis": 1189.3140990099012,
+    "used": 3256304,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.888713
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 166,
+    "used": 18265344,
+    "capacity": 19599360,
+    "external": 5168,
+    "time": 0.364665,
+    "avgCollectionPeriodMillis": 2170.856518072289
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042341964,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 304,
+    "avgCollectionPeriodMillis": 1186.9816710526316,
+    "used": 3202192,
+    "capacity": 3670016,
+    "external": 832,
+    "time": 1.896684
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 166,
+    "used": 20450848,
+    "capacity": 22745088,
+    "external": 5040,
+    "time": 0.364665,
+    "avgCollectionPeriodMillis": 2173.7496204819276
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042342425,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 304,
+    "avgCollectionPeriodMillis": 1188.4969835526315,
+    "used": 11007360,
+    "capacity": 11010048,
+    "external": 1029616,
+    "time": 1.896684
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 167,
+    "used": 22491920,
+    "capacity": 24842240,
+    "external": 5040,
+    "time": 0.365482,
+    "avgCollectionPeriodMillis": 2163.491586826347
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042342466,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 304,
+    "avgCollectionPeriodMillis": 1188.6325526315788,
+    "used": 5442512,
+    "capacity": 16252928,
+    "external": 832,
+    "time": 1.896684
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 168,
+    "used": 18118800,
+    "capacity": 24842240,
+    "external": 5040,
+    "time": 0.372961,
+    "avgCollectionPeriodMillis": 2150.859023809524
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042342479,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 305,
+    "avgCollectionPeriodMillis": 1184.77671147541,
+    "used": 3256368,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.904304
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 168,
+    "used": 18296176,
+    "capacity": 20627456,
+    "external": 5168,
+    "time": 0.372961,
+    "avgCollectionPeriodMillis": 2150.9339702380953
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042342965,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 306,
+    "avgCollectionPeriodMillis": 1182.49322875817,
+    "used": 3302608,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.912948
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 168,
+    "used": 20443024,
+    "capacity": 22724608,
+    "external": 5168,
+    "time": 0.372961,
+    "avgCollectionPeriodMillis": 2153.8270059523807
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042343442,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 306,
+    "avgCollectionPeriodMillis": 1184.05177124183,
+    "used": 10483136,
+    "capacity": 10485760,
+    "external": 1056176,
+    "time": 1.912948
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 169,
+    "used": 22537472,
+    "capacity": 24821760,
+    "external": 5168,
+    "time": 0.374405,
+    "avgCollectionPeriodMillis": 2143.9045266272187
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042343471,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 306,
+    "avgCollectionPeriodMillis": 1184.1476764705883,
+    "used": 4255552,
+    "capacity": 14680064,
+    "external": 704,
+    "time": 1.912948
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 170,
+    "used": 18146480,
+    "capacity": 24821760,
+    "external": 5168,
+    "time": 0.37834,
+    "avgCollectionPeriodMillis": 2131.465888235294
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042343486,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 307,
+    "avgCollectionPeriodMillis": 1180.338990228013,
+    "used": 3322768,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.919672
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 170,
+    "used": 18320544,
+    "capacity": 20127744,
+    "external": 5168,
+    "time": 0.37834,
+    "avgCollectionPeriodMillis": 2131.553405882353
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042343978,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 308,
+    "avgCollectionPeriodMillis": 1178.104672077922,
+    "used": 3173648,
+    "capacity": 3670016,
+    "external": 832,
+    "time": 1.928104
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 170,
+    "used": 20435744,
+    "capacity": 22224896,
+    "external": 5040,
+    "time": 0.37834,
+    "avgCollectionPeriodMillis": 2134.448523529412
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042344436,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 308,
+    "avgCollectionPeriodMillis": 1179.5923181818182,
+    "used": 10483200,
+    "capacity": 10485760,
+    "external": 1035072,
+    "time": 1.928104
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 171,
+    "used": 22487728,
+    "capacity": 24322048,
+    "external": 5040,
+    "time": 0.379112,
+    "avgCollectionPeriodMillis": 2124.6458830409356
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042344468,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 308,
+    "avgCollectionPeriodMillis": 1179.6942045454546,
+    "used": 5310656,
+    "capacity": 15728640,
+    "external": 832,
+    "time": 1.928104
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 172,
+    "used": 18121904,
+    "capacity": 23797760,
+    "external": 5040,
+    "time": 0.384134,
+    "avgCollectionPeriodMillis": 2112.4757441860465
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042344480,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 309,
+    "avgCollectionPeriodMillis": 1175.9150647249191,
+    "used": 3341024,
+    "capacity": 4194304,
+    "external": 800,
+    "time": 1.935242
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 172,
+    "used": 18260512,
+    "capacity": 20107264,
+    "external": 5072,
+    "time": 0.384134,
+    "avgCollectionPeriodMillis": 2112.545145348837
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042344980,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 310,
+    "avgCollectionPeriodMillis": 1173.735329032258,
+    "used": 3291440,
+    "capacity": 4194304,
+    "external": 800,
+    "time": 1.944397
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 172,
+    "used": 20416864,
+    "capacity": 22204416,
+    "external": 5072,
+    "time": 0.384134,
+    "avgCollectionPeriodMillis": 2115.453273255814
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042345435,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 310,
+    "avgCollectionPeriodMillis": 1175.2047096774195,
+    "used": 10483200,
+    "capacity": 10485760,
+    "external": 1053408,
+    "time": 1.944397
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 173,
+    "used": 22505616,
+    "capacity": 24301568,
+    "external": 5072,
+    "time": 0.384866,
+    "avgCollectionPeriodMillis": 2105.858231213873
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042345468,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 310,
+    "avgCollectionPeriodMillis": 1175.3093258064516,
+    "used": 4629040,
+    "capacity": 15204352,
+    "external": 800,
+    "time": 1.944397
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 174,
+    "used": 18145712,
+    "capacity": 23777280,
+    "external": 5072,
+    "time": 0.391897,
+    "avgCollectionPeriodMillis": 2093.9419885057473
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042345482,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 311,
+    "avgCollectionPeriodMillis": 1171.5767652733118,
+    "used": 3311312,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.951641
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 174,
+    "used": 18312976,
+    "capacity": 19599360,
+    "external": 5168,
+    "time": 0.391897,
+    "avgCollectionPeriodMillis": 2094.025195402299
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042345969,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 312,
+    "avgCollectionPeriodMillis": 1169.381532051282,
+    "used": 3169264,
+    "capacity": 3670016,
+    "external": 704,
+    "time": 1.959956
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 174,
+    "used": 20460032,
+    "capacity": 21696512,
+    "external": 5168,
+    "time": 0.391897,
+    "avgCollectionPeriodMillis": 2096.822114942529
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042346453,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 312,
+    "avgCollectionPeriodMillis": 1170.9345288461539,
+    "used": 11007360,
+    "capacity": 11010048,
+    "external": 1050576,
+    "time": 1.959956
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 175,
+    "used": 22543280,
+    "capacity": 23793664,
+    "external": 5168,
+    "time": 0.393028,
+    "avgCollectionPeriodMillis": 2087.6090914285714
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042346479,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 312,
+    "avgCollectionPeriodMillis": 1171.0175256410257,
+    "used": 3045184,
+    "capacity": 13631488,
+    "external": 704,
+    "time": 1.959956
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 176,
+    "used": 18148272,
+    "capacity": 23793664,
+    "external": 5168,
+    "time": 0.396376,
+    "avgCollectionPeriodMillis": 2075.8947670454545
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042346497,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 313,
+    "avgCollectionPeriodMillis": 1167.3345942492012,
+    "used": 3271360,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.968144
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 176,
+    "used": 18303504,
+    "capacity": 19599360,
+    "external": 5168,
+    "time": 0.396376,
+    "avgCollectionPeriodMillis": 2075.998505681818
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042346972,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 314,
+    "avgCollectionPeriodMillis": 1165.1273503184714,
+    "used": 3237856,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.976362
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 176,
+    "used": 20358512,
+    "capacity": 21696512,
+    "external": 5168,
+    "time": 0.396376,
+    "avgCollectionPeriodMillis": 2078.6931704545455
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042347430,
+   "reason": "new space",
+   "gcType": "StartCMark",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 314,
+    "avgCollectionPeriodMillis": 1166.5867101910828,
+    "used": 9958992,
+    "capacity": 9961472,
+    "external": 998320,
+    "time": 1.976362
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 177,
+    "used": 22337216,
+    "capacity": 23793664,
+    "external": 5168,
+    "time": 0.396952,
+    "avgCollectionPeriodMillis": 2069.5380677966104
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042347454,
+   "reason": "finalize",
+   "gcType": "MarkSweep",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 314,
+    "avgCollectionPeriodMillis": 1166.664372611465,
+    "used": 3167984,
+    "capacity": 13107200,
+    "external": 704,
+    "time": 1.976362
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 178,
+    "used": 18097168,
+    "capacity": 23793664,
+    "external": 5168,
+    "time": 0.399604,
+    "avgCollectionPeriodMillis": 2058.0487808988764
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042347473,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 315,
+    "avgCollectionPeriodMillis": 1163.0212571428572,
+    "used": 3534560,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.983087
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 178,
+    "used": 18229264,
+    "capacity": 19546112,
+    "external": 5168,
+    "time": 0.399604,
+    "avgCollectionPeriodMillis": 2058.155646067416
+   }
+  },
+  {
+   "type": "Event",
+   "kind": "GC",
+   "isolateGroup": {
+    "type": "@IsolateGroup",
+    "id": "isolateGroups/3382995219851179",
+    "name": "main.dart",
+    "number": "3382995219851179",
+    "isSystemIsolateGroup": false
+   },
+   "isolate": {
+    "type": "@Isolate",
+    "id": "isolates/7393183842568239",
+    "name": "main",
+    "number": "7393183842568239",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/3382995219851179"
+   },
+   "timestamp": 1792042347972,
+   "reason": "new space",
+   "gcType": "Scavenge",
+   "new": {
+    "type": "HeapSpace",
+    "name": "new",
+    "vmName": "Scavenger",
+    "collections": 316,
+    "avgCollectionPeriodMillis": 1160.917268987342,
+    "used": 3528800,
+    "capacity": 4194304,
+    "external": 704,
+    "time": 1.990889
+   },
+   "old": {
+    "type": "HeapSpace",
+    "name": "old",
+    "vmName": "PageSpace",
+    "collections": 178,
+    "used": 20406672,
+    "capacity": 22691840,
+    "external": 5168,
+    "time": 0.399604,
+    "avgCollectionPeriodMillis": 2060.9543033707864
+   }
+  }
+ ],
+ "expected": "silent: 20 scavenges in 10 s; old-gen marks do not count"
+}

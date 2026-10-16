@@ -150,6 +150,10 @@ class TimelineCursor {
   /// Signatures of the events at [lastTs]; null until a tie.
   Set<String>? _signatures;
 
+  /// Async and flow events accepted ahead of [lastTs], by timestamp. They
+  /// do not move the cursor, so a re-read finds them here instead.
+  Map<int, Set<String>>? _ahead;
+
   /// Largest `ts` processed for the thread.
   int get lastTs => _lastTs;
 
@@ -159,9 +163,24 @@ class TimelineCursor {
 
   void _advance(int ts, Map<String, dynamic> json) {
     _lastTs = ts;
-    _firstAtLastTs = json;
-    _signatures = null;
+    final ahead = _ahead;
+    final atTs = ahead?.remove(ts);
+    ahead?.removeWhere((aheadTs, _) => aheadTs < ts);
+    if (atTs == null) {
+      _firstAtLastTs = json;
+      _signatures = null;
+    } else {
+      _firstAtLastTs = null;
+      _signatures = {...atTs, TimelineParser._signatureOf(json)};
+    }
   }
+
+  /// Records an async or flow event ahead of [lastTs]; false when already
+  /// seen.
+  bool _acceptAhead(int ts, Map<String, dynamic> json) =>
+      ((_ahead ??= {})[ts] ??= <String>{}).add(
+        TimelineParser._signatureOf(json),
+      );
 
   /// Records an event at exactly [lastTs]; false when already seen.
   bool _acceptTie(Map<String, dynamic> json) {
@@ -418,6 +437,21 @@ class TimelineParser {
   static const int pendingChannelBeginsCap = 256;
 
   /// Dedup signature `'$ph|$name|$id'` of an event.
+  /// Event phases whose timestamps need not follow the thread's order:
+  /// async begin, end and instant, the legacy async forms, and flow events.
+  static const _asyncPhases = {
+    'b',
+    'e',
+    'n',
+    'S',
+    'T',
+    'p',
+    'F',
+    's',
+    't',
+    'f',
+  };
+
   static String _signatureOf(Map<String, dynamic> json) =>
       '${json['ph'] ?? ''}|${json['name'] ?? ''}|${json['id'] ?? ''}';
 
@@ -595,15 +629,32 @@ class TimelineParser {
           cachedTid = tid;
           cachedCursor = cursor;
         }
+        // Async and flow events do not move the cursor. The engine posts
+        // `SceneDisplayLag` as an async pair whose end carries the frame's
+        // target time, tens of milliseconds ahead of the thread's next
+        // events; as a cursor step it dropped the raster thread's
+        // following begin and end events as duplicates, so a janky
+        // Android screen parsed 2 raster frames out of 76. They are still
+        // dropped when they fall behind the cursor.
+        final ordered = !_asyncPhases.contains(json['ph']);
+        if (cursor == null && !ordered) {
+          cursor = cachedCursor = cursors[tid] = TimelineCursor._(-1, null)
+            .._signatures = <String>{};
+        }
         if (cursor == null) {
           cachedCursor = cursors[tid] = TimelineCursor._(ts, json);
         } else if (ts > cursor._lastTs) {
-          cursor._advance(ts, json);
+          if (ordered) {
+            cursor._advance(ts, json);
+          } else if (!cursor._acceptAhead(ts, json)) {
+            duplicates++;
+            continue;
+          }
         } else if (ts < cursor._lastTs || !cursor._acceptTie(json)) {
           duplicates++;
           continue;
         }
-        if (ts > maxTs) maxTs = ts;
+        if (ordered && ts > maxTs) maxTs = ts;
       }
 
       final name = json['name'] as String? ?? '';

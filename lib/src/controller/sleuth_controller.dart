@@ -1322,16 +1322,14 @@ class SleuthController {
   }
 
   /// Applies the resolved budget to budget-derived detector thresholds.
-  /// At the `fpsTarget` budget the detectors keep their own defaults
-  /// (8000 us raster floor, 8 ms heavy-compute threshold); above
-  /// `fpsTarget` they use half the resolved budget.
+  /// The GPU detector's VM leg always takes the resolved budget. At the
+  /// `fpsTarget` budget heavy_compute keeps its `lagThresholdMs`; above
+  /// `fpsTarget` it derives one from the resolved budget.
   T _withFrameBudget<T extends BaseDetector>(T detector) {
     final budgetUs = _frameBudget.budgetUs;
     final atTarget = budgetUs == _fpsTargetBudgetUs;
     if (detector is GpuPressureDetector) {
-      atTarget
-          ? detector.resetFrameBudget()
-          : detector.updateFrameBudget(budgetUs);
+      detector.updateFrameBudget(budgetUs);
     } else if (detector is HeavyComputeDetector) {
       atTarget
           ? detector.resetFrameBudget()
@@ -4910,7 +4908,7 @@ class SleuthController {
 
     // Export and service-extension readers always see the freshest list.
     // The notifier fires only when something a reader can see changed —
-    // live counters in titles/details (e.g. "45 GC/min") change the
+    // live counters in titles/details (e.g. "390 young GCs/min") change the
     // fingerprint. Per-tick panels listen to [scanTickNotifier] instead.
     _latestIssues = ranked;
     final fingerprint = _issuesFingerprint(ranked);
@@ -5531,7 +5529,7 @@ class SleuthConfig {
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
     this.memoryWarmupDurationMs = 3000,
-    this.gcRateThresholdPerMin = 180,
+    this.gcRateThresholdPerMin = 240,
     this.frameTimingWarmupFrameCount = 0,
     this.frameTimingWarmupDuration = const Duration(seconds: 3),
     this.platformChannelDurationThresholdMs = 8,
@@ -5983,15 +5981,17 @@ class SleuthConfig {
   /// allocation tracking from sample zero.
   final int memoryWarmupDurationMs;
 
-  /// GC events per minute (extrapolated from a 10s sliding window) above
-  /// which `gc_pressure` fires.
+  /// Young-generation collections (scavenges) per minute, extrapolated
+  /// from a 10 s sliding window, above which `gc_pressure` fires.
+  /// Old-generation sweeps and concurrent-marking starts do not count;
+  /// on animated screens they follow promotion and pause the app briefly.
   ///
-  /// **Default:** 180 (3 per second sustained over the 10 s window).
-  /// Dart's `EventStreams.kGC` emits one event per GC cycle, new-space
-  /// scavenges included. An idle app with Sleuth attached produces 1 to
-  /// 2 scavenges per second from the VM-service poll traffic alone
-  /// (66 to 138 per minute measured on an iPhone 12); allocation churn
-  /// runs at thousands per minute. Each `gc_pressure` emission stamps
+  /// **Default:** 240 (4 per second sustained over the 10 s window).
+  /// On an iPhone 12 and a Galaxy A07 at 60 Hz, ordinary screens ran 168
+  /// scavenges a minute or fewer and the GC Churn demo 390 to 810.
+  /// Scavenges rise with the frame rate: an animated screen at 90 Hz on
+  /// the Galaxy ran 186 to 246, with 3.7 to 4.9 % of the time in GC
+  /// pauses. Each `gc_pressure` emission stamps
   /// the young-generation / old-generation / marking-start split of its
   /// window (`scavengeCount`, `oldGenCount`, `markStartCount`) and, when
   /// every event in the window has a measured pause, the GC pause time

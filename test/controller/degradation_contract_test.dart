@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 import 'package:sleuth/src/vm/vm_service_client.dart';
 
 import '../helpers/benchmark_helpers.dart';
@@ -29,13 +30,15 @@ void main() {
       // Start with VM connected
       controller.simulateVmStateChangeForTest(true);
 
-      // Feed timeline data to generate VM-backed issues
+      // Feed timeline data to generate VM-backed issues: three 30 ms raster
+      // frames against 10 ms of UI in the poll, enough for the VM leg to
+      // report without frame timings.
       controller.feedTimelineDataForTest(
-        rasterDominantData(
-          rasterUs: 30000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
+        ParsedTimelineData(
+          rasterDurations: const [30000, 30000, 30000],
+          buildScopeDurations: const [5000],
+          flushLayoutDurations: const [3000],
+          flushPaintDurations: const [2000],
         ),
       );
 

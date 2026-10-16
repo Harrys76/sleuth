@@ -38,7 +38,7 @@ import '../vm/timeline_parser.dart';
 /// A startup-phase frame whose `addTimingsCallback` delivery is delayed
 /// past the window boundary tags as `'steady'` even when the underlying
 /// frame timestamp was inside startup. Buffer-aggregated emissions
-/// (`sustained_jank` over a 240-frame window, raster-cache trends over
+/// (`sustained_jank` over the judged frames, raster-cache trends over
 /// 30+ frames) tag from emission-time `Timeline.now`; a buffer that
 /// straddles the boundary tags as `'steady'` once `Timeline.now` exceeds
 /// the window even if most contributing frames landed inside startup.
@@ -216,6 +216,30 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     );
   }
 
+  /// How far back, behind the newest frame's vsync, jank looks. On a quiet
+  /// screen Sleuth's own scans draw about one frame a second, so without a
+  /// time limit janky frames took 4 to 8 minutes to leave the 240-frame
+  /// buffer and the card stayed that long after the jank stopped.
+  static const Duration jankWindow = Duration(seconds: 10);
+
+  /// The frames jank is judged on: those since the last [markRouteEpoch]
+  /// that are still in the buffer and, outside [captureMode], whose vsync
+  /// is within [jankWindow] of the newest frame's. Frames without a vsync
+  /// time count.
+  List<FrameStats> get _jankFrames {
+    final frames = _framesSinceRouteEpoch;
+    if (captureMode || frames.isEmpty) return frames;
+    final newest = frames.last.vsyncStartUs;
+    if (newest == null) return frames;
+    final cutoff = newest - jankWindow.inMicroseconds;
+    final first = frames.indexWhere((f) {
+      final vsync = f.vsyncStartUs;
+      return vsync == null || vsync >= cutoff;
+    });
+    if (first <= 0) return first == 0 ? frames : const [];
+    return frames.sublist(first);
+  }
+
   /// Frames ingested since the last [markRouteEpoch] that are still in
   /// the buffer, oldest first; the whole buffer when no epoch is set.
   List<FrameStats> get _framesSinceRouteEpoch {
@@ -251,12 +275,18 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   // device refresh (e.g. 60 at fpsTarget=30 on a 120 Hz panel).
   static const int _bufferCapacity = 240;
 
-  /// `jank_detected` fires when more than this percentage of the frames
-  /// since the route epoch missed their deadline.
+  /// `jank_detected` fires when more than this percentage of the judged
+  /// frames missed their deadline.
   static const int jankPercentThreshold = 15;
 
-  /// Frames since the route epoch needed before jank is evaluated.
+  /// Judged frames needed before jank is evaluated.
   static const int minJankSampleFrames = 5;
+
+  /// Late frames `jank_detected` needs besides the percentage. A quiet
+  /// screen draws only Sleuth's own scan frames, about one a second, so
+  /// one late frame among the ten in [jankWindow] already reads 10 % and
+  /// two read 20 %. On an animated screen the percentage needs many more.
+  static const int minJankFrameCount = 3;
 
   /// `sustained_jank` fires at this many severe frames (see
   /// [FrameStats.severeJankBudgetMultiplier]).
@@ -568,12 +598,15 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   /// Only report jank as an issue when it's a sustained pattern:
-  /// - Critical: ≥3 severe jank frames (>2x budget) in the buffer
-  /// - Warning: >15% of recent frames are janky (> budget)
+  /// - Critical: ≥3 severe jank frames (>2x budget) among the judged frames
+  /// - Warning: >15% of the judged frames are janky (> budget), with at
+  ///   least [minJankFrameCount] of them
   ///
-  /// Both read the frames since the last [markRouteEpoch] (the whole
-  /// buffer when no epoch is set); the 5-frame minimum, percentages and
-  /// `bufferSize` apply to that slice.
+  /// Both judge the frames since the last [markRouteEpoch] (the whole
+  /// buffer when no epoch is set) and, outside [captureMode], only those
+  /// within [jankWindow] of the newest frame's vsync; when the newest frame
+  /// has no vsync time the window does not apply. The 5-frame minimum,
+  /// percentages and `bufferSize` apply to that slice.
   ///
   /// **Parallel emission semantics (v0.19.6+).** When both gates are
   /// satisfied (severeCount ≥ 3 AND jankPercent > 15), BOTH stableIds
@@ -598,7 +631,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     // route init, Dart VM warmup produce non-actionable jank).
     if (!_isPastWarmup()) return;
 
-    final frames = _framesSinceRouteEpoch;
+    final frames = _jankFrames;
     if (frames.length < minJankSampleFrames) return; // Need enough data
 
     // Single pass: count jank categories and find the worst app frame.
@@ -660,7 +693,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         ),
       );
     }
-    if (jankPercent > jankPercentThreshold) {
+    if (jankPercent > jankPercentThreshold && jankCount >= minJankFrameCount) {
       final (hint2, effort2) = FixHintBuilder.jankDetected();
       final worstMs = _deadlineUs(worst) / 1000.0;
       // Wall-clock micros plus an instance-monotonic counter so back-to-back
@@ -1030,7 +1063,10 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         'A hermetic reproducer pins four stableIds. `sustained_jank` fires '
         'on at least 3 severe frames in a 240-frame window. `jank_detected` '
         'fires above 15% jank frames with a sample of at least 5 frames. '
-        'Both judge only the frames since the last route epoch. '
+        'Both judge only the frames since the last route epoch and, '
+        'outside capture mode, only those within 10 s of the newest '
+        'frame\'s vsync, so a card clears about 10 s after the jank stops '
+        'on a screen that draws only Sleuth\'s own scan frames. '
         '`raster_cache_thrashing` fires after at least 15 consecutive '
         'frames in which the picture cache count changes by more than 20% '
         'from a previous frame that held more than 5 pictures, or jumps '

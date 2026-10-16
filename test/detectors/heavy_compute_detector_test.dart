@@ -39,16 +39,38 @@ void main() {
       expect(severityFor(d, 9000), IssueSeverity.warning);
     });
 
-    test('autoThreshold at 120 Hz: >4.17 ms warning, >8.33 ms critical', () {
+    test('autoThreshold at 120 Hz: three quarters of the budget, '
+        '>6.25 ms warning, >12.5 ms critical', () {
       final d = HeavyComputeDetector(autoThreshold: true)
         ..updateFrameBudget(8333);
-      expect(d.effectiveLagThresholdUs, 4166);
-      expect(severityFor(d, 4000), isNull);
-      expect(severityFor(d, 5000), IssueSeverity.warning);
-      expect(severityFor(d, 9000), IssueSeverity.critical);
+      expect(d.effectiveLagThresholdUs, 6249);
+      expect(severityFor(d, 6000), isNull);
+      expect(severityFor(d, 7000), IssueSeverity.warning);
+      expect(severityFor(d, 13000), IssueSeverity.critical);
       d.resetFrameBudget();
       expect(d.effectiveLagThresholdUs, 8000);
-      expect(severityFor(d, 5000), isNull);
+      expect(severityFor(d, 7000), isNull);
+    });
+
+    test('autoThreshold at 90 Hz stays at 8 ms: a 7 ms build fits the '
+        'frame', () {
+      final d = HeavyComputeDetector(autoThreshold: true)
+        ..updateFrameBudget(11111);
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 7000), isNull);
+      expect(severityFor(d, 9000), IssueSeverity.warning);
+      expect(severityFor(d, 17000), IssueSeverity.critical);
+    });
+
+    test('autoThreshold never raises the threshold above lagThresholdMs', () {
+      final d = HeavyComputeDetector(autoThreshold: true, lagThresholdMs: 4)
+        ..updateFrameBudget(11111);
+      expect(d.effectiveLagThresholdUs, 4000);
+    });
+
+    test('without autoThreshold the budget does not move the threshold', () {
+      final d = HeavyComputeDetector()..updateFrameBudget(8333);
+      expect(d.effectiveLagThresholdUs, 8000);
     });
 
     test('observedDurationMs stamping unchanged', () {

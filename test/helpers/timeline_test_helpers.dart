@@ -42,6 +42,17 @@ ParsedTimelineData rasterDominantData({
   flushPaintDurations: [paintUs],
 );
 
+/// Factory for one VM poll of raster frames: one raster scope per entry of
+/// [rasterUs], and BUILD time of [uiPerFrameUs] for each of them, so the UI
+/// time of an average frame in the batch is exactly [uiPerFrameUs].
+ParsedTimelineData rasterFramesData({
+  required List<int> rasterUs,
+  int uiPerFrameUs = 1000,
+}) => ParsedTimelineData(
+  rasterDurations: rasterUs,
+  buildScopeDurations: List.filled(rasterUs.length, uiPerFrameUs),
+);
+
 /// Factory for timeline data with GC events.
 ParsedTimelineData gcHeavyData({int gcCount = 10}) => ParsedTimelineData(
   gcEvents: List.generate(

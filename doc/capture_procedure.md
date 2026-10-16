@@ -1505,8 +1505,7 @@ fvm flutter test test/validation/detector_metadata_audit_test.dart \
 ## Why GpuPressure raster_dominance cannot reach runtimeVerified
 
 A `runtimeVerified` raise of `GpuPressureDetector.raster_dominance` is
-not viable on the VM leg. Each of three blockers alone rules out the
-ratio bracket:
+not viable on the VM ratio. Two blockers each rule out a ratio bracket:
 
 1. **iOS profile mode cannot force the ratio axis.** A steady UI
    cost of about 3 to 5 ms per frame against a single filter's raster
@@ -1517,18 +1516,14 @@ ratio bracket:
    `ProfileCaptureSchema._crossCheckTraceVsObserved` skips non-time
    units, because a trace cannot certify a ratio. A ratio bracket
    checked against a ratio the detector stamps would certify itself.
-3. **The detector mixes values from different polls.**
-   `processTimelineData` updates the raster fields (`_lastRasterUs`,
-   `_lastMaxFrameRasterUs`) only when a batch has raster durations, and
-   `_lastUiUs` only when it has UI time. `_evaluate` can therefore
-   divide a fresh worst-frame raster time by a stale UI total from an
-   earlier poll.
 
-A future raster raise should target an absolute-duration axis, which
-the trace-versus-observed cross-check covers, and needs detector logic
-that evaluates one poll's snapshot rather than the last value seen of
-each field. The frame leg (per-frame `FrameTiming` raster against UI,
-`likely`) evaluates each frame on its own and stamps
+Since 0.38.0 the VM leg sets each raster frame against the UI time of
+an average frame in its own poll, read once per scan, and the ratio no
+longer sets the severity. The issue fires on frames whose raster time missed
+the frame budget: 3 within one second warn and 10 are critical. A future
+raise should bracket that count of missed frames per second, or the
+worst frame's raster duration, which the trace-versus-observed
+cross-check covers. The frame leg stamps `dominantFrameCount` and
 `worstFrameRasterUs`, but it has no bracket and no capture screen, so
 it stays `reproducerOnly`.
 

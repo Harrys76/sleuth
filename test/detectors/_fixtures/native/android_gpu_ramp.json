@@ -8,7 +8,7 @@
     "deviceOs": "Android 16",
     "flutterVersion": "3.47.6",
     "build": "profile, --no-dds, Impeller Vulkan",
-    "note": "GPU Pressure demo (animated blur) for 100 s after opening it. RSS grew about 57 MB while the Dart heap stayed under 33 MB."
+    "note": "GPU Pressure demo (animated blur) for 100 s after opening it. RSS jumps once, from about 300 to 350 MB in one sample at 29 s, then stays between 343 and 356 MB: a one-time jump, not continued growth."
   },
   "heapSamples": [
     {
