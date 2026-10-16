@@ -276,8 +276,9 @@ void main() {
       bool vmConnected = true,
       CaptureLegCalls calls = const CaptureLegCalls(),
       int decodedSide = 579,
+      Size logicalSize = const Size(1200, 2400),
     }) async {
-      tester.view.physicalSize = const Size(1200 * 3, 2400 * 3);
+      tester.view.physicalSize = logicalSize * 3;
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
       final made = await tester.runAsync(() async {
@@ -359,6 +360,26 @@ void main() {
         find.textContaining('[at] capture FAILED to compose'),
         findsOneWidget,
       );
+      // The screen repeats the verdict once in an announced line.
+      final outcome = find.textContaining(
+        'Last leg (at): capture FAILED to compose',
+      );
+      expect(outcome, findsOneWidget);
+      expect(
+        tester
+            .widget<Semantics>(
+              find
+                  .ancestor(of: outcome, matching: find.byType(Semantics))
+                  .first,
+            )
+            .properties
+            .liveRegion,
+        isTrue,
+      );
+      expect(
+        find.textContaining('a warning at 1 MiB wasted and critical at 16 MiB'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('the image leaves as soon as the span ends, before the '
@@ -375,7 +396,29 @@ void main() {
       // decode is released already.
       expect(calls.log.last, 'end uncached_images_at');
       expect(find.byType(Image), findsNothing);
+      expect(find.text('Composing the capture'), findsOneWidget);
       await tester.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('on an iPhone 12 at twice the text size, Export, the image '
+        'row and the outcome stay on screen above the log', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final calls = _RecordingCalls()..flush = (Completer<void>()..complete());
+      await pumpScreen(tester, calls: calls, logicalSize: const Size(390, 844));
+      await startLeg(tester, UncachedImagesLeg.at);
+      await finishLeg(tester);
+      expect(tester.takeException(), isNull);
+      final bottom =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
+      for (final finder in [
+        find.text('Export last leg'),
+        find.textContaining('No leg image'),
+        find.textContaining('Last leg (at)'),
+      ]) {
+        expect(tester.getRect(finder).bottom, lessThan(bottom));
+      }
+      expect(tester.getSize(find.byType(ListView)).height, greaterThan(48));
     });
 
     testWidgets('two legs in a row run on one screen', (tester) async {

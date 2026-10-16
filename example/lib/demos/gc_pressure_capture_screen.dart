@@ -159,18 +159,42 @@ abstract class GcEventSource {
 /// the events of this isolate only, because the VM posts each collection
 /// once for every isolate of the group.
 class VmServiceGcEventSource implements GcEventSource {
+  VmServiceGcEventSource({
+    @visibleForTesting Future<Uri?> Function()? serviceUri,
+    @visibleForTesting Future<VmService> Function(String uri)? connect,
+  }) : _serviceUri = serviceUri ?? _vmServiceUri,
+       _connect = connect ?? vmServiceConnectUri;
+
+  final Future<Uri?> Function() _serviceUri;
+  final Future<VmService> Function(String uri) _connect;
   VmService? _service;
   StreamSubscription<Object?>? _subscription;
 
+  // Set by [stop]. A start still connecting when the leg ends checks it
+  // after each await and closes what it opened, so no connection or
+  // listener outlives the leg, and a late event never reaches a log a
+  // later leg owns.
+  bool _stopped = false;
+
+  static Future<Uri?> _vmServiceUri() async =>
+      (await Service.getInfo()).serverWebSocketUri;
+
   @override
   Future<void> start(void Function(DateTime at, String? gcType) onEvent) async {
-    final uri = (await Service.getInfo()).serverWebSocketUri;
+    final uri = await _serviceUri();
+    if (_stopped) return;
     if (uri == null) {
       throw StateError('the VM service is not available');
     }
-    final service = _service = await vmServiceConnectUri(uri.toString());
+    final service = await _connect(uri.toString());
+    if (_stopped) {
+      await service.dispose();
+      return;
+    }
+    _service = service;
     final ownId = Service.getIsolateId(Isolate.current);
     _subscription = service.onGCEvent.listen((event) {
+      if (_stopped) return;
       final read = readGcEvent(event, ownId);
       if (read.own) onEvent(DateTime.now(), read.gcType);
     });
@@ -189,6 +213,7 @@ class VmServiceGcEventSource implements GcEventSource {
 
   @override
   Future<void> stop() async {
+    _stopped = true;
     await _subscription?.cancel();
     _subscription = null;
     final service = _service;
@@ -345,8 +370,15 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
   final List<String> _log = [];
   String _status = 'Idle.';
 
+  // The last leg's final log line, announced once when the leg ends.
+  String? _outcome;
+
   late final CaptureProvenanceCheck _provenance;
   late final ChurnAllocator _allocator;
+
+  // The bracket threshold, read from the detector's metadata for the
+  // description so its number cannot drift from the audit.
+  late final int? _firesAt;
   late final AppLifecycleListener _lifecycle;
   final YoungGcLog _youngGcs = YoungGcLog();
 
@@ -367,6 +399,9 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
   void initState() {
     super.initState();
     _provenance = widget.provenanceCheck();
+    _firesAt = gcPressureBracket(
+      MemoryPressureDetector().validationMetadata,
+    )?.threshold.round();
     _allocator = widget.allocator ?? ChurnAllocator();
     _lifecycle = AppLifecycleListener(
       onStateChange: (state) {
@@ -521,6 +556,8 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
       _busy = true;
       _stashedLeg = null;
       _stashedJson = null;
+      _outcome = null;
+      _status = 'Preparing streams, allocation reads and the GC feed';
       _log.add(
         '[$label] attempt $_attempts/$_maxAttemptsPerLeg: target '
         '${leg.target} young GCs in 10 s, band '
@@ -551,7 +588,10 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
 
       final feed = _feed = widget.gcEvents();
       await withCallTimeout(
-        feed.start((at, gcType) => _youngGcs.add(at, gcType)),
+        // Only the current leg's feed writes to the log.
+        feed.start((at, gcType) {
+          if (identical(_feed, feed)) _youngGcs.add(at, gcType);
+        }),
         'GC stream',
       );
       if (!mounted) return;
@@ -713,9 +753,26 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
       await _stopFeed();
       await _resumeStreams(label: label);
       _releaseReads();
-      _setStatus('Idle.');
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _status = 'Idle.';
+          _outcome = _lastLegLine(label);
+        });
+      }
     }
+  }
+
+  /// The leg's last log line without its `[label]` prefix, for the
+  /// announced outcome line.
+  String? _lastLegLine(String label) {
+    final prefix = '[$label] ';
+    for (final line in _log.reversed) {
+      if (line.startsWith(prefix)) {
+        return 'Last leg ($label): ${line.substring(prefix.length)}';
+      }
+    }
+    return null;
   }
 
   Future<void> _exportLastLeg() async {
@@ -746,84 +803,102 @@ class _GcPressureCaptureScreenState extends State<GcPressureCaptureScreen> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Natural height up to three quarters of the body, scrolling
-              // past that, so a long pre-flight reason or a large text
-              // scale cannot overflow.
-              Flexible(
-                flex: 3,
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      CapturePreflightBanner(
-                        captureMode: capture.captureMode,
-                        vmConnected: capture.vmConnected,
-                        provenanceProblem: _provenance.problem,
-                      ),
-                      if (stamp != null)
-                        Text(
-                          'Provenance: ${stamp.device} / '
-                          '${stamp.deviceOsVersion} / '
-                          'Flutter ${stamp.flutterVersion}',
-                          style: const TextStyle(fontSize: 12),
+          child: LayoutBuilder(
+            builder: (context, box) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // The controls take their natural height up to just over
+                // half the body and scroll past that. Export, the status
+                // and the outcome stay in view below them, and the log
+                // fills the rest of the body.
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: box.maxHeight * 0.55),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        CapturePreflightBanner(
+                          captureMode: capture.captureMode,
+                          vmConnected: capture.vmConnected,
+                          provenanceProblem: _provenance.problem,
                         ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Allocates short-lived garbage to hold a young-GC '
-                        'rate, counts the collections itself, and records '
-                        'the gc_pressure warning, which fires above 40 '
-                        'young GCs in 10 s.',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                      const SizedBox(height: 12),
-                      for (final leg in GcPressureLeg.values)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: FilledButton.tonal(
-                            onPressed: ready ? () => _runLeg(leg) : null,
-                            child: Text(leg.buttonLabel),
+                        if (stamp != null)
+                          Text(
+                            'Provenance: ${stamp.device} / '
+                            '${stamp.deviceOsVersion} / '
+                            'Flutter ${stamp.flutterVersion}',
+                            style: const TextStyle(fontSize: 12),
                           ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Allocates short-lived garbage to hold a young-GC '
+                          'rate, counts the collections itself, and records '
+                          'the gc_pressure warning, which fires at '
+                          '${_firesAt ?? '?'} young GCs in 10 s.',
+                          style: const TextStyle(fontSize: 13),
                         ),
-                      const SizedBox(height: 8),
-                      FilledButton.icon(
-                        onPressed: _busy ? null : _exportLastLeg,
-                        icon: const Icon(Icons.save_alt),
-                        label: const Text('Export last leg'),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _status,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ],
+                        const SizedBox(height: 12),
+                        for (final leg in GcPressureLeg.values)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: FilledButton.tonal(
+                              onPressed: ready ? () => _runLeg(leg) : null,
+                              child: Text(leg.buttonLabel),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const Divider(height: 24),
-              Expanded(
-                child: ListView.builder(
-                  reverse: true,
-                  itemCount: _log.length,
-                  itemBuilder: (context, i) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _exportLastLeg,
+                  icon: const Icon(Icons.save_alt),
+                  label: const Text('Export last leg'),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _status,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+                // Three lines at most so a large text scale cannot push the
+                // log off the screen; the log keeps the full line.
+                if (_outcome != null)
+                  Semantics(
+                    liveRegion: true,
                     child: Text(
-                      _log[_log.length - 1 - i],
+                      _outcome!,
                       style: const TextStyle(
                         fontFamily: 'monospace',
-                        fontSize: 11,
+                        fontSize: 12,
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                const Divider(height: 24),
+                Expanded(
+                  child: ListView.builder(
+                    reverse: true,
+                    itemCount: _log.length,
+                    itemBuilder: (context, i) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        _log[_log.length - 1 - i],
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

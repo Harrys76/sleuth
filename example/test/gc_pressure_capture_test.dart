@@ -9,7 +9,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
-import 'package:vm_service/vm_service.dart' show Event;
+import 'package:vm_service/vm_service.dart' show Event, VmService;
 
 import 'package:example/demos/capture_driver.dart';
 import 'package:example/demos/gc_pressure_capture_screen.dart';
@@ -31,6 +31,19 @@ class _FakeGcSource implements GcEventSource {
     stops++;
     onEvent = null;
   }
+}
+
+/// A GC feed whose start completes only when the test says so.
+class _SlowGcSource implements GcEventSource {
+  final Completer<void> started = Completer<void>();
+  int stops = 0;
+
+  @override
+  Future<void> start(void Function(DateTime at, String? gcType) onEvent) =>
+      started.future;
+
+  @override
+  Future<void> stop() async => stops++;
 }
 
 /// An allocator that records its batches instead of allocating.
@@ -192,6 +205,30 @@ void main() {
     }
   });
 
+  group('VmServiceGcEventSource', () {
+    test('a stop while the connection opens closes it and subscribes to '
+        'nothing', () async {
+      final sent = <String>[];
+      final incoming = StreamController<String>();
+      final service = VmService(incoming.stream, sent.add);
+      final connecting = Completer<VmService>();
+      final source = VmServiceGcEventSource(
+        serviceUri: () async => Uri.parse('ws://127.0.0.1:1/ws'),
+        connect: (_) => connecting.future,
+      );
+      final start = source.start((_, _) {});
+      await Future<void>.delayed(Duration.zero);
+      await source.stop();
+      connecting.complete(service);
+      // A start that ignored the stop would send streamListen and wait
+      // for an answer that never comes.
+      await start.timeout(const Duration(seconds: 1));
+      await service.onDone.timeout(const Duration(seconds: 1));
+      expect(sent, isEmpty, reason: 'no streamListen after the stop');
+      await incoming.close();
+    });
+  });
+
   group('allocator rate', () {
     test('the closed loop steps at most 30 % toward the target', () {
       expect(nextChurnBatch(batch: 1000, measured: 25, target: 50), 1300);
@@ -288,10 +325,12 @@ void main() {
       WidgetTester tester, {
       bool vmConnected = true,
       CaptureLegCalls calls = const CaptureLegCalls(),
+      Size size = const Size(1200, 2400),
+      GcEventSource Function()? gcEvents,
     }) async {
       source = _FakeGcSource();
       allocator = _RecordingAllocator();
-      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
@@ -308,7 +347,7 @@ void main() {
             ),
             vmConnected: () => vmConnected,
             calls: calls,
-            gcEvents: () => source,
+            gcEvents: gcEvents ?? () => source,
             allocator: allocator,
           ),
         ),
@@ -317,7 +356,9 @@ void main() {
     }
 
     Future<void> startLeg(WidgetTester tester, GcPressureLeg leg) async {
-      await tester.tap(find.text(leg.buttonLabel));
+      final button = find.text(leg.buttonLabel);
+      await tester.ensureVisible(button);
+      await tester.tap(button);
       await tester.pump();
     }
 
@@ -353,6 +394,21 @@ void main() {
         find.textContaining('[at] UNMEASURED: young GC peak is 0'),
         findsOneWidget,
       );
+      // The screen repeats the verdict once in an announced line.
+      final outcome = find.textContaining('Last leg (at): UNMEASURED');
+      expect(outcome, findsOneWidget);
+      expect(
+        tester
+            .widget<Semantics>(
+              find
+                  .ancestor(of: outcome, matching: find.byType(Semantics))
+                  .first,
+            )
+            .properties
+            .liveRegion,
+        isTrue,
+      );
+      expect(find.textContaining('fires at 41 young GCs in 10 s'), findsOne);
       expect(calls.log, [
         'suspend',
         'begin gc_pressure_at',
@@ -364,6 +420,62 @@ void main() {
       expect(source.stops, greaterThanOrEqualTo(1));
       expect(allocator.running, isFalse);
       expect(allocator.batches.first, 1000, reason: 'the calibration seed');
+    });
+
+    testWidgets('on an iPhone 12 at twice the text size, Export, the status '
+        'and the outcome stay on screen above the log', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final calls = _RecordingCalls()..flush = (Completer<void>()..complete());
+      await pumpScreen(tester, calls: calls, size: const Size(390, 844));
+      await startLeg(tester, GcPressureLeg.at);
+      await runToFlush(tester);
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.takeException(), isNull);
+      for (final finder in [
+        find.text('Export last leg'),
+        find.text('Idle.'),
+        find.textContaining('Last leg (at)'),
+      ]) {
+        expect(tester.getRect(finder).bottom, lessThan(844));
+      }
+      expect(tester.getSize(find.byType(ListView)).height, greaterThan(48));
+    });
+
+    testWidgets('a stopped feed of an earlier leg does not count in the '
+        'next leg', (tester) async {
+      final sources = <_FakeGcSource>[];
+      final calls = _RecordingCalls()..flush = (Completer<void>()..complete());
+      await pumpScreen(
+        tester,
+        calls: calls,
+        gcEvents: () {
+          final next = _FakeGcSource();
+          sources.add(next);
+          return next;
+        },
+      );
+      await startLeg(tester, GcPressureLeg.at);
+      await tester.pump(const Duration(seconds: 1));
+      final stale = sources.single.onEvent!;
+      await runToFlush(tester);
+      await tester.pump(const Duration(seconds: 1));
+      await startLeg(tester, GcPressureLeg.at);
+      for (var s = 0; s < 12; s++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      expect(sources, hasLength(2));
+      // The first feed calls back after its stop, inside the second
+      // leg's span.
+      for (var i = 0; i < 60; i++) {
+        stale(DateTime.now(), 'Scavenge');
+      }
+      await runToFlush(tester);
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        find.textContaining('[at] UNMEASURED: young GC peak is 0'),
+        findsNWidgets(2),
+      );
     });
 
     testWidgets('two legs in a row run on one screen', (tester) async {
@@ -432,6 +544,45 @@ void main() {
       // The leg reaches its next one-second check and stops; no timer is
       // left pending when the test ends.
       await tester.pump(const Duration(seconds: 1));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('closing the screen while the GC feed starts stops the '
+        'feed and leaves no timer', (tester) async {
+      final slow = _SlowGcSource();
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final calls = _RecordingCalls();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GcPressureCaptureScreen(
+            captureModeOverride: true,
+            provenanceCheck: () => (
+              provenance: const CaptureProvenance(
+                device: 'iPhone 12',
+                deviceOsVersion: 'iOS 17.5',
+                flutterVersion: '3.47.6',
+              ),
+              problem: null,
+            ),
+            vmConnected: () => true,
+            calls: calls,
+            gcEvents: () => slow,
+            allocator: _RecordingAllocator(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text(GcPressureLeg.at.buttonLabel));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(slow.stops, 1);
+      expect(calls.log, ['suspend', 'resume']);
+      // The start answers late; the leg sees the screen gone and stops.
+      slow.started.complete();
+      await tester.pump();
       expect(tester.takeException(), isNull);
     });
 

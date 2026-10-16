@@ -21,7 +21,7 @@ rm -rf build/unit_test_assets && fvm flutter pub get   # Restore 3.47.6 resoluti
 # Example app
 cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
-cd example && fvm flutter test            # Cookbook smoke, demo and capture-screen widget tests (227 tests)
+cd example && fvm flutter test            # Cookbook smoke, demo and capture-screen widget tests (232 tests)
 
 # Demo walk on a device (iOS or Android): runs each demo's controls from tool/demo_walk_plan.json
 # and records issues per phase; start the app with `fvm flutter run --profile --no-dds -d <device>`
