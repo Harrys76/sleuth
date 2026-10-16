@@ -953,8 +953,7 @@ void main() {
         reason: 'errorRecords.length == 3 must fire.',
       );
       d.dispose();
-      // 10 errors: fires + critical (peakCount >= 10 || serverErrors >= 5
-      // → critical)
+      // Ten errors fire as critical (peakCount >= 10).
       d = NetworkMonitorDetector(clock: () => fakeNow);
       for (var i = 0; i < 10; i++) {
         d.processRecord(record(statusCode: 500));

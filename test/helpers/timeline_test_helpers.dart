@@ -203,37 +203,46 @@ TimelineEvent shaderCompleteEvent({
   'tid': tid,
 })!;
 
+int _nextPlatformChannelStartUs = 0;
+
 /// Factory for timeline data with platform channel events (for PlatformChannelDetector).
 ///
 /// Mirrors the parser's output for sync `X` channel events: one counted
 /// event plus one completed [PlatformChannelCall] (duration [durUs]) per
-/// call.
+/// call, 1 ms apart from [startUs]. Without [startUs] each batch starts
+/// 10 s of event time after the previous one, so separate batches never
+/// share the detector's 1 s counting span.
 ParsedTimelineData platformChannelData({
   int channelEventCount = 0,
   int durUs = 100,
   String? methodName,
-}) => ParsedTimelineData(
-  platformChannelEvents: List.generate(
-    channelEventCount,
-    (i) => TimelineEvent.parse({
-      'name': methodName ?? 'PlatformChannel',
-      'cat': '',
-      'ph': 'X',
-      'dur': durUs,
-      'ts': i * 1000,
-      'pid': 1,
-      'tid': 1,
-    })!,
-  ),
-  platformChannelCalls: List.generate(
-    channelEventCount,
-    (i) => PlatformChannelCall(
-      name: methodName ?? 'PlatformChannel',
-      beginTs: i * 1000,
-      durationUs: durUs,
+  int? startUs,
+}) {
+  final start = startUs ?? (_nextPlatformChannelStartUs += 10000000);
+  return ParsedTimelineData(
+    platformChannelEvents: List.generate(
+      channelEventCount,
+      (i) => TimelineEvent.parse({
+        'name': methodName ?? 'PlatformChannel',
+        'cat': '',
+        'ph': 'X',
+        'dur': durUs,
+        'ts': start + i * 1000,
+        'pid': 1,
+        'tid': 1,
+      })!,
     ),
-  ),
-);
+    platformChannelCalls: List.generate(
+      channelEventCount,
+      (i) => PlatformChannelCall(
+        name: methodName ?? 'PlatformChannel',
+        beginTs: start + i * 1000,
+        durationUs: durUs,
+        tid: 1,
+      ),
+    ),
+  );
+}
 
 /// Factory for timeline data with phaseEvents for frame-event correlation testing.
 ///

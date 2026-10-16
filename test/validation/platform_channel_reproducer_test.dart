@@ -395,7 +395,10 @@ void main() {
         List<PerformanceIssue> issues,
         List<PerformanceIssue> finalIssues,
       })
-      replay(String leg) {
+      // With [rereadAt], the poll at that second also delivers every event
+      // of the capture again, with fresh parser state, as the full read
+      // after a reconnect does.
+      replay(String leg, {int? rereadAt}) {
         final file = File(
           'test/validation/captures/platform_channel/'
           'platform_channel_traffic_$leg.json',
@@ -436,6 +439,13 @@ void main() {
               pendingChannelBegins: pending,
             ),
           );
+          if (k == rereadAt) {
+            replayDetector.processTimelineData(
+              TimelineParser.parse([
+                for (final b in buckets.values) ...b,
+              ], pendingChannelBegins: PendingChannelBegins()),
+            );
+          }
           // Every call after the first crosses exactly one 1s boundary,
           // evaluating window k - 1.
           if (k >= 1) {
@@ -445,8 +455,11 @@ void main() {
               maxDur = stats.maxCallDurationUs;
             }
           }
+          // Collect by identity. PerformanceIssue equality compares stableId
+          // only, so `contains` would hide a second emission of the same
+          // family.
           for (final i in replayDetector.issues) {
-            if (!issues.contains(i)) issues.add(i);
+            if (!issues.any((seen) => identical(seen, i))) issues.add(i);
           }
         }
         return (
@@ -474,12 +487,67 @@ void main() {
           .toSet()
           .length;
 
+      // The count the device recorded in the leg's trace record.
+      int recordedCount(String leg) {
+        final raw =
+            jsonDecode(
+                  File(
+                    'test/validation/captures/platform_channel/'
+                    'platform_channel_traffic_$leg.json',
+                  ).readAsStringSync(),
+                )
+                as Map<String, dynamic>;
+        final record = (raw['traceEvents'] as List)
+            .cast<Map<String, dynamic>>()
+            .singleWhere(
+              (e) =>
+                  e['name'] == 'sleuth.issue.platform_channel_traffic.warning',
+            );
+        return int.parse(
+          (record['args'] as Map<String, dynamic>)['observedCount'] as String,
+        );
+      }
+
+      // Replaying the recorded sends through the detector gives the
+      // count and severity the device recorded.
+      void expectReplayMatches(String leg, int min, int max) {
+        final r = replay(leg);
+        final emitted = r.issues
+            .where((i) => i.stableId == 'platform_channel_traffic')
+            .toList();
+        expect(emitted.map((i) => i.severity).toSet(), {IssueSeverity.warning});
+        final count = int.parse(
+          emitted.first.extraTraceArgs!['observedCount']!,
+        );
+        expect(count, inInclusiveRange(min, max));
+        expect((count - recordedCount(leg)).abs(), lessThanOrEqualTo(1));
+      }
+
+      for (final leg in ['at', 'above']) {
+        for (final offset in [1, 5]) {
+          test('$leg leg: a full re-read $offset s after the capture adds no '
+              'record', () {
+            final buckets = replay(leg).windowCounts.length - 13;
+            final r = replay(leg, rereadAt: buckets + offset);
+            expect(records(r.issues), 1);
+            expect(
+              r.issues
+                  .where((i) => i.stableId == 'platform_channel_traffic')
+                  .map((i) => i.severity)
+                  .toSet(),
+              {IssueSeverity.warning},
+            );
+          });
+        }
+      }
+
       test('at leg emits exactly one record, then clears', () {
         final r = replay('at');
         expect(r.maxCallDurationUs, greaterThan(0));
         expect(r.issues, hasStableId('platform_channel_traffic'));
         expect(records(r.issues), 1);
         expect(r.finalIssues, isEmpty);
+        expectReplayMatches('at', 20, 30);
       });
 
       test('above leg emits exactly one record, then clears', () {
@@ -488,6 +556,7 @@ void main() {
         expect(r.issues, hasStableId('platform_channel_traffic'));
         expect(records(r.issues), 1);
         expect(r.finalIssues, isEmpty);
+        expectReplayMatches('above', 31, 39);
       });
     });
 

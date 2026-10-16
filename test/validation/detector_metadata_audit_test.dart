@@ -1826,18 +1826,16 @@ void main() {
       expect(longLivedSpec.requireDetectorTraceRecord, isTrue);
     });
 
-    test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {
-      // Anti-tautology anchor for the v0.19.4 raise. PlatformChannel
-      // moved from `reproducerOnly` to `runtimeVerified` (warning tier,
-      // 20 calls/sec frequency axis) backed by three on-device captures
-      // (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded under v0.19.4
-      // producer-side dedup with stable per-window dedupIdentityMicros
-      // derived from `_windowStart.microsecondsSinceEpoch`. Critical
-      // tier (41 calls/sec) AND the 8 ms cumulative-duration axis stay
-      // implicitly reproducerOnly — neither has a checked-in capture
-      // bracket. The above-band ceiling 1.95× → 39 calls/sec stays
-      // strictly under the 41-call critical-escalation boundary so the
-      // above-leg cannot ambiently bracket the critical tier.
+    test('PlatformChannelDetector raises its warning to runtimeVerified', () {
+      // Anti-tautology anchor for the platform_channel_traffic raise. The
+      // warning tier (20 calls/sec, counted by event time) is backed
+      // by three on-device captures (iPhone 12 / iOS 17.5 / Flutter
+      // 3.47.6) with stable per-window dedupIdentityMicros derived from
+      // `_windowStart.microsecondsSinceEpoch`. The critical tier (41
+      // calls/sec) has no capture bracket and reads reproducerOnly. The
+      // above-band ceiling 1.95 × 20 = 39 calls/sec stays under the
+      // 41-call critical boundary, so the above leg cannot also bracket
+      // the critical tier.
       final BaseDetector? pc = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.platformChannel)
           .cast<BaseDetector?>()
@@ -1851,13 +1849,27 @@ void main() {
       final meta = (pc as DetectorMetadataProvider).validationMetadata;
       expect(
         meta.tier,
+        EvidenceTier.reproducerOnly,
+        reason:
+            'The base tier is the per-family minimum; only the warning '
+            'tier has a capture bracket.',
+      );
+      expect(meta.perStableIdTier, {
+        'platform_channel_traffic': EvidenceTier.runtimeVerified,
+      });
+      expect(
+        meta.effectiveTierFor('platform_channel_traffic', severity: 'warning'),
         EvidenceTier.runtimeVerified,
         reason:
-            'v0.19.4 raises platform_channel_traffic warning to '
-            'runtimeVerified with three on-device captures backing the '
-            'frequency-axis bracket. debugProfilePlatformChannels=true '
-            'per-leg routes real MethodChannel.invokeMethod calls '
-            'through the parser-accepted lowercase async path.',
+            'Three on-device captures back the frequency-axis bracket. '
+            'debugProfilePlatformChannels=true per leg routes real '
+            'MethodChannel.invokeMethod calls through the parser-accepted '
+            'lowercase async path.',
+      );
+      expect(
+        meta.effectiveTierFor('platform_channel_traffic', severity: 'critical'),
+        EvidenceTier.reproducerOnly,
+        reason: 'No bracket covers platform_channel_traffic.critical.',
       );
       expect(
         meta.reproducerPath,
@@ -2041,6 +2053,75 @@ void main() {
       );
     });
 
+    test('effectiveTierFor with a severity reads only bracketed pairs', () {
+      DetectorMetadata metaOf(DetectorType type) =>
+          (controller.detectorsForAudit.firstWhere((d) => d.type == type)
+                  as DetectorMetadataProvider)
+              .validationMetadata;
+
+      final repaint = metaOf(DetectorType.repaint);
+      expect(
+        repaint.effectiveTierFor('excessive_repaint', severity: 'warning'),
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        repaint.effectiveTierFor('excessive_repaint', severity: 'critical'),
+        EvidenceTier.reproducerOnly,
+      );
+      expect(
+        repaint.effectiveTierFor('excessive_repaint'),
+        EvidenceTier.runtimeVerified,
+        reason: 'Without a severity the lookup is unchanged.',
+      );
+
+      final heavy = metaOf(DetectorType.heavyCompute);
+      expect(
+        heavy.effectiveTierFor('heavy_compute', severity: 'critical'),
+        EvidenceTier.runtimeVerified,
+        reason: 'additionalBrackets covers heavy_compute.critical.',
+      );
+
+      final rebuild = metaOf(DetectorType.rebuild);
+      expect(
+        rebuild.effectiveTierFor('rebuild_activity', severity: 'critical'),
+        EvidenceTier.runtimeVerified,
+      );
+
+      // No built-in detector has a runtimeVerified base with an
+      // uncovered severity; check that branch on a synthetic declaration.
+      const synthetic = DetectorMetadata(
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'synthetic',
+        coveredStableIds: {'family'},
+        coveredThresholds: {'family.warning'},
+      );
+      expect(
+        synthetic.effectiveTierFor('family', severity: 'warning'),
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        synthetic.effectiveTierFor('family', severity: 'critical'),
+        EvidenceTier.reproducerOnly,
+      );
+
+      // A citation covers severities the same way.
+      const cited = DetectorMetadata(
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'synthetic',
+        citationUrl: 'https://example.com',
+        coveredStableIds: {'family'},
+        perStableIdTier: {'family': EvidenceTier.externallyCited},
+        coveredThresholds: {'family.warning'},
+      );
+      expect(
+        cited.effectiveTierFor('family', severity: 'warning'),
+        EvidenceTier.externallyCited,
+      );
+      expect(
+        cited.effectiveTierFor('family', severity: 'critical'),
+        EvidenceTier.reproducerOnly,
+      );
+    });
     test('FrameTimingDetector pinned: base reproducerOnly + jank_detected '
         'runtimeVerified via perStableIdTier (v0.19.7); sustained_jank '
         'stays reproducerOnly (v0.19.17 raise withdrawn)', () {

@@ -103,6 +103,7 @@ class PlatformChannelCall {
     required this.beginTs,
     required this.durationUs,
     this.id,
+    this.tid,
   });
 
   /// Timeline event name (`Platform Channel send <channel>#<method>`).
@@ -116,6 +117,9 @@ class PlatformChannelCall {
 
   /// Async event id for `b`/`e` pairs; null for sync `X` events.
   final String? id;
+
+  /// Thread of the call's begin event; null when the event had none.
+  final int? tid;
 }
 
 /// Parses raw VM Timeline events into structured [ParsedTimelineData].
@@ -211,9 +215,9 @@ class PendingChannelBegins {
     }
   }
 
-  /// Removes and returns the begin timestamp the `e` of call [id] on
-  /// thread [tid] pairs with, or null when none is open.
-  int? take(String id, {required int tid}) {
+  /// Removes and returns the begin the `e` of call [id] on thread [tid]
+  /// pairs with, or null when none is open.
+  ({int tid, int ts})? take(String id, {required int tid}) {
     final begins = _byId[id];
     if (begins == null) return null;
     var index = begins.indexWhere((b) => b.tid == tid);
@@ -221,7 +225,7 @@ class PendingChannelBegins {
     final begin = begins.removeAt(index);
     if (begins.isEmpty) _byId.remove(id);
     _length--;
-    return begin.ts;
+    return (tid: begin.tid, ts: begin.ts);
   }
 
   /// Drops every begin older than [cutoffTs].
@@ -686,8 +690,14 @@ class TimelineParser {
         } else if (_channelNames.contains(name) || _isChannelEvent(name)) {
           channels.add(event);
           if (ts != null) {
+            final rawTid = json['tid'];
             channelCalls.add(
-              PlatformChannelCall(name: name, beginTs: ts, durationUs: dur),
+              PlatformChannelCall(
+                name: name,
+                beginTs: ts,
+                durationUs: dur,
+                tid: rawTid is int ? rawTid : 0,
+              ),
             );
           }
         } else if (_isGcCategory(cat)) {
@@ -855,14 +865,15 @@ class TimelineParser {
               pendingChannels.add(id, tid: tid, ts: ts);
             }
           } else if (id != null && ts != null) {
-            final beginTs = pendingChannels.take(id, tid: tid);
-            if (beginTs != null && ts >= beginTs) {
+            final begin = pendingChannels.take(id, tid: tid);
+            if (begin != null && ts >= begin.ts) {
               channelCalls.add(
                 PlatformChannelCall(
                   name: name,
-                  beginTs: beginTs,
-                  durationUs: ts - beginTs,
+                  beginTs: begin.ts,
+                  durationUs: ts - begin.ts,
                   id: id,
+                  tid: begin.tid,
                 ),
               );
             }

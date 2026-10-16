@@ -8,6 +8,7 @@ import 'package:sleuth/src/detectors/image_memory_detector.dart';
 import 'package:sleuth/src/detectors/keep_alive_detector.dart';
 import 'package:sleuth/src/detectors/listview_detector.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
+import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
@@ -50,6 +51,26 @@ void main() {
   const severeX = FrameStats.severeJankBudgetMultiplier;
 
   final rows = <(String stableId, _Field field, String expected)>[
+    (
+      'http_error_spike',
+      _Field.readingTheData,
+      'raises the issue at ${NetworkMonitorDetector.errorSpikeThreshold} or '
+          'more errors and marks it critical at '
+          '${NetworkMonitorDetector.errorSpikeCriticalThreshold} or more',
+    ),
+    (
+      'high_frequency_same_path',
+      _Field.readingTheData,
+      'clustered within the ${NetworkMonitorDetector.duplicateWindowMs} ms '
+          'window',
+    ),
+    (
+      'high_frequency_same_path',
+      _Field.readingTheData,
+      'raises the issue at ${NetworkMonitorDetector.duplicateThreshold} or '
+          'more and marks it critical at '
+          '${NetworkMonitorDetector.criticalDuplicateThreshold} or more',
+    ),
     (
       'excessive_keep_alive',
       _Field.readingTheData,

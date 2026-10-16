@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
+import 'package:vm_service/vm_service.dart' show TimelineEvent;
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -693,6 +694,628 @@ void main() {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(emptyTimelineData());
         expect(detector.issues.first.sourceRoute, isNull);
+      });
+    });
+
+    group('counting by event time', () {
+      // One sync call per entry of [tsUs], on thread 1 unless [tids] gives
+      // each call its own, with [durationsUs] or 100 µs as durations.
+      ParsedTimelineData calls(
+        List<int> tsUs, {
+        String method = 'tick',
+        List<int>? tids,
+        List<int>? durationsUs,
+      }) => ParsedTimelineData(
+        platformChannelEvents: [
+          for (var i = 0; i < tsUs.length; i++)
+            TimelineEvent.parse({
+              'name': 'PlatformChannel',
+              'cat': '',
+              'ph': 'X',
+              'dur': durationsUs?[i] ?? 100,
+              'ts': tsUs[i],
+              'pid': 1,
+              'tid': tids?[i] ?? 1,
+              'args': {'method': method},
+            })!,
+        ],
+        platformChannelCalls: [
+          for (var i = 0; i < tsUs.length; i++)
+            PlatformChannelCall(
+              name: method,
+              beginTs: tsUs[i],
+              durationUs: durationsUs?[i] ?? 100,
+              tid: tids?[i] ?? 1,
+            ),
+        ],
+      );
+
+      List<int> spaced(int startUs, int count, int stepUs) => [
+        for (var i = 0; i < count; i++) startUs + i * stepUs,
+      ];
+
+      void check() {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+        detector.processTimelineData(emptyTimelineData());
+      }
+
+      const s = 50000000;
+
+      test('a second of calls split across two polls counts once, in '
+          'full', () {
+        // 25 calls 40 ms apart: 13 in the first poll, 12 in the next.
+        final all = spaced(s, 25, 40000);
+        detector.processTimelineData(calls(all.sublist(0, 13)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 13);
+        expect(detector.issues, isEmpty);
+
+        detector.processTimelineData(calls(all.sublist(13)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 25);
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+        expect(detector.issues.single.title, contains('25 calls/sec'));
+      });
+
+      test('a burst split across two polls escalates at the second check', () {
+        final all = spaced(s, 50, 10000);
+        detector.processTimelineData(calls(all.sublist(0, 30)));
+        check();
+        final first = detector.issues.single;
+        expect(first.severity, IssueSeverity.warning);
+
+        detector.processTimelineData(calls(all.sublist(30)));
+        check();
+        final second = detector.issues.single;
+        expect(second.severity, IssueSeverity.critical);
+        expect(second.dedupIdentityMicros, isNot(first.dedupIdentityMicros));
+      });
+
+      test('a check with no new calls counts 0', () {
+        detector.processTimelineData(calls(spaced(s, 25, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 25);
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('out-of-order calls count as if sorted', () {
+        detector.processTimelineData(
+          calls(spaced(s, 25, 30000).reversed.toList()),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 25);
+      });
+
+      test('calls more than 1 s apart do not share a span', () {
+        detector.processTimelineData(
+          calls([...spaced(s, 15, 1000), ...spaced(s + 1000000, 15, 1000)]),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 15);
+        expect(detector.issues, isEmpty);
+      });
+
+      test('the method counts and durations describe the counted span', () {
+        detector.processTimelineData(
+          calls(spaced(s, 15, 1000), method: 'tick'),
+        );
+        detector.processTimelineData(
+          calls(spaced(s + 20000, 10, 1000), method: 'ping'),
+        );
+        // These calls lie outside the busiest span and must not reach the
+        // method line.
+        detector.processTimelineData(
+          calls(spaced(s + 1500000, 5, 1000), method: 'late'),
+        );
+        check();
+        final issue = detector.issues.single;
+        expect(issue.title, contains('25 calls/sec'));
+        expect(issue.detail, contains('tick: 15 calls'));
+        expect(issue.detail, contains('ping: 10 calls'));
+        expect(issue.detail, isNot(contains('late')));
+        expect(issue.extraTraceArgs!['observedCount'], '25');
+      });
+
+      test('calls replayed after reset with earlier times are dropped', () {
+        detector.processTimelineData(calls(spaced(s, 5, 1000)));
+        detector.reset();
+        detector.processTimelineData(calls(spaced(s - 500000, 25, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+        expect(detector.issues, isEmpty);
+      });
+
+      test('dispose drops retained calls', () {
+        detector.processTimelineData(calls(spaced(s, 25, 1000)));
+        detector.dispose();
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('repeated events after a reconnect are not counted again', () {
+        final burst = spaced(s, 25, 1000);
+        detector.processTimelineData(calls(burst));
+        check();
+        final first = detector.issues.single;
+        expect(first.severity, IssueSeverity.warning);
+
+        // A reconnect resets the client's cursors, reported or not, so its
+        // first poll delivers the same events again.
+        detector.processTimelineData(calls(burst));
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+        expect(
+          detector.issues.single.dedupIdentityMicros,
+          first.dedupIdentityMicros,
+        );
+      });
+
+      test('repeats of calls that already aged out are not counted', () {
+        final burst = spaced(s, 25, 1000);
+        detector.processTimelineData(calls(burst));
+        check();
+        detector.processTimelineData(calls(spaced(s + 12000000, 5, 1000)));
+        check();
+        // A full read after a reconnect delivers the old burst again.
+        detector.processTimelineData(calls(burst));
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('a burst not yet checked survives a reconnect', () {
+        detector.processTimelineData(calls(spaced(s, 45, 10000)));
+        detector.vmConnected = false;
+        detector.vmConnected = true;
+        check();
+        expect(detector.lastWindowStats!.callCount, 45);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+      });
+
+      test('calls after a reconnect still count', () {
+        detector.processTimelineData(calls(spaced(s, 5, 1000)));
+        detector.vmConnected = false;
+        detector.vmConnected = true;
+        detector.processTimelineData(calls(spaced(s + 2000000, 25, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 25);
+      });
+
+      test('a reset boundary keeps earlier calls out of the scenario', () {
+        detector.reset(horizonUs: s);
+        // The app made these calls before the boundary; a later poll
+        // delivers them.
+        detector.processTimelineData(calls(spaced(s - 500000, 25, 1000)));
+        // The app made these after it.
+        detector.processTimelineData(calls(spaced(s + 100000, 5, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 5);
+        expect(detector.issues, isEmpty);
+      });
+
+      test('a scenario boundary only moves forward', () {
+        detector.processTimelineData(calls(spaced(s - 3000000, 5, 1000)));
+        detector.reset(horizonUs: s);
+        // A later reset with an earlier boundary keeps the first one.
+        detector.reset(horizonUs: s - 2000000);
+        detector.processTimelineData(calls(spaced(s - 1000000, 25, 1000)));
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('a delayed batch spanning more than 2 s keeps its burst for '
+          'the check', () {
+        // One poll delivers a 45-call burst and a call 3 s later.
+        detector.processTimelineData(
+          calls([...spaced(s, 45, 10000), s + 3000000]),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 45);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+      });
+
+      test('a poll over the cap still counts its whole span', () {
+        final n = PlatformChannelDetector.maxRetainedCalls + 500;
+        detector.processTimelineData(calls(spaced(s, n, 100)));
+        check();
+        expect(detector.lastWindowStats!.callCount, n);
+      });
+
+      test('a burst the cap evicts before any check still counts', () {
+        // One full read: a 45-call burst, then maxRetainedCalls calls at
+        // 10 per second. The cap drops the burst before the check runs.
+        detector.processTimelineData(
+          calls([
+            ...spaced(s, 45, 10000),
+            ...spaced(
+              s + 2000000,
+              PlatformChannelDetector.maxRetainedCalls,
+              100000,
+            ),
+          ]),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 45);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+        expect(detector.issues.single.extraTraceArgs!['observedCount'], '45');
+      });
+
+      test('a burst the cap evicts keeps its call durations', () {
+        detector.processTimelineData(
+          calls(
+            [
+              ...spaced(s, 25, 10000),
+              ...spaced(
+                s + 2000000,
+                PlatformChannelDetector.maxRetainedCalls,
+                100000,
+              ),
+            ],
+            durationsUs: [
+              for (var i = 0; i < 25; i++) 9000,
+              for (var i = 0; i < PlatformChannelDetector.maxRetainedCalls; i++)
+                100,
+            ],
+          ),
+        );
+        check();
+        final stats = detector.lastWindowStats!;
+        expect(stats.callCount, 25);
+        expect(stats.maxCallDurationUs, 9000);
+        expect(stats.callsOverThreshold, 25);
+      });
+
+      test('a late call on another thread still counts', () {
+        detector.processTimelineData(
+          calls([...spaced(s, 5, 1000), s + 3000000]),
+        );
+        check();
+        check();
+        // Calls that began 3 s before the newest one, each on its own
+        // thread, reach the detector only now. They count with the five
+        // calls already checked in the same second.
+        detector.processTimelineData(
+          calls(
+            spaced(s + 100000, 45, 10000),
+            tids: [for (var i = 0; i < 45; i++) 100 + i],
+          ),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 50);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+      });
+
+      test('late calls through the parser complete a burst already '
+          'checked', () {
+        final cursors = <int, TimelineCursor>{};
+        final pending = PendingChannelBegins();
+        Map<String, dynamic> x(int ts, int tid) => {
+          'name': 'MethodChannel',
+          'cat': 'Embedder',
+          'ph': 'X',
+          'dur': 100,
+          'ts': ts,
+          'pid': 1,
+          'tid': tid,
+        };
+        ParsedTimelineData parse(List<Map<String, dynamic>> events) =>
+            TimelineParser.parse(
+              [for (final e in events) TimelineEvent.parse(e)!],
+              pendingChannelBegins: pending,
+              cursorsByTid: cursors,
+            );
+
+        // 20 calls in 0.2 s and one 3 s later, all on one thread.
+        detector.processTimelineData(
+          parse([
+            for (final ts in spaced(s, 20, 10000)) x(ts, 1),
+            x(s + 3000000, 1),
+          ]),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 20);
+        expect(detector.issues, isEmpty);
+
+        // 25 more calls from the same second end later on fresh threads.
+        detector.processTimelineData(
+          parse([
+            for (var i = 0; i < 25; i++) x(s + 200000 + i * 10000, 100 + i),
+          ]),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 45);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+      });
+
+      test('an open call keeps its duration when the cap drops its begin '
+          'before a check', () {
+        // 250 calls begin in a quarter second and all but the first end
+        // in the same poll, then 4096 more begin later.
+        final burst = spaced(s, 250, 1000);
+        final later = spaced(
+          s + 2000000,
+          PlatformChannelDetector.maxRetainedCalls,
+          5000,
+        );
+        final first = calls([...burst, ...later]);
+        detector.processTimelineData(
+          ParsedTimelineData(
+            platformChannelEvents: first.platformChannelEvents,
+            platformChannelCalls: first.platformChannelCalls.skip(1).toList(),
+          ),
+        );
+        // The first call ends 23 s after it began, before any check.
+        detector.processTimelineData(
+          ParsedTimelineData(
+            platformChannelCalls: [
+              PlatformChannelCall(
+                name: 'tick',
+                beginTs: s,
+                durationUs: 23000000,
+                id: 'slow',
+                tid: 1,
+              ),
+            ],
+          ),
+        );
+        check();
+        final stats = detector.lastWindowStats!;
+        expect(stats.callCount, 250);
+        expect(stats.maxCallDurationUs, 23000000);
+        expect(stats.callsOverThreshold, 1);
+      });
+
+      test('repeats of begins the cap dropped are not counted', () {
+        final batch = calls(
+          spaced(s, PlatformChannelDetector.maxRetainedCalls + 500, 100),
+        );
+        detector.processTimelineData(batch);
+        check();
+        detector.processTimelineData(batch);
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('a late call that joins a reported span adds no second issue', () {
+        detector.processTimelineData(calls(spaced(s, 25, 10000)));
+        check();
+        final first = detector.issues.single;
+        // Three checks drain the cooldown.
+        check();
+        check();
+        check();
+        // A call from the same second arrives late on another thread.
+        detector.processTimelineData(calls([s + 300000], tids: [100]));
+        check();
+        expect(detector.lastWindowStats!.callCount, 26);
+        expect(
+          detector.issues.single.dedupIdentityMicros,
+          first.dedupIdentityMicros,
+        );
+      });
+
+      test('late calls that raise a reported span to critical still emit', () {
+        detector.processTimelineData(calls(spaced(s, 25, 10000)));
+        check();
+        final first = detector.issues.single;
+        check();
+        check();
+        check();
+        detector.processTimelineData(
+          calls(
+            spaced(s + 300000, 20, 10000),
+            tids: [for (var i = 0; i < 20; i++) 100 + i],
+          ),
+        );
+        check();
+        final second = detector.issues.single;
+        expect(detector.lastWindowStats!.callCount, 45);
+        expect(second.severity, IssueSeverity.critical);
+        expect(second.dedupIdentityMicros, isNot(first.dedupIdentityMicros));
+      });
+
+      test('a late call in a reported span does not hide a new burst in '
+          'the same check', () {
+        detector.processTimelineData(calls(spaced(s, 51, 10000)));
+        check();
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+        // The cooldown and the 10 s persistence run out.
+        for (var i = 0; i < 10; i++) {
+          check();
+        }
+        expect(detector.issues, isEmpty);
+        // One poll brings a late call inside the reported span and a new
+        // 45-call burst 12 s later.
+        detector.processTimelineData(
+          calls(
+            [s + 600000, ...spaced(s + 12000000, 45, 10000)],
+            tids: [100, for (var i = 0; i < 45; i++) 1],
+          ),
+        );
+        check();
+        final issue = detector.issues.single;
+        expect(issue.severity, IssueSeverity.critical);
+        expect(issue.title, contains('45 calls/sec'));
+        expect(detector.lastWindowStats!.callCount, 45);
+      });
+
+      test('a late call in an earlier reported span adds no issue after '
+          'a later one', () {
+        final identities = <int?>{};
+        void record() {
+          for (final issue in detector.issues) {
+            identities.add(issue.dedupIdentityMicros);
+          }
+        }
+
+        detector.processTimelineData(calls(spaced(s, 25, 10000)));
+        check();
+        record();
+        for (var i = 0; i < 3; i++) {
+          check();
+        }
+        detector.processTimelineData(calls(spaced(s + 2000000, 25, 10000)));
+        check();
+        record();
+        for (var i = 0; i < 3; i++) {
+          check();
+        }
+        expect(identities, hasLength(2));
+        // A call from the first span arrives late on another thread.
+        detector.processTimelineData(calls([s + 300000], tids: [100]));
+        check();
+        record();
+        expect(detector.lastWindowStats!.callCount, 26);
+        expect(identities, hasLength(2));
+      });
+
+      test('many reports inside the retention window keep the first one '
+          'covered', () {
+        final identities = <int?>{};
+        void record() {
+          for (final issue in detector.issues) {
+            identities.add(issue.dedupIdentityMicros);
+          }
+        }
+
+        detector.processTimelineData(calls(spaced(s, 25, 40000)));
+        check();
+        record();
+        // 64 more reports, each one call later, all within 3.6 s of event
+        // time.
+        for (var j = 0; j < 64; j++) {
+          for (var i = 0; i < 3; i++) {
+            check();
+          }
+          detector.processTimelineData(calls([s + 1000000 + j * 40000]));
+          check();
+          record();
+        }
+        expect(identities, hasLength(65));
+        for (var i = 0; i < 3; i++) {
+          check();
+        }
+        // A late call inside the first reported span adds no issue.
+        detector.processTimelineData(calls([s + 1000], tids: [100]));
+        check();
+        record();
+        expect(identities, hasLength(65));
+      });
+
+      test('a reset forgets the reported span', () {
+        detector.processTimelineData(calls(spaced(s, 25, 10000)));
+        check();
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+        detector.reset(horizonUs: s + 300000);
+        // The next scenario's calls begin inside the span reported before
+        // the reset.
+        detector.processTimelineData(calls(spaced(s + 400000, 25, 10000)));
+        check();
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+      });
+
+      test('a sustained overload still emits after each cooldown', () {
+        final identities = <int?>{};
+        for (var k = 0; k < 6; k++) {
+          detector.processTimelineData(
+            calls(spaced(s + k * 1000000, 25, 40000)),
+          );
+          check();
+          identities.add(detector.issues.single.dedupIdentityMicros);
+        }
+        // One emission, three cooldown checks, then a fresh emission.
+        expect(identities, hasLength(2));
+      });
+
+      test('a call more than 10 s behind the newest is skipped', () {
+        detector.processTimelineData(calls([s + 12000000]));
+        check();
+        check();
+        detector.processTimelineData(
+          calls(
+            spaced(s + 1000000, 25, 1000),
+            tids: [for (var i = 0; i < 25; i++) 100 + i],
+          ),
+        );
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('calls on two threads at the same time keep both durations', () {
+        // A fast and a slow call begin in the same microsecond on two
+        // threads, the fast one delivered first.
+        final ts = [s, s, ...spaced(s + 1000, 23, 1000)];
+        final tids = [1, 2, for (var i = 0; i < 23; i++) 1];
+        final durations = [100, 9000, for (var i = 0; i < 23; i++) 100];
+        final batch = calls(ts, tids: tids, durationsUs: durations);
+        detector.processTimelineData(batch);
+        check();
+        final stats = detector.lastWindowStats!;
+        expect(stats.callCount, 25);
+        expect(stats.maxCallDurationUs, 9000);
+        expect(stats.callsOverThreshold, 1);
+
+        // A full re-read after a reconnect adds nothing.
+        detector.processTimelineData(batch);
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
+      });
+
+      test('a long call that ends after the call cap evicted later calls '
+          'keeps its duration', () {
+        // A slow call begins first and is still open while
+        // maxRetainedCalls + 1 fast calls end on the same thread. Only the
+        // completed calls arrive for those, so the begin cap stays unused.
+        detector.processTimelineData(
+          ParsedTimelineData(
+            platformChannelEvents: calls([s]).platformChannelEvents,
+          ),
+        );
+        final fast = spaced(
+          s + 100,
+          PlatformChannelDetector.maxRetainedCalls + 1,
+          100,
+        );
+        detector.processTimelineData(
+          ParsedTimelineData(
+            platformChannelCalls: calls(fast).platformChannelCalls,
+          ),
+        );
+        // The slow call ends now; it began 100 µs before the first fast one.
+        detector.processTimelineData(
+          ParsedTimelineData(
+            platformChannelCalls: [
+              PlatformChannelCall(
+                name: 'tick',
+                beginTs: s,
+                durationUs: 9000,
+                tid: 1,
+              ),
+            ],
+          ),
+        );
+        check();
+        expect(detector.lastWindowStats!.maxCallDurationUs, 9000);
+      });
+
+      test('thread marks stay bounded and repeats stay skipped', () {
+        // 300 threads each make one call, and the cap drops all of them
+        // when 4096 more calls arrive in the same poll.
+        final n = PlatformChannelDetector.maxRetainedCalls;
+        final batch = calls(
+          [...spaced(s, 300, 1000), ...spaced(s + 1000000, n, 100)],
+          tids: [
+            for (var i = 0; i < 300; i++) 1000 + i,
+            for (var i = 0; i < n; i++) 1,
+          ],
+        );
+        detector.processTimelineData(batch);
+        check();
+        expect(detector.threadMarkCount, lessThanOrEqualTo(256));
+
+        detector.processTimelineData(batch);
+        check();
+        expect(detector.lastWindowStats!.callCount, 0);
       });
     });
   });

@@ -10,6 +10,7 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
 
 import '../helpers/benchmark_helpers.dart';
+import '../helpers/timeline_test_helpers.dart';
 
 /// Config that disables built-in structural detectors so the injected
 /// [_FailingDetector] is the only non-runtime detector running during the
@@ -555,6 +556,50 @@ void main() {
       },
     );
   });
+  group('capture recording leaves out failed detectors', () {
+    testWidgets('a detector that threw in the last scan is not recorded by the '
+        'timeline path, and is recorded again after a clean scan', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildMixedTree(50));
+      final context = tester.element(find.byType(Directionality));
+
+      final controller = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+          captureMode: true,
+        ),
+      );
+      controller.initializeDetectorsForTest();
+      final detector = _StableIdEmittingDetector();
+      controller.addDetectorForTest(detector);
+      bool recorded() => controller.captureEmittedKeysForTest.any(
+        (k) => k.contains('|${_StableIdEmittingDetector.stableId}|'),
+      );
+
+      final errors = _ScopedErrorCapture();
+      try {
+        controller.runTreeScanForTest(context);
+      } finally {
+        errors.restore();
+      }
+      expect(tester.takeException(), isA<StateError>());
+      expect(detector.issues, isNotEmpty);
+
+      // The published issues leave the failed detector out; the
+      // capture trace must too.
+      controller.feedTimelineDataForTest(emptyTimelineData());
+      expect(recorded(), isFalse);
+
+      detector.throwOnSecondElement = false;
+      controller.runTreeScanForTest(context);
+      controller.feedTimelineDataForTest(emptyTimelineData());
+      expect(recorded(), isTrue);
+
+      controller.dispose();
+    });
+  });
 }
 
 class _NeverThrowsDetector extends BaseDetector {
@@ -735,6 +780,75 @@ class _HealthyEmittingDetector extends BaseDetector {
         fixHint: 'n/a — test double',
       ),
     );
+  }
+
+  @override
+  void afterElement(Element element) {}
+
+  @override
+  void notifyWalkCompleted() {}
+
+  @override
+  void finalizeScan() {}
+}
+
+/// Emits one issue with a stable id on its first `checkElement` call and,
+/// while [throwOnSecondElement] is set, throws on the second.
+class _StableIdEmittingDetector extends BaseDetector {
+  _StableIdEmittingDetector()
+    : super(
+        type: DetectorType.layoutBottleneck,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'StableIdEmittingDetector',
+        description: 'Test double for the capture recording path.',
+      );
+
+  static const String stableId = 'test_capture_partial';
+
+  bool throwOnSecondElement = true;
+  final List<PerformanceIssue> _issues = [];
+  int _calls = 0;
+
+  @override
+  bool get isEnabled => true;
+
+  @override
+  set isEnabled(bool value) {}
+
+  @override
+  List<PerformanceIssue> get issues => _issues;
+
+  @override
+  List<WidgetHighlight> get highlights => const [];
+
+  @override
+  void dispose() {}
+
+  @override
+  void prepareScan(BuildContext context) {
+    _issues.clear();
+    _calls = 0;
+  }
+
+  @override
+  void checkElement(Element element) {
+    _calls++;
+    if (_calls == 1) {
+      _issues.add(
+        PerformanceIssue(
+          stableId: stableId,
+          severity: IssueSeverity.warning,
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.possible,
+          title: 'Test capture issue',
+          detail: 'Recorded only when the detector did not fail.',
+          fixHint: 'n/a',
+          detectedAt: DateTime(2026, 10, 15),
+        ),
+      );
+      return;
+    }
+    if (throwOnSecondElement) throw StateError('boom after partial output');
   }
 
   @override

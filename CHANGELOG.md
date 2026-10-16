@@ -173,6 +173,53 @@
   match needs the framework's `ScaffoldState`.
 - Example: a migrated-app demo (`material_ui`), a Cupertino blur demo, and
   `ext.sleuthDemo.uiBlock` / `blurProbe` extensions.
+- `platform_channel_traffic` counts calls by event time. Each check, once
+  per second, counts the call begins in the busiest 1 s span of event time
+  that holds a call received since the previous check. It counted whatever
+  poll batches arrived within one second of wall time, so a steady 50
+  calls/s read 74 on a Galaxy A07 and the iPhone capture's 45 calls/s read
+  36. The method counts, call durations and trace args on the card come
+  from the same span. Calls the VM client delivers again after a reconnect,
+  and calls made before a capture scenario began, do not count. The
+  detector keeps the last 10 s of calls, so a check sees a poll that
+  covers several seconds, and a call that arrives late counts with the
+  calls around it. A late call inside a span already reported at its
+  severity or higher adds no second issue, and it does not hide other new
+  calls in the same check. A poll with more calls than the detector keeps
+  (4096) still reports its busiest span. New
+  `PlatformChannelCall.tid` holds the thread of the call's begin, so two
+  calls that begin in the same microsecond on different threads keep both
+  durations. The triad was re-recorded on Flutter 3.47.6 (iPhone 12,
+  iOS 17.5) with evenly spaced calls: below 15 calls/s silent, at 26,
+  above 34.
+- Evidence tiers by severity: `DetectorMetadata.effectiveTierFor` takes an
+  optional `severity`, and a runtimeVerified result then needs a bracket
+  for that severity. The platform channel detector's base tier is now
+  `reproducerOnly` with a `perStableIdTier` raise for its warning, so its
+  critical tier and `excessive_repaint` critical read `reproducerOnly`.
+  The ledger moves to 20 / 21 detectors at `reproducerOnly` base and 1 / 21
+  at `runtimeVerified` base.
+- Behavior change: `http_error_spike` is critical at 10 errors in the 5 s
+  window, whatever their status. Five to nine 5xx errors now read warning
+  (the 5xx count stays in the detail), so a CI budget with
+  `maxCriticalIssues` no longer fails on them.
+- `native_memory_growing` needs the process RSS itself to grow. When RSS
+  keeps the pages of freed Dart objects, a heap drop of about 25 MB or more
+  reads as native growth while the drop sits in the 30 s window (a
+  simulated 50 MB drop with flat RSS read 2.5 MB/s for 12 s). On a Galaxy
+  A07 the VM returned the pages of a 64 MB drop, and real RSS growth on the
+  GPU demo (57 MB in 25 s) still fires; both are replayed in tests.
+  `HeapSample.nativeBytes` keeps its definition.
+- `high_frequency_same_path` counts the largest cluster of requests within
+  500 ms of each other; requests at 0, 300, 600 and 700 ms count 3 (they
+  counted 2).
+- `gc_pressure` gives a new overage a new identity after the window empties,
+  also at thresholds of 5/min or less, so the capture path records it.
+- Capture mode records no trace events from a detector that threw in the
+  last structural scan, matching the published issues.
+- Example: `ext.sleuthDemo.retain` retains byte buffers and reports exact
+  bytes; its `List<int>` of large ints held 4-byte references on Android
+  and reported twice the retained rate.
 
 ## 0.37.0
 

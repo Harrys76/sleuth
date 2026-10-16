@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../network/request_record.dart';
@@ -72,6 +74,23 @@ class NetworkMonitorDetector extends BaseDetector
   static const int _duplicateWindowMs = 500;
   static const int _duplicateThreshold = 3;
   static const int _criticalDuplicateThreshold = 10;
+
+  /// Errors in the peak 5 s window that raise `http_error_spike`.
+  @visibleForTesting
+  static const int errorSpikeThreshold = 3;
+
+  /// Errors in the peak 5 s window that make `http_error_spike` critical.
+  @visibleForTesting
+  static const int errorSpikeCriticalThreshold = 10;
+
+  /// The `high_frequency_same_path` window, threshold and critical count,
+  /// exposed for the explanation drift test.
+  @visibleForTesting
+  static const int duplicateWindowMs = _duplicateWindowMs;
+  @visibleForTesting
+  static const int duplicateThreshold = _duplicateThreshold;
+  @visibleForTesting
+  static const int criticalDuplicateThreshold = _criticalDuplicateThreshold;
 
   final Queue<RequestRecord> _records = Queue<RequestRecord>();
   final List<PerformanceIssue> _issues = [];
@@ -433,7 +452,7 @@ class NetworkMonitorDetector extends BaseDetector
       }
     }
 
-    if (peakCount < 3) return;
+    if (peakCount < errorSpikeThreshold) return;
 
     // Scope breakdown counts to the peak window so severity, title, and
     // detail all describe the same set of errors.
@@ -443,7 +462,8 @@ class NetworkMonitorDetector extends BaseDetector
         .length;
     final serverErrors = peakRecords.where((r) => r.statusCode >= 500).length;
 
-    final severity = peakCount >= 10 || serverErrors >= 5
+    // Severity counts errors only; the detail still reports the 5xx share.
+    final severity = peakCount >= errorSpikeCriticalThreshold
         ? IssueSeverity.critical
         : IssueSeverity.warning;
 
@@ -513,20 +533,21 @@ class NetworkMonitorDetector extends BaseDetector
       final method = entry.key.split(' ').first;
       if (method != 'GET' && method != 'HEAD' && method != 'OPTIONS') continue;
 
-      // Check if at least _duplicateThreshold records cluster within 500ms
+      // Largest number of requests whose start times lie within 500 ms of
+      // each other (inclusive). The left edge slides, so a cluster that
+      // begins after an earlier request is still counted in full.
       records.sort((a, b) => a.startedAt.compareTo(b.startedAt));
       int maxCluster = 1;
       int clusterStart = 0;
       for (var i = 1; i < records.length; i++) {
-        if (records[i].startedAt
+        while (records[i].startedAt
                 .difference(records[clusterStart].startedAt)
-                .inMilliseconds <=
+                .inMilliseconds >
             _duplicateWindowMs) {
-          final clusterSize = i - clusterStart + 1;
-          if (clusterSize > maxCluster) maxCluster = clusterSize;
-        } else {
-          clusterStart = i;
+          clusterStart++;
         }
+        final clusterSize = i - clusterStart + 1;
+        if (clusterSize > maxCluster) maxCluster = clusterSize;
       }
 
       if (maxCluster < _duplicateThreshold) continue;

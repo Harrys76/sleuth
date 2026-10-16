@@ -751,25 +751,25 @@ connection drops.
 `PlatformChannelDetector.platform_channel_traffic` differs from both
 HeavyCompute and MemoryPressure in three ways:
 
-1. **Short scenario span (about 3.2 s).** The detector evaluates on a
-   1 s window boundary. The capture screen sends method calls for about
-   1.5 s, waits 1500 ms, closes the span, and waits a 200 ms barrier
-   before the export. The 1500 ms dwell covers three detector poll
-   cycles (500 ms each) plus a margin, so the trace record lands inside
-   the scenario span even when the evaluation boundary falls late in
-   the call phase. The screen does not narrow the streams, because the
+1. **Short scenario span (about 4.2 s).** The detector checks once per
+   second of wall time and counts the busiest 1 s span of event time.
+   The capture screen sends method calls for about 1.5 s, waits 2.5 s,
+   closes the span, and waits a 200 ms barrier before the export. A span
+   counts in full only once the polls have delivered all of it (events
+   arrive up to about 1 s late), so the check that sees it can land up
+   to about 2 s after the last call; the 2.5 s dwell keeps the trace
+   record inside the scenario span. The screen does not narrow the streams, because the
    span stays well inside the ring buffer with the default `Dart`,
    `Embedder` and `GC` streams on.
-2. **Parallel `Future.wait` batches, not sequential awaits.** An iOS
+2. **Evenly spaced calls, not awaited one by one.** An iOS
    `MethodChannel` round trip takes about 12 to 25 ms over USB and 30
-   to 80 ms over wireless. Sequential awaits would cap the send rate at
-   roughly 12 to 80 calls/s and make the above leg's 45 calls/s
-   unreachable over wireless. The screen fires K parallel
-   `invokeMethod` futures every 200 ms tick (3, 5 and 9 for below, at
-   and above, so 15, 25 and 45 calls/s), so a tick costs about one
-   round trip. iOS scheduling and channel coalescing put the detector's
-   count below the send rate, which is why the above leg sends above
-   its band.
+   to 80 ms over wireless, so sequential awaits would cap the send
+   rate. The screen sends one call every 1/rate s on a fixed schedule
+   (15, 25 and 35 calls/s for below, at and above) and collects the
+   replies after the call phase, so any 1 s span holds the rate, give or
+   take one call. Batches of parallel calls per 200 ms tick, waited for one
+   batch at a time, stretched the tick to about 250 ms and made the
+   count jump in whole batches.
 3. **The `debugProfilePlatformChannels` framework flag.**
    `MethodChannel.invokeMethod` writes `Platform Channel send …`
    timeline events only while this top-level Flutter flag is true. The
@@ -793,8 +793,8 @@ HeavyCompute and MemoryPressure in three ways:
 4. Run each leg (Below, At, Above). The screen has no calibration
    phase, because the batch size sets the rate.
    - Tap the leg button.
-   - Calls run for about 1.5 s, followed by the 1500 ms dwell and the
-     200 ms barrier, about 3.2 s per attempt.
+   - Calls run for about 1.5 s, followed by the 2.5 s dwell and the
+     200 ms barrier, about 4.2 s per attempt.
    - On success the leg logs `[<leg>] capture stashed (N chars)`.
      `Sleuth.exportCaptureJson` already wrapped the JSON right after
      `markScenarioEnd`. The screen judges the at and above legs on the
@@ -829,8 +829,8 @@ HeavyCompute and MemoryPressure in three ways:
   events because `debugProfilePlatformChannels` was off. The screen
   sets the flag in a try/finally, so only a manual change during the
   leg or `SleuthConfig.profilePlatformChannels` can leave it wrong. A
-  second cause is iOS coalescing the parallel calls so the rate stayed
-  under 20 calls/s; check the batch geometry.
+  second cause is a send rate that stayed at or under 20 calls/s; check
+  the leg's rate in the log line.
 - **The cooldown failed (count 2 or more).** The scenario span reached
   a second 1 s evaluation cycle and the cooldown counter did not
   suppress it, so Export logs "Export REJECTED". Retry the leg.
@@ -848,11 +848,13 @@ registers the channel and its handler at launch in
 `result(nil)` for every call. No new native code is needed.
 
 **Fixture provenance.** The three checked-in captures under
-`test/validation/captures/platform_channel/` were recorded with the
-1500 ms dwell; their scenario spans are 3.19 to 3.21 s long. The dwell
-went up from 800 ms after an early at-leg capture left only 43 ms
-between its trace record and `scenario.end`. The bracket checks the
-magnitude against the threshold, not the span length.
+`test/validation/captures/platform_channel/` were recorded on an
+iPhone 12 (iOS 17.5, Flutter 3.47.6) with evenly spaced calls and the
+2.5 s dwell; their scenario spans are 4.02 to 4.04 s long, and the at
+and above trace records land 1.5 s and 2.5 s before `scenario.end`.
+Below sent 15.0 calls/s and stayed silent; at read 26 and above 34. The
+bracket checks the magnitude against the threshold, not the span
+length.
 
 **The observed-axis cross-check.** The audit compares
 `expectedMagnitude.observed` with the in-span trace arg `observedCount`
