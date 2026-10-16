@@ -151,10 +151,23 @@ CaptureBracket? startupLegBracket(DetectorMetadata metadata, StartupLeg leg) =>
 /// dart-defines and the request file.
 @immutable
 class StartupLegRequest {
-  const StartupLegRequest({this.leg, this.plainDelayMs = 0, this.problem});
+  const StartupLegRequest({
+    this.leg,
+    this.plainDelayMs = 0,
+    this.problem,
+    this.requestedName,
+    this.legProblem,
+  });
 
   /// The capture leg, or null.
   final StartupLeg? leg;
+
+  /// The leg name the launch asked for, known or not.
+  final String? requestedName;
+
+  /// Why the launch asked for a leg it cannot run: an unknown name or a
+  /// request file it could not read. Null otherwise.
+  final String? legProblem;
 
   /// A delay with no capture, used when [leg] is null.
   final int plainDelayMs;
@@ -189,18 +202,19 @@ class StartupLegRequest {
           : defined;
     }
 
-    final problems = <String>[];
+    final legProblems = <String>[];
     var legName = pick(kStartupLegVariable, definedLeg);
     final fileLeg = kIsWeb
         ? null
-        : _takeRequestFile(requestFile ?? startupLegRequestFile, problems);
+        : _takeRequestFile(requestFile ?? startupLegRequestFile, legProblems);
     if (legName.isEmpty && fileLeg != null) legName = fileLeg;
     final delayText = pick(kStartupDelayVariable, definedDelay);
     StartupLeg? leg;
     if (legName.isNotEmpty) {
       leg = StartupLeg.fromScenario(legName);
-      if (leg == null) problems.add('unknown startup leg "$legName"');
+      if (leg == null) legProblems.add('unknown startup leg "$legName"');
     }
+    final problems = [...legProblems];
     var plainDelayMs = 0;
     if (delayText.isNotEmpty) {
       final parsed = int.tryParse(delayText);
@@ -214,6 +228,10 @@ class StartupLegRequest {
       leg: leg,
       plainDelayMs: plainDelayMs,
       problem: problems.isEmpty ? null : problems.join('; '),
+      requestedName: legName.isEmpty ? null : legName,
+      legProblem: leg == null && legProblems.isNotEmpty
+          ? legProblems.join('; ')
+          : null,
     );
   }
 }
@@ -581,7 +599,10 @@ class StartupLegRunner {
     this.evaluateLimit = const Duration(seconds: 10),
     this.overallLimit = const Duration(seconds: 25),
     this.pollInterval = const Duration(milliseconds: 100),
-  }) : results = results ?? StartupLegResults();
+    AppLifecycleState? Function()? lifecycleState,
+  }) : results = results ?? StartupLegResults(),
+       _lifecycleState =
+           lifecycleState ?? (() => SchedulerBinding.instance.lifecycleState);
 
   final StartupLeg leg;
 
@@ -597,9 +618,11 @@ class StartupLegRunner {
   final Duration evaluateLimit;
   final Duration overallLimit;
   final Duration pollInterval;
+  final AppLifecycleState? Function() _lifecycleState;
 
   bool _scenarioOpen = false;
   bool _streamsSuspended = false;
+  Future<void>? _pendingSuspend;
   String? _leftForeground;
   Object? _beginError;
   AppLifecycleListener? _lifecycle;
@@ -641,6 +664,14 @@ class StartupLegRunner {
   }
 
   Future<StartupLegRecord> _finish(StartupLegRecord running) async {
+    // A launch that is already in the background (the phone was locked
+    // during the delay) sends no change the listener would see.
+    final state = _lifecycleState();
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _leftForeground = state!.name;
+    }
     _lifecycle = AppLifecycleListener(
       onStateChange: (state) {
         if (state == AppLifecycleState.hidden ||
@@ -727,10 +758,8 @@ class StartupLegRunner {
     // the scenario's begin marker. It sets the flag before the call,
     // because a suspension that times out may still land later.
     _streamsSuspended = true;
-    await withCallTimeout(
-      calls.suspendStreams(),
-      'suspendNonEssentialTimelineStreams',
-    );
+    final suspend = _pendingSuspend = calls.suspendStreams();
+    await withCallTimeout(suspend, 'suspendNonEssentialTimelineStreams');
     await _waitFor(
       () => calls.detectorEvaluated() ?? false,
       evaluateLimit,
@@ -859,6 +888,16 @@ class StartupLegRunner {
   Future<void> _resumeStreams() async {
     if (!_streamsSuspended) return;
     _streamsSuspended = false;
+    // A suspension still in flight would land after the resume and leave
+    // the VM recording the Dart stream only, so the resume waits for it.
+    final pending = _pendingSuspend;
+    if (pending != null) {
+      try {
+        await pending.timeout(kVmCallTimeout);
+      } catch (_) {
+        // The resume below runs either way.
+      }
+    }
     try {
       await withCallTimeout(calls.resumeStreams(), 'resumeAllTimelineStreams');
     } catch (e) {
@@ -877,6 +916,7 @@ class StartupLaunch {
     this.refusal,
     this.delayMs,
     this.markerWallUs, {
+    required this.request,
     required void Function(Duration) sleeper,
     required StartupLegResults Function() results,
   }) : _sleep = sleeper,
@@ -907,10 +947,14 @@ class StartupLaunch {
       refusal,
       delayMs,
       req.isEmpty ? 0 : DateTime.now().microsecondsSinceEpoch,
+      request: req,
       sleeper: sleeper,
       results: results ?? StartupLegResults.new,
     );
   }
+
+  /// What the host asked for.
+  final StartupLegRequest request;
 
   /// The requested leg, or null.
   final StartupLeg? leg;
@@ -949,24 +993,18 @@ class StartupLaunch {
   /// final record, or null when no leg runs.
   Future<StartupLegRecord>? afterRunApp() {
     final leg = this.leg;
-    if (leg == null) return null;
+    if (leg == null) {
+      // A request the launch cannot run still leaves a record, so the
+      // host and the screen see why nothing ran.
+      final problem = request.legProblem;
+      if (problem != null) {
+        _recordRefusal(request.requestedName ?? 'unknown', problem);
+      }
+      return null;
+    }
     final refusal = this.refusal;
     if (refusal != null) {
-      debugPrint('Startup leg ${leg.label}: ABORT: $refusal');
-      try {
-        _results().writeRecord(
-          StartupLegRecord(
-            launchId: launchId,
-            scenario: leg.scenario,
-            state: 'refused',
-            verdict: 'ABORT',
-            reason: refusal,
-            updatedAt: DateTime.now(),
-          ),
-        );
-      } on Object catch (e) {
-        debugPrint('Startup leg ${leg.label}: could not write its record: $e');
-      }
+      _recordRefusal(leg.scenario, refusal);
       return null;
     }
     return StartupLegRunner(
@@ -976,5 +1014,27 @@ class StartupLaunch {
       launchId: launchId,
       results: _results(),
     ).start();
+  }
+
+  /// Writes an ABORT record for [scenario] and deletes its earlier
+  /// capture, so a host copy after a refused launch cannot return an
+  /// older leg's capture.
+  void _recordRefusal(String scenario, String reason) {
+    debugPrint('Startup leg $scenario: ABORT: $reason');
+    try {
+      final results = _results()..deleteCapture(scenario);
+      results.writeRecord(
+        StartupLegRecord(
+          launchId: launchId,
+          scenario: scenario,
+          state: 'refused',
+          verdict: 'ABORT',
+          reason: reason,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    } on Object catch (e) {
+      debugPrint('Startup leg $scenario: could not write its record: $e');
+    }
   }
 }

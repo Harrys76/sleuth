@@ -14,7 +14,7 @@ import 'startup_leg.dart';
 /// Result view and launch commands for the slow_startup_ttff capture
 /// legs. A leg runs at launch (see `startup_leg.dart`), so this screen
 /// runs nothing itself. It shows the latest leg's verdict and values,
-/// copies each leg's devicectl command, and exports a stashed capture.
+/// copies each leg's devicectl commands, and exports a stashed capture.
 ///
 /// **Procedure per leg:**
 ///
@@ -22,11 +22,14 @@ import 'startup_leg.dart';
 ///         --dart-define=SLEUTH_CAPTURE_MODE=true \
 ///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"` once to
 ///      install the build; that first launch does not count.
-///   2. Run the leg's command from this screen (Copy launch command) on
-///      the host, with the device id in place of `<device>`.
-///   3. Wait about 20 s, then copy `tmp/sleuth_startup_legs/<scenario>.json`
-///      from the app container with `xcrun devicectl device copy from`,
-///      or open this screen and tap **Export last leg**.
+///   2. Run the leg's commands from this screen (Copy launch command) on
+///      the host, with the id from `xcrun devicectl list devices` in place
+///      of `<device>`.
+///   3. Wait about 20 s, copy `tmp/sleuth_startup_legs/last_leg.json` from
+///      the app container with `xcrun devicectl device copy from`, and
+///      read its verdict. Only a `stashed` verdict has a capture: copy
+///      `tmp/sleuth_startup_legs/<scenario>.json` the same way, or open
+///      this screen and tap **Export last leg**.
 class SlowStartupCaptureScreen extends StatefulWidget {
   const SlowStartupCaptureScreen({
     super.key,
@@ -34,6 +37,7 @@ class SlowStartupCaptureScreen extends StatefulWidget {
     this.provenanceCheck = currentCaptureProvenance,
     this.results,
     this.currentPid,
+    this.clock,
   });
 
   /// Capture mode for tests. Null reads the build's
@@ -55,6 +59,10 @@ class SlowStartupCaptureScreen extends StatefulWidget {
   @visibleForTesting
   final int? currentPid;
 
+  /// The clock the result's age reads; null reads [DateTime.now].
+  @visibleForTesting
+  final DateTime Function()? clock;
+
   @override
   State<SlowStartupCaptureScreen> createState() =>
       _SlowStartupCaptureScreenState();
@@ -74,8 +82,8 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
   late final String _criticalMs;
   final List<String> _log = [];
   _Shown _shown = (record: null, problem: null, runningHere: false);
+  String? _lastStatus;
   Timer? _refresh;
-  bool _copying = false;
 
   bool get _captureModeOn =>
       widget.captureModeOverride ??
@@ -117,7 +125,9 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
     try {
       record = _results.readRecord();
     } on Object catch (e) {
-      problem = 'The last result could not be read ($e).';
+      problem =
+          'The last result could not be read ($e). The next leg writes a '
+          'new one.';
     }
     final here = '${widget.currentPid ?? pid}-';
     var runningHere = false;
@@ -135,6 +145,13 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
       }
     }
     _shown = (record: record, problem: problem, runningHere: runningHere);
+    // The status line stops at three lines; the log keeps every status in
+    // full.
+    final status = _statusLine();
+    if (status != _lastStatus) {
+      _lastStatus = status;
+      _log.add(status);
+    }
   }
 
   void _say(String line) {
@@ -142,19 +159,39 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
     setState(() => _log.add(line));
   }
 
+  /// Shows [message] in a SnackBar as well as the log, because the log can
+  /// sit out of view and a screen reader does not announce it.
+  void _confirm(String message) {
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
+      );
+  }
+
   Future<void> _copyCommand(StartupLeg leg) async {
     try {
       await Clipboard.setData(ClipboardData(text: leg.launchCommand()));
       _say(
-        '[${leg.label}] launch command copied. Replace <device> with the '
-        'device id and run it on the host.',
+        '[${leg.label}] launch commands copied to the clipboard. Send them '
+        'to the Mac (Universal Clipboard, Notes or AirDrop), replace '
+        '<device> with the id from xcrun devicectl list devices, and run '
+        'them.',
       );
+      if (mounted) _confirm('Launch commands (${leg.label}) copied');
     } catch (e) {
       _say('[${leg.label}] clipboard copy FAILED: $e');
     }
   }
 
   Future<void> _exportLastLeg() async {
+    if (_shown.runningHere) {
+      _say(
+        'Export: the leg is still running. Export once its result reads '
+        '"capture stashed".',
+      );
+      return;
+    }
     final record = _shown.record;
     if (record == null || !record.isStashed) {
       _say(
@@ -164,23 +201,28 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
       return;
     }
     final label = record.leg?.label ?? record.scenario;
-    setState(() => _copying = true);
+    final String json;
     try {
       final file = _results.captureFile(record.scenario);
       if (!file.existsSync()) {
         _say('[$label] FAILED: the stashed capture file is missing.');
         return;
       }
-      final json = file.readAsStringSync();
+      json = file.readAsStringSync();
+    } catch (e) {
+      _say('[$label] could not read the capture file: $e');
+      return;
+    }
+    try {
       await Clipboard.setData(ClipboardData(text: json));
       _say(
-        '[$label] copied ${json.length} chars. Save as '
-        '${record.scenario}.json under test/validation/captures/startup/.',
+        '[$label] capture copied to the clipboard (${json.length} chars). '
+        'Send it to the Mac and save it as ${record.scenario}.json under '
+        'test/validation/captures/startup/.',
       );
+      if (mounted) _confirm('Capture copied. Save as ${record.scenario}.json.');
     } catch (e) {
       _say('[$label] clipboard copy FAILED: $e');
-    } finally {
-      if (mounted) setState(() => _copying = false);
     }
   }
 
@@ -190,10 +232,31 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
     final record = _shown.record;
     if (record == null) {
       return 'No startup leg has run on this install. Launch one with a '
-          'command below.';
+          'leg command on this screen.';
     }
     final label = record.leg?.label ?? record.scenario;
     return 'Last leg ($label): ${record.line}';
+  }
+
+  /// How long ago [at] was, with its clock time.
+  String _age(DateTime at) {
+    final now = (widget.clock ?? DateTime.now)();
+    final local = at.toLocal();
+    final clockTime =
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+    final ago = now.difference(at);
+    final String text;
+    if (ago.inMinutes < 1) {
+      text = 'just now';
+    } else if (ago.inHours < 1) {
+      text = '${ago.inMinutes} min ago';
+    } else if (ago.inDays < 1) {
+      text = '${ago.inHours} h ago';
+    } else {
+      text = '${ago.inDays} d ago';
+    }
+    return 'Recorded $text ($clockTime)';
   }
 
   @override
@@ -209,8 +272,11 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
     final bracket = leg == null
         ? null
         : startupLegBracket(StartupDetector().validationMetadata, leg);
-    String ms(double? value) =>
-        value == null ? 'not measured' : '${value.toStringAsFixed(1)} ms';
+    final running = _shown.runningHere;
+    String ms(double? value) => value != null
+        ? '${value.toStringAsFixed(1)} ms'
+        : (running ? 'waiting' : 'not measured');
+    final updatedAt = record?.updatedAt;
     return Scaffold(
       appBar: AppBar(title: const Text('slow_startup_ttff capture')),
       body: SafeArea(
@@ -235,12 +301,24 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
                   'Flutter ${stamp.flutterVersion}',
                   style: const TextStyle(fontSize: 12),
                 ),
-              const SizedBox(height: 8),
-              // The latest leg's evidence comes first: the screen opens
-              // after a cold launch with the leg already finished.
+              const SizedBox(height: 16),
+              // The latest leg's evidence comes first, because the screen
+              // opens after a cold launch with the leg already finished.
+              // The verdict line has no line cap, so a long reason stays
+              // whole.
               if (record == null)
-                const Text('No leg recorded yet.', style: evidenceStyle)
+                Text(
+                  _shown.problem == null
+                      ? 'No leg recorded yet.'
+                      : 'No readable leg record.',
+                  style: Theme.of(context).textTheme.titleSmall,
+                )
               else ...[
+                Text(
+                  'Result: ${record.line}',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 4),
                 Text(
                   'Leg: ${leg?.title ?? record.scenario} '
                   '(${record.scenario})',
@@ -259,19 +337,21 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
                     'Band: ${bracket.bandText(leg.role)} ms',
                     style: evidenceStyle,
                   ),
+                if (updatedAt != null)
+                  Text(_age(updatedAt), style: evidenceStyle),
                 Text(
                   'Delay ${record.delayMs ?? '?'} ms, launch '
-                  '${record.launchId}, '
-                  '${record.updatedAt?.toLocal().toString().split('.').first ?? 'time unknown'}',
+                  '${record.launchId}',
                   style: evidenceStyle,
                 ),
               ],
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
               Text(
                 'Each leg is a cold launch that blocks between Sleuth.init '
                 'and runApp, and records slow_startup_ttff: a warning at '
                 '$_warningMs ms to first frame, critical at $_criticalMs ms. '
-                'The host starts it with the command below; the result '
+                'The host runs a leg\'s commands with the id from xcrun '
+                'devicectl list devices in place of <device>; the result '
                 'shows here on the next open.',
                 style: const TextStyle(fontSize: 13),
               ),
@@ -284,13 +364,14 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
             pinned: [
               const SizedBox(height: 8),
               FilledButton.icon(
-                onPressed: _copying ? null : _exportLastLeg,
+                onPressed: _exportLastLeg,
                 icon: const Icon(Icons.save_alt),
                 label: const Text('Export last leg'),
               ),
               const SizedBox(height: 8),
               // Three lines at most so a large text scale cannot push the
-              // log off the screen; the log keeps the full line.
+              // log off the screen; the verdict line above and the log
+              // keep the full text.
               Semantics(
                 liveRegion: true,
                 child: Text(
@@ -321,7 +402,7 @@ class _SlowStartupCaptureScreenState extends State<SlowStartupCaptureScreen> {
 }
 
 /// One leg: its title, target and delay, and a button that copies its
-/// launch command.
+/// launch commands.
 class _LegRow extends StatelessWidget {
   const _LegRow({required this.leg, required this.onCopy});
 
@@ -331,11 +412,12 @@ class _LegRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // The button sits under the text, not beside it, so neither has to
-    // give way at a large text scale on a narrow phone.
+    // give way at a large text scale on a narrow phone. It fills the
+    // column, as the other capture screens' leg buttons do.
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             '${leg.title}: about ${leg.targetMs} ms to first frame '
@@ -345,7 +427,6 @@ class _LegRow extends StatelessWidget {
           const SizedBox(height: 4),
           OutlinedButton.icon(
             onPressed: onCopy,
-            style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
             icon: const Icon(Icons.copy),
             label: Text('Copy launch command (${leg.label})'),
           ),

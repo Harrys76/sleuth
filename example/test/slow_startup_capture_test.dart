@@ -2,6 +2,7 @@
 // detector's brackets, the launch request, the observed value, the
 // result files, the leg runner's paths and the result screen.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show FrameTiming;
@@ -81,6 +82,9 @@ class _FakeCalls extends StartupLegCalls {
   /// The export's result; null composes nothing.
   final String? json;
 
+  /// When set, the suspension completes only when this does.
+  Completer<void>? suspendGate;
+
   final List<String> log = [];
   ({double min, double max})? exportBand;
   double? exportObserved;
@@ -97,7 +101,14 @@ class _FakeCalls extends StartupLegCalls {
   Future<void> flushTimeline() async => log.add('flush');
 
   @override
-  Future<void> suspendStreams() async => log.add('suspend');
+  Future<void> suspendStreams() async {
+    log.add('suspend');
+    final gate = suspendGate;
+    if (gate != null) {
+      await gate.future;
+      log.add('suspend landed');
+    }
+  }
 
   @override
   Future<void> resumeStreams() async => log.add('resume');
@@ -130,6 +141,11 @@ class _FakeCalls extends StartupLegCalls {
   @override
   String? lastExportFailure() => 'no scenario span';
 }
+
+/// The status line, the screen's one live region.
+final _liveRegion = find.byWidgetPredicate(
+  (w) => w is Semantics && (w.properties.liveRegion ?? false),
+);
 
 void main() {
   final metadata = StartupDetector().validationMetadata;
@@ -381,6 +397,36 @@ void main() {
       expect(record.scenario, 'slow_startup_ttff_at');
     });
 
+    test('a refused leg deletes the earlier capture of its scenario', () {
+      final results = StartupLegResults(dir)
+        ..writeCapture('slow_startup_ttff_at', '{"old":true}');
+      final startup = launch(
+        request: const StartupLegRequest(leg: StartupLeg.at),
+        captureMode: false,
+      );
+      startup.afterRunApp();
+      expect(results.captureFile('slow_startup_ttff_at').existsSync(), isFalse);
+      expect(results.readRecord()!.verdict, 'ABORT');
+    });
+
+    test('a request for an unknown leg leaves an ABORT record naming it', () {
+      final startup = launch(
+        request: StartupLegRequest.read(
+          environment: const {kStartupLegVariable: 'slow_startup_ttff_middle'},
+          definedLeg: '',
+          definedDelay: '',
+          requestFile: File('${dir.path}/none.txt'),
+        ),
+      );
+      startup.delay();
+      expect(slept, isEmpty);
+      expect(startup.afterRunApp(), isNull);
+      final record = StartupLegResults(dir).readRecord()!;
+      expect(record.scenario, 'slow_startup_ttff_middle');
+      expect(record.verdict, 'ABORT');
+      expect(record.reason, contains('unknown startup leg'));
+    });
+
     test('a leg without provenance gets no delay and an ABORT record', () {
       final startup = launch(
         request: const StartupLegRequest(leg: StartupLeg.criticalAt),
@@ -492,6 +538,7 @@ void main() {
       Duration overallLimit = const Duration(seconds: 25),
       void Function()? midway,
       int midwayAtPump = 5,
+      AppLifecycleState? lifecycleAtStart,
     }) async {
       final firstFrame = FirstFrameRecorder();
       if (frame != null) firstFrame.recordForTest(frame);
@@ -504,6 +551,9 @@ void main() {
         calls: calls,
         provenanceCheck: _approved,
         overallLimit: overallLimit,
+        lifecycleState: lifecycleAtStart == null
+            ? null
+            : () => lifecycleAtStart,
       ).start();
       await tester.pumpWidget(const SizedBox());
       for (var i = 0; i < 300; i++) {
@@ -664,6 +714,43 @@ void main() {
       expect(calls.log.where((l) => l == 'resume'), hasLength(1));
     });
 
+    testWidgets('a launch already in the background at its first frame ends '
+        'unmeasured at once', (tester) async {
+      final calls = _FakeCalls(
+        json: _capture(event: 'sleuth.issue.slow_startup_ttff.warning'),
+      );
+      final record = await run(
+        tester,
+        leg: StartupLeg.at,
+        calls: calls,
+        frame: _frameAt(1650),
+        lifecycleAtStart: AppLifecycleState.hidden,
+      );
+      expect(record.verdict, 'UNMEASURED');
+      expect(record.reason, contains('(hidden)'));
+      expect(calls.log, isNot(contains('export')));
+    });
+
+    testWidgets('a suspension that lands after the overall limit is followed '
+        'by the resume, not the other way round', (tester) async {
+      final calls = _FakeCalls()..suspendGate = Completer<void>();
+      final record = await run(
+        tester,
+        leg: StartupLeg.at,
+        calls: calls,
+        frame: _frameAt(1650),
+        overallLimit: const Duration(seconds: 2),
+        midway: () => calls.suspendGate!.complete(),
+        midwayAtPump: 40,
+      );
+      expect(record.verdict, 'FAILED');
+      expect(
+        calls.log,
+        containsAllInOrder(['suspend', 'suspend landed', 'resume']),
+      );
+      expect(calls.log.where((l) => l == 'resume'), hasLength(1));
+    });
+
     testWidgets('past the overall limit the leg fails and its late part '
         'exports nothing', (tester) async {
       final calls = _FakeCalls(
@@ -732,6 +819,7 @@ void main() {
             provenanceCheck: _approved,
             results: results,
             currentPid: currentPid,
+            clock: () => DateTime(2026, 10, 16, 12, 35),
           ),
         ),
       );
@@ -756,7 +844,7 @@ void main() {
 
     testWidgets('with no leg yet it says how to launch one', (tester) async {
       await pumpScreen(tester);
-      expect(find.textContaining('No startup leg has run'), findsOneWidget);
+      expect(find.textContaining('No startup leg has run'), findsWidgets);
       expect(find.text('No leg recorded yet.'), findsOneWidget);
       expect(
         find.textContaining(
@@ -771,16 +859,19 @@ void main() {
         'capture', (tester) async {
       stash();
       await pumpScreen(tester);
-      final status = find.textContaining('Last leg (at): capture stashed');
-      expect(status, findsOneWidget);
       expect(
-        tester
-            .widget<Semantics>(
-              find.ancestor(of: status, matching: find.byType(Semantics)).first,
-            )
-            .properties
-            .liveRegion,
-        isTrue,
+        find.descendant(
+          of: _liveRegion,
+          matching: find.textContaining('Last leg (at): capture stashed'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Result: capture stashed'), findsOneWidget);
+      expect(find.text('Recorded 5 min ago (12:30)'), findsOneWidget);
+      // The capped status line and its full copy in the log both match.
+      expect(
+        find.textContaining('Last leg (at): capture stashed'),
+        findsNWidgets(2),
       );
       expect(find.text('Time to first frame: 1650.4 ms'), findsOneWidget);
       expect(find.text('Detector ttffMs: 1652.1 ms'), findsOneWidget);
@@ -788,7 +879,14 @@ void main() {
       await tester.tap(find.text('Export last leg'));
       await tester.pump();
       expect(copied, '{"capture":true}');
-      expect(find.textContaining('[at] copied 16 chars'), findsOneWidget);
+      expect(
+        find.textContaining('[at] capture copied to the clipboard (16 chars)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Capture copied. Save as slow_startup_ttff_at.json.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a refused leg shows its verdict and Export says why it '
@@ -804,7 +902,10 @@ void main() {
       );
       await pumpScreen(tester);
       expect(
-        find.textContaining('Last leg (at): OUT-OF-BAND: time to first frame'),
+        find.text(
+          'Result: OUT-OF-BAND: time to first frame 1200 ms lies outside '
+          'the at band',
+        ),
         findsOneWidget,
       );
       await tester.tap(find.text('Export last leg'));
@@ -825,9 +926,39 @@ void main() {
       );
       await pumpScreen(tester, currentPid: 7);
       expect(
-        find.textContaining('FAILED: the app ended during the leg'),
+        find.textContaining('Result: FAILED: the app ended during the leg'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a leg of this launch still running reads as waiting, and '
+        'Export says so', (tester) async {
+      results.writeRecord(
+        const StartupLegRecord(
+          launchId: '7-1',
+          scenario: 'slow_startup_ttff_at',
+          state: 'running',
+        ),
+      );
+      await pumpScreen(tester, currentPid: 7);
+      expect(find.text('Time to first frame: waiting'), findsOneWidget);
+      await tester.tap(find.text('Export last leg'));
+      await tester.pump();
+      expect(find.textContaining('the leg is still running'), findsOneWidget);
+      // The screen follows the leg to its end.
+      results.writeRecord(
+        StartupLegRecord(
+          launchId: '7-1',
+          scenario: 'slow_startup_ttff_at',
+          state: 'stashed',
+          observedMs: 1650.0,
+          detectorMs: 1650.5,
+          chars: 3,
+          updatedAt: DateTime(2026, 10, 16, 12, 34),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.textContaining('Result: capture stashed'), findsOneWidget);
     });
 
     testWidgets('an unreadable record says so', (tester) async {
@@ -836,8 +967,9 @@ void main() {
       await pumpScreen(tester);
       expect(
         find.textContaining('The last result could not be read'),
-        findsOneWidget,
+        findsWidgets,
       );
+      expect(find.text('No readable leg record.'), findsOneWidget);
     });
 
     testWidgets('each leg row copies its launch command', (tester) async {
@@ -848,9 +980,10 @@ void main() {
       await tester.pump();
       expect(copied, StartupLeg.criticalAt.launchCommand());
       expect(
-        find.textContaining('[critical/at] launch command copied'),
+        find.textContaining('[critical/at] launch commands copied'),
         findsOneWidget,
       );
+      expect(find.text('Launch commands (critical/at) copied'), findsOneWidget);
     });
 
     for (final size in const [Size(390, 844), Size(360, 800), Size(844, 390)]) {
@@ -876,7 +1009,10 @@ void main() {
           }
           for (final finder in [
             find.text('Export last leg'),
-            find.textContaining('Last leg (at)'),
+            find.descendant(
+              of: _liveRegion,
+              matching: find.textContaining('Last leg (at)'),
+            ),
           ]) {
             expect(tester.getRect(finder).bottom, lessThan(size.height));
           }
