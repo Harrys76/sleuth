@@ -8,112 +8,75 @@ import 'package:sleuth/sleuth.dart';
 
 import 'capture_driver.dart';
 
-/// Capture helper for `FrameTimingDetector.jank_detected.warning`
-/// (`jankPercent > 15` over the steady-state 240-frame buffer; runtimeVerified
-/// via `perStableIdTier`).
+/// Capture helper for the `runtimeVerified` bracket on
+/// `FrameTimingDetector.jank_detected.warning`, which fires when more than
+/// 15 % of the judged frames miss their deadline, with at least 3 of them.
 ///
-/// **VM-service connection required.** Captures satisfy
-/// `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:
-/// true, ...)` ONLY when SleuthController's VmServiceClient is connected
-/// (VM+ mode). Sleuth connects to the app's own VM service from inside the
-/// app, so USB and wireless both work. `flutter run` starts DDS by default,
-/// and DDS keeps the VM service as its only client, which leaves Sleuth in
-/// FRAME mode. Launch with `--no-dds` (step 1), or start the installed app
-/// from the home screen.
+/// A ticker spins the UI thread for 18 ms inside its callback on every Nth
+/// frame, N = round(100 / target), for targets of 5, 20 and 27 % (below,
+/// at, above), over a 6 s span. The callback runs in the frame's build, so
+/// a chosen frame builds for about 20 ms, over the 16.7 ms budget and under
+/// the 33.3 ms severe line. The bracket reads the last record's
+/// `observedJankPercent`. The screen also refuses a leg whose last record
+/// saw fewer than 180 frames or whose percentage lies outside the leg's
+/// band (below [0, 12], at [16, 24], above [25, 29]). A
+/// `sustained_jank.critical` record in the same span does not refuse a
+/// leg, because the two stable ids report on the same frames
+/// independently.
 ///
-/// **Why FrameTiming differs from the prior runtimeVerified raises.**
-///
-/// FrameTimingDetector is a `runtime`-lifecycle detector — it ingests
-/// frames via `SchedulerBinding.addTimingsCallback`, NOT VM timeline
-/// events. Detector emission timing for the audit gate's `requireTrace
-/// Record` invariant is gated on `_recordIssuesForCapture` running over
-/// the runtime-detector's ephemeral `_issues[]`. Two paths reach that:
-///   * scan loop tick (`scanInterval` cadence) — non-deterministic
-///     relative to scenario span boundaries.
-///   * `Sleuth.flushTimelineNow()` — deterministic; flush also iterates
-///     ALL detectors regardless of lifecycle and calls
-///     `_recordIssuesForCapture(const <BaseDetector>{})` from
-///     `SleuthController._onTimelineData`, which the flush runs before it
-///     returns.
-///
-/// The capture screen calls `flushTimelineNow()` immediately before
-/// `markScenarioEnd` so the detector's per-frame emission lands inside
-/// the scenario span deterministically.
-///
-/// **Why captureMode short-circuits warmup.** Default
-/// `FrameTimingDetector.warmupDuration = 3 s` suppresses jank evaluation
-/// during app warmup (shader compilation, route init, Dart VM JIT). A
-/// 4-second bracket scenario inside that gate would observe the buffer's
-/// post-warmup tail only and miss the calibrated jank window. The
-/// `SleuthConfig(captureMode: true)` flag plumbs through to
-/// `FrameTimingDetector.captureMode` which short-circuits `_isPastWarmup`
-/// to `true` regardless of `warmupDuration`. Never engaged in production
-/// app sessions.
-///
-/// **60 Hz pre-flight.** The bracket axis (jank-frames in 240-frame
-/// buffer) is calibrated against the iPhone 12 / iPhone SE 60 Hz frame
-/// budget (16.67 ms). On 120 Hz devices (iPhone 12 Pro, iPad Pro, Pixel 8
-/// Pro) the budget is 8.33 ms, which produces a completely different
-/// jank/percentile distribution at the same spin-loop calibration. The
-/// screen rejects non-60Hz devices to keep the captures comparable.
+/// Capture mode makes `FrameTimingDetector` skip its 3 s warmup and keeps
+/// its budget at 16,667 µs. The screen accepts only a 59 to 61 Hz
+/// display. The detector reads frames through FrameTiming, so the screen
+/// calls `flushTimelineNow` before `markScenarioEnd` to record the last
+/// issue inside the span.
 ///
 /// **Procedure per leg:**
 ///
 ///   1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
 ///         --dart-define=SLEUTH_CAPTURE_MODE=true \
-///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
-///   2. Confirm the pre-flight banner shows `60 Hz` and the capture
-///      provenance (device, OS, Flutter version) the export stamps. Legs
-///      are refused while the provenance is unknown or not approved by
-///      `ProfileCaptureSchema`.
-///   3. Tap a leg (Below / At / Above). The screen runs a 4 s scenario
-///      span — `markScenarioBegin` resets the detector buffer, the
-///      injector immediately starts spinning the UI thread per-frame
-///      (no warmup wait), 4 s elapses, injector stops, 200 ms barrier,
-///      `flushTimelineNow` drains detector issues, `markScenarioEnd`,
-///      `exportCaptureJson` stashes the wrapped JSON.
-///   4. Validator parses the stashed JSON: ≥1
-///      `sleuth.issue.jank_detected.warning` event inside the scenario
-///      span (zero for below leg) AND zero
-///      `sleuth.issue.sustained_jank.critical` events (calibrated above-
-///      leg worst-frame stays under 33 ms — critical co-fire would
-///      invalidate the jank_detected bracket).
-///   5. Tap **Export last leg** to copy stashed JSON to clipboard.
-///   6. Paste into Notes / Mail / AirDrop, save as
-///      `jank_detected_${leg}.json` under
+///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`. The VM
+///      service must be connected (VM+), because the export reads the
+///      detector's records from the VM timeline.
+///   2. Check that the pre-flight banner shows 60 Hz, capture mode on and
+///      the provenance the export stamps.
+///   3. Tap Below, At or Above and wait for "capture stashed" in the log.
+///      A leg allows 3 attempts, and a retry runs the same injection rate.
+///   4. Tap **Export last leg** and save the clipboard text as
+///      `jank_detected_<role>.json` under
 ///      `test/validation/captures/frame_timing/`.
-///
-/// **Bands enforced by this screen** (matching the v0.19.7 metadata
-/// `FrameTimingDetector` will declare):
-///
-///   threshold:   36 jank-frames in 240-frame buffer (15 % gate at full
-///                buffer capacity)
-///   below:       0–15 jank-frames    (sub-threshold; detector silent)
-///   at:          [36, 54]            (atTolerance 0.50 → [T, 1.5×T])
-///   above:       (54, 66]            (above-ceiling 1.85 × T; stays
-///                                     under sustained_jank co-fire)
-///
-/// **Spin-loop calibration** (60 Hz device, 16.67 ms budget):
-///   below:    0 ms spin         → ~5 jank-frames / 240 (~2 %)
-///   at:       6 ms spin         → ~50 jank-frames / 240 (~21 %)
-///   above:    8 ms spin         → ~60 jank-frames / 240 (~25 %)
-///
-/// All worst-frame-ms targets stay <= 24 ms (8 ms spin + ~16 ms baseline)
-/// well under the 33 ms severe-jank threshold so `severeCount >= 3`
-/// cannot trip and co-fire `sustained_jank.critical`.
-///
-/// **Retry budget**: 3 retries per leg before the screen surfaces an
-/// abort-with-diagnostic. Spin-duration drift from background work or
-/// thermal throttling can push the at-leg's measured jankPercent
-/// out-of-band; retries increment spin by 1 ms (capped at 11 ms — strict
-/// guard against the 33 ms severe threshold with a ~5 ms baseline).
 class FrameTimingCaptureScreen extends StatefulWidget {
-  const FrameTimingCaptureScreen({super.key});
+  const FrameTimingCaptureScreen({
+    super.key,
+    this.captureModeOverride,
+    this.provenanceCheck = currentCaptureProvenance,
+    this.vmConnected = _sleuthVmConnected,
+    this.calls = const CaptureLegCalls(),
+  });
+
+  /// Capture mode for tests. Null reads the build's
+  /// `SLEUTH_CAPTURE_MODE` dart-define.
+  @visibleForTesting
+  final bool? captureModeOverride;
+
+  /// Where the screen reads the provenance its exports stamp.
+  @visibleForTesting
+  final CaptureProvenanceCheck Function() provenanceCheck;
+
+  /// Whether Sleuth's VM service client is connected, which the export
+  /// needs to read the detector's records.
+  @visibleForTesting
+  final bool Function() vmConnected;
+
+  /// The stream, scenario and flush calls a leg makes.
+  @visibleForTesting
+  final CaptureLegCalls calls;
 
   @override
   State<FrameTimingCaptureScreen> createState() =>
       _FrameTimingCaptureScreenState();
 }
+
+bool _sleuthVmConnected() => Sleuth.diagnoseCaptureState().vmConnected;
 
 // Detector emits at rounded jankPercent > 15 (strict). First reachable
 // observed value is 16 (37/240 rounds to 15 → no fire; 38/240 rounds to
@@ -121,37 +84,29 @@ class FrameTimingCaptureScreen extends StatefulWidget {
 // reality.
 const _bracketThresholdPercent = 16;
 
-// Percent-axis bracket bands. Denominator-independent — robust to buffer
-// underfill. bracketAtTolerance: 0.50 → at-band [16, 24].
-// aboveCeilingMultiplier: 1.85 → above-band (24, 29.6]. All bands stay
-// well under the implicit `severeCount >= 3` critical co-fire. Parallel
-// emission of both stableIds keeps the co-fire benign for the bracket axis.
-//   below band [0, 12]   → target 5%  (deep silence; detector silent)
-//   at    band [16, 24]  → target 20% (mid-band — ±20 % stays in band)
-//   above band [25, 29]  → target 27% (mid-band — ±7 % stays in band)
+// Leg targets and the screen's bands on the percent axis, which does not
+// depend on how many frames the span delivered. The bracket's at band is
+// [16, 24] (atTolerance 0.50) and its above band (24, 29.6] (ceiling
+// 1.85).
+//   below band [0, 12]   target 5 %, the detector stays silent
+//   at    band [16, 24]  target 20 %
+//   above band [25, 29]  target 27 %
 const _belowTargetJankPercent = 5;
 const _atTargetJankPercent = 20;
 const _aboveTargetJankPercent = 27;
 
-// Rate-based jank injection (per-frame Ticker decides whether to spin).
-// Spin amount per chosen frame. It pushes that frame's build time past the
-// 16.7ms budget but keeps it under the 33ms severe gate. Constant across legs;
-// what varies is the FREQUENCY of injection (see _JankLeg.targetJankPercent
-// in the enum below).
-//
-// An 18ms spin plus a 1 to 3ms baseline build gives about 20ms of build on
-// chosen frames, over the 16.7ms budget and under the 33ms severe gate.
+// Spin per chosen frame. With a 1 to 3 ms baseline build a chosen frame
+// builds for about 20 ms, over the 16.7 ms budget and under the 33.3 ms
+// severe line. Legs differ in how often they spin, not how long.
 const _spinPerFrameMs = 18;
 
-// Scenario span. At 60 Hz the buffer holds 240 frames. Rate-based spin
-// injection slows frame delivery — each spin frame takes ~34ms vs 16ms
-// baseline, so a 4s scenario only delivers ~167 frames. 6 s buys the
-// margin needed to fill the buffer past the freshness threshold under
-// any of the leg calibrations.
+// A spin frame takes about two vsync intervals, so a 4 s span delivered
+// only about 167 frames. A 6 s span fills the 240-frame buffer past the
+// 180-frame freshness check at every leg's rate.
 const _scenarioDurationSec = 6;
 
-// Post-end barrier before flushTimelineNow + exportCaptureJson. Mirrors
-// MemoryPressure's proven 200 ms pattern.
+// Wait after the ticker stops, so the last frames' timings reach Sleuth
+// before the flush.
 const _postScenarioBarrierMs = 200;
 
 // Retry budget per leg before abort.
@@ -165,7 +120,9 @@ const _expected60HzMax = 61.0;
 
 class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     with SingleTickerProviderStateMixin {
-  Ticker? _ticker;
+  // One ticker for the State, started and stopped per leg, because the
+  // mixin allows only one `createTicker` call.
+  late final Ticker _ticker;
   bool _busy = false;
   double? _detectedRefreshRate;
   bool _refreshRateOk = false;
@@ -180,20 +137,90 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
 
   /// Device, OS and Flutter version stamped on exports, or why they
   /// cannot be stamped.
-  final CaptureProvenanceCheck _provenance = currentCaptureProvenance();
+  late final CaptureProvenanceCheck _provenance;
 
-  bool get _captureModeOn => const bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
+  // Per-leg injection state, read by the ticker.
+  int _tickerFrameCount = 0;
+  int _injectModulus = 0;
+  Completer<void>? _legDone;
+
+  // The scenario and stream state a leg owns. They are fields, not
+  // locals, so dispose can end the scenario and restore the streams
+  // while the leg still awaits its span, a delay or the flush.
+  String? _openScenario;
+  bool _streamsSuspended = false;
+
+  bool get _captureModeOn =>
+      widget.captureModeOverride ??
+      const bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
 
   @override
   void initState() {
     super.initState();
+    _ticker = createTicker(_onTick);
+    _provenance = widget.provenanceCheck();
     _detectRefreshRate();
   }
 
   @override
   void dispose() {
-    _ticker?.dispose();
+    // A running leg may be awaiting its span, a delay or the flush. End
+    // its scenario and restore the streams now, so neither lands inside
+    // another capture's span, and release the span wait so the leg
+    // reaches its `mounted` check.
+    final done = _legDone;
+    if (done != null && !done.isCompleted) done.complete();
+    _endScenario(log: false);
+    unawaited(_resumeStreams(log: false));
+    _ticker.dispose();
     super.dispose();
+  }
+
+  void _say(String line) {
+    if (!mounted) return;
+    setState(() => _log.add(line));
+  }
+
+  /// Ends the leg's open scenario once. A throw is logged, not rethrown,
+  /// so it cannot replace the leg's outcome.
+  void _endScenario({String label = '', bool log = true}) {
+    final scenario = _openScenario;
+    if (scenario == null) return;
+    _openScenario = null;
+    try {
+      widget.calls.markScenarioEnd(scenario);
+    } catch (e) {
+      if (log) _say('[$label] markScenarioEnd: $e');
+    }
+  }
+
+  /// Restores the timeline streams once, bounded so an unanswered VM call
+  /// cannot keep the screen busy.
+  Future<void> _resumeStreams({String label = '', bool log = true}) async {
+    if (!_streamsSuspended) return;
+    _streamsSuspended = false;
+    try {
+      await withCallTimeout(
+        widget.calls.resumeStreams(),
+        'resumeAllTimelineStreams',
+      );
+    } catch (e) {
+      if (log) _say('[$label] resumeAllTimelineStreams: $e');
+    }
+  }
+
+  /// Rate-based injector. Spinning every frame would make every frame
+  /// janky, so the ticker spins only every [_injectModulus]-th frame. The
+  /// ticker runs in the frame's build, so the spin adds to its build time.
+  void _onTick(Duration _) {
+    _tickerFrameCount++;
+    if (_injectModulus == 0) return;
+    if (_tickerFrameCount % _injectModulus != 0) return;
+    final sw = Stopwatch()..start();
+    const targetUs = _spinPerFrameMs * 1000;
+    while (sw.elapsedMicroseconds < targetUs) {
+      // Busy-wait with no await, so the frame's build holds the UI thread.
+    }
   }
 
   void _detectRefreshRate() {
@@ -264,6 +291,13 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       });
       return;
     }
+    if (!widget.vmConnected()) {
+      _say(
+        '[${leg.label}] ABORT: VM service not connected. Run a profile '
+        'build with --no-dds so Sleuth can attach.',
+      );
+      return;
+    }
     final provenance = _provenance.provenance;
     if (provenance == null) {
       setState(() {
@@ -296,89 +330,62 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       );
     });
 
-    // Narrow VM timeline streams to `Dart` only for the scenario span.
-    // 6 s of foreground rendering under default streams (Dart + Embedder +
-    // GC + raster) generates tens of thousands of paint/raster/frame/GC
-    // events and overflows the ~50k-event ring buffer mid-leg, rolling
-    // the scenario.begin marker off before exportCaptureJson can read it.
-    // Restored on every exit path via the try/finally below.
-    await Sleuth.suspendNonEssentialTimelineStreams();
-    var streamsSuspended = true;
+    final scenario = 'frame_timing_jank_detected_${leg.label}';
     try {
-      // markScenarioBegin auto-invokes SleuthController.resetCaptureState,
-      // which calls FrameTimingDetector.reset() — clears the buffer,
-      // ephemeral _issues, warmup anchors, cache-trend counters. The
-      // _emissionSeq counter is preserved so multi-leg flows cannot
-      // collide dedupIdentityMicros (audit-gate uniqueness invariant).
-      Sleuth.markScenarioBegin('frame_timing_jank_detected_${leg.label}');
+      // Narrow the VM timeline streams to `Dart` for the scenario span.
+      // 6 s of rendering under the default streams (Dart, Embedder, GC)
+      // can overflow the VM's event ring buffer and roll the begin marker
+      // off before the export reads it. The flag is set before the call,
+      // because a suspension that times out may still land later.
+      _streamsSuspended = true;
+      await withCallTimeout(
+        widget.calls.suspendStreams(),
+        'suspendNonEssentialTimelineStreams',
+      );
+      if (!mounted) return;
 
-      // Rate-based UI-thread jank injector. Ticker fires every animation
-      // frame; spinning every frame makes 100% janky and blows past the
-      // above-band ceiling. Instead inject jank at a calibrated rate
-      // matched to the leg's target jankPercent: below 0%, at 20%,
-      // above 27%. Each Nth Ticker callback spins 18ms. The ticker runs
-      // inside the frame's UI-thread work, so the spin lands in the
-      // frame's build time, which the jank rule compares with the 16.7ms
-      // budget. The frame stays under the 33ms severe gate, so
-      // sustained_jank.critical co-fire follows the natural ambient noise
-      // and the spin does not add to it.
+      // markScenarioBegin resets FrameTimingDetector through
+      // SleuthController.resetCaptureState (buffer, issues, warmup
+      // anchors). `_emissionSeq` survives, so identities stay unique
+      // across legs.
+      widget.calls.markScenarioBegin(scenario);
+      _openScenario = scenario;
+
+      // Spin every Nth frame so about the target share of frames is
+      // janky: 20 % is every 5th frame, 27 % about every 4th, 0 % never.
       final targetPct = leg.targetJankPercent;
-      // Modulus N so ~targetPct% of frames are spun. e.g. 20% → every
-      // 5th frame; 27% → every ~4th frame. targetPct=0 → never spin.
-      final injectModulus = targetPct == 0 ? 0 : (100 / targetPct).round();
-      var tickerFrameCount = 0;
-      _ticker = createTicker((_) {
-        tickerFrameCount++;
-        if (injectModulus == 0) return;
-        if (tickerFrameCount % injectModulus != 0) return;
-        // Busy-wait: block the UI thread for _spinPerFrameMs so this
-        // frame's build time crosses the 16.7ms budget.
-        // Stopwatch gives microsecond precision and is monotonic.
-        final sw = Stopwatch()..start();
-        const targetUs = _spinPerFrameMs * 1000;
-        while (sw.elapsedMicroseconds < targetUs) {
-          // Pure busy-wait — no Future yields, no await.
-        }
-      })..start();
+      _injectModulus = targetPct == 0 ? 0 : (100 / targetPct).round();
+      _tickerFrameCount = 0;
+      final done = _legDone = Completer<void>();
+      final span = Timer(const Duration(seconds: _scenarioDurationSec), () {
+        if (!done.isCompleted) done.complete();
+      });
+      _ticker.start();
+      await done.future;
+      span.cancel();
+      if (_ticker.isActive) _ticker.stop();
+      if (!mounted) return;
 
-      await Future<void>.delayed(const Duration(seconds: _scenarioDurationSec));
-      _ticker?.stop();
-      _ticker?.dispose();
-      _ticker = null;
-
-      // Frame-settle barrier: lets the last few mid-spin frames complete
-      // their addTimingsCallback delivery so the buffer reflects the
-      // full scenario span rather than truncating at the spin-stop tick.
       await Future<void>.delayed(
         const Duration(milliseconds: _postScenarioBarrierMs),
       );
       if (!mounted) return;
 
-      // flushTimelineNow drains the detector's ephemeral _issues[]
-      // through `_recordIssuesForCapture` — deterministic observation
-      // for the runtime-lifecycle FrameTimingDetector. Without this the
-      // scan-loop's natural cadence might land outside the scenario
-      // span and the detector's per-frame _issues rewrite would lose
-      // the in-band emission.
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
+      // The flush records the detector's current issues through
+      // `_recordIssuesForCapture` now, so the last emission lands inside
+      // the span whatever the scan loop's timing.
+      await widget.calls.flushTimeline();
       if (!mounted) return;
+      _endScenario(label: leg.label);
 
-      Sleuth.markScenarioEnd('frame_timing_jank_detected_${leg.label}');
-
-      // Post-end barrier before exportCaptureJson — mirrors the
-      // MemoryPressure proven pattern. VM service buffer needs to flush
-      // the just-emitted scenario.end marker before service.getVMTimeline
-      // can return it; without the wait the RPC can observe a snapshot
-      // that pre-dates the end marker.
+      // The end marker must reach the VM buffer before the export reads
+      // it.
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
 
-      // Resume streams BEFORE compose-then-stash + setState block so
-      // exportCaptureJson's own VM RPCs and subsequent live-monitoring
-      // see default coverage. Cleared flag prevents the finally block
-      // from issuing a redundant resume RPC.
-      await Sleuth.resumeAllTimelineStreams();
-      streamsSuspended = false;
+      // Restore the streams before the export, so its own VM calls and
+      // the live monitoring after the leg see every stream.
+      await _resumeStreams(label: leg.label);
       if (!mounted) return;
 
       // Compose-then-stash: snapshot wrapped JSON immediately while
@@ -388,27 +395,29 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       // returned null, or the text of a failure inside the call.
       String? composeFailure;
       try {
-        stashed = await Sleuth.exportCaptureJson(
-          scenario: 'frame_timing_jank_detected_${leg.label}',
-          role: leg.label,
-          // Schema requires magnitudeMin > 0; below leg's bracket-min
-          // is 0 so clamp to a 1-percent epsilon (still strictly under
-          // the 16% threshold).
-          magnitudeMin: leg.jankPercentMin == 0 ? 1.0 : leg.jankPercentMin,
-          // Operator's claim — calibrated target jankPercent. Audit-gate
-          // observedAxisArgKey cross-check compares this against the
-          // detector-emitted observedJankPercent within ±25 %.
-          magnitudeObserved: leg.targetJankPercent.toDouble(),
-          magnitudeMax: leg.jankPercentMax.toDouble(),
-          unit: 'percent',
-          device: provenance.device,
-          deviceOsVersion: provenance.deviceOsVersion,
-          flutterVersion: provenance.flutterVersion,
-          captureCommand: provenance.captureCommand,
-          // jank_detected source event is the FrameTiming pipeline,
-          // NOT a VM Timeline BUILD/PAINT event. Skip BUILD-derivation;
-          // operator's measured jank count is authoritative.
-          magnitudeSourceEventName: '',
+        stashed = await withCallTimeout(
+          Sleuth.exportCaptureJson(
+            scenario: scenario,
+            role: leg.label,
+            // The schema needs a magnitudeMin above 0 and the below band
+            // starts at 0, so the below leg exports 1 %, still under the
+            // 16 % threshold.
+            magnitudeMin: leg.jankPercentMin == 0 ? 1.0 : leg.jankPercentMin,
+            // The leg's target jank percent. The audit compares it with the
+            // detector's observedJankPercent and allows a 25 % difference.
+            magnitudeObserved: leg.targetJankPercent.toDouble(),
+            magnitudeMax: leg.jankPercentMax.toDouble(),
+            unit: 'percent',
+            device: provenance.device,
+            deviceOsVersion: provenance.deviceOsVersion,
+            flutterVersion: provenance.flutterVersion,
+            captureCommand: provenance.captureCommand,
+            // The jank percent comes from FrameTiming, not from a VM
+            // timeline event, so the export derives nothing from BUILD
+            // events.
+            magnitudeSourceEventName: '',
+          ),
+          'exportCaptureJson',
         );
         if (stashed == null) {
           composeFailure =
@@ -421,9 +430,8 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       }
 
       if (!mounted) return;
-      // Validator runs on the stashed JSON before the user can export —
-      // out-of-band runs are rejected before clipboard-copy, preventing
-      // bad evidence from reaching the operator's repo.
+      // The validator checks the stashed JSON before the operator can
+      // export it, so an out-of-band leg never reaches the clipboard.
       final validationFailure = stashed == null
           ? null
           : _validateTraceRecords(stashed, leg);
@@ -448,16 +456,18 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           );
         }
       });
+    } catch (e) {
+      // A flush past its 2 s limit, a VM call past its limit, or any other
+      // failure still ends the leg with an outcome line.
+      _say('[${leg.label}] FAILED: $e. Tap the leg again.');
     } finally {
-      _ticker?.stop();
-      _ticker?.dispose();
-      _ticker = null;
-      // Restore default streams on every exit path (mounted=false at any
-      // await, unhandled exception, etc.). Idempotent restore here is the
-      // single sink so live monitoring after the leg sees full coverage.
-      if (streamsSuspended) {
-        await Sleuth.resumeAllTimelineStreams();
-      }
+      if (_ticker.isActive) _ticker.stop();
+      final pending = _legDone;
+      if (pending != null && !pending.isCompleted) pending.complete();
+      _legDone = null;
+      // Both are no-ops when the leg or dispose already did them.
+      _endScenario(label: leg.label);
+      await _resumeStreams(label: leg.label);
       if (mounted && _busy) {
         setState(() => _busy = false);
       }
@@ -474,12 +484,12 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     );
   }
 
-  /// Validates that the exported capture JSON contains the expected
-  /// number of `sleuth.issue.jank_detected.warning` trace events
-  /// (zero for below; ≥1 for at/above) AND zero
-  /// `sleuth.issue.sustained_jank.critical` events (severe co-fire
-  /// invalidates the bracket axis). Returns null on success or a
-  /// human-readable failure reason.
+  /// Checks the in-span `sleuth.issue.jank_detected.warning` records of
+  /// the exported capture. A below leg must hold none. An at or above leg
+  /// must hold at least one, and its last record must have seen 180
+  /// frames or more and carry an `observedJankPercent` inside the leg's
+  /// band. A `sustained_jank.critical` record does not fail the check.
+  /// Returns null on success or the reason the leg is refused.
   String? _validateTraceRecords(String json, _JankLeg leg) {
     Map<String, dynamic> wrapped;
     try {
@@ -524,14 +534,13 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
           'end=$scenarioEndTs). Re-tap the leg.';
     }
 
-    // Walk in-span jank_detected.warning records and select the LAST
-    // (highest-ts) one. Rolling-aggregate observable on a growing buffer
-    // is non-monotone — early small-sample-size ratios can spike high,
-    // settle lower as buffer fills, then drift down on eviction. MAX
-    // would pick the early transient; LAST picks the post-settle steady
-    // state. Mirrors the `observedAxisReduction: 'last'` schema-side
-    // selection. Also tracks bufferSize on the selected
-    // record for the freshness invariant.
+    // Walk the in-span jank_detected.warning records and keep the latest.
+    // The percentage over a growing buffer is not monotone. Early ratios
+    // over few frames can spike, settle as the buffer fills, then drift
+    // on eviction, so the largest value would pick the early spike and
+    // the latest picks the settled value, as the schema's
+    // `observedAxisReduction: 'last'` does. The latest record's
+    // bufferSize feeds the freshness check.
     var jankWarningCount = 0;
     int lastJankTs = -1;
     int? lastObservedJankPercent;
@@ -553,9 +562,9 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         if (args is Map) {
           final pctRaw = args['observedJankPercent'];
           if (pctRaw is String) {
-            // jankPercent emitted as `.toStringAsFixed(2)` from int —
-            // round-trip through double-parse + truncate to int for
-            // band-comparison.
+            // The detector stamps the int percentage with
+            // `toStringAsFixed(2)`; parse it and round it back to an int
+            // for the band check.
             final parsed = double.tryParse(pctRaw);
             if (parsed != null) lastObservedJankPercent = parsed.round();
           }
@@ -567,11 +576,10 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       }
     }
 
-    // Sustained_jank.critical co-fire is BENIGN under parallel-emission
-    // semantics — both stableIds report on the same frames; the bracket
-    // axis (jank_detected.warning) is independent. Helper does
-    // NOT reject on co-fire (audit pipeline doesn't enforce mutual
-    // exclusion either).
+    // A sustained_jank.critical record in the span does not refuse the
+    // leg. Both stable ids report on the same frames, the bracket reads
+    // only jank_detected.warning, and the audit does not require the two
+    // to be exclusive.
 
     if (leg == _JankLeg.below) {
       if (jankWarningCount > 0) {
@@ -589,10 +597,9 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
             'buffer did not reach steady state, so extend the scenario '
             'beyond $_scenarioDurationSec s.';
       }
-      // Freshness invariant: the LAST in-span emission must
-      // reflect a near-full buffer. Rolling-aggregate axis is unreliable
-      // on partial buffers — reject if the captured terminal-sample
-      // doesn't prove steady-state coverage.
+      // Freshness check. The latest in-span emission must reflect a
+      // near-full buffer, because the percentage over a partial buffer is
+      // not reliable.
       if (lastObservedBufferSize == null) {
         return 'jank_detected event present but missing `bufferSize` arg. '
             'extraTraceArgs plumbing failed; check FrameTimingDetector '
@@ -680,102 +687,105 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         !_busy;
     return Scaffold(
       appBar: AppBar(title: const Text('FrameTiming capture helper')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Takes its natural height up to three quarters of the body
-            // and scrolls past that, so a long pre-flight reason or a
-            // large text scale cannot overflow the screen.
-            Flexible(
-              flex: 3,
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _PreFlightBanner(
-                      refreshRate: _detectedRefreshRate,
-                      refreshRateOk: _refreshRateOk,
-                      captureModeOn: _captureModeOn,
-                      provenance: _provenance,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Records profile-mode captures for jank_detected '
-                      'WARNING-tier bracketing on the '
-                      'denominator-independent jankPercent axis (detector '
-                      'emits at rounded jankPercent > 15; first reachable '
-                      'observed value is 16). Bracket bands: at [16, 24], '
-                      'above (24, 29.6]. sustained_jank.critical may '
-                      'co-fire on noisy devices. That does not affect this '
-                      'bracket axis, because the two ids emit in parallel. '
-                      'See the class doc comment and '
-                      'doc/capture_procedure.md for the full protocol.',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    const SizedBox(height: 16),
-                    _CaptureButton(
-                      label: 'Below ($_belowTargetJankPercent% target), silent',
-                      subtitle:
-                          'No spin; baseline frames; detector stays silent',
-                      enabled: ready,
-                      onTap: () => _runLeg(_JankLeg.below),
-                    ),
-                    const SizedBox(height: 8),
-                    _CaptureButton(
-                      label: 'At ($_atTargetJankPercent% target), warning',
-                      subtitle:
-                          '$_spinPerFrameMs ms spin every ~5th frame; '
-                          'in [16, 24] at-band',
-                      enabled: ready,
-                      onTap: () => _runLeg(_JankLeg.at),
-                    ),
-                    const SizedBox(height: 8),
-                    _CaptureButton(
-                      label:
-                          'Above ($_aboveTargetJankPercent% target), '
-                          'warning',
-                      subtitle:
-                          '$_spinPerFrameMs ms spin every ~4th frame; '
-                          'in (24, 29.6] above-band',
-                      enabled: ready,
-                      onTap: () => _runLeg(_JankLeg.above),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      onPressed: _busy ? null : _exportLastLeg,
-                      icon: const Icon(Icons.save_alt),
-                      label: const Text('Export last leg'),
-                    ),
-                  ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Takes its natural height up to three quarters of the body
+              // and scrolls past that, so a long pre-flight reason or a
+              // large text scale cannot overflow the screen.
+              Flexible(
+                flex: 3,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _PreFlightBanner(
+                        refreshRate: _detectedRefreshRate,
+                        refreshRateOk: _refreshRateOk,
+                        captureModeOn: _captureModeOn,
+                        provenance: _provenance,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Records profile-mode captures for jank_detected '
+                        'WARNING-tier bracketing on the '
+                        'denominator-independent jankPercent axis (detector '
+                        'emits at rounded jankPercent > 15; first reachable '
+                        'observed value is 16). Bracket bands: at [16, 24], '
+                        'above (24, 29.6]. sustained_jank.critical may '
+                        'co-fire on noisy devices. That does not affect this '
+                        'bracket axis, because the two ids emit in parallel. '
+                        'See the class doc comment and '
+                        'doc/capture_procedure.md for the full protocol.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 16),
+                      _CaptureButton(
+                        label:
+                            'Below ($_belowTargetJankPercent% target), silent',
+                        subtitle:
+                            'No spin; baseline frames; detector stays silent',
+                        enabled: ready,
+                        onTap: () => _runLeg(_JankLeg.below),
+                      ),
+                      const SizedBox(height: 8),
+                      _CaptureButton(
+                        label: 'At ($_atTargetJankPercent% target), warning',
+                        subtitle:
+                            '$_spinPerFrameMs ms spin every ~5th frame; '
+                            'in [16, 24] at-band',
+                        enabled: ready,
+                        onTap: () => _runLeg(_JankLeg.at),
+                      ),
+                      const SizedBox(height: 8),
+                      _CaptureButton(
+                        label:
+                            'Above ($_aboveTargetJankPercent% target), '
+                            'warning',
+                        subtitle:
+                            '$_spinPerFrameMs ms spin every ~4th frame; '
+                            'in (24, 29.6] above-band',
+                        enabled: ready,
+                        onTap: () => _runLeg(_JankLeg.above),
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed: _busy ? null : _exportLastLeg,
+                        icon: const Icon(Icons.save_alt),
+                        label: const Text('Export last leg'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            const Text('Log', style: TextStyle(fontWeight: FontWeight.bold)),
-            Expanded(
-              child: ListView.builder(
-                reverse: true,
-                itemCount: _log.length,
-                itemBuilder: (context, i) {
-                  final entry = _log[_log.length - 1 - i];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      entry,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text('Log', style: TextStyle(fontWeight: FontWeight.bold)),
+              Expanded(
+                child: ListView.builder(
+                  reverse: true,
+                  itemCount: _log.length,
+                  itemBuilder: (context, i) {
+                    final entry = _log[_log.length - 1 - i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        entry,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -159,7 +159,7 @@ void main() {
 
     test('sustained_jank stamps observedSevereCount + dedupIdentityMicros '
         'on extraTraceArgs', () {
-      // Producer-side plumbing for a future runtimeVerified raise on
+      // Producer-side plumbing for the runtimeVerified bracket on
       // sustained_jank.critical. The audit gate's bracket spec carries
       // `observedAxisArgKey: 'observedSevereCount'`, so the detector
       // must emit that arg at fire time. `dedupIdentityMicros` plus
@@ -203,8 +203,8 @@ void main() {
 
     test('severeCount band 2/3/5 — sustained_jank gate transitions exactly '
         'at >=3', () {
-      // Pin the (severeCount → fires?) relationship across the bracket
-      // band a future runtimeVerified raise targets. severeCount=2 below
+      // Pin the (severeCount → fires?) relationship across the
+      // runtimeVerified bracket's band. severeCount=2 below
       // gate (no fire); severeCount=3 at gate (fires); severeCount=5
       // above gate (fires with higher count).
       for (final (severeCount, fires) in const [
@@ -264,6 +264,57 @@ void main() {
         detector.issues.where((i) => i.stableId == 'sustained_jank'),
         hasLength(1),
       );
+    });
+
+    test('capture leg shape — 2, 3 and 6 spin frames reported in 100 ms '
+        'batches', () {
+      // The capture screen's legs: a 42 ms build on ticks 30, 50, 70, ...
+      // and 30 ticks after the last one, reported 6 frames at a time as a
+      // profile build does at 60 Hz. Every batch after the threshold
+      // emits again with a new identity, so an at leg records several
+      // in-band issues at 3.
+      for (final spins in const [2, 3, 6]) {
+        final d = FrameTimingDetector(captureMode: true);
+        try {
+          final spinFrames = {for (var k = 0; k < spins; k++) 29 + 20 * k};
+          final frameCount = 29 + 20 * (spins - 1) + 31;
+          final timings = [
+            for (var i = 0; i < frameCount; i++)
+              makeTiming(
+                frameNumber: i,
+                buildMs: spinFrames.contains(i) ? 42 : 5,
+              ),
+          ];
+          final counts = <String>[];
+          final identities = <int>{};
+          String? lastBuffer;
+          for (var start = 0; start < frameCount; start += 6) {
+            final end = start + 6 < frameCount ? start + 6 : frameCount;
+            d.handleTimingsForTest(timings.sublist(start, end));
+            for (final issue in d.issues) {
+              if (issue.stableId != 'sustained_jank') continue;
+              counts.add(issue.extraTraceArgs!['observedSevereCount']!);
+              lastBuffer = issue.extraTraceArgs!['bufferSize'];
+              identities.add(issue.dedupIdentityMicros!);
+            }
+          }
+          if (spins < 3) {
+            expect(counts, isEmpty, reason: '$spins spins');
+            continue;
+          }
+          expect(counts.last, '$spins', reason: '$spins spins');
+          expect(counts.first, '3', reason: '$spins spins');
+          expect(lastBuffer, '$frameCount', reason: '$spins spins');
+          expect(identities, hasLength(counts.length));
+          expect(
+            counts.where((c) => c == '$spins').length,
+            greaterThanOrEqualTo(2),
+            reason: 'the batches after the last spin emit again',
+          );
+        } finally {
+          d.dispose();
+        }
+      }
     });
   });
 

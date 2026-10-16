@@ -341,8 +341,7 @@
   (2, 3 and 6 errors), `high_frequency_same_path` warning (2, 3 and 6
   GETs to one path), `platform_channel_traffic` critical (30 calls per
   second with no critical record, then 51 and 68) and `excessive_repaint`
-  critical (26.2, 31.8 and 53.6 % of UI-thread time). Nineteen pairs
-  across 14 stable ids are now `runtimeVerified`.
+  critical (26.2, 31.8 and 53.6 % of UI-thread time).
 - `http_error_spike` stamps `observedErrorCount` and
   `high_frequency_same_path` stamps `observedClusterSize`, each with an
   identity taken from its `detectedAt`. The same-path issue sets
@@ -364,6 +363,21 @@
   wrapped texts and draw one per tile, because short texts left the paint
   share near 30 % however many ran. `ext.sleuthDemo.captureLeg` accepts
   repaint critical legs.
+- `sustained_jank` critical is `runtimeVerified`, backed by an iPhone 12
+  capture triad on Flutter 3.47.6 whose legs inject 2, 3 and 6 severe
+  frames (below silent, at 3, above 6). Twenty pairs across 15 stable ids
+  are now `runtimeVerified`.
+- Example: a sustained_jank capture screen spins the UI thread for 40 ms
+  inside chosen ticker frames, judges every frame with its own FrameTiming
+  rule, and keeps a leg only when its severe frames are exactly the spin
+  frames and, for the at and above legs, the detector's last count equals
+  the spin count. A leg with an ambient severe frame is refused.
+- Example: the jank_detected capture screen creates its ticker once, so a
+  second leg no longer throws in a debug build. Closing it during a leg
+  ends the scenario and restores the timeline streams at once, instead of
+  after the rest of its 6 s span. Its VM calls are bounded at 10 s, a
+  failure ends the leg with a `FAILED` line, and a leg is refused before
+  its workload without a VM link.
 
 ## 0.37.0
 

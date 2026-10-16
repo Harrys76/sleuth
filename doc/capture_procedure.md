@@ -953,7 +953,11 @@ co-fire can happen on a warm device.
 
 Each leg allows 3 attempts. A retry runs the same injection rate,
 because band misses come from frame-delivery jitter, not from
-calibration.
+calibration. The screen refuses a leg before its workload when the VM
+service is not connected. Stream and export calls are bounded at 10 s
+(`withCallTimeout`), any failure ends the leg with a `FAILED` line, and
+closing the screen during a leg ends its scenario and restores the
+streams at once.
 
 ### 60 Hz pre-flight
 
@@ -969,6 +973,84 @@ The screen stamps its exports with the provenance described under
 "RebuildActivity and Repaint time-share captures" below (launch with
 `--dart-define=SLEUTH_CAPTURE_DEVICE=<model>`), and its leg buttons
 stay disabled while that provenance is unknown or not approved.
+
+## FrameTiming sustained_jank capture (v0.38.0)
+
+`sustained_jank` is critical at 3 or more severe frames among the
+frames the detector judges. A frame is severe when its raster time, or
+its start delay (less Sleuth's own share) plus its build time, is over
+twice the budget. Capture mode judges every frame since
+`markScenarioBegin` and keeps the 60 Hz budget of 16,667 µs, so the
+count in a leg is the number of severe frames since the scenario began,
+as long as the leg stays inside the 240-frame buffer.
+
+An ambient severe frame joins that count. The screen
+(`example/lib/demos/frame_timing_sustained_jank_capture_screen.dart`,
+tile "FrameTiming (sustained_jank)") therefore refuses a leg with any
+severe frame it did not inject, instead of subtracting one.
+
+### Per-leg sequence (FrameTimingSustainedJankCaptureScreen)
+
+```
+suspendNonEssentialTimelineStreams()
+addTimingsCallback(screen)                       // same batches as the detector
+markScenarioBegin(name)                          // resets the frame buffer
+└── 500 ms settle, no ticker
+└── a Ticker spins the UI thread for 40 ms on ticks 30, 50, 70, ...
+    2 times (below), 3 (at) or 6 (above), and stops 30 ticks after
+    the last spin (at most 160 ticker frames)
+└── 200 ms barrier
+└── Sleuth.flushTimelineNow()
+markScenarioEnd(name)
+└── frame check: the severe frames are exactly the spin frames
+└── 800 ms post-end barrier
+resumeAllTimelineStreams()
+exportCaptureJson(...)                           // observed = spin count
+└── checkCaptureJson: no record for below; for at and above, every
+    in-span record stamped, the last observedSevereCount in band, two
+    in-band records
+└── last record: observedSevereCount equals the spin count and
+    bufferSize is under 240
+```
+
+The spin runs inside the ticker callback, so it lands in the frame's
+build. A 40 ms build is over the 33.3 ms severe line whatever the
+frame's start delay, and the frame after it starts on time. The screen
+logs each spin frame and the frame after it, so a refused leg shows the
+frame that went wrong.
+
+The screen judges frames with its own rule (`isCaptureSevere`), which
+keeps Sleuth's share of the start delay in. Every frame the detector
+calls severe is severe for the screen too, so a leg in which the screen
+counts exactly the spin frames cannot hold an extra frame for the
+detector. It matches spin frames to `FrameTiming.frameNumber` through
+`PlatformDispatcher.frameData.frameNumber`, read in a post-frame
+callback because the engine updates it after the begin-frame callbacks.
+A severe frame before the first spin stops the leg at once.
+
+Every timing batch after the threshold records the issue again with a
+new identity, so an at leg holds several records at 3 and an above leg
+records 3, 4, 5 and then 6. `observedAxisReduction: 'last'` reads the
+count when the span closed, and `minInBandSamples: 2` needs two records
+in the leg's band.
+
+The bracket is threshold 3 `frames`, `atTolerance` 0.5 (at [3, 4.5])
+and `aboveCeilingMultiplier` 2.5 (above (4.5, 7.5]). The legs export
+their spin count as `expectedMagnitude.observed` (2, 3 and 6). The
+triad was recorded on an iPhone 12 (iOS 17.5, Flutter 3.47.6), each leg
+on its first attempt: below silent, at 3 with `bufferSize` 131, above 6
+with `bufferSize` 189. In ten 240-frame windows of capture mode on that
+phone no ambient severe frame appeared. On a Galaxy A07, capture mode's
+500 ms timeline request leaves 1 to 4 severe frames in each window, so
+the screen would refuse most legs there, and the claim covers the
+iPhone 12 only.
+
+Each leg allows 5 attempts. The screen shares the 60 Hz pre-flight and
+the provenance stamp of the jank_detected screen, and refuses a leg
+before its workload when the VM service is not connected. Stream and
+export calls are bounded at 10 s (`withCallTimeout`), any failure ends
+the leg with a `FAILED` line, and closing the screen during a leg ends
+its scenario and restores the streams at once.
 
 ## NetworkMonitor large_response and request_frequency capture (v0.19.9)
 

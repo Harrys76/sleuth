@@ -52,6 +52,7 @@ These screens record on-device capture brackets for the audit gate.
 | HeavyCompute | `heavy_compute` warning + critical |
 | RebuildActivity | `rebuild_activity` warning + critical (build-time share; legs via `ext.sleuthDemo.captureLeg`) |
 | FrameTiming (jank_detected) | `jank_detected` warning (60Hz) |
+| FrameTiming (sustained_jank) | `sustained_jank` critical (60Hz) |
 | MemoryPressure | `heap_growing` warning |
 | NetworkMonitor | `slow_request` warning + critical, `large_response`, `request_frequency`, `http_error_spike` and `high_frequency_same_path` warnings |
 | PlatformChannel | `platform_channel_traffic` warning + critical |

@@ -183,8 +183,9 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// Capture-mode short-circuit. When `true`, [_isPastWarmup] returns
   /// `true` immediately regardless of [warmupDuration] / [warmupFrameCount].
   /// Set via `SleuthConfig.captureMode` and plumbed by `SleuthController` so
-  /// in-app capture screens can bracket the `jank_detected.warning` axis
-  /// inside a 4 s scenario span without waiting out the 3 s warmup.
+  /// in-app capture screens can bracket the `jank_detected.warning` and
+  /// `sustained_jank.critical` axes inside a short scenario span without
+  /// waiting out the 3 s warmup.
   /// Default `false` — never engaged in normal app sessions.
   final bool captureMode;
 
@@ -1035,14 +1036,47 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
       'raster_cache_thrashing',
       'raster_cache_growing',
     },
-    // Only `jank_detected` is raised to runtimeVerified via
-    // `perStableIdTier`; `sustained_jank` + cache families stay
-    // implicit reproducerOnly. `sustained_jank`'s bracket axis
-    // (sliding 240-frame-window severeCount) cannot composably
-    // bracket against operator-claimed K because ambient severe
-    // frames accumulate in the same window. A future raise needs
-    // detector-level baseline subtraction.
-    perStableIdTier: {'jank_detected': EvidenceTier.runtimeVerified},
+    // `jank_detected` and `sustained_jank` are raised to runtimeVerified
+    // via `perStableIdTier`; the cache families stay reproducerOnly.
+    // `sustained_jank` counts severe frames in the 240-frame buffer, where
+    // an ambient severe frame would join the operator's injected ones.
+    // Its capture screen refuses any leg whose severe frames, judged by a
+    // rule at least as strict as the detector's, are not exactly the
+    // injected ones, so the bracket holds only legs without ambient
+    // severe frames.
+    perStableIdTier: {
+      'jank_detected': EvidenceTier.runtimeVerified,
+      'sustained_jank': EvidenceTier.runtimeVerified,
+    },
+    additionalBrackets: [
+      // sustained_jank is critical at 3 or more severe frames, its only
+      // severity. The at band [3, 4.5] holds 3 or 4, the above band
+      // (4.5, 7.5] 5 to 7. `last` reads the count when the span closed,
+      // so a frame excused later (`refreshOwnStartDelays`) lowers it
+      // instead of leaving a stale peak.
+      BracketSpec(
+        stableId: 'sustained_jank',
+        severityLabel: 'critical',
+        threshold: 3,
+        unit: 'frames',
+        coveredThresholds: {'sustained_jank.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/frame_timing/sustained_jank_below.json',
+          'test/validation/captures/frame_timing/sustained_jank_at.json',
+          'test/validation/captures/frame_timing/sustained_jank_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.5,
+        observedAxisArgKey: 'observedSevereCount',
+        observedAxisTolerance: 0.25,
+        observedAxisReduction: 'last',
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+        // The count repeats in every timings batch after the last spin,
+        // so an in-band leg holds many in-band records.
+        minInBandSamples: 2,
+      ),
+    ],
     profileCapturePaths: [
       'test/validation/captures/frame_timing/jank_detected_below.json',
       'test/validation/captures/frame_timing/jank_detected_at.json',
@@ -1054,7 +1088,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     bracketUnit: 'percent',
     bracketAtTolerance: 0.50,
     aboveCeilingMultiplier: 1.85,
-    coveredThresholds: {'jank_detected.warning'},
+    coveredThresholds: {'jank_detected.warning', 'sustained_jank.critical'},
     observedAxisArgKey: 'observedJankPercent',
     observedAxisTolerance: 0.25,
     observedAxisReduction: 'last',
@@ -1083,8 +1117,18 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         'the issues under test. `jank_detected.warning` is runtimeVerified '
         '(via `perStableIdTier`) on three on-device captures (iPhone 12, '
         'iOS 17.5, Flutter 3.47.6, 60 Hz, deadline rule) that bracket the '
-        'jank-percent threshold. The other three stableIds stay reproducerOnly and are '
-        'not cited to Flutter engine sources. v0.17.0 extends FPS '
+        'jank-percent threshold. `sustained_jank.critical` is '
+        'runtimeVerified on three iPhone 12 captures (iOS 17.5, Flutter '
+        '3.47.6, 60 Hz) whose legs inject 2, 3 and 6 severe frames. The '
+        'capture screen spins 40 ms inside chosen frames, counts severe '
+        'frames with its own FrameTiming rule (which keeps Sleuth\'s start '
+        'delay in, so it never counts fewer than the detector), and keeps a '
+        'leg only when its count equals the injected count and, for the at '
+        'and above legs, the detector\'s last `observedSevereCount` does '
+        'too. A leg with an '
+        'ambient severe frame is refused, not subtracted, and the claim '
+        'covers the iPhone 12. The cache stableIds stay reproducerOnly and '
+        'are not cited to Flutter engine sources. v0.17.0 extends FPS '
         'semantics. `actualFps` (a rolling count in a 1 s window anchored '
         'on the latest `rasterFinishUs`) and `throughputFps` '
         '(latency-derived capacity) are separate metrics. StableId coverage '
