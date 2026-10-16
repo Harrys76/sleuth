@@ -1,7 +1,7 @@
 # Sleuth example
 
 A demo app organized by category. 24 demo screens trigger specific
-detectors, and 9 capture-helper screens drive `runtimeVerified` capture
+detectors, and 13 capture-helper screens drive `runtimeVerified` capture
 brackets.
 
 ## Running
@@ -53,6 +53,7 @@ These screens record on-device capture brackets for the audit gate.
 | RebuildActivity | `rebuild_activity` warning + critical (build-time share; legs via `ext.sleuthDemo.captureLeg`) |
 | FrameTiming (jank_detected) | `jank_detected` warning (60Hz) |
 | FrameTiming (sustained_jank) | `sustained_jank` critical (60Hz) |
+| StartupDetector (slow_startup_ttff) | `slow_startup_ttff` warning + critical (each leg is a cold launch the host starts; the screen shows the result) |
 | MemoryPressure | `heap_growing` warning |
 | MemoryPressure (gc_pressure) | `gc_pressure` warning (counts young GCs itself) |
 | ImageMemory (uncached_images) | `uncached_images` warning + critical |
