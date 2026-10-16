@@ -72,7 +72,7 @@ Every issue type has an entry in the searchable Issue Encyclopedia inside the ov
 Sleuth reads four sources:
 
 1. **Frame timing.** Per-frame build and raster duration from Flutter's `FrameTiming` API, on every platform in debug and profile mode.
-2. **VM timeline.** Build, layout, paint and raster phases from the VM service, when Sleuth can connect to it. Sleuth polls every 500 ms, fetches only the events written since the previous poll, and never clears the timeline, so DevTools keeps its view.
+2. **VM timeline.** Build, layout, paint and raster phases from the VM service, when Sleuth can connect to it. Sleuth listens to the VM's timeline stream and parses what arrived every 500 ms; in capture mode it requests the events written since the previous read instead. It never clears the timeline, so DevTools keeps its view.
 3. **Widget tree scan.** A walk after a frame, once a second, that finds structural anti-patterns.
 4. **Network.** `HttpOverrides` sees `dart:io` `HttpClient` traffic, including `package:http`'s default client and Dio's default adapter, with no change to your networking code. `cronet_http`, `cupertino_http` and platform-SDK networking are invisible to it.
 
@@ -111,7 +111,7 @@ Without a VM link the VM-only detectors (Shader Jank, Heavy Compute, Platform Ch
 | iOS device | Yes | Good |
 | Desktop | Yes | Good |
 
-On an iPhone 12, VM polling costs about 1.5 ms of UI-isolate time per poll on an idle screen and about 32 ms on a screen that writes 10k timeline events per poll. Emulators and simulators can lose FPS to it, so measure frame rates on a real device. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#vm-connection) covers the reconnect ladder, the poll costs and how to keep DDS and DevTools running alongside Sleuth.
+On an iPhone 12, reading the VM timeline cost about 1.5 ms of UI-isolate time per 500 ms on an idle screen and about 32 ms on a screen that writes 10k timeline events in that time, measured with the 500 ms requests of 0.37.0. Emulators and simulators can lose FPS to it, so measure frame rates on a real device. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#vm-connection) covers the reconnect ladder, the poll costs and how to keep DDS and DevTools running alongside Sleuth.
 
 ## Configuration
 
