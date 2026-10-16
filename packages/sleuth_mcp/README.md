@@ -178,18 +178,20 @@ screen stays `basic` until a frame janks, so check `vmConnected` (in
 `diagnose`, `connect` and `get_issues`). Without a VM link Sleuth never
 reports `heap_growing`, `gc_pressure`, `heap_near_capacity`,
 `native_memory_growing`, `heavy_compute`, `shader_compilation`,
-`platform_channel_traffic`, `stream_resource_growth`, `rebuild_activity`
-or `excessive_repaint`. In that case, and during warm-up or after a
+`platform_channel_traffic`, `stream_resource_growth`, `event_loop_stall`,
+`rebuild_activity` or `excessive_repaint`. In that case, and during warm-up or after a
 disconnect, `connect`, `attach_app`, `diagnose`, `get_snapshot` and
 `get_issues` add a `launchModeAdvisory` that says what is missing and what
 to do.
 
 `flutter run` starts DDS (Dart Development Service) by default. DDS becomes
 the only client of the app's VM service, so Sleuth cannot connect. Run
-with `--no-dds` and Sleuth polls the VM every 500 ms on the app isolate.
-On an iPhone 12 a poll costs about 1.5 ms on an idle screen and about
-32 ms on a screen that writes 10k timeline events per poll. Emulators and
-simulators can lose FPS to polling, so measure on a real device. To keep
+with `--no-dds` and Sleuth reads the VM's timeline stream and parses what
+arrived every 500 ms on the app isolate. With the 500 ms timeline requests
+of sleuth 0.37.0, a request cost an iPhone 12 about 1.5 ms on an idle
+screen and about 32 ms on a screen that writes 10k timeline events in that
+time. Emulators and simulators can lose FPS to it, so measure on a real
+device. To keep
 DDS and DevTools as well, launch the installed app yourself and call
 `attach_app(debugUrl:)`.
 [Sleuth internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#vm-connection)

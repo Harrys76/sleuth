@@ -180,7 +180,7 @@ On Android where the VM fails to connect:
 | 1 | Mode badge shows "FRAME" in blue | | |
 | 2 | FrameTiming data still flows (FPS value updates) | | |
 | 3 | Structural issues appear (visit demos, read the issue list) | | |
-| 4 | No VM-backed issues present (no shader jank, no heavy compute, no memory pressure) | | |
+| 4 | No VM-backed issues present (no shader jank, no heavy compute, no memory pressure, no event loop stall) | | |
 | 5 | Verdict is basic mode (no phase breakdown, just "UI thread" or "Raster thread") | | |
 | 6 | No detector claims "Confirmed" confidence for VM-dependent signals | | |
 | 7 | Package does not crash or hang waiting for VM | | App boots within normal time |
@@ -211,6 +211,8 @@ issue list.
 | GpuPressure | GPU Pressure | "Raster Dominance" (FrameTiming leg `likely`, `confirmed` when a VM+ raster frame also misses the budget) | |
 | FrameTiming | CSV Import | "Jank Detected" with the share of frames over budget | |
 | NetworkMonitor | Search + Gallery | "Slow Request", "Large Response" or "Request Frequency Spike" | |
+| NetworkMonitor | NetworkMonitor capture helper, HTTP error spike and same-path modes | "HTTP Error Spike" or "High-Frequency Requests" | |
+| EventLoopStall | Any screen, `ext.sleuthDemo.uiBlock ms=300` (VM+ only, Flutter 3.35 and later) | "Event Loop Stall: at least N ms" | |
 | StreamResource | Stream Resource Leaks (VM+ only) | "Stream Resources Growing" | |
 | TrackedResource | Tracked Resource Leaks | "Tracked Resource Concurrent" or "Tracked Resource Long-Lived" | |
 | Startup | (any cold launch) | "Slow Startup" when time to first frame passes the warning threshold | |

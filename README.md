@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.32%2B-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-4%2C296_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-4%2C761_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Sleuth is an in-app performance diagnostics overlay for Flutter. It shows jank, memory leaks, slow network requests, GPU pressure and widget anti-patterns inside your app, and every issue comes with a fix hint.
@@ -52,7 +52,7 @@ void main() => runApp(Sleuth.track(child: MyApp()));
 flutter run --profile --no-dds
 ```
 
-Tap the trigger button to open the dashboard. The overlay appears in debug and profile mode, and release builds disable it completely. Sleuth requires Flutter 3.32 or later (Dart 3.8 or later). Profile mode gives accurate timing, and `--no-dds` lets Sleuth connect to the VM service, which its memory, CPU and time-share detectors need (see [Reaching full mode](#reaching-full-mode)).
+Tap the trigger button to open the dashboard. The overlay appears in debug and profile mode, and release builds disable it completely. Sleuth requires Flutter 3.32 or later (Dart 3.8 or later). `event_loop_stall` needs Flutter 3.35 or later, where the VM reports timers that fire late; on older versions it stays silent. Profile mode gives accurate timing, and `--no-dds` lets Sleuth connect to the VM service, which its memory, CPU and time-share detectors need (see [Reaching full mode](#reaching-full-mode)).
 
 ## What Sleuth finds
 
@@ -72,7 +72,7 @@ Every issue type has an entry in the searchable Issue Encyclopedia inside the ov
 Sleuth reads four sources:
 
 1. **Frame timing.** Per-frame build and raster duration from Flutter's `FrameTiming` API, on every platform in debug and profile mode.
-2. **VM timeline.** Build, layout, paint and raster phases from the VM service, when Sleuth can connect to it. Sleuth polls every 500 ms, fetches only the events written since the previous poll, and never clears the timeline, so DevTools keeps its view.
+2. **VM timeline.** Build, layout, paint and raster phases from the VM service, when Sleuth can connect to it. Sleuth listens to the VM's timeline stream and parses what arrived every 500 ms. In capture mode it requests the events written since the previous read instead, and so does a session whose VM refuses the stream or sends no block in the first 10 s while the app draws frames. It never clears the timeline, so DevTools keeps its view.
 3. **Widget tree scan.** A walk after a frame, once a second, that finds structural anti-patterns.
 4. **Network.** `HttpOverrides` sees `dart:io` `HttpClient` traffic, including `package:http`'s default client and Dio's default adapter, with no change to your networking code. `cronet_http`, `cupertino_http` and platform-SDK networking are invisible to it.
 
@@ -111,7 +111,7 @@ Without a VM link the VM-only detectors (Shader Jank, Heavy Compute, Platform Ch
 | iOS device | Yes | Good |
 | Desktop | Yes | Good |
 
-On an iPhone 12, VM polling costs about 1.5 ms of UI-isolate time per poll on an idle screen and about 32 ms on a screen that writes 10k timeline events per poll. Emulators and simulators can lose FPS to it, so measure frame rates on a real device. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#vm-connection) covers the reconnect ladder, the poll costs and how to keep DDS and DevTools running alongside Sleuth.
+On an iPhone 12, reading the VM timeline cost about 1.5 ms of UI-isolate time per 500 ms on an idle screen and about 32 ms on a screen that writes 10k timeline events in that time, measured with the 500 ms requests of 0.37.0. Emulators and simulators can lose FPS to it, so measure frame rates on a real device. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#vm-connection) covers the reconnect ladder, the poll costs and how to keep DDS and DevTools running alongside Sleuth.
 
 ## Configuration
 
@@ -228,7 +228,7 @@ The dashboard's Export button copies the JSON snapshot to the clipboard. These c
 
 Issues rank by evidence tier: confirmed critical, likely critical, confirmed warning, possible critical, likely warning, possible warning, ok. A structural guess ranks below a warning observed at runtime, and a `possible` issue is never shown as the cause of a `likely` or `confirmed` one. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#ranking-and-causal-graph) has the scoring.
 
-Every detector declares the evidence behind its thresholds, and a CI audit enforces it. Every detector has at least a reproducer test, and on-device captures verify 27 detector and severity pairs (19 issue types); the [validation ledger](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) lists each one.
+Every detector declares the evidence behind its thresholds, and a CI audit enforces it. Every detector has at least a reproducer test, and on-device captures verify 27 detector and severity pairs (19 issue types); the [validation ledger](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) lists each one. The captures come from an iPhone 12 (iOS 17.5). A Galaxy A07 (Android 16, 90 Hz) checked the 0.38.0 raises in normal builds, and its recordings replay in the tests; [reference devices](https://github.com/Harrys76/sleuth/blob/main/doc/reference_devices.md) explains why it records no captures.
 
 ## Limitations
 
@@ -241,7 +241,7 @@ Every detector declares the evidence behind its thresholds, and a CI audit enfor
 
 ## Example app
 
-The example app has 24 demo screens and 9 capture-helper screens; most demos have a Before/After toggle and live metrics. See [`example/README.md`](example/README.md) for the screen list.
+The example app has 26 demo screens and 14 capture-helper screens; most demos have a Before/After toggle and live metrics. See [`example/README.md`](example/README.md) for the screen list.
 
 ```bash
 cd example && flutter run --profile --no-dds

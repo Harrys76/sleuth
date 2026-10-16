@@ -1,6 +1,6 @@
 # Sleuth example
 
-A demo app organized by category. 24 demo screens trigger specific
+A demo app organized by category. 26 demo screens trigger specific
 detectors, and 14 capture-helper screens drive `runtimeVerified` capture
 brackets.
 
@@ -8,11 +8,14 @@ brackets.
 
 ```bash
 # Profile mode (recommended, accurate timing)
-cd example && flutter run --profile
+cd example && flutter run --profile --no-dds
 
 # Debug mode (per-widget rebuild and paint counts, timing less representative)
-cd example && flutter run
+cd example && flutter run --no-dds
 ```
+
+`--no-dds` lets Sleuth connect to the VM service, which its memory, CPU,
+event-loop and time-share detectors need.
 
 ## Demo screens
 
@@ -29,19 +32,21 @@ cd example && flutter run
 | 9 | GPU Pressure | GpuPressure | GPU & Rendering |
 | 10 | Shader Jank | ShaderJank | GPU & Rendering |
 | 11 | FPS Stress Test (~20 FPS) | HeavyCompute, GpuPressure | GPU & Rendering |
-| 12 | IntrinsicHeight Abuse | LayoutBottleneck | Layout |
-| 13 | Uncached Images | ImageMemory | Memory |
-| 14 | Memory Pressure | MemoryPressure | Memory |
-| 15 | KeepAlive Overuse | KeepAlive | Memory |
-| 16 | Stream Resource Leaks | StreamResource | Memory |
-| 17 | Tracked Resource Leaks | TrackedResource | Memory |
-| 18 | Search + Gallery | NetworkMonitor | Network & I/O |
-| 19 | Platform Channel Traffic | PlatformChannel | Network & I/O |
-| 20 | Font Loading Stress | FontLoading | Network & I/O |
-| 21 | Tabbed Shell | ListView, ImageMemory, LayoutBottleneck (visible tab only) | Navigation |
-| 22 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom Detectors |
-| 23 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
-| 24 | Combined: Chat App | SetState, KeepAlive, Channel | Combined |
+| 12 | Cupertino Blur | GpuPressure (`expensive_gpu_nodes`; one panel per blur shape, and the detail names the Cupertino bar or dialog that draws a blur) | GPU & Rendering |
+| 13 | IntrinsicHeight Abuse | LayoutBottleneck | Layout |
+| 14 | Uncached Images | ImageMemory | Memory |
+| 15 | Memory Pressure | MemoryPressure | Memory |
+| 16 | KeepAlive Overuse | KeepAlive | Memory |
+| 17 | Stream Resource Leaks | StreamResource | Memory |
+| 18 | Tracked Resource Leaks | TrackedResource | Memory |
+| 19 | Search + Gallery | NetworkMonitor | Network & I/O |
+| 20 | Platform Channel Traffic | PlatformChannel | Network & I/O |
+| 21 | Font Loading Stress | FontLoading | Network & I/O |
+| 22 | Tabbed Shell | ListView, ImageMemory, LayoutBottleneck (visible tab only) | Navigation |
+| 23 | Migrated App (material_ui) | CustomPainter for the app's own painter; no card names a `material_ui` widget | Navigation |
+| 24 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom Detectors |
+| 25 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
+| 26 | Combined: Chat App | SetState, KeepAlive, Channel | Combined |
 
 ### Capture helpers (`runtimeVerified` brackets)
 
@@ -123,6 +128,11 @@ of the app.
 | `ext.sleuthDemo.clipboard` | Returns `{text}`, the current clipboard text |
 | `ext.sleuthDemo.a11y` | Platform accessibility settings, the overlay's text scale, overflow reports and the labelled semantics nodes |
 | `ext.sleuthDemo.screenshot` | `{png}` (base64) of the whole screen, overlay included |
+| `ext.sleuthDemo.uiBlock` | `ms` (1 to 5000); blocks the UI isolate for that long from a timer callback, so the VM reports the timers that fire late after it (`event_loop_stall`) |
+| `ext.sleuthDemo.blurProbe` | Lists each `BackdropFilter` on screen with the blur sigma Sleuth reads (null when unknown), its filter class and whether it draws |
+| `ext.sleuthDemo.retain` | `bytesPerSec`, optional `seconds` (default 60); retains a byte buffer every 50 ms on any screen, for `heap_growing` checks; `clear=true` stops and drops what it kept; returns `{running, retainedBytes}` |
+| `ext.sleuthDemo.heapLegs` | `floor=true\|false`, `sample=true\|false`; switches `heap_growing`'s floor and sample legs for a capture run (capture mode only) |
+| `ext.sleuthDemo.allocationReads` | `hold=true` turns StreamResourceDetector off and holds Sleuth's allocation-profile reads, waiting for one in flight; `hold=false` restores both (capture mode only) |
 | `ext.sleuthDemo.captureLeg`, `captureResult`, `vmAxes` | Hands-free capture legs for the time-share brackets; see `doc/capture_procedure.md` |
 | `ext.sleuthDemo.rasterBurst` | `frames`, optional `paths` (default 700) and `budgetUs` (default 16667); draws a run of heavy frames on the open GpuPressure (raster_dominance) screen in any build and returns each frame's timing, the dominant flags and the busiest one-second count |
 | `ext.sleuthDemo.rasterState` | The open GpuPressure (raster_dominance) screen's state: whether a leg runs, the last result and the stashed leg |

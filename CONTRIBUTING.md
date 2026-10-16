@@ -9,7 +9,7 @@ Thanks for your interest. The rules below keep the contribution loop fast.
   analyzer churn.
 - `fvm flutter analyze` must report zero issues before you open a PR.
 - `fvm flutter test --exclude-tags benchmark` must pass. The default run
-  has about 4,270 tests and takes about 1.5 minutes on an M1 Pro. Run the
+  has about 4,760 tests and takes about a minute on an M1 Pro. Run the
   wall-clock benchmarks serially with
   `fvm flutter test --tags benchmark --concurrency=1`.
 - CI also checks formatting with `dart format --output=none
@@ -17,7 +17,7 @@ Thanks for your interest. The rules below keep the contribution loop fast.
   directories), and it runs analyze and tests on the Flutter 3.32.8
   floor as well as on 3.47.6.
 - The example app in `example/` is for manual smoke testing.
-  `cd example && fvm flutter run --profile` is the usual local dev
+  `cd example && fvm flutter run --profile --no-dds` is the usual local dev
   command, and `cd example && fvm flutter test` runs its tests.
 
 ## Adding a new detector
@@ -37,8 +37,13 @@ cookbook. New detectors must:
 
 ## Raising a detector's EvidenceTier
 
-Raise one detector, or one stableId family, per change. Every tier raise
-ships with supporting artefacts that the audit gate enforces:
+Raise one detector, or one stableId family, per change. A
+`runtimeVerified` claim holds per severity: an issue reads that tier only
+at a severity that a bracket covers (the canonical bracket or an entry in
+`additionalBrackets`). At any other severity it reads the base tier, or
+`reproducerOnly` when the base tier is `runtimeVerified`
+(`DetectorMetadata.effectiveTierFor`). Every tier raise ships with
+supporting artefacts that the audit gate enforces:
 
 | Tier | Required artefacts |
 |---|---|

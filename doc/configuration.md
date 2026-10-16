@@ -36,6 +36,11 @@ Sleuth.track(
     largeResponseThresholdBytes: 1048576, // flag responses larger than 1MB
     adaptiveScanEnabled: true,         // after 3 clean scans, double the interval up to 2 s, never below the base (default true); the cost stretch above applies either way
     networkExcludePatterns: ['analytics.example.com'], // exclude URLs from monitoring
+    memoryWarmupDurationMs: 3000,      // no heap growth alerts for this long after the first heap sample
+    gcRateThresholdPerMin: 240,        // gc_pressure: young-generation collections per minute over a 10 s window
+    frameTimingWarmupDuration: Duration(seconds: 3), // no jank evaluation for this long after the first frame
+    frameTimingWarmupFrameCount: 0,    // optional frame-count floor on top of the warmup duration (0 = off)
+    platformChannelDurationThresholdMs: 8, // channel calls slower than this count as callsOverThreshold; not a trigger
     enabledDetectors: {
       DetectorType.frameTiming,
       DetectorType.rebuild,
@@ -51,8 +56,19 @@ Sleuth.track(
       paintTimePercentThreshold: 10, // excessive_repaint: % of UI-thread time in PAINT, critical at 3×
       stallWarningMs: 100,           // event_loop_stall: UI isolate stall warning (the VM reports 100 ms or more)
       stallCriticalMs: 700,          // event_loop_stall: critical at this length (must be >= stallWarningMs)
+      memoryGrowthBytesPerSec: 512000, // heap_growing: heap slope above this, sustained for 10 s
+      memoryBudgetBytes: null,       // opt-in process memory budget; heap_near_capacity stays off while null
+      memoryCapacityPercent: 0.80,   // heap_near_capacity: share of memoryBudgetBytes that RSS must reach
+      keepAliveMax: 5,               // keep-alive pages per scrollable, critical at 2×
+      fontLoadingMaxFamilies: 3,     // custom font families on one screen
+      setStateScopeOwnershipPercent: 0.5, // share of the owning subtree a setState must dirty
+      startupTtffWarningMs: 1500,    // slow_startup_ttff warning
+      startupTtffCriticalMs: 3000,   // slow_startup_ttff critical
     ),
     customDetectors: [MyCustomDetector()], // plug in domain-specific detectors
+    aiChat: AiChatAdapter.anthropic(apiKey: key), // optional "Ask AI" on issue cards (see ai_chat.md)
+    advanced: DebugInstrumentationConfig(), // sub-flags for the two debug instrumentation switches
+    captureMode: false,                // for evidence captures; writes a trace event per published issue
     disabledCustomDetectorKeys: {'my_heavy_detector'}, // gate custom detectors by key
     triggerButtonAlignment: Alignment.bottomRight, // trigger corner until the user drags it
     triggerButtonOffset: Offset(16, 16),           // offset from that corner, inside the safe area
@@ -66,6 +82,8 @@ Sleuth.track(
   ),
 );
 ```
+
+`DetectorThresholds` also holds the shader warm-up windows, the startup-phase window, and the stream resource and tracked resource settings. Each field's API doc gives its default and when to raise or lower it.
 
 ## Suppressing issues
 

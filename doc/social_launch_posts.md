@@ -22,7 +22,7 @@ The data comes from Sleuth, my in-app performance diagnostics overlay for Flutte
 
 • In-app overlay, added with one line:
 runApp(Sleuth.track(child: MyApp()));
-20 detectors cover frame timing, memory, network and GPU, plus structural patterns DevTools does not flag (non-lazy lists, oversized images, missing RepaintBoundary). Every issue has a fix hint. Sleuth does nothing in release builds.
+21 detectors cover frame timing, memory, network and GPU, plus structural patterns DevTools does not flag (non-lazy lists, oversized images, missing RepaintBoundary). Every issue has a fix hint. Sleuth does nothing in release builds.
 
 • MCP sidecar: your AI assistant reads the same issues.
 
@@ -36,7 +36,7 @@ Ask your AI "why is this route janky?" and it reads your running Flutter app's l
 
 That is sleuth_mcp, an MCP sidecar that gives Claude Code, Cursor or Zed a running app's live issues (each with a fix hint), route health and snapshots.
 
-The data comes from Sleuth, my in-app performance overlay (20 detectors, one line to add). Your editor's AI can now query it.
+The data comes from Sleuth, my in-app performance overlay (21 detectors, one line to add). Your editor's AI can now query it.
 
 Open source, on pub.dev: https://pub.dev/packages/sleuth
 
@@ -64,7 +64,7 @@ pub.dev/packages/sleuth
 
 flutter performance debugging in 2026: tell your AI "this route feels janky" and it reads the running app's live data to answer, with fix hints.
 
-that's sleuth_mcp, an MCP sidecar for Sleuth (my in-app performance overlay: 20 detectors, a fix hint on every issue, one line to add).
+that's sleuth_mcp, an MCP sidecar for Sleuth (my in-app performance overlay: 21 detectors, a fix hint on every issue, one line to add).
 
 your editor's AI can now query the same detectors.
 
@@ -81,4 +81,4 @@ pub.dev/packages/sleuth
 - Post bodies are plain text on purpose, with no `**bold**`, `*italics*` or backticks, because LinkedIn and Threads show them raw. Use line breaks, `•` bullets and quotes for emphasis.
 - The findings on the card (CartTile 34×/s, CheckoutCubit +2.1 MB/s, /rates 1.8s) are illustrative. Replace them with a real `get_issues` capture if you want the card to be literal, and keep the card and the captions in sync. Sleuth 0.37 reports a profile build's rebuild cost as the share of UI-thread time spent building (`rebuild_activity`); a per-widget rate such as "34×/s" appears only in a debug build (`rebuild_debug_<Type>`).
 - Hashtags: Threads supports them, but the custom there is one to three relevant tags rather than the LinkedIn block, and they count toward the 500-character limit. The drafts use #Flutter #Dart #MCP (primary) and #Flutter #MCP (casual). LinkedIn accepts the longer set.
-- Publish state on 2026-10-06: pub.dev has sleuth 0.36.0 and sleuth_mcp 0.7.2. The posts describe 0.37.0 (oversized images), so publish sleuth 0.37.0 and sleuth_mcp 0.8.0 before they go out.
+- Publish state on 2026-10-17: pub.dev has sleuth 0.37.0 and sleuth_mcp 0.8.0. The posts count 21 detectors, which includes `event_loop_stall` from 0.38.0, so publish sleuth 0.38.0 and sleuth_mcp 0.9.0 before they go out.

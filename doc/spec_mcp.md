@@ -1,6 +1,6 @@
 # MCP support implementation spec (M1 to M3)
 
-This is the original design plan for milestones M1 to M3, kept as history; `packages/sleuth_mcp/README.md` and `packages/sleuth_mcp/doc/mcp_tool_schema.md` describe the current sidecar (0.8.0, built against sleuth 0.37.0).
+This is the original design plan for milestones M1 to M3, kept as history; `packages/sleuth_mcp/README.md` and `packages/sleuth_mcp/doc/mcp_tool_schema.md` describe the current sidecar (0.9.0, built against sleuth 0.38.0).
 
 The plan exposes sleuth's live runtime data to AI assistants through the
 Model Context Protocol in three milestones. M1 and M2 shipped together in
@@ -328,7 +328,8 @@ noisy detector cannot flood the client.
 - Library and sidecar. Additive, so the envelope `schemaVersion` stays
   `1`.
 - The plan targeted sleuth 0.36.0 and `sleuth_mcp` 0.8.0. Not shipped:
-  sidecar 0.8.0 pins sleuth 0.37.0 and has no issue stream.
+  neither sidecar 0.8.0 (sleuth 0.37.0) nor 0.9.0 (sleuth 0.38.0) has an
+  issue stream.
 
 ## Risks
 
