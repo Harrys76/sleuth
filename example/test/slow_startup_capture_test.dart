@@ -150,6 +150,12 @@ class _FakeCalls extends StartupLegCalls {
   String? lastExportFailure() => 'no scenario span';
 }
 
+/// Whether this process can read a file with mode 000: true on Windows
+/// and for root, where the unreadable-request test cannot fail a read.
+final bool _canRead000 =
+    Platform.isWindows ||
+    (Process.runSync('id', ['-u']).stdout as String).trim() == '0';
+
 /// The status line, the screen's one live region.
 final _liveRegion = find.byWidgetPredicate(
   (w) => w is Semantics && (w.properties.liveRegion ?? false),
@@ -280,7 +286,7 @@ void main() {
       expect(request.leg, isNull);
       expect(request.legProblem, contains('startup leg request file'));
       expect(file.existsSync(), isFalse);
-    });
+    }, skip: _canRead000 ? 'this user can read a mode-000 file' : false);
 
     test('a request file with an unknown leg is ignored with a problem', () {
       file.writeAsStringSync('slow_startup_ttff_middle');
