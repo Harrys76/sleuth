@@ -2081,18 +2081,19 @@ class SleuthController {
   /// either. HeavyComputeDetector relies on Dart-side BUILD events
   /// (`Dart` stream — kept). NetworkMonitorDetector is HTTP-overrides-
   /// driven (no timeline dependency).
-  Future<void> suspendNonEssentialTimelineStreams() async {
+  Future<bool> suspendNonEssentialTimelineStreams() async {
     final client = _vmClient;
-    if (client == null || !client.isConnected) return;
-    await client.setTimelineStreams(const ['Dart']);
+    if (client == null || !client.isConnected) return false;
+    return client.setTimelineStreams(const ['Dart']);
   }
 
   /// Restores the full VM timeline stream allowlist. Counterpart to
-  /// [suspendNonEssentialTimelineStreams].
-  Future<void> resumeAllTimelineStreams() async {
+  /// [suspendNonEssentialTimelineStreams]. Returns whether the VM
+  /// accepted the stream list.
+  Future<bool> resumeAllTimelineStreams() async {
     final client = _vmClient;
-    if (client == null || !client.isConnected) return;
-    await client.setTimelineStreams(const ['Dart', 'Embedder', 'GC']);
+    if (client == null || !client.isConnected) return false;
+    return client.setTimelineStreams(const ['Dart', 'Embedder', 'GC']);
   }
 
   /// Clears per-detector record buffers that survive across capture

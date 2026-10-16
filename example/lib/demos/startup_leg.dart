@@ -539,7 +539,8 @@ class StartupLegCalls {
 
   Future<void> suspendStreams() => Sleuth.suspendNonEssentialTimelineStreams();
 
-  Future<void> resumeStreams() => Sleuth.resumeAllTimelineStreams();
+  /// Whether the VM accepted the restored stream list.
+  Future<bool> resumeStreams() => Sleuth.resumeAllTimelineStreams();
 
   bool vmConnected() => Sleuth.diagnoseCaptureState().vmConnected;
 
@@ -619,6 +620,8 @@ class StartupLegRunner {
   final Duration overallLimit;
   final Duration pollInterval;
   final AppLifecycleState? Function() _lifecycleState;
+
+  static const _resumeAttempts = 3;
 
   bool _scenarioOpen = false;
   bool _streamsSuspended = false;
@@ -787,7 +790,13 @@ class StartupLegRunner {
     _endScenario();
     // The end marker must reach the VM buffer before the export reads it.
     await Future<void>.delayed(const Duration(milliseconds: 800));
-    await _resumeStreams();
+    if (!await _resumeStreams()) {
+      throw const _LegStop(
+        'FAILED',
+        'the VM did not restore the timeline streams after '
+            '$_resumeAttempts tries',
+      );
+    }
     _checkForeground();
 
     final timing = firstFrame.timing!;
@@ -885,9 +894,12 @@ class StartupLegRunner {
     }
   }
 
-  Future<void> _resumeStreams() async {
-    if (!_streamsSuspended) return;
-    _streamsSuspended = false;
+  /// Restores the timeline streams, trying [_resumeAttempts] times. The
+  /// obligation stays until the VM accepts the list, so the cleanup tries
+  /// again after a failed attempt in the leg. Returns whether the streams
+  /// are restored.
+  Future<bool> _resumeStreams() async {
+    if (!_streamsSuspended) return true;
     // A suspension still in flight would land after the resume and leave
     // the VM recording the Dart stream only, so the resume waits for it.
     final pending = _pendingSuspend;
@@ -898,11 +910,27 @@ class StartupLegRunner {
         // The resume below runs either way.
       }
     }
-    try {
-      await withCallTimeout(calls.resumeStreams(), 'resumeAllTimelineStreams');
-    } catch (e) {
-      debugPrint('Startup leg ${leg.label}: resumeAllTimelineStreams: $e');
+    for (var attempt = 1; attempt <= _resumeAttempts; attempt++) {
+      try {
+        if (await withCallTimeout(
+          calls.resumeStreams(),
+          'resumeAllTimelineStreams',
+        )) {
+          _streamsSuspended = false;
+          return true;
+        }
+      } catch (e) {
+        debugPrint('Startup leg ${leg.label}: resumeAllTimelineStreams: $e');
+      }
+      if (attempt < _resumeAttempts) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
     }
+    debugPrint(
+      'Startup leg ${leg.label}: the VM did not restore the timeline '
+      'streams.',
+    );
+    return false;
   }
 }
 
@@ -916,6 +944,7 @@ class StartupLaunch {
     this.refusal,
     this.delayMs,
     this.markerWallUs, {
+    required this.launchId,
     required this.request,
     required void Function(Duration) sleeper,
     required StartupLegResults Function() results,
@@ -942,14 +971,39 @@ class StartupLaunch {
     final delayMs = leg == null
         ? req.plainDelayMs
         : (refusal == null ? leg.delayMs : 0);
+    final resultsFor = results ?? StartupLegResults.new;
+    final launchId = '$pid-${DateTime.now().microsecondsSinceEpoch}';
+    if (leg != null && refusal == null) {
+      // Before the delay, so a launch killed during it leaves a running
+      // record (read later as FAILED) instead of the previous launch's
+      // stashed verdict and capture. The file work runs before the
+      // marker, outside the measured time.
+      try {
+        resultsFor()
+          ..repairStale(currentLaunchId: launchId)
+          ..deleteCapture(leg.scenario)
+          ..writeRecord(
+            StartupLegRecord(
+              launchId: launchId,
+              scenario: leg.scenario,
+              state: 'running',
+              delayMs: leg.delayMs,
+              updatedAt: DateTime.now(),
+            ),
+          );
+      } on Object catch (e) {
+        debugPrint('Startup leg ${leg.label}: could not write its record: $e');
+      }
+    }
     return StartupLaunch._(
       leg,
       refusal,
       delayMs,
       req.isEmpty ? 0 : DateTime.now().microsecondsSinceEpoch,
+      launchId: launchId,
       request: req,
       sleeper: sleeper,
-      results: results ?? StartupLegResults.new,
+      results: resultsFor,
     );
   }
 
@@ -977,7 +1031,7 @@ class StartupLaunch {
   bool get runsLeg => leg != null && refusal == null;
 
   /// Identifies this launch in the leg's records.
-  String get launchId => '$pid-$markerWallUs';
+  final String launchId;
 
   /// Starts keeping the first frame's timing for a leg.
   void afterInit() {

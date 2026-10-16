@@ -93,9 +93,18 @@ class FakeVmService implements VmService {
   @override
   Stream<String> get onReceive => const Stream.empty();
 
+  /// Thrown by [setVMTimelineFlags] when set.
+  Object? timelineFlagsError;
+
+  /// The stream list of the last accepted [setVMTimelineFlags] call.
+  List<String>? lastTimelineFlags;
+
   @override
   Future<Success> setVMTimelineFlags(List<String> recordedStreams) async {
     calls.add('setVMTimelineFlags');
+    final error = timelineFlagsError;
+    if (error != null) throw error;
+    lastTimelineFlags = List.of(recordedStreams);
     return Success();
   }
 

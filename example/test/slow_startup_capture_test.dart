@@ -85,6 +85,10 @@ class _FakeCalls extends StartupLegCalls {
   /// When set, the suspension completes only when this does.
   Completer<void>? suspendGate;
 
+  /// Restores the VM refuses before one lands; negative refuses all.
+  int resumeRefusals = 0;
+  int _resumeCalls = 0;
+
   final List<String> log = [];
   ({double min, double max})? exportBand;
   double? exportObserved;
@@ -111,7 +115,11 @@ class _FakeCalls extends StartupLegCalls {
   }
 
   @override
-  Future<void> resumeStreams() async => log.add('resume');
+  Future<bool> resumeStreams() async {
+    log.add('resume');
+    _resumeCalls++;
+    return resumeRefusals >= 0 && _resumeCalls > resumeRefusals;
+  }
 
   @override
   bool vmConnected() =>
@@ -254,6 +262,23 @@ void main() {
         requestFile: file,
       );
       expect(request.leg, StartupLeg.above);
+      expect(file.existsSync(), isFalse);
+    });
+
+    test('a request file it cannot read is deleted and names the problem', () {
+      file.writeAsStringSync('slow_startup_ttff_at');
+      Process.runSync('chmod', ['000', file.path]);
+      addTearDown(() {
+        if (file.existsSync()) Process.runSync('chmod', ['644', file.path]);
+      });
+      final request = StartupLegRequest.read(
+        environment: const {},
+        definedLeg: '',
+        definedDelay: '',
+        requestFile: file,
+      );
+      expect(request.leg, isNull);
+      expect(request.legProblem, contains('startup leg request file'));
       expect(file.existsSync(), isFalse);
     });
 
@@ -439,6 +464,28 @@ void main() {
         StartupLegResults(dir).readRecord()!.reason,
         'capture provenance: device model unknown',
       );
+    });
+
+    test('an accepted leg records itself as running and deletes its old '
+        'capture before Sleuth.init', () {
+      final results = StartupLegResults(dir)
+        ..writeCapture('slow_startup_ttff_at', '{"old":true}')
+        ..writeRecord(
+          const StartupLegRecord(
+            launchId: '1-1',
+            scenario: 'slow_startup_ttff_at',
+            state: 'stashed',
+          ),
+        );
+      final startup = launch(
+        request: const StartupLegRequest(leg: StartupLeg.at),
+      );
+      // A launch killed during the delay never reaches afterRunApp; the
+      // stashed verdict and capture of the earlier launch are gone.
+      final record = results.readRecord()!;
+      expect(record.state, 'running');
+      expect(record.launchId, startup.launchId);
+      expect(results.captureFile('slow_startup_ttff_at').existsSync(), isFalse);
     });
 
     test('an accepted leg sleeps its delay and takes the marker', () {
@@ -749,6 +796,41 @@ void main() {
         containsAllInOrder(['suspend', 'suspend landed', 'resume']),
       );
       expect(calls.log.where((l) => l == 'resume'), hasLength(1));
+    });
+
+    testWidgets('a restore the VM refuses twice is tried again and the leg '
+        'stashes', (tester) async {
+      final calls = _FakeCalls(
+        json: _capture(event: 'sleuth.issue.slow_startup_ttff.warning'),
+      )..resumeRefusals = 2;
+      final record = await run(
+        tester,
+        leg: StartupLeg.at,
+        calls: calls,
+        frame: _frameAt(1650),
+      );
+      expect(record.state, 'stashed', reason: record.line);
+      expect(calls.log.where((l) => l == 'resume'), hasLength(3));
+    });
+
+    testWidgets('a restore that never lands fails the leg before the export', (
+      tester,
+    ) async {
+      final calls = _FakeCalls(
+        json: _capture(event: 'sleuth.issue.slow_startup_ttff.warning'),
+      )..resumeRefusals = -1;
+      final record = await run(
+        tester,
+        leg: StartupLeg.at,
+        calls: calls,
+        frame: _frameAt(1650),
+      );
+      expect(record.verdict, 'FAILED');
+      expect(record.reason, contains('did not restore the timeline streams'));
+      expect(calls.log, isNot(contains('export')));
+      expect(results.captureFile('slow_startup_ttff_at').existsSync(), isFalse);
+      // The cleanup tries again, three more times.
+      expect(calls.log.where((l) => l == 'resume'), hasLength(6));
     });
 
     testWidgets('past the overall limit the leg fails and its late part '

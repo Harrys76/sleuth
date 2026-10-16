@@ -843,21 +843,26 @@ class Sleuth {
   ///
   /// No-op in release mode AND when [SleuthConfig.captureMode] is
   /// false. Production app sessions never narrow streams.
-  static Future<void> suspendNonEssentialTimelineStreams() async {
-    if (kReleaseMode) return;
+  static Future<bool> suspendNonEssentialTimelineStreams() async {
+    if (kReleaseMode) return false;
     final c = _controller;
-    if (c == null || !c.config.captureMode) return;
-    await c.suspendNonEssentialTimelineStreams();
+    if (c == null || !c.config.captureMode) return false;
+    return c.suspendNonEssentialTimelineStreams();
   }
 
   /// Restores the full VM timeline stream allowlist
   /// (`['Dart', 'Embedder', 'GC']`). Counterpart to
   /// [suspendNonEssentialTimelineStreams].
-  static Future<void> resumeAllTimelineStreams() async {
-    if (kReleaseMode) return;
+  ///
+  /// Both return whether the VM accepted the stream list: false in
+  /// release mode, outside capture mode, without a VM link, or when the
+  /// RPC failed, so a capture procedure can retry a restore that did not
+  /// land.
+  static Future<bool> resumeAllTimelineStreams() async {
+    if (kReleaseMode) return false;
     final c = _controller;
-    if (c == null || !c.config.captureMode) return;
-    await c.resumeAllTimelineStreams();
+    if (c == null || !c.config.captureMode) return false;
+    return c.resumeAllTimelineStreams();
   }
 
   /// Stops Sleuth's own `getAllocationProfile` reads for a capture leg

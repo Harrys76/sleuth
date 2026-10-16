@@ -39,6 +39,32 @@ void main() {
     'valueAsString': '<collected>',
   });
 
+  group('timeline stream list', () {
+    test(
+      'setTimelineStreams reports whether the VM accepted the list',
+      () async {
+        final client = makeClient(resolver: () => 'isolates/1');
+        expect(
+          await client.setTimelineStreams(const ['Dart']),
+          isFalse,
+          reason: 'no session yet',
+        );
+
+        final service = FakeVmService();
+        expect(await client.startSessionForTest(service), isTrue);
+        expect(await client.setTimelineStreams(const ['Dart']), isTrue);
+        expect(service.lastTimelineFlags, ['Dart']);
+
+        service.timelineFlagsError = RPCError('setVMTimelineFlags', 100, 'x');
+        expect(
+          await client.setTimelineStreams(const ['Dart', 'Embedder', 'GC']),
+          isFalse,
+        );
+        expect(service.lastTimelineFlags, ['Dart']);
+      },
+    );
+  });
+
   group('session start', () {
     test('sets timeline flags, resolves identity, then subscribes', () async {
       final service = FakeVmService();
