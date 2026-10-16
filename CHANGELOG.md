@@ -365,8 +365,7 @@
   repaint critical legs.
 - `sustained_jank` critical is `runtimeVerified`, backed by an iPhone 12
   capture triad on Flutter 3.47.6 whose legs inject 2, 3 and 6 severe
-  frames (below silent, at 3, above 6). Twenty pairs across 15 stable ids
-  are now `runtimeVerified`.
+  frames (below silent, at 3, above 6).
 - Example: a sustained_jank capture screen spins the UI thread for 40 ms
   inside chosen ticker frames, judges every frame with its own FrameTiming
   rule, and keeps a leg only when its severe frames are exactly the spin
@@ -378,6 +377,24 @@
   after the rest of its 6 s span. Its VM calls are bounded at 10 s, a
   failure ends the leg with a `FAILED` line, and a leg is refused before
   its workload without a VM link.
+- `gc_pressure` warning is `runtimeVerified`, backed by an iPhone 12
+  capture triad on Flutter 3.47.6 (27, 53 and 84 young collections in
+  10 s, the first silent). `uncached_images` warning and critical are
+  `runtimeVerified` too, each backed by an iPhone 12 triad at pixel ratio
+  3.0 (warning 0.5, 1.2 and 2.0 MiB wasted; critical 8.0, 20.0 and
+  32.0 MiB). Twenty-three pairs across 17 stable ids are now
+  `runtimeVerified`.
+- `gc_pressure` gives each emission its own capture identity, its
+  `detectedAt` moved 1 µs past the previous one on a shared clock
+  reading. One identity per overage had kept only the count at the first
+  crossing, so a capture could not tell a rate of 50 from a rate of 80.
+  Capture identities feed only capture recording.
+- Example: a gc_pressure capture screen counts its own isolate's young
+  collections over its own VM service connection, holds the young rate
+  with a closed allocation loop, and exports its own largest 10 s count.
+  An uncached_images capture screen generates a PNG sized for each leg at
+  the device pixel ratio, shows it in a 48 dp box, and exports the waste it
+  computes from its own reads. The example app depends on `vm_service`.
 
 ## 0.37.0
 
