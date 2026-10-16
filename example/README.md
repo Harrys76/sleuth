@@ -1,7 +1,7 @@
 # Sleuth example
 
 A demo app organized by category. 24 demo screens trigger specific
-detectors, and 13 capture-helper screens drive `runtimeVerified` capture
+detectors, and 14 capture-helper screens drive `runtimeVerified` capture
 brackets.
 
 ## Running
@@ -53,6 +53,7 @@ These screens record on-device capture brackets for the audit gate.
 | RebuildActivity | `rebuild_activity` warning + critical (build-time share; legs via `ext.sleuthDemo.captureLeg`) |
 | FrameTiming (jank_detected) | `jank_detected` warning (60Hz) |
 | FrameTiming (sustained_jank) | `sustained_jank` critical (60Hz) |
+| GpuPressure (raster_dominance) | `raster_dominance` warning + critical (60Hz; counts dominant frames itself) |
 | StartupDetector (slow_startup_ttff) | `slow_startup_ttff` warning + critical (each leg is a cold launch the host starts; the screen shows the result) |
 | MemoryPressure | `heap_growing` warning |
 | MemoryPressure (gc_pressure) | `gc_pressure` warning (counts young GCs itself) |
@@ -123,6 +124,8 @@ of the app.
 | `ext.sleuthDemo.a11y` | Platform accessibility settings, the overlay's text scale, overflow reports and the labelled semantics nodes |
 | `ext.sleuthDemo.screenshot` | `{png}` (base64) of the whole screen, overlay included |
 | `ext.sleuthDemo.captureLeg`, `captureResult`, `vmAxes` | Hands-free capture legs for the time-share brackets; see `doc/capture_procedure.md` |
+| `ext.sleuthDemo.rasterBurst` | `frames`, optional `paths` (default 700) and `budgetUs` (default 16667); draws a run of heavy frames on the open GpuPressure (raster_dominance) screen in any build and returns each frame's timing, the dominant flags and the busiest one-second count |
+| `ext.sleuthDemo.rasterState` | The open GpuPressure (raster_dominance) screen's state: whether a leg runs, the last result and the stashed leg |
 
 The overlay extensions return `{error: no_controller}` before Sleuth is
 initialised. While the app is in the background no frame is drawn, so
