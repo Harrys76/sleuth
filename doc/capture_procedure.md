@@ -1847,7 +1847,8 @@ markScenarioBegin(name)                          // clears the GPU frame leg
 └── 3.5 s dwell, so a scan (at most 2 s apart) writes the full record
 └── Sleuth.flushTimelineNow()
 markScenarioEnd(name)
-└── frame check: no dominant frame outside the run
+└── frame check: every heavy frame dominant, no dominant frame outside
+    the run
 └── 800 ms post-end barrier
 resumeAllTimelineStreams()                       // 3 tries, else FAILED
 exportCaptureJson(...)                           // observed = screen count
@@ -1856,13 +1857,16 @@ exportCaptureJson(...)                           // observed = screen count
     observedDominantFrames equal to the screen's count
 ```
 
-The frame that hides the picture, and a frame drawn within 250 ms after
-it, belong to the run. Their raster time can include waiting for the GPU
-to finish the heavy frames: on the iPhone 12 the frame drawn after the
-hide frame read 22 to 58 ms of raster against under 1 ms of UI. A run of
-N heavy frames therefore gives N or N + 1 dominant frames, and each leg's
-N keeps both in its band. A dominant frame anywhere else in the span
-refuses the leg instead of being subtracted. The screen matches heavy
+Every heavy frame must be dominant. The frame that hides the picture,
+and the first frame drawn after it when it starts within 250 ms, belong
+to the run. Their raster time can include waiting for the GPU to finish
+the heavy frames: on the iPhone 12 the frame drawn after the hide frame
+read 22 to 58 ms of raster against under 1 ms of UI. A run of N heavy
+frames therefore gives N or N + 1 dominant frames, and each leg's N keeps
+both in its band. A dominant frame anywhere else in the span, including
+one after a light frame that follows the hide frame, refuses the leg
+instead of being subtracted. The capture notes record whether the hide
+frame and the frame after it were dominant. The screen matches heavy
 frames to `FrameTiming.frameNumber` through
 `PlatformDispatcher.frameData.frameNumber`, read in a post-frame callback.
 
@@ -1875,12 +1879,16 @@ makes any count below 100 match exactly. A critical-bracket leg may hold
 warning records; the audit counts only records of the bracket's severity.
 
 The legs were recorded on an iPhone 12 (iOS 17.5, Flutter 3.47.6), each on
-its first attempt: warning below 1 (silent), at 3, above 7; critical
-below 7 (a warning only), at 12, above 20 within 985 ms, which wrote 14
-and then 20 across two scans. The screen bounds each attempt (run 5 s,
+its first attempt: warning below 1 (silent), at 3, above 6; critical
+below 6 (a warning only), at 11, above 20 within 718 ms, which wrote 8
+and then 20 across two scans. No hide frame or frame after it was
+dominant in these legs. The screen bounds each attempt (run 5 s,
 hide timing 2 s, attempt 30 s) and allows 5 attempts per leg. An attempt
 ends UNMEASURED when the app leaves the foreground, another screen covers
-this one or the dashboard opens. `ext.sleuthDemo.rasterBurst frames=N paths=P budgetUs=B`
+this one or the dashboard opens; once the span has closed, only leaving the app stops the
+export. A tap refused before an attempt starts shows its reason in the
+status line and in `ext.sleuthDemo.rasterState` (`lastRefusal`).
+`ext.sleuthDemo.rasterBurst frames=N paths=P budgetUs=B`
 draws a run outside a leg in any build and returns each frame's timing;
 on a Galaxy A07 normal build, runs of 3 and 11 frames at 150 paths read a
 warning with 4 frames and a critical with 11. On a Galaxy capture build

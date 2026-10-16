@@ -409,7 +409,7 @@
   that the time runs to the first frame's timing report.
 - `raster_dominance` warning and critical are `runtimeVerified`, backed by
   iPhone 12 triads on Flutter 3.47.6 (warning 1 raster-dominant frame
-  silent, 3 and 7; critical 7 as a warning only, 12 and 20 frames inside
+  silent, 3 and 6; critical 6 as a warning only, 11 and 20 frames inside
   one second). Twenty-seven pairs across 19 stable ids are now
   `runtimeVerified`.
 - `raster_dominance` stamps `observedDominantFrames`, the dominant frames
@@ -421,7 +421,8 @@
 - Example: a raster_dominance capture screen draws a prerecorded picture
   of 700 stroked paths on a chosen run of frames, counts the dominant
   frames in its busiest one-second span from its own frame timings, and
-  refuses a leg with a dominant frame outside the run.
+  refuses a leg whose heavy frames are not all dominant or that has a
+  dominant frame outside the run.
   `ext.sleuthDemo.rasterBurst` runs such a run in any build and returns
   each frame's timing, and `ext.sleuthDemo.rasterState` reads the screen's
   last result.

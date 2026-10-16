@@ -48,7 +48,9 @@ import 'capture_driver.dart';
 ///   2. Open Capture Helpers, then GpuPressure (raster_dominance), in
 ///      portrait at the default text size. Check that the refresh-rate
 ///      line shows 60 Hz and the provenance line names the device, OS and
-///      Flutter version. A red banner lists anything that blocks a leg.
+///      Flutter version. A red banner lists a missing capture mode, VM
+///      link or provenance; any other reason a leg cannot start shows in
+///      the status line under the box when you tap it.
 ///   3. Wait 3 s after the screen opens, tap a leg and wait for its result
 ///      line. A refused attempt says why; tap the leg again.
 ///   4. Tap **Export last leg** and save the clipboard text as
@@ -146,6 +148,7 @@ class RasterLegTiming {
     this.burstTail = const Duration(milliseconds: 300),
     this.frontCheck = const Duration(milliseconds: 100),
     this.routeSettle = rasterRouteSettle,
+    this.suspendWait = const Duration(seconds: 5),
   });
 
   /// Idle time after `markScenarioBegin` before the run starts.
@@ -181,6 +184,9 @@ class RasterLegTiming {
 
   /// See [rasterRouteSettle].
   final Duration routeSettle;
+
+  /// Longest a restore waits for a suspension the VM has not answered.
+  final Duration suspendWait;
 }
 
 /// The Sleuth calls a leg makes, behind one seam for tests.
@@ -305,6 +311,10 @@ final GpuPressureDetector _detectorDefaults = GpuPressureDetector();
   );
 }
 
+/// `1 heavy frame`, `3 dominant frames` and so on.
+String rasterFrameCount(int n, String kind) =>
+    '$n $kind frame${n == 1 ? '' : 's'}';
+
 /// One capture leg: its bracket tier, role and the heavy frames it draws.
 ///
 /// A run of H heavy frames usually gives H or H + 1 dominant frames (the
@@ -345,7 +355,7 @@ enum RasterLeg {
   String get title => '${label[0].toUpperCase()}${label.substring(1)}';
 
   /// The leg button's text, unique per leg so a harness tap matches one.
-  String get buttonLabel => '$title: $heavyFrames heavy frames';
+  String get buttonLabel => '$title: ${rasterFrameCount(heavyFrames, 'heavy')}';
 }
 
 /// The bracket [tier] is judged against, read from [metadata] (the
@@ -366,21 +376,37 @@ CaptureBracket? rasterBracket(DetectorMetadata metadata, String tier) =>
       _ => (min: bracket.atUpper, max: bracket.aboveCeiling),
     };
 
+/// The number of the first frame reported after the hide frame
+/// [hideFrame] (drawn at [hideVsyncUs]) when it starts within
+/// [rasterRunTailUs] of it, else null. That frame can wait for the GPU to
+/// finish the heavy frames; a later one cannot belong to the run.
+int? rasterContinuationFrame(
+  List<RasterFrame> frames, {
+  required int hideFrame,
+  required int hideVsyncUs,
+}) {
+  RasterFrame? next;
+  for (final f in frames) {
+    if (f.number <= hideFrame) continue;
+    if (next == null || f.number < next.number) next = f;
+  }
+  if (next == null) return null;
+  final after = next.vsyncUs - hideVsyncUs;
+  return after > 0 && after <= rasterRunTailUs ? next.number : null;
+}
+
 /// Whether [frame] belongs to the run that began with frame number
-/// [firstHeavy] and ended with the hide frame [hideFrame] drawn at
-/// [hideVsyncUs]: numbered from [firstHeavy] through [hideFrame], or drawn
-/// after the hide frame within [rasterRunTailUs].
+/// [firstHeavy] and ended with the hide frame [hideFrame]: numbered from
+/// [firstHeavy] through [hideFrame], or the [continuationFrame] (see
+/// [rasterContinuationFrame]).
 bool inRasterRun(
   RasterFrame frame, {
   required int firstHeavy,
   required int hideFrame,
-  required int? hideVsyncUs,
-}) {
-  if (frame.number >= firstHeavy && frame.number <= hideFrame) return true;
-  if (hideVsyncUs == null || frame.number < hideFrame) return false;
-  final after = frame.vsyncUs - hideVsyncUs;
-  return after > 0 && after <= rasterRunTailUs;
-}
+  required int? continuationFrame,
+}) =>
+    (frame.number >= firstHeavy && frame.number <= hideFrame) ||
+    frame.number == continuationFrame;
 
 /// Why a leg cannot be exported given what the screen saw, with the
 /// screen's count when it got that far. [heavyFrames] are the engine frame
@@ -400,7 +426,8 @@ bool inRasterRun(
       refusal: (
         verdict: 'UNMEASURED',
         reason:
-            '${heavyFrames.length} of ${leg.heavyFrames} heavy frames '
+            '${heavyFrames.length} of '
+            '${rasterFrameCount(leg.heavyFrames, 'heavy')} '
             'drew${hideFrame == null ? ' and the hide frame did not' : ''}',
       ),
       count: null,
@@ -429,14 +456,43 @@ bool inRasterRun(
       count: null,
     );
   }
+  bool dominantFrame(RasterFrame f) =>
+      isRasterDominant(uiUs: f.uiUs, rasterUs: f.rasterUs, budgetUs: budgetUs);
+  // Every heavy frame must be dominant, so the run, not a frame around it,
+  // sets the count: H heavy frames, plus at most the hide frame and the
+  // frame after it.
+  for (final n in heavyFrames) {
+    final f = frames.where((f) => f.number == n).firstOrNull;
+    if (f == null) {
+      return (
+        refusal: (
+          verdict: 'UNMEASURED',
+          reason: 'heavy frame #$n reported no timing',
+        ),
+        count: null,
+      );
+    }
+    if (!dominantFrame(f)) {
+      return (
+        refusal: (
+          verdict: 'UNMEASURED',
+          reason:
+              'heavy frame #$n was not raster-dominant (raster '
+              '${(f.rasterUs / 1000).toStringAsFixed(1)} ms, UI '
+              '${(f.uiUs / 1000).toStringAsFixed(1)} ms)',
+        ),
+        count: null,
+      );
+    }
+  }
+  final continuation = rasterContinuationFrame(
+    frames,
+    hideFrame: hideFrame,
+    hideVsyncUs: hideVsync,
+  );
   final dominant = [
     for (final f in frames)
-      if (isRasterDominant(
-        uiUs: f.uiUs,
-        rasterUs: f.rasterUs,
-        budgetUs: budgetUs,
-      ))
-        f,
+      if (dominantFrame(f)) f,
   ];
   final ambient = [
     for (final f in dominant)
@@ -444,7 +500,7 @@ bool inRasterRun(
         f,
         firstHeavy: first,
         hideFrame: hideFrame,
-        hideVsyncUs: hideVsync,
+        continuationFrame: continuation,
       ))
         f.number,
   ];
@@ -453,9 +509,10 @@ bool inRasterRun(
       refusal: (
         verdict: 'OUT-OF-BAND',
         reason:
-            '${ambient.length} dominant frame(s) outside the run '
-            '(#$first to #$hideFrame and ${rasterRunTailUs ~/ 1000} ms '
-            'after): ${ambient.map((n) => '#$n').join(', ')}',
+            '${rasterFrameCount(ambient.length, 'dominant')} outside the '
+            'run (#$first to #$hideFrame and the next frame within '
+            '${rasterRunTailUs ~/ 1000} ms): '
+            '${ambient.map((n) => '#$n').join(', ')}',
       ),
       count: null,
     );
@@ -513,6 +570,15 @@ ui.Picture recordStrokePicture({
   }
   return recorder.endRecording();
 }
+
+/// Fixed-width text for the counts and the frame log. iOS has no
+/// 'monospace' family, so it falls back to Menlo or Courier; tabular
+/// figures keep the padded columns lined up.
+const TextStyle _monoStyle = TextStyle(
+  fontFamily: 'monospace',
+  fontFamilyFallback: ['Menlo', 'Courier'],
+  fontFeatures: [FontFeature.tabularFigures()],
+);
 
 /// What a running attempt was stopped by.
 typedef _Stop = ({String verdict, String reason});
@@ -599,9 +665,14 @@ class _RasterDominanceCaptureScreenState
     _provenance = widget.provenanceCheck();
     _lifecycle = AppLifecycleListener(
       onStateChange: (state) {
-        if (state != AppLifecycleState.resumed) {
-          _stopAttempt('UNMEASURED', 'the app left the foreground ($state)');
+        if (state == AppLifecycleState.resumed) return;
+        // Once the span has closed, a pulled-down Control Center
+        // (inactive) no longer touches the measurement; only leaving the
+        // app stops the export.
+        if (state == AppLifecycleState.inactive && _openScenario == null) {
+          return;
         }
+        _stopAttempt('UNMEASURED', 'the app left the foreground ($state)');
       },
     );
     // The display may not be known in initState on iOS.
@@ -615,7 +686,7 @@ class _RasterDominanceCaptureScreenState
               ? 'Pre-flight: no view, so the refresh rate is unknown. '
                     'Re-open the screen.'
               : 'Pre-flight: ${rate.toStringAsFixed(1)} Hz, '
-                    '${_refreshRateOk ? 'OK' : 'REJECTED (needs 60 Hz)'}',
+                    '${_refreshRateOk ? 'OK' : 'REJECTED: set the display to 60 Hz before a leg'}',
         );
       });
     });
@@ -726,7 +797,26 @@ class _RasterDominanceCaptureScreenState
 
   Future<bool>? _restoring;
 
+  // A suspension the VM has not answered yet. A restore waits for it, so
+  // the suspension cannot land after the restore.
+  Future<bool>? _pendingSuspend;
+
+  void _clearPendingSuspend(Future<bool> suspend) {
+    if (identical(_pendingSuspend, suspend)) _pendingSuspend = null;
+  }
+
   Future<bool> _restoreOnce({required String label, required bool log}) async {
+    final pending = _pendingSuspend;
+    if (pending != null) {
+      try {
+        await pending.timeout(widget.timing.suspendWait);
+      } catch (_) {
+        // Still unanswered: restore once more when it lands, then go on.
+        pending
+            .then((_) => widget.calls.resumeStreams(), onError: (_) => false)
+            .ignore();
+      }
+    }
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
         final accepted = await withCallTimeout(
@@ -902,6 +992,21 @@ class _RasterDominanceCaptureScreenState
     setState(() => _log.add(line));
   }
 
+  /// A tap refused before any attempt starts: the line goes to the log,
+  /// the status line (which a screen reader announces) and
+  /// `ext.sleuthDemo.rasterState`.
+  void _refuse(String line) {
+    if (!mounted) return;
+    setState(() {
+      _log.add(line);
+      _status = line;
+      _lastRefusal = line;
+    });
+  }
+
+  // The last tap refused before an attempt started; cleared when one starts.
+  String? _lastRefusal;
+
   /// Shows [message] in a SnackBar as well as the log, because the log can
   /// sit out of view and a screen reader does not announce it.
   void _confirm(String message) {
@@ -910,6 +1015,15 @@ class _RasterDominanceCaptureScreenState
       ..showSnackBar(
         SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
       );
+  }
+
+  /// The retry step for a refused or failed attempt, with the attempts
+  /// left on this leg.
+  String _retryHint() {
+    final left = _maxAttemptsPerLeg - _attempts;
+    return left > 0
+        ? 'Tap the leg again ($left of $_maxAttemptsPerLeg attempts left).'
+        : 'No attempts left on this leg; reopen the screen.';
   }
 
   void _finish(
@@ -938,14 +1052,14 @@ class _RasterDominanceCaptureScreenState
     if (_busy) return;
     final label = leg.label;
     if (!_captureModeOn) {
-      _say(
+      _refuse(
         '[$label] ABORT: capture mode is off. Relaunch with '
         '--dart-define=SLEUTH_CAPTURE_MODE=true.',
       );
       return;
     }
     if (!widget.calls.vmConnected()) {
-      _say(
+      _refuse(
         '[$label] ABORT: VM service not connected. Run a profile build '
         'with --no-dds so Sleuth can attach.',
       );
@@ -953,21 +1067,23 @@ class _RasterDominanceCaptureScreenState
     }
     final refusal = provenanceRefusal(label, check: widget.provenanceCheck);
     if (refusal != null) {
-      _say(refusal);
+      _refuse(refusal);
       return;
     }
-    final rate = View.maybeOf(context)?.display.refreshRate ?? _refreshRate;
-    _refreshRate = rate;
+    // Read again at every tap, so a display switched to 60 Hz in Settings
+    // is picked up without reopening the screen.
+    _refreshRate = View.maybeOf(context)?.display.refreshRate ?? _refreshRate;
     if (!_refreshRateOk) {
-      _say(
+      _refuse(
         '[$label] ABORT: refresh rate is '
-        '${rate?.toStringAsFixed(1) ?? 'unknown'} Hz, not 60 Hz.',
+        '${_refreshRate?.toStringAsFixed(1) ?? 'unknown'} Hz, not 60 Hz. '
+        'Set the display to 60 Hz, then tap the leg again.',
       );
       return;
     }
     final quiet = _quietStartProblem();
     if (quiet != null) {
-      _say('[$label] ABORT: $quiet.');
+      _refuse('[$label] ABORT: $quiet.');
       return;
     }
     final bracket = rasterBracket(
@@ -975,7 +1091,7 @@ class _RasterDominanceCaptureScreenState
       leg.tier,
     );
     if (bracket == null) {
-      _say(
+      _refuse(
         '[$label] ABORT: GpuPressureDetector declares no raster_dominance '
         '${leg.tier} bracket.',
       );
@@ -983,7 +1099,7 @@ class _RasterDominanceCaptureScreenState
     }
     if (_attemptLeg != leg) _attempts = 0;
     if (_attempts >= _maxAttemptsPerLeg) {
-      _say(
+      _refuse(
         '[$label] $_maxAttemptsPerLeg attempts used. Let the phone idle, '
         'then reopen this screen or run another leg.',
       );
@@ -997,12 +1113,14 @@ class _RasterDominanceCaptureScreenState
     _stop = null;
     _stopSignal = Completer<void>();
     setState(() {
+      _lastRefusal = null;
       _busy = true;
       _status =
           'Running ${leg.label}, attempt $_attempts of $_maxAttemptsPerLeg';
       _log.add(
         '[$label] attempt $_attempts/$_maxAttemptsPerLeg: '
-        '${leg.heavyFrames} heavy frames of $rasterLegPaths paths, band '
+        '${rasterFrameCount(leg.heavyFrames, 'heavy')} of $rasterLegPaths '
+        'paths, band '
         '${bracket.bandText(leg.role)} frames',
       );
     });
@@ -1020,8 +1138,14 @@ class _RasterDominanceCaptureScreenState
       // The flag is set before the call, because a suspension that times
       // out may still land later.
       _streamsSuspended = true;
+      final suspend = widget.calls.suspendStreams();
+      _pendingSuspend = suspend;
+      suspend.then(
+        (_) => _clearPendingSuspend(suspend),
+        onError: (Object _) => _clearPendingSuspend(suspend),
+      );
       final narrowed = await withCallTimeout(
-        widget.calls.suspendStreams(),
+        suspend,
         'suspendNonEssentialTimelineStreams',
       );
       if (!mounted) return;
@@ -1103,7 +1227,7 @@ class _RasterDominanceCaptureScreenState
       if (frameRefusal != null) {
         _finish(
           leg,
-          '${frameRefusal.verdict}: ${frameRefusal.reason}',
+          '${frameRefusal.verdict}: ${frameRefusal.reason}. ${_retryHint()}',
           count: count,
           spanMs: spanMs,
         );
@@ -1117,7 +1241,7 @@ class _RasterDominanceCaptureScreenState
         _finish(
           leg,
           'FAILED: the VM did not restore the timeline streams after 3 '
-          'tries',
+          'tries. ${_retryHint()}',
           count: count,
           spanMs: spanMs,
         );
@@ -1133,9 +1257,24 @@ class _RasterDominanceCaptureScreenState
         for (final f in frames)
           if (_heavyNumbers.contains(f.number)) f.rasterUs,
       ]..sort();
+      // Which run frames were dominant, so the capture shows where its
+      // count came from.
+      final inRun = _runTest(frames);
+      bool dominantAt(int? n) => frames.any(
+        (f) =>
+            f.number == n &&
+            isRasterDominant(uiUs: f.uiUs, rasterUs: f.rasterUs),
+      );
+      final tail = [
+        for (final f in frames)
+          if (inRun(f) && hide != null && f.number > hide) f.number,
+      ];
       final notes =
-          'paths $rasterLegPaths, heavy frames ${leg.heavyFrames}, dominant '
-          'span ${spanMs ?? 0} ms, heavy raster median '
+          'paths $rasterLegPaths, heavy frames ${leg.heavyFrames} (all '
+          'dominant), hide frame dominant ${dominantAt(hide)}, next frame '
+          'in the run ${tail.isEmpty ? 'none' : (dominantAt(tail.first) ? 'dominant' : 'light')}, '
+          'dominant span '
+          '${spanMs ?? 0} ms, heavy raster median '
           '${heavyRaster.isEmpty ? 0 : heavyRaster[heavyRaster.length ~/ 2]} '
           'us';
       String? json;
@@ -1190,7 +1329,7 @@ class _RasterDominanceCaptureScreenState
       if (exportRefusal != null) {
         _finish(
           leg,
-          '${exportRefusal.verdict}: ${exportRefusal.reason}',
+          '${exportRefusal.verdict}: ${exportRefusal.reason}. ${_retryHint()}',
           count: count,
           detector: detectorMax,
           spanMs: spanMs,
@@ -1202,8 +1341,8 @@ class _RasterDominanceCaptureScreenState
       _attemptLeg = null;
       _finish(
         leg,
-        'capture stashed: $count dominant frames in '
-        '${spanMs ?? 0} ms${detectorMax == null ? '' : ', detector max $detectorMax'}. '
+        'capture stashed: ${rasterFrameCount(count!, 'dominant')} in '
+        '${spanMs ?? 0} ms${detectorMax == null ? '' : ', detector count $detectorMax'}. '
         'Tap "Export last leg" to copy it.',
         count: count,
         detector: detectorMax,
@@ -1214,11 +1353,11 @@ class _RasterDominanceCaptureScreenState
     } catch (e) {
       // A flush past its 2 s limit, a VM call past its limit, or any other
       // failure still ends the attempt with an outcome line.
-      _finish(leg, 'FAILED while $step: $e. Tap the leg again.');
+      _finish(leg, 'FAILED while $step: $e. ${_retryHint()}');
     } finally {
       final stop = _stop;
       if (stop != null && mounted) {
-        _finish(leg, '${stop.verdict}: ${stop.reason}. Tap the leg again.');
+        _finish(leg, '${stop.verdict}: ${stop.reason}. ${_retryHint()}');
       }
       _frontTimer?.cancel();
       _limitTimer?.cancel();
@@ -1263,11 +1402,18 @@ class _RasterDominanceCaptureScreenState
         .where((f) => f.number == hide)
         .map((f) => f.vsyncUs)
         .firstOrNull;
+    final continuation = hideVsync == null
+        ? null
+        : rasterContinuationFrame(
+            frames,
+            hideFrame: hide,
+            hideVsyncUs: hideVsync,
+          );
     return (f) => inRasterRun(
       f,
       firstHeavy: first,
       hideFrame: hide,
-      hideVsyncUs: hideVsync,
+      continuationFrame: continuation,
     );
   }
 
@@ -1351,6 +1497,7 @@ class _RasterDominanceCaptureScreenState
     return {
       'busy': _busy,
       'attempts': _attempts,
+      'lastRefusal': _lastRefusal,
       'result': result == null
           ? null
           : {
@@ -1422,16 +1569,10 @@ class _RasterDominanceCaptureScreenState
   Widget build(BuildContext context) {
     final capture = Sleuth.diagnoseCaptureState();
     final scheme = Theme.of(context).colorScheme;
-    const evidenceStyle = TextStyle(
-      fontFamily: 'monospace',
-      fontSize: 12,
-      fontFeatures: [FontFeature.tabularFigures()],
-    );
-    final ready =
-        _refreshRateOk &&
-        _captureModeOn &&
-        _provenance.provenance != null &&
-        !_busy;
+    final evidenceStyle = _monoStyle.copyWith(fontSize: 12);
+    // The refresh rate is read again at each tap, so it does not disable
+    // the legs.
+    final ready = _captureModeOn && _provenance.provenance != null && !_busy;
     final rate = _refreshRate;
     final stamp = _provenance.provenance;
     final result = _result;
@@ -1454,8 +1595,8 @@ class _RasterDominanceCaptureScreenState
               ),
               Text(
                 'Refresh rate: '
-                '${rate == null ? 'detecting' : rate.toStringAsFixed(1)}'
-                ' Hz${_refreshRateOk ? '' : ' (needs 60 Hz)'}',
+                '${rate == null ? 'detecting' : '${rate.toStringAsFixed(1)} Hz'}'
+                '${rate == null || _refreshRateOk ? '' : ' (needs 60 Hz)'}',
                 style: const TextStyle(fontSize: 12),
               ),
               if (stamp != null)
@@ -1503,20 +1644,23 @@ class _RasterDominanceCaptureScreenState
                   ),
                 Text(_age(result.at), style: evidenceStyle),
               ],
-              if (stash != null)
+              if (stash != null) ...[
+                const SizedBox(height: 8),
                 Text(
                   'Stashed: ${stash.leg.title}, '
                   '${_age(stash.at).replaceFirst('Recorded ', 'recorded ')}',
                   style: evidenceStyle,
                 ),
+              ],
               const SizedBox(height: 16),
               Text(
-                'Draws a run of frames whose raster time is far above their '
-                'UI time and records raster_dominance: a warning at 3 '
-                'dominant frames inside one second, critical at 10. A run '
-                'of N heavy frames gives N or N + 1 dominant frames. Wait '
-                '${rasterRouteSettle.inSeconds} s after the screen opens '
-                'before a leg.',
+                'Draws a run of frames in the framed box under Export, in a '
+                'color close to the background, whose raster time is far '
+                'above their UI time, and records raster_dominance: a '
+                'warning at 3 dominant frames inside one second, critical '
+                'at 10. A run of N heavy frames gives N or N + 1 dominant '
+                'frames. Wait ${rasterRouteSettle.inSeconds} s after the '
+                'screen opens before a leg.',
                 style: const TextStyle(fontSize: 13),
               ),
               const SizedBox(height: 12),
@@ -1570,7 +1714,7 @@ class _RasterDominanceCaptureScreenState
                 liveRegion: true,
                 child: Text(
                   _status,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  style: _monoStyle.copyWith(fontSize: 12),
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1584,7 +1728,7 @@ class _RasterDominanceCaptureScreenState
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Text(
                   _log[_log.length - 1 - i],
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                  style: _monoStyle.copyWith(fontSize: 11),
                 ),
               ),
             ),

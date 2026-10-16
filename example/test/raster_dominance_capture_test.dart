@@ -2,6 +2,7 @@
 // rule and span count against the detector's, the leg table, the frame
 // refusals, and the screen's pre-flight, lifecycle and stash behaviour.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:ui' show FrameTiming;
@@ -66,9 +67,21 @@ class _FakeCalls extends RasterLegCalls {
   /// The detector max the fake export stamps; null exports no record.
   int? Function(int observed)? stamp = (observed) => observed;
 
+  /// Holds the suspension open until completed, when set.
+  Completer<bool>? suspendGate;
+
+  /// Holds the export open until completed, when set.
+  Completer<void>? exportGate;
+
   @override
   Future<bool> suspendStreams() async {
     log.add('suspend');
+    final gate = suspendGate;
+    if (gate != null) {
+      final accepted = await gate.future;
+      log.add('suspend landed');
+      return accepted;
+    }
     return true;
   }
 
@@ -115,6 +128,8 @@ class _FakeCalls extends RasterLegCalls {
     required String captureNotes,
   }) async {
     log.add('export ${leg.scenario} $observed');
+    final gate = exportGate;
+    if (gate != null) await gate.future;
     final value = stamp?.call(observed);
     return jsonEncode({
       'traceEvents': [
@@ -226,6 +241,7 @@ void main() {
       final labels = RasterLeg.values.map((l) => l.buttonLabel).toSet();
       expect(labels, hasLength(RasterLeg.values.length));
       expect(RasterLeg.criticalAt.buttonLabel, 'Critical at: 11 heavy frames');
+      expect(RasterLeg.below.buttonLabel, 'Below: 1 heavy frame');
     });
 
     test('the bands read from the detector metadata', () {
@@ -297,6 +313,79 @@ void main() {
       expect(judged.refusal!.reason, contains('#16'));
     });
 
+    test('refuses a dominant frame after a light frame that follows the '
+        'hide frame, even within 250 ms', () {
+      // Hide #13 and the next frame #14 are light; #15, 100 ms after the
+      // hide frame, is dominant and cannot belong to the run.
+      final judged = rasterFrameRefusal(
+        RasterLeg.at,
+        heavyFrames: [10, 11, 12],
+        hideFrame: 13,
+        frames: [
+          ...run(10, 3),
+          _frame(14, 149999),
+          _frame(15, 199999, rasterUs: 30000),
+        ],
+        bracket: _bracket('warning'),
+      );
+      expect(judged.refusal!.verdict, 'OUT-OF-BAND');
+      expect(judged.refusal!.reason, contains('#15'));
+    });
+
+    test('refuses a run with a heavy frame that is not dominant', () {
+      final judged = rasterFrameRefusal(
+        RasterLeg.at,
+        heavyFrames: [10, 11, 12],
+        hideFrame: 13,
+        frames: [
+          _frame(10, 0, rasterUs: 29000),
+          _frame(11, 33333, rasterUs: 12000),
+          _frame(12, 66666, rasterUs: 29000),
+          _frame(13, 99999, rasterUs: 20000),
+          _frame(14, 133333, rasterUs: 20000),
+        ],
+        bracket: _bracket('warning'),
+      );
+      expect(judged.refusal!.verdict, 'UNMEASURED');
+      expect(judged.refusal!.reason, contains('#11'));
+    });
+
+    test('refuses a run whose heavy frame reported no timing', () {
+      final judged = rasterFrameRefusal(
+        RasterLeg.at,
+        heavyFrames: [10, 11, 12],
+        hideFrame: 13,
+        frames: [
+          _frame(10, 0, rasterUs: 29000),
+          _frame(12, 66666, rasterUs: 29000),
+          _frame(13, 99999),
+        ],
+        bracket: _bracket('warning'),
+      );
+      expect(judged.refusal!.reason, contains('#11 reported no timing'));
+    });
+
+    test('rasterContinuationFrame picks the first frame after the hide frame '
+        'within 250 ms', () {
+      final frames = [
+        _frame(13, 1000000),
+        _frame(16, 1300000),
+        _frame(15, 1100000),
+      ];
+      expect(
+        rasterContinuationFrame(frames, hideFrame: 13, hideVsyncUs: 1000000),
+        15,
+      );
+      expect(
+        rasterContinuationFrame(
+          [_frame(13, 1000000), _frame(14, 1250001)],
+          hideFrame: 13,
+          hideVsyncUs: 1000000,
+        ),
+        isNull,
+      );
+    });
+
     test('refuses a run whose hide frame reported no timing', () {
       final judged = rasterFrameRefusal(
         RasterLeg.at,
@@ -355,8 +444,10 @@ void main() {
         ],
         bracket: _bracket('warning'),
       );
+      // Light heavy frames: the run did not draw what it should.
       expect(wide.refusal!.verdict, 'UNMEASURED');
-      expect(wide.count, 0);
+      expect(wide.refusal!.reason, contains('was not raster-dominant'));
+      expect(wide.count, isNull);
     });
   });
 
@@ -685,6 +776,91 @@ void main() {
       calls.stamp = (observed) => observed - 1;
       await driveLeg(tester, RasterLeg.above);
       expect(logged(tester, 'Stashed: At'), isTrue);
+    });
+
+    testWidgets('a tap refused before an attempt sets the status line and '
+        'rasterState', (tester) async {
+      final calls = _FakeCalls()..dashboard = true;
+      await open(tester, calls);
+      await tapLeg(tester, RasterLeg.at);
+      await tester.pump();
+      final status = tester.widget<Text>(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (w) => w is Semantics && (w.properties.liveRegion ?? false),
+          ),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(status.data, contains('dashboard is open'));
+      final runner =
+          tester.state(find.byType(RasterDominanceCaptureScreen))
+              as RasterBurstRunner;
+      expect(
+        runner.harnessState()['lastRefusal'],
+        contains('dashboard is open'),
+      );
+    });
+
+    testWidgets('a rejected refresh rate leaves the legs tappable and is '
+        'read again at the tap', (tester) async {
+      final calls = _FakeCalls();
+      await open(tester, calls);
+      tester.view.display.refreshRate = 120;
+      await tapLeg(tester, RasterLeg.at);
+      await tester.pump();
+      expect(logged(tester, 'Set the display to 60 Hz'), isTrue);
+      expect(calls.log, isEmpty);
+
+      tester.view.display.refreshRate = 60;
+      await driveLeg(tester, RasterLeg.at);
+      expect(logged(tester, 'capture stashed: 3 dominant frames'), isTrue);
+    });
+
+    testWidgets('pulling down Control Center after the span closes does not '
+        'drop the leg', (tester) async {
+      final calls = _FakeCalls()..exportGate = Completer<void>();
+      await open(tester, calls);
+      await driveLeg(tester, RasterLeg.at);
+      expect(calls.log.last, 'export raster_dominance_at 3');
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      calls.exportGate!.complete();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(logged(tester, 'capture stashed: 3 dominant frames'), isTrue);
+    });
+
+    testWidgets('closing the screen while the suspension is unanswered '
+        'restores the streams after it lands', (tester) async {
+      final calls = _FakeCalls()..suspendGate = Completer<bool>();
+      await open(tester, calls);
+      await tapLeg(tester, RasterLeg.at);
+      await tester.pump();
+      expect(calls.log, ['suspend']);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(calls.log, ['suspend'], reason: 'no restore before it lands');
+      calls.suspendGate!.complete(true);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(calls.log, ['suspend', 'suspend landed', 'resume']);
+    });
+
+    testWidgets('a suspension still unanswered after the wait is followed by '
+        'one more restore when it lands', (tester) async {
+      final calls = _FakeCalls()..suspendGate = Completer<bool>();
+      await open(tester, calls);
+      await tapLeg(tester, RasterLeg.at);
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      // Past the 5 s wait the restore goes ahead.
+      await tester.pump(const Duration(seconds: 6));
+      expect(calls.log, ['suspend', 'resume']);
+      calls.suspendGate!.complete(true);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(calls.log, ['suspend', 'resume', 'suspend landed', 'resume']);
     });
 
     testWidgets('a burst outside a leg refuses inside the route settle', (
