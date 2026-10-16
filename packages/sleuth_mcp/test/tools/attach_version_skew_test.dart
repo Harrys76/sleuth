@@ -93,7 +93,7 @@ void main() {
           'connectionMode': 'basic',
           'schemaVersion': 1,
           'sessionUuid': 'fake-uuid',
-          'data': {'packageVersion': '0.37.99'},
+          'data': {'packageVersion': '0.38.99'},
         });
       final server = McpServer(bridge: bridge)..registerDefaults();
       await server.handleForTest(
@@ -302,7 +302,7 @@ void main() {
           'connectionMode': 'basic',
           'schemaVersion': 1,
           'sessionUuid': 'fake-uuid',
-          'data': {'packageVersion': '0.36.0'},
+          'data': {'packageVersion': '0.37.0'},
         });
       final server = McpServer(bridge: bridge)..registerDefaults();
       await server.handleForTest(
@@ -354,10 +354,10 @@ void main() {
     });
 
     for (final (version, code) in <(String, String)>[
-      ('0.35.9', 'version_skew_major'),
-      ('0.38.0', 'version_skew_major'),
-      ('0.37.garbage', 'version_skew_unknown'),
-      ('0.36', 'version_skew_unknown'),
+      ('0.36.9', 'version_skew_major'),
+      ('0.39.0', 'version_skew_major'),
+      ('0.38.garbage', 'version_skew_unknown'),
+      ('0.37', 'version_skew_unknown'),
     ]) {
       test(
         'packageVersion $version is refused with $code and detaches',

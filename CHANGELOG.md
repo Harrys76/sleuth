@@ -1,4 +1,4 @@
-## Unreleased
+## 0.38.0 (unreleased)
 
 - `gc_pressure` counts each garbage collection once. The VM posts every
   collection once per non-system isolate of the isolate group, so apps using

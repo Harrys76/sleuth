@@ -1,3 +1,17 @@
+## 0.9.0
+
+Pins sleuth 0.38.0, accepts 0.37 apps with a warning and refuses 0.36
+apps.
+
+- The launch-mode advisory lists `event_loop_stall` among the issues that
+  need a VM service link.
+- The tool schema documents the `diagnose` keys sleuth 0.38.0 adds: the
+  timeline stream counters (`timelineSource`, `streamBlocks`,
+  `streamEvents`, `streamEventsDropped`, `catchUpReads`,
+  `lastStreamLagMs`) and the event-loop stall counters
+  (`eventLoopStallTimerStream`, `eventLoopStallExcused`,
+  `eventLoopStallIgnored`).
+
 ## 0.8.0
 
 Pins sleuth 0.37.0 and accepts 0.36 apps with a warning; 0.35 apps are

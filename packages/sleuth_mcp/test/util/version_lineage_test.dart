@@ -56,13 +56,13 @@ void main() {
   });
 
   group('defaultVersionSkewValidator', () {
-    test('accepts the pin, its patches and prereleases, and 0.36', () async {
+    test('accepts the pin, its patches and prereleases, and 0.37', () async {
       for (final ok in [
         sleuthPackageVersionPin,
-        '0.37.4',
-        '0.37.0-dev.1',
-        '0.36.0',
-        '0.36.0+build',
+        '0.38.4',
+        '0.38.0-dev.1',
+        '0.37.0',
+        '0.37.0+build',
       ]) {
         expect(
           await defaultVersionSkewValidator(_diagnose(ok)),
@@ -72,8 +72,8 @@ void main() {
       }
     });
 
-    test('refuses 0.35 and 0.38 lineages as version_skew_major', () async {
-      for (final refused in ['0.35.0', '0.35.9', '0.38.0', '0.38.0-dev.1']) {
+    test('refuses 0.36 and 0.39 lineages as version_skew_major', () async {
+      for (final refused in ['0.36.0', '0.36.9', '0.39.0', '0.39.0-dev.1']) {
         expect(
           await defaultVersionSkewValidator(_diagnose(refused)),
           startsWith('version_skew_major:'),
@@ -86,8 +86,8 @@ void main() {
       'refuses malformed or missing versions as version_skew_unknown',
       () async {
         for (final malformed in <Object?>[
-          '0.36',
-          '0.37.garbage',
+          '0.37',
+          '0.38.garbage',
           '',
           37,
           null,
@@ -104,8 +104,8 @@ void main() {
 
   group('connect warning by lineage', () {
     for (final (version, warning) in <(String, String)>[
-      ('0.37.0-dev.1', 'version_skew_minor'),
-      ('0.36.0+build', 'version_skew_prior_lineage'),
+      ('0.38.0-dev.1', 'version_skew_minor'),
+      ('0.37.0+build', 'version_skew_prior_lineage'),
     ]) {
       test('$version connects with $warning', () async {
         final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')

@@ -10,7 +10,7 @@ import '../helpers/fake_vm_bridge.dart';
 
 FakeVmBridge _bridgeWithMode(
   String connectionMode, {
-  String packageVersion = '0.37.0',
+  String packageVersion = '0.38.0',
   bool vmConnected = false,
 }) {
   return FakeVmBridge(fakeSessionUuid: 'uuid')
@@ -118,7 +118,7 @@ void main() {
       () async {
         final bridge = _bridgeWithMode(
           'basic',
-          packageVersion: '0.37.99',
+          packageVersion: '0.38.99',
           vmConnected: false,
         );
         final handler = builtInTools['connect']!.handler;
