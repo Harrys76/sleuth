@@ -1787,6 +1787,16 @@ class SleuthController {
     return _memoryPressure;
   }
 
+  /// The [StartupDetector] instance, or null before initialisation or when
+  /// [DetectorType.startup] is not among the built detectors.
+  StartupDetector? get startupDetector {
+    if (!_detectorsReady) return null;
+    for (final d in _detectors) {
+      if (d is StartupDetector) return d;
+    }
+    return null;
+  }
+
   /// Last reason [exportCaptureJson] returned null. Set immediately
   /// before each null-return path so capture-screen UIs can surface
   /// the failure without parsing flutter-tool console output. Cleared

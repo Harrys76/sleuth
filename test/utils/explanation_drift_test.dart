@@ -13,6 +13,7 @@ import 'package:sleuth/src/detectors/platform_channel_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
+import 'package:sleuth/src/detectors/startup_detector.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
 
@@ -41,6 +42,10 @@ void main() {
   final setStateScope = SetStateScopeDetector();
   final gpu = GpuPressureDetector();
   final image = ImageMemoryDetector();
+  final startup = StartupDetector(
+    ttffWarningMs: thresholds.startupTtffWarningMs,
+    ttffCriticalMs: thresholds.startupTtffCriticalMs,
+  );
   final keepAliveThreshold = KeepAliveDetector().threshold;
   final repaintDebugRate = RepaintDetector().paintFrequencyThreshold;
   final heavyMs = DetectorThresholds.defaultHeavyComputeGapMs;
@@ -383,6 +388,13 @@ void main() {
       'uncached_images',
       _Field.readingTheData,
       'critical at ${image.criticalWastedBytes >> 20} MiB',
+    ),
+    (
+      'slow_startup_ttff',
+      _Field.readingTheData,
+      'Under ${startup.ttffWarningMs}ms is normal. From '
+          '${startup.ttffWarningMs}ms up to ${startup.ttffCriticalMs}ms is a '
+          'warning, and ${startup.ttffCriticalMs}ms or more is critical',
     ),
   ];
 

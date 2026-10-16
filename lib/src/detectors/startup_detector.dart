@@ -51,6 +51,11 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
+  /// Whether the detector has judged the first-frame metrics, with or
+  /// without an issue. False until [Sleuth.startupMetrics] exists and a
+  /// scan has read it.
+  bool get evaluated => _consumed;
+
   @override
   bool get isEnabled => _isEnabled;
 
@@ -103,6 +108,7 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
             'Measured from Sleuth.init() to the first FrameTiming raster '
             'end with SchedulerBinding.addTimingsCallback',
         detectedAt: DateTime.now(),
+        extraTraceArgs: {'observedTtffMs': ttff.toStringAsFixed(1)},
       ),
     );
   }

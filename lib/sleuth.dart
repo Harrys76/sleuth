@@ -67,6 +67,7 @@ import 'src/detectors/memory_pressure_detector.dart'
     show MemoryPressureDetector;
 import 'src/detectors/rebuild_detector.dart' show RebuildDetector;
 import 'src/detectors/repaint_detector.dart' show RepaintDetector;
+import 'src/detectors/startup_detector.dart' show StartupDetector;
 import 'src/detectors/stream_resource_detector.dart'
     show StreamResourceDetector, StreamResourcePollResult;
 import 'src/detectors/tracked_resource_detector.dart'
@@ -200,6 +201,18 @@ class Sleuth {
   /// Timestamp when [markInteractive] was called.
   static DateTime? _interactiveTimestamp;
 
+  /// The clock [init] and its first-frame callback read. Tests set it to
+  /// control the measured time to first frame; null reads
+  /// [DateTime.now].
+  @visibleForTesting
+  static DateTime Function()? startupClockForTest;
+
+  /// The first-frame callback [init] registered, kept until it fires so
+  /// [resetStartupForTest] can remove it.
+  static void Function(List<FrameTiming>)? _firstFrameCallback;
+
+  static DateTime _startupNow() => (startupClockForTest ?? DateTime.now)();
+
   /// Initialize startup tracing before [runApp].
   ///
   /// Captures the Dart entry timestamp and registers a one-shot
@@ -249,7 +262,7 @@ class Sleuth {
     if (kReleaseMode) return;
     if (_initCalled) return;
     _initCalled = true;
-    _dartEntryTimestamp = DateTime.now();
+    _dartEntryTimestamp = _startupNow();
     _dartEntryMonotonicUs = Timeline.now;
 
     // Ensure bindings exist so SchedulerBinding is available.
@@ -270,6 +283,7 @@ class Sleuth {
       callback = (List<FrameTiming> timings) {
         // Unregister immediately — one-shot.
         SchedulerBinding.instance.removeTimingsCallback(callback);
+        _firstFrameCallback = null;
 
         if (timings.isEmpty) return;
         final first = timings.first;
@@ -296,7 +310,7 @@ class Sleuth {
         // monotonic system clock (uptime-based), not the Unix epoch, so
         // DateTime.fromMicrosecondsSinceEpoch(rasterFinish) would produce
         // garbage when diffed against _dartEntryTimestamp (wall clock).
-        final firstFrameCompleteTime = DateTime.now();
+        final firstFrameCompleteTime = _startupNow();
         final ttff =
             firstFrameCompleteTime
                 .difference(_dartEntryTimestamp!)
@@ -335,6 +349,7 @@ class Sleuth {
         }
       };
       SchedulerBinding.instance.addTimingsCallback(callback);
+      _firstFrameCallback = callback;
     } catch (_) {
       // SchedulerBinding not available (custom binding without
       // SchedulerBinding mixin). TTFF will not be measured, but
@@ -426,6 +441,18 @@ class Sleuth {
   /// Reset startup state for testing purposes only.
   @visibleForTesting
   static void resetStartupForTest() {
+    // A callback that never fired would otherwise run on the next timing
+    // report against the cleared state below.
+    final pending = _firstFrameCallback;
+    _firstFrameCallback = null;
+    if (pending != null) {
+      try {
+        SchedulerBinding.instance.removeTimingsCallback(pending);
+      } catch (_) {
+        // No binding: nothing was registered with one.
+      }
+    }
+    startupClockForTest = null;
     _initCalled = false;
     _dartEntryTimestamp = null;
     _dartEntryMonotonicUs = null;
@@ -589,6 +616,17 @@ class Sleuth {
   static MemoryPressureDetector? get memoryPressureDetector {
     if (kReleaseMode) return null;
     return _controller?.memoryPressureDetector;
+  }
+
+  /// Public accessor for the [StartupDetector] instance. The
+  /// slow_startup_ttff capture flow reads [StartupDetector.evaluated] to
+  /// know when the detector has judged the first-frame metrics. Returns
+  /// null when [Sleuth] has not been initialised, in release mode, or
+  /// when [SleuthConfig.enabledDetectors] leaves out
+  /// [DetectorType.startup].
+  static StartupDetector? get startupDetector {
+    if (kReleaseMode) return null;
+    return _controller?.startupDetector;
   }
 
   /// Public accessor for the [StreamResourceDetector] instance. Capture

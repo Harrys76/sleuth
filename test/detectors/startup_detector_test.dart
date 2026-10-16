@@ -191,6 +191,36 @@ void main() {
       expect(detector.isEnabled, isTrue);
       detector.dispose();
     });
+
+    test('stamps observedTtffMs on the warning and the critical', () {
+      for (final (ttffMs, severity) in [
+        (2000.04, IssueSeverity.warning),
+        (3600.0, IssueSeverity.critical),
+      ]) {
+        Sleuth.resetStartupForTest();
+        _setStartupMetrics(ttffMs: ttffMs);
+        final detector = StartupDetector()..prepareScan(_dummyContext());
+        final issue = detector.issues.single;
+        expect(issue.severity, severity);
+        expect(issue.extraTraceArgs, {
+          'observedTtffMs': ttffMs.toStringAsFixed(1),
+        });
+        detector.dispose();
+      }
+    });
+
+    test('evaluated turns true once the metrics were read, with or without '
+        'an issue', () {
+      final detector = StartupDetector();
+      detector.prepareScan(_dummyContext());
+      expect(detector.evaluated, isFalse, reason: 'no metrics yet');
+
+      _setStartupMetrics(ttffMs: 400);
+      detector.prepareScan(_dummyContext());
+      expect(detector.evaluated, isTrue);
+      expect(detector.issues, isEmpty);
+      detector.dispose();
+    });
   });
 
   group('StartupMetrics', () {
