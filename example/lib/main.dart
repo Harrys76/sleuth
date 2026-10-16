@@ -30,6 +30,7 @@ import 'demos/font_loading_demo.dart';
 import 'demos/fps_stress_test_demo.dart';
 import 'demos/frame_timing_capture_screen.dart';
 import 'demos/frame_timing_sustained_jank_capture_screen.dart';
+import 'demos/gc_pressure_capture_screen.dart';
 import 'demos/gpu_pressure_demo.dart';
 import 'demos/heavy_compute_capture_screen.dart';
 import 'demos/heavy_compute_demo.dart';
@@ -57,6 +58,7 @@ import 'demos/tracked_resource_capture_screen.dart';
 import 'demos/tracked_resource_demo.dart';
 import 'demos/shader_jank_demo.dart';
 import 'demos/uncached_image_demo.dart';
+import 'demos/uncached_images_capture_screen.dart';
 import 'fake_ai_adapter.dart';
 import 'file_state_store.dart';
 import 'harness_targeting.dart';
@@ -605,6 +607,20 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
         subtitle: 'heap_growing warning bracket',
         color: Colors.purple,
         builder: (_) => const MemoryPressureCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.recycling,
+        title: 'MemoryPressure (gc_pressure)',
+        subtitle: 'gc_pressure warning bracket',
+        color: Colors.purple,
+        builder: (_) => const GcPressureCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.image,
+        title: 'ImageMemory (uncached_images)',
+        subtitle: 'uncached_images warning + critical',
+        color: Colors.teal,
+        builder: (_) => const UncachedImagesCaptureScreen(),
       ),
       _DemoRoute(
         icon: Icons.cloud_download,

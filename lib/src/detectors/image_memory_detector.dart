@@ -437,9 +437,65 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
         'RenderView. With neither, the pair is not measured. BoxDecoration '
         'images are not reported, because their decoded image is private '
         'to the painter and cannot be measured. Confidence is likely. '
-        'Decode and display are measured, but a widget may grow later. No '
-        'profile-mode capture verifies it at runtime yet.',
+        'Decode and display are measured, but a widget may grow later.\n\n'
+        'v0.38.0 raises `uncached_images` to runtimeVerified through '
+        '`perStableIdTier`, warning (1 MiB, canonical bracket) and critical '
+        '(16 MiB, `additionalBrackets[0]`), each on three iPhone 12 '
+        'captures (iOS 17.5, Flutter 3.47.6, pixel ratio 3.0). The capture '
+        'screen generates a checkerboard PNG sized for the leg at the '
+        'measured pixel ratio, shows it in a 48 dp box, reads the decoded '
+        'size and the laid-out box itself, and exports its own computed '
+        'waste; the audit compares that with the `wastedBytes` the '
+        'detector stamped on each scan within 10 %. A match checks the '
+        'detector\'s decode, layout and pixel-ratio reads on the device. '
+        'Every scan writes a record with its own `detectedAt`.',
     reproducerPath: 'test/validation/image_memory_reproducer_test.dart',
     coveredStableIds: {'uncached_images'},
+    perStableIdTier: {'uncached_images': EvidenceTier.runtimeVerified},
+    profileCapturePaths: [
+      'test/validation/captures/image_memory/uncached_images_below.json',
+      'test/validation/captures/image_memory/uncached_images_at.json',
+      'test/validation/captures/image_memory/uncached_images_above.json',
+    ],
+    // The warning fires at 1 MiB of wasted decode bytes. The at band is
+    // [1, 1.5] MiB and the above band (1.5, 2.5] MiB, well under the
+    // 16 MiB critical line.
+    // Each scan measures the same layout, so the last record holds it.
+    bracketThreshold: 1048576,
+    bracketUnit: 'bytes',
+    bracketStableId: 'uncached_images',
+    bracketSeverityLabel: 'warning',
+    bracketAtTolerance: 0.5,
+    aboveCeilingMultiplier: 2.5,
+    observedAxisArgKey: 'wastedBytes',
+    observedAxisTolerance: 0.10,
+    observedAxisReduction: 'last',
+    bracketRequireUniqueDetectedAtMicros: true,
+    coveredThresholds: {'uncached_images.warning', 'uncached_images.critical'},
+    additionalBrackets: [
+      // The critical fires at 16 MiB. The at band is [16, 24] MiB and the
+      // above band (24, 40] MiB.
+      BracketSpec(
+        stableId: 'uncached_images',
+        severityLabel: 'critical',
+        threshold: 16777216,
+        unit: 'bytes',
+        coveredThresholds: {'uncached_images.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/image_memory/uncached_images_critical_below.json',
+          'test/validation/captures/image_memory/uncached_images_critical_at.json',
+          'test/validation/captures/image_memory/uncached_images_critical_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.5,
+        observedAxisArgKey: 'wastedBytes',
+        observedAxisTolerance: 0.10,
+        observedAxisReduction: 'last',
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+        // A leg dwells for at least two scans after the decode.
+        minInBandSamples: 2,
+      ),
+    ],
   );
 }
