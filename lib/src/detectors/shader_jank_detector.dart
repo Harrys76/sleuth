@@ -10,8 +10,10 @@ import '../vm/timeline_parser.dart';
 /// Detects pipeline and shader build jank from VM Timeline events.
 ///
 /// **VM-Only Detector** — flags Impeller Vulkan pipeline builds
-/// (`PipelineVK::Create`, `CreateComputePipeline`) and Skia shader
-/// compiles (events tagged `devtoolsTag: shaders`) of 100 ms or more.
+/// (`PipelineVK::Create`, `CreateComputePipeline`), Impeller OpenGL ES
+/// program links (`LinkProgram`, the Android fallback backend) and Skia
+/// shader compiles (events tagged `devtoolsTag: shaders`) of 100 ms or
+/// more.
 /// Impeller Metal precompiles pipelines and emits no such events, so the
 /// detector stays silent there by design. Issues are `likely`: a build
 /// runs on a worker thread, and only frames that need that pipeline wait
@@ -34,9 +36,9 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Shader Jank',
          description:
-             'Detects Impeller Vulkan pipeline builds and Skia shader '
-             'compiles of at least 100ms (silent on Impeller Metal by '
-             'design)',
+             'Detects Impeller Vulkan pipeline builds, Impeller OpenGL ES '
+             'program links and Skia shader compiles of at least 100ms '
+             '(silent on Impeller Metal by design)',
        );
 
   final int thresholdMs;
@@ -159,8 +161,9 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
         '`List<TimelineEvent>` through `TimelineParser.parse()` into the '
         'detector. Fixtures mirror the engine shapes. They use '
         '`TRACE_EVENT` begin and end pairs for Impeller Vulkan '
-        '`PipelineVK::Create` and `CreateComputePipeline`, and Skia events '
-        'tagged `devtoolsTag: shaders`. `PipelineItem` and '
+        '`PipelineVK::Create` and `CreateComputePipeline`, Impeller OpenGL '
+        'ES `LinkProgram`, and Skia events tagged `devtoolsTag: shaders`. '
+        '`PipelineItem` and '
         '`CreateShaderLibrary` stay silent, as does an empty Impeller '
         'Metal timeline. `extraTraceArgs.shaderWarmupContext` tells apart '
         'cold_start (within `coldStartShaderWindowSeconds` of '

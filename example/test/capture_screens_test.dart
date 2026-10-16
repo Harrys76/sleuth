@@ -564,6 +564,17 @@ void main() {
         'paintLast': 0.0,
         'paintPeak': 0.0,
         'vmConnected': false,
+        'gcEvents': 0,
+        'gcYoung': 0,
+        'gcOld': 0,
+        'gcMarkStarts': 0,
+        'gcPauseAvailable': false,
+        'gcPauseMs': null,
+        'floorState': 'unknown',
+        'floorPoints': 0,
+        'floorSlope': null,
+        'heapGrowingLeg': null,
+        'heapGrowingEpisode': 0,
       });
     });
 

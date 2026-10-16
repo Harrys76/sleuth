@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/stream_resource_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
@@ -148,10 +150,31 @@ void main() {
       );
     });
 
-    test('does not emit when heap_growing inactive', () async {
+    test('does not emit when heap_growing is inactive, even with a full '
+        'window from forced polls', () async {
+      Future<void> fillByForcedPolls() async {
+        for (var i = 0; i < 4; i++) {
+          profileQueue.add(
+            _profile({
+              'StreamSubscription': 100 + i * 30,
+              '_BroadcastSubscription': 50 + i * 10,
+            }),
+          );
+          await detector.pollAllocationProfileNow();
+          advance(const Duration(seconds: 10));
+        }
+      }
+
       heapGrowing = false;
-      await driveGrowthWindow();
+      await fillByForcedPolls();
+      expect(detector.lastObservedSamplesInWindow, 4);
       expect(detector.issues, isEmpty);
+
+      // Control: the same window emits once heap_growing is active.
+      detector.resetCaptureState();
+      heapGrowing = true;
+      await fillByForcedPolls();
+      expect(detector.issues, hasLength(1));
     });
 
     test('does not emit when top-class delta below minDelta', () async {
@@ -938,5 +961,174 @@ void main() {
         );
       },
     );
+  });
+
+  group('heap_growing poll gate', () {
+    late DateTime now;
+    late List<AllocationProfile> profileQueue;
+    late int profilesFetched;
+    late bool heapGrowing;
+    late int episode;
+    late StreamResourceDetector detector;
+
+    setUp(() {
+      now = DateTime(2026, 10, 14, 12);
+      profileQueue = [];
+      profilesFetched = 0;
+      heapGrowing = false;
+      episode = 0;
+      detector = StreamResourceDetector(
+        vmClientProvider: () => null,
+        heapGrowingStateProvider: () => heapGrowing,
+        heapGrowingEpisodeProvider: () => episode,
+        clock: () => now,
+        allocationProfileFetcherForTest: () async {
+          profilesFetched++;
+          if (profileQueue.isEmpty) return null;
+          return profileQueue.removeAt(0);
+        },
+      );
+    });
+
+    void advance(Duration d) => now = now.add(d);
+
+    Future<void> tick() async {
+      detector.processTimelineData(emptyTimelineData());
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    AllocationProfile growing(int i) => _profile({
+      'StreamSubscription': 100 + i * 30,
+      '_BroadcastSubscription': 50 + i * 10,
+    });
+
+    Future<void> pastWarmup() async {
+      await tick();
+      advance(const Duration(seconds: 25));
+    }
+
+    test('no automatic poll while heap_growing is inactive', () async {
+      await pastWarmup();
+      for (var i = 0; i < 6; i++) {
+        profileQueue.add(growing(i));
+        await tick();
+        advance(const Duration(seconds: 10));
+      }
+      expect(profilesFetched, 0);
+    });
+
+    test('the first tick after activation polls at once', () async {
+      await pastWarmup();
+      await tick();
+      heapGrowing = true;
+      profileQueue.add(growing(0));
+      await tick();
+      expect(profilesFetched, 1);
+    });
+
+    test('inactivity starts the window over', () async {
+      heapGrowing = true;
+      await pastWarmup();
+      for (var i = 0; i < 2; i++) {
+        profileQueue.add(growing(i));
+        await tick();
+        advance(const Duration(seconds: 10));
+      }
+      expect(detector.lastObservedSamplesInWindow, 2);
+      heapGrowing = false;
+      await tick();
+      heapGrowing = true;
+      profileQueue.add(growing(2));
+      await tick();
+      expect(detector.lastObservedSamplesInWindow, 1);
+    });
+
+    test('a new heap_growing episode between ticks starts the window '
+        'over', () async {
+      heapGrowing = true;
+      episode = 1;
+      await pastWarmup();
+      for (var i = 0; i < 2; i++) {
+        profileQueue.add(growing(i));
+        await tick();
+        advance(const Duration(seconds: 10));
+      }
+      episode = 2;
+      profileQueue.add(growing(2));
+      await tick();
+      expect(detector.lastObservedSamplesInWindow, 1);
+    });
+
+    test(
+      'a poll still in flight when the episode changes is discarded',
+      () async {
+        heapGrowing = true;
+        episode = 1;
+        await pastWarmup();
+        final gate = Completer<AllocationProfile?>();
+        final inFlight = StreamResourceDetector(
+          vmClientProvider: () => null,
+          heapGrowingStateProvider: () => heapGrowing,
+          heapGrowingEpisodeProvider: () => episode,
+          clock: () => now,
+          warmupSeconds: 0,
+          allocationProfileFetcherForTest: () => gate.future,
+        );
+        inFlight.processTimelineData(emptyTimelineData());
+        episode = 2;
+        advance(const Duration(seconds: 1));
+        inFlight.processTimelineData(emptyTimelineData());
+        gate.complete(growing(0));
+        await Future<void>.delayed(Duration.zero);
+        expect(inFlight.lastObservedSamplesInWindow, 0);
+      },
+    );
+
+    test(
+      'an expired cooldown clears the issue while polls are skipped',
+      () async {
+        heapGrowing = true;
+        await pastWarmup();
+        for (var i = 0; i < 4; i++) {
+          profileQueue.add(growing(i));
+          await tick();
+          advance(const Duration(seconds: 10));
+        }
+        expect(detector.issues, hasLength(1));
+        heapGrowing = false;
+        advance(const Duration(seconds: 31));
+        await tick();
+        expect(detector.issues, isEmpty);
+      },
+    );
+
+    test('samples older than the window age are dropped', () async {
+      heapGrowing = true;
+      await pastWarmup();
+      for (var i = 0; i < 2; i++) {
+        profileQueue.add(growing(i));
+        await tick();
+        advance(const Duration(seconds: 10));
+      }
+      advance(const Duration(seconds: 61));
+      profileQueue.add(growing(2));
+      await tick();
+      expect(detector.lastObservedSamplesInWindow, 1);
+    });
+
+    test('a forced poll after an episode change keeps its sample', () async {
+      heapGrowing = true;
+      episode = 1;
+      await pastWarmup();
+      profileQueue.add(growing(0));
+      await tick();
+      advance(const Duration(seconds: 10));
+      episode = 2;
+      profileQueue.add(growing(1));
+      await detector.pollAllocationProfileNow();
+      expect(detector.lastObservedSamplesInWindow, 1);
+      await tick();
+      expect(detector.lastObservedSamplesInWindow, 1);
+    });
   });
 }

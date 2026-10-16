@@ -226,18 +226,54 @@ void main() {
       expect(args['oldGenCount'], '0');
     });
 
-    test('MarkSweep, MarkCompact and StartConcurrentMark count as old-gen', () {
-      const types = ['MarkSweep', 'MarkCompact', 'StartConcurrentMark'];
-      for (var i = 0; i < 9; i++) {
-        detector.recordGcCycle(gcType: types[i % 3]);
+    test('MarkSweep and MarkCompact are old-generation, StartCMark a '
+        'marking start, Scavenge and Evacuate young', () {
+      const types = [
+        'Scavenge',
+        'Evacuate',
+        'MarkSweep',
+        'MarkCompact',
+        'StartCMark',
+      ];
+      for (var i = 0; i < 10; i++) {
+        detector.recordGcCycle(gcType: types[i % types.length]);
       }
-      detector.recordGcCycle(gcType: 'Scavenge');
       final issue = detector.issues.singleWhere(
         (i) => i.stableId == 'gc_pressure',
       );
-      expect(issue.extraTraceArgs!['oldGenCount'], '9');
-      expect(issue.extraTraceArgs!['scavengeCount'], '1');
-      expect(issue.detail, contains('1 scavenges, 9 old-generation'));
+      final args = issue.extraTraceArgs!;
+      expect(args['scavengeCount'], '4');
+      expect(args['oldGenCount'], '4');
+      expect(args['markStartCount'], '2');
+      expect(
+        int.parse(args['scavengeCount']!) +
+            int.parse(args['oldGenCount']!) +
+            int.parse(args['markStartCount']!),
+        int.parse(args['observedGcEvents']!),
+      );
+      expect(
+        issue.detail,
+        contains(
+          '4 young-generation collections, 4 old-generation collections '
+          'and 2 concurrent-marking starts',
+        ),
+      );
+    });
+
+    test('a concurrent cycle counts one old-generation collection and one '
+        'marking start', () {
+      for (var i = 0; i < 5; i++) {
+        detector.recordGcCycle(gcType: 'Scavenge');
+      }
+      detector
+        ..recordGcCycle(gcType: 'StartCMark')
+        ..recordGcCycle(gcType: 'MarkSweep');
+      final args = detector.issues
+          .singleWhere((i) => i.stableId == 'gc_pressure')
+          .extraTraceArgs!;
+      expect(args['oldGenCount'], '1');
+      expect(args['markStartCount'], '1');
+      expect(args['scavengeCount'], '5');
     });
 
     test('old cycles age out of the split with the window', () {
@@ -253,6 +289,203 @@ void main() {
           .extraTraceArgs!;
       expect(args['observedGcEvents'], '6');
       expect(args['oldGenCount'], '0');
+    });
+
+    // -- GC pause time --
+
+    group('GC pause time', () {
+      void gc(
+        double? cumulative, {
+        bool attributable = true,
+        String gcType = 'Scavenge',
+        Duration step = const Duration(milliseconds: 500),
+      }) {
+        fakeNow = fakeNow.add(step);
+        detector.recordGcCycle(
+          gcType: gcType,
+          cumulativePauseSeconds: cumulative,
+          pauseAttributable: attributable,
+        );
+      }
+
+      Map<String, String> args() => detector.issues
+          .singleWhere((i) => i.stableId == 'gc_pressure')
+          .extraTraceArgs!;
+
+      /// Sets a baseline at [start], then lets its record leave the
+      /// window so the next events all carry a measured pause.
+      void baselineThenExpire(double start) {
+        gc(start);
+        fakeNow = fakeNow.add(const Duration(seconds: 11));
+      }
+
+      test('the first attributable event only sets a baseline, so the '
+          'window has no pause total', () {
+        for (var i = 0; i < 6; i++) {
+          gc(1.0 + i * 0.002);
+        }
+        expect(args().containsKey('gcPauseMs'), isFalse);
+        expect(args().containsKey('gcPausePercent'), isFalse);
+        expect(detector.gcWindowStats.pauseAvailable, isFalse);
+        expect(detector.gcWindowStats.pauseMs, isNull);
+      });
+
+      test('differences between attributable events sum to the window '
+          'pause', () {
+        baselineThenExpire(1.0);
+        for (var i = 1; i <= 6; i++) {
+          gc(1.0 + i * 0.002);
+        }
+        expect(args()['gcPauseMs'], '12.0');
+        expect(args()['gcPausePercent'], '0.12');
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'gc_pressure',
+        );
+        expect(
+          issue.detail,
+          contains('GC paused the app for 12.0 ms (0.12 %) in the last 10 s.'),
+        );
+        expect(detector.gcWindowStats.pauseMs, closeTo(12.0, 1e-9));
+      });
+
+      test('a repeated cumulative value adds no pause', () {
+        baselineThenExpire(1.0);
+        for (var i = 0; i < 6; i++) {
+          gc(1.004);
+        }
+        expect(args()['gcPauseMs'], '4.0');
+      });
+
+      test('integer-encoded values work', () {
+        baselineThenExpire(1);
+        for (var i = 0; i < 6; i++) {
+          gc(i.isEven ? 1 : 2);
+        }
+        // Decreases rebaseline, so the window is not complete.
+        expect(args().containsKey('gcPauseMs'), isFalse);
+      });
+
+      test('a decreasing value starts a new baseline with no measured '
+          'pause', () {
+        baselineThenExpire(5.0);
+        for (var i = 1; i <= 5; i++) {
+          gc(5.0 + i * 0.001);
+        }
+        gc(1.0);
+        expect(args().containsKey('gcPauseMs'), isFalse);
+        expect(detector.gcWindowStats.pauseAvailable, isFalse);
+      });
+
+      test('a non-attributable event breaks continuity until it and the '
+          'next baseline leave the window', () {
+        baselineThenExpire(1.0);
+        gc(1.001);
+        gc(9.0, attributable: false);
+        gc(1.003);
+        for (var i = 4; i <= 7; i++) {
+          gc(1.0 + i * 0.001);
+        }
+        expect(args().containsKey('gcPauseMs'), isFalse);
+
+        fakeNow = fakeNow.add(const Duration(seconds: 11));
+        for (var i = 8; i <= 13; i++) {
+          gc(1.0 + i * 0.001);
+        }
+        expect(args()['gcPauseMs'], '6.0');
+      });
+
+      test('interleaved values without attribution never stamp', () {
+        for (var i = 0; i < 12; i++) {
+          gc(i.isEven ? 1.0 + i : 20.0 + i, attributable: false);
+        }
+        expect(args().containsKey('gcPauseMs'), isFalse);
+        expect(detector.gcWindowStats.pauseAvailable, isFalse);
+      });
+
+      test('a missing cumulative value breaks continuity', () {
+        baselineThenExpire(1.0);
+        for (var i = 1; i <= 5; i++) {
+          gc(1.0 + i * 0.001);
+        }
+        gc(null);
+        expect(args().containsKey('gcPauseMs'), isFalse);
+      });
+
+      test('pauses during a disabled interval are not booked after '
+          're-enabling', () {
+        baselineThenExpire(1.0);
+        detector.isEnabled = false;
+        for (var i = 1; i <= 60; i++) {
+          gc(1.0 + i * 0.05, step: const Duration(seconds: 1));
+        }
+        detector.isEnabled = true;
+        for (var i = 1; i <= 6; i++) {
+          gc(4.0 + i * 0.001);
+        }
+        expect(args()['gcPauseMs'], '6.0');
+      });
+
+      test('reset keeps the baseline, so the next event has a measured '
+          'pause', () {
+        gc(1.0);
+        detector.reset();
+        for (var i = 1; i <= 6; i++) {
+          gc(1.0 + i * 0.001);
+        }
+        expect(args()['gcPauseMs'], '6.0');
+      });
+
+      test('a new connection without a disconnect starts without a '
+          'baseline', () {
+        gc(1.0);
+        // A manual reconnect while connected reports only `true`; the
+        // GC pauses during its backoff never arrived as events.
+        detector.vmConnected = true;
+        for (var i = 1; i <= 6; i++) {
+          gc(30.0 + i * 0.001);
+        }
+        expect(args().containsKey('gcPauseMs'), isFalse);
+        expect(detector.gcWindowStats.pauseAvailable, isFalse);
+      });
+
+      test('disconnect and dispose clear the baseline', () {
+        gc(1.0);
+        detector.vmConnected = false;
+        for (var i = 1; i <= 6; i++) {
+          gc(1.0 + i * 0.001);
+        }
+        expect(args().containsKey('gcPauseMs'), isFalse);
+
+        detector.dispose();
+        for (var i = 7; i <= 12; i++) {
+          gc(1.0 + i * 0.001);
+        }
+        expect(args().containsKey('gcPauseMs'), isFalse);
+      });
+    });
+
+    group('gcWindowStats', () {
+      test('is empty and not measurable with no events', () {
+        final stats = detector.gcWindowStats;
+        expect(stats.events, 0);
+        expect(stats.pauseAvailable, isFalse);
+        expect(stats.pauseMs, isNull);
+      });
+
+      test('counts the window by class and drops expired events', () {
+        for (final type in ['Scavenge', 'Evacuate', 'MarkSweep']) {
+          detector.recordGcCycle(gcType: type);
+        }
+        fakeNow = fakeNow.add(const Duration(seconds: 11));
+        for (final type in ['StartCMark', 'MarkCompact', 'Scavenge']) {
+          detector.recordGcCycle(gcType: type);
+        }
+        final stats = detector.gcWindowStats;
+        expect(stats.events, 3);
+        expect(stats.young, 1);
+        expect(stats.old, 1);
+        expect(stats.markStarts, 1);
+      });
     });
 
     // -- Heap Trend (heap_growing) --
@@ -1360,6 +1593,18 @@ void main() {
       // Should not throw
       detector.enrichHeapGrowingIssue(allocators);
       expect(detector.issues, isEmpty);
+
+      // A later episode does not inherit the dropped allocators.
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 600000, timestamp: fakeNow),
+        );
+      }
+      final heapIssue = detector.issues.firstWhere(
+        (i) => i.stableId == 'heap_growing',
+      );
+      expect(heapIssue.topAllocators, isNull);
     });
 
     test('enrichment survives _evaluate() rebuild', () {

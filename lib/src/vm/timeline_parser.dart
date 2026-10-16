@@ -305,14 +305,19 @@ class TimelineParser {
 
   /// Whether a begin (`B`) or complete (`X`) event is a pipeline or
   /// shader build. Impeller Vulkan emits `PipelineVK::Create` (render
-  /// pipelines, on worker threads) and `CreateComputePipeline`; Skia
-  /// tags shader-category events with `devtoolsTag: shaders`. Impeller
-  /// Metal emits nothing for pipelines. Exact names only: the frame
-  /// pipeline emits `PipelineItem` / `PipelineProduce`, and
+  /// pipelines, on worker threads) and `CreateComputePipeline`.
+  /// Impeller OpenGL ES, the Android fallback on emulators, Huawei
+  /// devices, MediaTek below vendor API 32 and drivers with known bugs,
+  /// emits `LinkProgram` when it compiles and links a program that is
+  /// not cached yet (`impeller/renderer/backend/gles/pipeline_library_gles.cc`).
+  /// Skia tags shader-category events with `devtoolsTag: shaders`.
+  /// Impeller Metal emits nothing for pipelines. Exact names only: the
+  /// frame pipeline emits `PipelineItem` / `PipelineProduce`, and
   /// `CreateShaderLibrary` is a one-shot library load, not a build.
   static bool _isShaderEvent(String name, Map<String, dynamic>? args) =>
       name == 'PipelineVK::Create' ||
       name == 'CreateComputePipeline' ||
+      name == 'LinkProgram' ||
       args?['devtoolsTag'] == 'shaders';
 
   /// Whether an end (`E`) event closes a pending shader begin. Engine

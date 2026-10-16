@@ -1243,6 +1243,29 @@ void main() {
       expect(data.shaderCompileDurations, [40000]);
     });
 
+    test('B/E LinkProgram (Impeller OpenGL ES) yields a shader event', () {
+      final data = TimelineParser.parse(
+        pair('LinkProgram', ts: 1000, dur: 120000),
+      );
+      expect(data.shaderCompileDurations, [120000]);
+      expect(data.phaseEvents.single.phase, TimelinePhase.shader);
+    });
+
+    test('X LinkProgram is a shader event', () {
+      final data = TimelineParser.parse([
+        _makeEvent(name: 'LinkProgram', dur: 80000, ts: 1000),
+      ]);
+      expect(data.shaderCompileDurations, [80000]);
+    });
+
+    test('LinkProgram nested inside another engine scope on the same tid '
+        'pairs with its own argument-less end', () {
+      final outer = pair('ContentContext::GetPipeline', ts: 0, dur: 300000);
+      final inner = pair('LinkProgram', ts: 1000, dur: 120000);
+      final data = TimelineParser.parse([outer.first, ...inner, outer.last]);
+      expect(data.shaderCompileDurations, [120000]);
+    });
+
     test('B/E PipelineItem 500 ms is not a shader event', () {
       final data = TimelineParser.parse(
         pair('PipelineItem', ts: 1000, dur: 500000),

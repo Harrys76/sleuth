@@ -1,4 +1,4 @@
-import 'dart:async' show Completer, TimeoutException, unawaited;
+import 'dart:async' show Completer, TimeoutException, Timer, unawaited;
 import 'dart:convert' show base64Encode, jsonEncode;
 import 'dart:ui' as ui;
 import 'dart:developer' as developer;
@@ -823,6 +823,91 @@ void _registerDemoExtensions() {
       jsonEncode(readVmAxes(reset: params['reset'] == 'true')),
     );
   });
+  // Retains memory from a timer on whatever screen is in front, for the
+  // heap_growing controls: `bytesPerSec=N seconds=S` starts (or replaces)
+  // a run that adds a buffer every 50 ms; `clear=true` stops it and drops
+  // what it retained.
+  developer.registerExtension('ext.sleuthDemo.retain', (method, params) async {
+    _retainTimer?.cancel();
+    _retainTimer = null;
+    if (params['clear'] == 'true') {
+      _retained.clear();
+    } else {
+      final bytesPerSec = int.tryParse(params['bytesPerSec'] ?? '') ?? 0;
+      final seconds = int.tryParse(params['seconds'] ?? '') ?? 60;
+      final tickBytes = bytesPerSec ~/ 20;
+      final stopAt = DateTime.now().add(Duration(seconds: seconds));
+      if (tickBytes > 0) {
+        _retainTimer = Timer.periodic(const Duration(milliseconds: 50), (
+          timer,
+        ) {
+          if (DateTime.now().isAfter(stopAt)) {
+            timer.cancel();
+            if (identical(_retainTimer, timer)) _retainTimer = null;
+            return;
+          }
+          _retained.add(List<int>.filled(tickBytes ~/ 8, 0xFEEDFACE));
+        });
+      }
+    }
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({
+        'running': _retainTimer != null,
+        'retainedBytes': _retained.fold<int>(0, (sum, b) => sum + b.length * 8),
+      }),
+    );
+  });
+  // Switches heap_growing's floor and sample legs for a capture run
+  // (`floor=true|false sample=true|false`). Capture mode only.
+  developer.registerExtension('ext.sleuthDemo.heapLegs', (
+    method,
+    params,
+  ) async {
+    bool? flag(String key) => switch (params[key]) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+    Sleuth.setHeapGrowingLegsForCapture(
+      floor: flag('floor'),
+      sample: flag('sample'),
+    );
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({
+        'floorState':
+            Sleuth.memoryPressureDetector?.floorVerdict.state.name ?? 'unknown',
+      }),
+    );
+  });
+  // Keeps Sleuth's own allocation-profile reads out of a measurement run:
+  // `hold=true` switches StreamResourceDetector off, holds the reads and
+  // waits for one in flight; `hold=false` restores both. Repeating either
+  // call changes nothing. Capture mode only.
+  bool? streamDetectorWasEnabled;
+  developer.registerExtension('ext.sleuthDemo.allocationReads', (
+    method,
+    params,
+  ) async {
+    final hold = params['hold'] == 'true';
+    final streamDetector = Sleuth.streamResourceDetector;
+    bool? drained;
+    if (hold && streamDetectorWasEnabled == null) {
+      streamDetectorWasEnabled = streamDetector?.isEnabled ?? false;
+      streamDetector?.isEnabled = false;
+      drained = await Sleuth.holdAllocationProfileReads();
+    } else if (!hold && streamDetectorWasEnabled != null) {
+      Sleuth.releaseAllocationProfileReads();
+      if (streamDetectorWasEnabled!) streamDetector?.isEnabled = true;
+      streamDetectorWasEnabled = null;
+    }
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({
+        'held': streamDetectorWasEnabled != null,
+        'drained': ?drained,
+        'streamDetectorEnabled': streamDetector?.isEnabled,
+      }),
+    );
+  });
   // System back as the Android back button sends it: the Sleuth overlay
   // closes its innermost layer first; `handled: false` means the app
   // (or the OS) got it.
@@ -1228,21 +1313,46 @@ Future<Map<String, Object?>> startCaptureLeg({
   return {'started': true, 'leg': '$detector/$tier/$role'};
 }
 
-/// Detector last/peak time shares for `ext.sleuthDemo.vmAxes`. With
-/// [reset] both detectors' capture state is cleared after the read; a
-/// reset while a capture leg runs returns `{error: busy}` and leaves the
-/// leg's peak alone.
+// Buffers held by `ext.sleuthDemo.retain`, and its running timer.
+final List<List<int>> _retained = [];
+Timer? _retainTimer;
+
+/// Detector last/peak time shares and the memory detector's GC window
+/// for `ext.sleuthDemo.vmAxes`. With [reset] the rebuild and repaint
+/// capture state is cleared after the read (the GC window is a sliding
+/// window and is not reset); a reset while a capture leg runs returns
+/// `{error: busy}` and leaves the leg's peak alone.
 @visibleForTesting
 Map<String, Object?> readVmAxes({bool reset = false}) {
   if (reset && CaptureDriver.instance.isBusy) return {'error': 'busy'};
   final rebuild = Sleuth.rebuildDetector;
   final repaint = Sleuth.repaintDetector;
+  final memory = Sleuth.memoryPressureDetector;
+  final gc = memory?.gcWindowStats;
+  final floor = memory?.floorVerdict;
+  final heapGrowing = memory?.issues
+      .where((i) => i.stableId == 'heap_growing')
+      .firstOrNull;
   final axes = <String, Object?>{
     'buildLast': rebuild?.lastObservedBuildPercent ?? 0.0,
     'buildPeak': rebuild?.peakObservedBuildPercent ?? 0.0,
     'paintLast': repaint?.lastObservedPaintPercent ?? 0.0,
     'paintPeak': repaint?.peakObservedPaintPercent ?? 0.0,
     'vmConnected': Sleuth.diagnoseCaptureState().vmConnected,
+    // GC events in the memory detector's 10 s window. The pause total is
+    // null unless every event in the window has a measured pause.
+    'gcEvents': gc?.events ?? 0,
+    'gcYoung': gc?.young ?? 0,
+    'gcOld': gc?.old ?? 0,
+    'gcMarkStarts': gc?.markStarts ?? 0,
+    'gcPauseAvailable': gc?.pauseAvailable ?? false,
+    'gcPauseMs': gc?.pauseMs,
+    // heap_growing's floor leg: the heap right after idle full collections.
+    'floorState': floor?.state.name ?? 'unknown',
+    'floorPoints': floor?.runPoints ?? 0,
+    'floorSlope': floor?.slopeBytesPerSec?.round(),
+    'heapGrowingLeg': heapGrowing?.extraTraceArgs?['heapGrowingLeg'],
+    'heapGrowingEpisode': memory?.heapGrowingEpisode ?? 0,
   };
   if (reset) {
     rebuild?.resetCaptureState();

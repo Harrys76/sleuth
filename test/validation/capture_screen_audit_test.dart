@@ -15,8 +15,10 @@ void main() {
     // alone allows next leg to start a fresh retry budget on identical
     // failures).
     group('persistent rewriteError cross-leg flag', () {
+      // The memory screen keeps the measured operator rate in
+      // `expectedMagnitude.observed` and rewrites nothing, so it has no
+      // rewrite failure to gate (see the heap_growing group below).
       const wiredScreens = <String>[
-        'example/lib/demos/memory_pressure_capture_screen.dart',
         'example/lib/demos/platform_channel_capture_screen.dart',
       ];
 
@@ -70,6 +72,32 @@ void main() {
           );
         });
       }
+    });
+
+    group('heap_growing capture screen', () {
+      const path = 'example/lib/demos/memory_pressure_capture_screen.dart';
+
+      test('records one leg per run and restores both legs', () {
+        final src = File(path).readAsStringSync();
+        expect(
+          src.contains('Sleuth.setHeapGrowingLegsForCapture(\n'),
+          isTrue,
+          reason: 'each run switches the other heap_growing leg off',
+        );
+        expect(
+          src.contains(
+            'Sleuth.setHeapGrowingLegsForCapture(floor: true, sample: true);',
+          ),
+          isTrue,
+          reason: 'the finally block restores both legs on every exit',
+        );
+      });
+
+      test('keeps the operator rate as the observed magnitude', () {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('_replaceExpectedObserved'), isFalse);
+        expect(src.contains('magnitudeObserved: operatorBps'), isTrue);
+      });
     });
   });
 }

@@ -83,8 +83,7 @@ class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
       _contacts = const [];
     });
     final stopwatch = Stopwatch()..start();
-    final rows = _rowCount;
-    final result = await Isolate.run(() => _generateAndParse(rows));
+    final result = await _parseOffMainIsolate(_rowCount);
     stopwatch.stop();
     if (!mounted) return;
     _lastIsolateMs.value = stopwatch.elapsedMilliseconds;
@@ -438,3 +437,9 @@ List<_Contact> _parseCsv(String csv) {
 }
 
 List<_Contact> _generateAndParse(int rows) => _parseCsv(_generateCsv(rows));
+
+/// Spawns the parse from a synchronous top-level function. A closure
+/// created inside an `async` method captures that method's context,
+/// including its completer, and `Isolate.run` then refuses to send it.
+Future<List<_Contact>> _parseOffMainIsolate(int rows) =>
+    Isolate.run(() => _generateAndParse(rows));

@@ -54,6 +54,40 @@ class _Holder {
   final int id;
 }
 
+/// heap_growing's floor leg alone: three idle full collections rising
+/// 700 KB/s, from the verified own isolate.
+Future<List<PerformanceIssue>> _memoryFloorLeg() async {
+  var now = DateTime(2026);
+  final d = MemoryPressureDetector(
+    clock: () => now,
+    warmupDurationMs: 0,
+    floorStartupWindowMs: 0,
+  )..vmConnected = true;
+  for (final (sec, mb) in [(0, 10), (10, 17), (20, 24)]) {
+    now = DateTime(2026).add(Duration(seconds: sec));
+    d.recordGcCycle(
+      gcType: 'MarkSweep',
+      reason: 'idle',
+      heapUsedBytes: mb * 1000000,
+      eventTimestampMs: now.millisecondsSinceEpoch,
+      pauseAttributable: true,
+    );
+  }
+  return d.issues;
+}
+
+/// Recipes per observed-axis key, for detectors whose brackets read
+/// different legs of one family. Each emits only its own leg, so a test
+/// can also check that a leg's issues never carry the other leg's key:
+/// the capture audit requires every in-span record to carry its
+/// bracket's key.
+final Map<DetectorType, Map<String, Future<List<PerformanceIssue>> Function()>>
+_legRecipes = {
+  DetectorType.memoryPressure: {
+    'observedFloorSlopeBytesPerSec': _memoryFloorLeg,
+  },
+};
+
 /// Issues from minimal emissions of each detector type, covering every
 /// severity its brackets name.
 final Map<DetectorType, Future<List<PerformanceIssue>> Function()> _recipes = {
@@ -285,8 +319,9 @@ void main() {
       expect(meta, isNotNull, reason: '$type has no metadata');
       final brackets = _axisBrackets(meta!);
       expect(brackets, isNotEmpty);
-      final issues = await entry.value();
+      final legs = _legRecipes[type];
       for (final b in brackets) {
+        final issues = await (legs?[b.argKey] ?? entry.value)();
         final matching = issues
             .where(
               (i) => _inFamily(i, b.stableId) && i.severity.name == b.severity,
@@ -305,6 +340,17 @@ void main() {
                 '${issue.stableId}.${b.severity} lacks extraTraceArgs.'
                 '${b.argKey}',
           );
+          if (legs == null) continue;
+          for (final other in brackets) {
+            if (other.argKey == b.argKey) continue;
+            expect(
+              issue.extraTraceArgs?.containsKey(other.argKey),
+              isFalse,
+              reason:
+                  'a ${b.argKey} issue also carries ${other.argKey}, so a '
+                  'record of one leg would count toward the other bracket',
+            );
+          }
         }
       }
     });

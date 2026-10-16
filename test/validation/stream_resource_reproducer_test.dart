@@ -132,8 +132,9 @@ void main() {
       'same growth pattern with heap_growing inactive does NOT emit',
       () async {
         heapGrowing = false;
-        await tickAndSettle();
-        advance(const Duration(seconds: 25));
+        // Forced polls fill the window: automatic polls do not run while
+        // heap_growing is inactive, so only the emission gate is left to
+        // suppress the issue.
         for (var i = 0; i < 4; i++) {
           profileQueue.add(
             profileWith({
@@ -141,9 +142,10 @@ void main() {
               '_BroadcastSubscription': 50 + i * 15,
             }),
           );
-          await tickAndSettle();
+          await detector.pollAllocationProfileNow();
           advance(const Duration(seconds: 10));
         }
+        expect(detector.lastObservedSamplesInWindow, 4);
         expect(
           detector.issues,
           isEmpty,

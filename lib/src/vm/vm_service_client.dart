@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:isolate' as isolate show Isolate;
 import 'dart:math' as math;
 import 'dart:io' show ProcessInfo;
 import 'package:flutter/foundation.dart';
@@ -54,7 +55,13 @@ class VmServiceClient {
     this.retainTimeline = false,
     this.readDispatchSegments,
     this.cpuSamplesMinInterval = const Duration(seconds: 10),
+    this.ownIsolateIdResolver,
   });
+
+  /// Returns the service id of the isolate this client runs on. Null
+  /// uses `Service.getIsolateId(Isolate.current)`. Tests inject ids that
+  /// match their fake `getVM` isolates.
+  final String? Function()? ownIsolateIdResolver;
 
   /// Shortest gap between the starts of two [getCpuSamples] requests.
   ///
@@ -149,6 +156,21 @@ class VmServiceClient {
 
   /// Cached main isolate ID, resolved during [connect].
   String? _mainIsolateId;
+
+  /// This client's own isolate id, set once per session when the VM's
+  /// isolate list confirms it and cleared only by [_cleanup].
+  ///
+  /// The VM posts every GC event once per non-system isolate in the
+  /// isolate group, so `compute` and `Isolate.run` helpers repeat each
+  /// collection. The GC filter keys off this id, never [_mainIsolateId]:
+  /// a stale-isolate re-resolution can set [_mainIsolateId] to null
+  /// mid-session, and a filter reading it would then drop every event.
+  String? _verifiedOwnIsolateId;
+
+  /// Whether the VM confirmed this client's own isolate id for the
+  /// current session. GC events that reach [onGcEvent] then all come
+  /// from that isolate's group.
+  bool get isOwnIsolateVerified => _verifiedOwnIsolateId != null;
 
   /// Whether the VM service is connected and streaming data.
   bool get isConnected => _connected;
@@ -291,37 +313,7 @@ class VmServiceClient {
         if (connected == null) {
           throw lastError ?? StateError('no VM service address connected');
         }
-        _service = connected;
-        _watchSocket(connected);
-        _attachWireListeners(connected);
-        if (_disposed) {
-          _cleanup();
-          return false;
-        }
-
-        // Enable timeline streams for framework events
-        await _service!.setVMTimelineFlags(['Dart', 'Embedder', 'GC']);
-
-        // Resolve main isolate ID for getMemoryUsage() polling
-        _mainIsolateId = await _resolveMainIsolateId();
-        if (_disposed) {
-          _cleanup();
-          return false;
-        }
-
-        // Subscribe to event streams
-        await _subscribeToStreams();
-        if (_disposed) {
-          _cleanup();
-          return false;
-        }
-
-        // Start periodic timeline polling
-        _startTimelinePolling();
-
-        _connected = true;
-        onConnectionChanged?.call(true);
-        return true;
+        return await _startSession(connected);
       } catch (_) {
         if (attempt < maxRetries) {
           await Future<void>.delayed(retryDelay);
@@ -331,6 +323,59 @@ class VmServiceClient {
     }
     return false;
   }
+
+  /// Everything that follows an open WebSocket: timeline flags, isolate
+  /// identity, event streams and the poll loop. Returns false when the
+  /// client was disposed, or the session ended, while it ran.
+  Future<bool> _startSession(VmService service) async {
+    _service = service;
+    _watchSocket(service);
+    _attachWireListeners(service);
+    if (_disposed) {
+      _cleanup();
+      return false;
+    }
+    final gen = _sessionGeneration;
+
+    // Enable timeline streams for framework events
+    await service.setVMTimelineFlags(['Dart', 'Embedder', 'GC']);
+
+    // Resolve the isolate id used by memory, CPU and allocation RPCs and
+    // by the GC filter. The result is committed only while the session
+    // that asked for it is still current.
+    final resolution = await _resolveMainIsolateId();
+    if (_disposed) {
+      _cleanup();
+      return false;
+    }
+    if (gen != _sessionGeneration) return false;
+    _mainIsolateId = resolution.id;
+    _verifiedOwnIsolateId = resolution.verified ? resolution.id : null;
+    debugPrint(
+      'Sleuth: VM isolate ${resolution.id} '
+      '(${resolution.verified ? 'verified' : 'not verified'}); '
+      'legacy pick ${resolution.legacyId}',
+    );
+
+    // Subscribe to event streams
+    await _subscribeToStreams(service);
+    if (_disposed) {
+      _cleanup();
+      return false;
+    }
+
+    // Start periodic timeline polling
+    _startTimelinePolling();
+
+    _connected = true;
+    onConnectionChanged?.call(true);
+    return true;
+  }
+
+  /// Test-only: runs the post-connect session start against [service],
+  /// the same path [connect] takes once its WebSocket is open.
+  @visibleForTesting
+  Future<bool> startSessionForTest(VmService service) => _startSession(service);
 
   /// Reconnect with exponential backoff: 1s → 2s → 4s → 8s → 16s
   /// (cumulative ~31s before giving up).
@@ -382,23 +427,32 @@ class VmServiceClient {
     }
   }
 
-  Future<void> _subscribeToStreams() async {
-    if (_service == null) return;
-
+  Future<void> _subscribeToStreams(VmService service) async {
     try {
-      await _service!.streamListen(EventStreams.kGC);
-      _gcSub = _service!.onGCEvent.listen((event) {
+      await service.streamListen(EventStreams.kGC);
+      _gcSub = service.onGCEvent.listen((event) {
+        // Drop the copies the VM posts for other isolates. An unverified
+        // id, or an event without an isolate ref, passes through.
+        final own = _verifiedOwnIsolateId;
+        final eventIsolate = event.isolate?.id;
+        if (own != null && eventIsolate != null && eventIsolate != own) {
+          return;
+        }
         onGcEvent?.call(event);
       });
     } catch (_) {
       // GC stream may not be available on all platforms
     }
 
+    // Outside release builds the framework posts a `Flutter.Frame`
+    // extension event for every frame. Subscribing makes the VM send
+    // each one here and decode it on the UI isolate, so subscribe only
+    // when someone consumes the events.
+    final extensionCallback = onExtensionEvent;
+    if (extensionCallback == null) return;
     try {
-      await _service!.streamListen(EventStreams.kExtension);
-      _extensionSub = _service!.onExtensionEvent.listen((event) {
-        onExtensionEvent?.call(event);
-      });
+      await service.streamListen(EventStreams.kExtension);
+      _extensionSub = service.onExtensionEvent.listen(extensionCallback);
     } catch (_) {
       // Extension stream may not be available on all platforms — best effort.
     }
@@ -919,11 +973,7 @@ class VmServiceClient {
       watch.stop();
       // Isolate ID stale (e.g., after hot restart) — re-fetch, unless
       // a reconnect replaced the service during the await.
-      final isolateId = await _resolveMainIsolateId();
-      if (myGen != _sessionGeneration || _disposed) {
-        return watch.elapsedMicroseconds;
-      }
-      _mainIsolateId = isolateId;
+      await _refreshMainIsolateId(myGen);
     } catch (_) {
       watch.stop();
       // Memory poll failed but timeline poll succeeded — don't reconnect.
@@ -957,8 +1007,14 @@ class VmServiceClient {
   late final RpcSpanTracker _cpuSpans = RpcSpanTracker(_rpcClockUs);
 
   /// In-flight `getAllocationProfile` requests, for
-  /// [PollTimings.tailAllocationProfileMicros].
+  /// [PollTimings.tailAllocationProfileMicros] and
+  /// [drainAllocationProfileReads]. A request stays open until the VM
+  /// answers, even when its caller already timed out.
   late final RpcSpanTracker _allocationSpans = RpcSpanTracker(_rpcClockUs);
+
+  /// Holds placed by [holdAllocationProfileReads]. They outlive a
+  /// reconnect; each one ends with [releaseAllocationProfileReads].
+  int _allocationReadHolds = 0;
 
   PollTimings? _lastPollTimings;
   final PollTimingsWindow _timingsWindow = PollTimingsWindow();
@@ -1150,18 +1206,41 @@ class VmServiceClient {
     }
   }
 
-  /// Resolve the main (non-system) isolate ID for memory polling.
-  Future<String?> _resolveMainIsolateId() async {
+  /// Resolves the isolate id for memory, CPU and allocation RPCs.
+  ///
+  /// Prefers this client's own isolate when the VM lists it. Otherwise
+  /// falls back to the first non-system isolate, unverified. Writes no
+  /// field: callers commit the result under their session check.
+  Future<_IsolateResolution> _resolveMainIsolateId() async {
     try {
       final vm = await _service!.getVM();
       final isolates = vm.isolates;
-      if (isolates == null || isolates.isEmpty) return null;
-      final main = isolates.firstWhere(
-        (ref) => ref.isSystemIsolate != true,
-        orElse: () => isolates.first,
-      );
-      return main.id;
+      if (isolates == null || isolates.isEmpty) {
+        return const _IsolateResolution(null, verified: false);
+      }
+      final legacy = isolates
+          .firstWhere(
+            (ref) => ref.isSystemIsolate != true,
+            orElse: () => isolates.first,
+          )
+          .id;
+      final own = _readOwnIsolateId();
+      if (own != null && isolates.any((ref) => ref.id == own)) {
+        return _IsolateResolution(own, verified: true, legacyId: legacy);
+      }
+      return _IsolateResolution(legacy, verified: false, legacyId: legacy);
     } catch (_) {
+      return const _IsolateResolution(null, verified: false);
+    }
+  }
+
+  String? _readOwnIsolateId() {
+    try {
+      final resolver = ownIsolateIdResolver;
+      if (resolver != null) return resolver();
+      return developer.Service.getIsolateId(isolate.Isolate.current);
+    } catch (_) {
+      // `Isolate.current` throws on web compilers.
       return null;
     }
   }
@@ -1269,6 +1348,7 @@ class VmServiceClient {
     _extensionSub?.cancel();
     _extensionSub = null;
     _mainIsolateId = null;
+    _verifiedOwnIsolateId = null;
     _connected = false;
     try {
       _service?.dispose();
@@ -1320,11 +1400,12 @@ class VmServiceClient {
     }
   }
 
-  /// Query allocation profile for the main isolate. Returns null on error or timeout.
+  /// Query allocation profile for the main isolate. Returns null on
+  /// error, on timeout, and while [allocationProfileReadsHeld] is true.
   ///
-  /// Called with [reset: true] to get deltas since last call. First call
-  /// establishes baseline; subsequent calls show allocation activity.
-  /// Only called on-demand when heap growth is detected — not continuous.
+  /// [reset] resets the VM's accumulated counters for every reader. A
+  /// timeout ends the wait, not the request: the VM still builds the
+  /// profile and the response is still decoded on this isolate.
   Future<AllocationProfile?> getAllocationProfile({
     bool reset = false,
     Duration timeout = const Duration(milliseconds: 500),
@@ -1332,6 +1413,7 @@ class VmServiceClient {
     final service = _service;
     final isolateId = _mainIsolateId;
     if (service == null || isolateId == null) return null;
+    if (_allocationReadHolds > 0) return null;
 
     final gen = _sessionGeneration;
     try {
@@ -1346,13 +1428,57 @@ class VmServiceClient {
     }
   }
 
+  /// Changes whenever a VM service session ends or a new one starts, so a
+  /// caller can tell whether a reply belongs to the session it asked in.
+  int get sessionGeneration => _sessionGeneration;
+
+  /// Whether [getAllocationProfile] refuses new requests.
+  bool get allocationProfileReadsHeld => _allocationReadHolds > 0;
+
+  /// `getAllocationProfile` requests the VM has not answered yet.
+  int get allocationProfileReadsInFlight => _allocationSpans.openCount;
+
+  /// Makes [getAllocationProfile] return null without a request until a
+  /// matching [releaseAllocationProfileReads]. Holds nest.
+  void holdAllocationProfileReads() => _allocationReadHolds++;
+
+  /// Ends one [holdAllocationProfileReads]. Extra calls do nothing.
+  void releaseAllocationProfileReads() {
+    if (_allocationReadHolds > 0) _allocationReadHolds--;
+  }
+
+  /// Waits until no `getAllocationProfile` request is in flight. Returns
+  /// false when [timeout] passes first, or when there is no session or
+  /// the session changes while waiting (a new session clears the
+  /// in-flight record, so an empty record would not prove the old
+  /// request finished).
+  Future<bool> drainAllocationProfileReads({
+    Duration timeout = const Duration(seconds: 10),
+    Duration pollInterval = const Duration(milliseconds: 50),
+  }) async {
+    final gen = _sessionGeneration;
+    bool sessionCurrent() => gen == _sessionGeneration && _service != null;
+    if (!sessionCurrent()) return false;
+    final waited = Stopwatch()..start();
+    while (_allocationSpans.openCount > 0) {
+      if (waited.elapsed >= timeout) return false;
+      await Future<void>.delayed(pollInterval);
+      if (!sessionCurrent()) return false;
+    }
+    return sessionCurrent();
+  }
+
   /// Re-resolves the main isolate id after a stale-isolate error. The
   /// answer is kept only while the session that saw the error is still
-  /// current.
+  /// current. A verified own id is kept as is: the isolate this client
+  /// runs on cannot be collected while the client runs.
   Future<void> _refreshMainIsolateId(int gen) async {
     if (gen != _sessionGeneration || _service == null) return;
-    final id = await _resolveMainIsolateId();
-    if (gen == _sessionGeneration && !_disposed) _mainIsolateId = id;
+    if (_verifiedOwnIsolateId != null) return;
+    final resolution = await _resolveMainIsolateId();
+    if (gen == _sessionGeneration && !_disposed) {
+      _mainIsolateId = resolution.id;
+    }
   }
 
   /// Test-only: ends the session as a reconnect does, so an in-flight
@@ -1369,4 +1495,18 @@ class VmServiceClient {
     _disposed = true;
     _cleanup();
   }
+}
+
+/// The isolate id a session should use, and whether the VM's isolate
+/// list confirmed it as this client's own isolate.
+@immutable
+class _IsolateResolution {
+  const _IsolateResolution(this.id, {required this.verified, this.legacyId});
+
+  final String? id;
+  final bool verified;
+
+  /// The first non-system isolate, the pick used before own-id
+  /// verification. Kept for the connect log line.
+  final String? legacyId;
 }

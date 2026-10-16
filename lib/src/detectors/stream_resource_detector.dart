@@ -126,6 +126,7 @@ class StreamResourceDetector extends BaseDetector
   StreamResourceDetector({
     required VmServiceClient? Function() vmClientProvider,
     required bool Function() heapGrowingStateProvider,
+    int Function()? heapGrowingEpisodeProvider,
     DateTime Function()? clock,
     this.sampleSeconds = 10,
     this.minDelta = 50,
@@ -143,6 +144,7 @@ class StreamResourceDetector extends BaseDetector
        assert(cooldownSeconds >= 0, 'cooldownSeconds must not be negative.'),
        _vmClientProvider = vmClientProvider,
        _heapGrowingStateProvider = heapGrowingStateProvider,
+       _heapGrowingEpisodeProvider = heapGrowingEpisodeProvider,
        _clock = clock ?? DateTime.now,
        _allocationProfileFetcherForTest = allocationProfileFetcherForTest,
        super(
@@ -192,6 +194,11 @@ class StreamResourceDetector extends BaseDetector
   // before the controller assigns its `_vmClient` field.
   final VmServiceClient? Function() _vmClientProvider;
   final bool Function() _heapGrowingStateProvider;
+
+  // The current `heap_growing` episode number. A new episode starts a new
+  // sample window, so samples from one growth episode never count toward
+  // the next.
+  final int Function()? _heapGrowingEpisodeProvider;
   final DateTime Function() _clock;
   final Future<AllocationProfile?> Function()? _allocationProfileFetcherForTest;
 
@@ -233,8 +240,21 @@ class StreamResourceDetector extends BaseDetector
     'ReplaySubject',
   ];
 
-  // Per-suffix sliding window of `instancesCurrent` values.
+  // Per-suffix sliding window of `instancesCurrent` values. Every poll
+  // appends one value to every tracked suffix, so a suffix's values line
+  // up with the newest entries of [_windowPollMicros].
   final Map<String, List<int>> _perClassWindow = <String, List<int>>{};
+
+  // Poll times (clock micros) of the samples in [_perClassWindow], oldest
+  // first. Samples older than [_windowMaxAgeMicros] are dropped at the
+  // next poll, so a window resumed after a pause never joins old samples.
+  final List<int> _windowPollMicros = <int>[];
+
+  // The `heap_growing` episode the window belongs to, or null when the
+  // window was collected while no episode was active.
+  int? _windowEpisode;
+
+  int get _windowMaxAgeMicros => windowSize * sampleSeconds * 1500000;
 
   int? _activatedAtMicros;
   int? _lastSampleAtMicros;
@@ -341,6 +361,10 @@ class StreamResourceDetector extends BaseDetector
       // so the capture caller is guaranteed to see a post-await sample.
       await inFlight;
     }
+    // A forced poll is not gated on `heap_growing`, but it starts a new
+    // window when the episode changed, so the next automatic tick does
+    // not reset the window under the sample this poll is about to add.
+    if (_heapGrowingStateProvider()) _syncWindowEpisode();
     _lastSampleAtMicros = _clock().microsecondsSinceEpoch;
     _activatedAtMicros ??= _lastSampleAtMicros;
     _maybeExpireCooldown(_lastSampleAtMicros!);
@@ -380,6 +404,9 @@ class StreamResourceDetector extends BaseDetector
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
     final nowMicros = _clock().microsecondsSinceEpoch;
+    // A cooldown that ends while polls are skipped still removes its
+    // issue.
+    _maybeExpireCooldown(nowMicros);
 
     // Activation/warmup: stamp `_activatedAtMicros` on first eligible
     // tick (NOT in constructor) so a Sleuth instance constructed at
@@ -395,6 +422,19 @@ class StreamResourceDetector extends BaseDetector
       return;
     }
 
+    // No automatic polls without `heap_growing`: the detector can only
+    // emit while it is active, and each poll decodes the whole allocation
+    // profile on the UI isolate. The window starts over when growth stops
+    // or a new growth episode starts.
+    if (!_heapGrowingStateProvider()) {
+      if (_windowEpisode != null || _windowPollMicros.isNotEmpty) {
+        _resetWindow();
+      }
+      _windowEpisode = null;
+      return;
+    }
+    _syncWindowEpisode();
+
     // Sample-rate gate. Advance `_lastSampleAtMicros` BEFORE
     // scheduling the async poll so a re-entrant tick within the
     // sample-rate window short-circuits cleanly even if the prior
@@ -408,11 +448,6 @@ class StreamResourceDetector extends BaseDetector
     if (_pollInFlight != null) return;
 
     _lastSampleAtMicros = nowMicros;
-    // Expire a wall-clock cooldown that lapsed silently (e.g. during a
-    // VmService disconnect that ran out the cooldown window without
-    // any non-null poll arriving to drain it). Without this, a stale
-    // `_lastEmittedIssue` survives in `_issues` past its intended TTL.
-    _maybeExpireCooldown(nowMicros);
     final autoPoll = _pollAllocationProfile();
     _pollInFlight = autoPoll;
     unawaited(autoPoll);
@@ -571,6 +606,15 @@ class StreamResourceDetector extends BaseDetector
     // so the ascending window ages out — without this, a stale
     // `[100, 130, 160, 190]` window survives forever and re-fires
     // after every cooldown expiry.
+    final nowMicros = _clock().microsecondsSinceEpoch;
+    _windowPollMicros.add(nowMicros);
+    while (_windowPollMicros.isNotEmpty &&
+        nowMicros - _windowPollMicros.first > _windowMaxAgeMicros) {
+      _windowPollMicros.removeAt(0);
+    }
+    while (_windowPollMicros.length > windowSize) {
+      _windowPollMicros.removeAt(0);
+    }
     final allSuffixes = <String>{
       ..._perClassWindow.keys,
       ...perPollAggregates.keys,
@@ -579,7 +623,7 @@ class StreamResourceDetector extends BaseDetector
       final count = perPollAggregates[suffix] ?? 0;
       final window = _perClassWindow.putIfAbsent(suffix, () => <int>[]);
       window.add(count);
-      while (window.length > windowSize) {
+      while (window.length > _windowPollMicros.length) {
         window.removeAt(0);
       }
     }
@@ -796,6 +840,28 @@ class StreamResourceDetector extends BaseDetector
         _emissionStartMicros! + cooldownSeconds * 1000000;
   }
 
+  // Starts a new window for the current `heap_growing` episode when it
+  // differs from the window's.
+  void _syncWindowEpisode() {
+    final episode = _heapGrowingEpisodeProvider?.call();
+    if (episode == _windowEpisode) return;
+    _resetWindow();
+    _windowEpisode = episode;
+  }
+
+  // Drops the sample window and fences off polls still in flight, which
+  // belong to the old window. Warmup, backoff and the retained issue's
+  // cooldown are kept; the next eligible tick polls at once.
+  void _resetWindow() {
+    _resetGeneration++;
+    _perClassWindow.clear();
+    _windowPollMicros.clear();
+    _lastSampleAtMicros = null;
+    _lastObservedTopGrowthDelta = null;
+    _lastObservedTopGrowthClass = null;
+    _lastObservedSamplesInWindow = 0;
+  }
+
   /// Clear all per-scenario state. Called on `Sleuth.markScenarioBegin`
   /// via `SleuthController.resetCaptureState`.
   void resetCaptureState() {
@@ -805,6 +871,8 @@ class StreamResourceDetector extends BaseDetector
   void _clearRetainedState() {
     _resetGeneration++;
     _perClassWindow.clear();
+    _windowPollMicros.clear();
+    _windowEpisode = null;
     _activatedAtMicros = null;
     _lastSampleAtMicros = null;
     _pollPausedUntilMicros = null;

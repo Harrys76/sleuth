@@ -1,3 +1,79 @@
+## Unreleased
+
+- `gc_pressure` counts each garbage collection once. The VM posts every
+  collection once per non-system isolate of the isolate group, so apps using
+  `compute` or `Isolate.run` saw the rate multiplied (an iPhone 12 run with
+  `Isolate.run` parses received 464 events for 271 collections). The VM
+  client now resolves its own isolate with `Service.getIsolateId`, confirms it
+  in `getVM`, and drops the copies posted for other isolates. Memory, CPU and
+  allocation RPCs use the same id.
+- `gc_pressure` splits its window into young-generation collections,
+  completed old-generation cycles (`MarkSweep` / `MarkCompact`) and
+  concurrent-marking starts (`StartCMark`, new `markStartCount`).
+  Concurrent-marking starts were counted as scavenges before.
+- `gc_pressure` reports how long GC paused the app in the last 10 s
+  (`gcPauseMs`, `gcPausePercent` and a detail sentence), from the VM's
+  cumulative pause counters, when every collection in the window has a
+  measured pause. `MemoryPressureDetector.gcWindowStats` exposes the window.
+- `shader_compilation` detects Impeller OpenGL ES program links
+  (`LinkProgram`), the Android fallback backend on emulators, Huawei devices,
+  older MediaTek devices and drivers with known bugs.
+- The VM client no longer subscribes to the Extension stream unless a caller
+  consumes it. The framework posts a `Flutter.Frame` event for every frame
+  outside release builds, and the client decoded each one on the UI isolate.
+- `heap_growing` has a second, more accurate measurement: the heap left
+  right after the idle full collections the VM runs between frames, which
+  leaves out garbage the next collection would free. Replayed on iPhone 12
+  traces it matches the retained allocation rate within 1 %. While it has
+  fresh collections it decides: growth publishes `confirmed`, and a flat
+  heap withdraws the issue even when the 500 ms heap-sample regression reads
+  above the threshold. Without a fresh verdict (no recent idle collections,
+  or a drop such as a page or cache being freed) the heap-sample regression
+  decides as before, at `likely` unless idle collections already showed
+  the growth in the same episode with no drop since. The new
+  measurement ignores the first 30 s after Sleuth starts. Trace records
+  name the leg (`heapGrowingLeg`) and stamp
+  `observedFloorSlopeBytesPerSec` or `observedSlopeBytesPerSec`.
+- StreamResourceDetector reads the allocation profile only while
+  `heap_growing` is active, instead of every 10 s in every session. A new
+  growth episode starts a new sample window, so `stream_resource_growth`
+  appears about 30 s after `heap_growing` at the earliest.
+- New `Sleuth.setHeapGrowingLegsForCapture` (capture mode only) records
+  one `heap_growing` leg at a time.
+- `heap_growing` enrichment reads the allocation profile once instead of
+  twice, and waits up to 5 s for it. The ranking already used each class's
+  live bytes and instances, so the first read and its accumulator reset did
+  nothing, and on an iPhone 12 the profile takes longer than the old 500 ms
+  wait. A profile that arrives after the growth episode ended is dropped
+  instead of labelling the next episode. `AllocationEntry.instancesDelta` /
+  `bytesDelta` are documented as the live counts they hold.
+- New `Sleuth.holdAllocationProfileReads` / `releaseAllocationProfileReads`
+  (capture mode only) stop Sleuth's own allocation-profile reads and wait for
+  one in flight, so a memory capture leg's heap samples do not include their
+  decoding.
+- Example: the memory capture screen holds those reads and switches
+  StreamResourceDetector off for each leg, aborts a leg when a read is still
+  in flight after 10 s, starts the at leg at 600 000 B/s, never retries the
+  at or above leg at 512 000 B/s or below, marks a below leg on which the
+  detector fired as out of band, and records the isolation and the measured
+  operator rate in the capture notes. The new
+  `ext.sleuthDemo.allocationReads` extension does the same for a measurement
+  run.
+- `heap_growing.warning` stays `runtimeVerified` with one bracket per leg,
+  each backed by its own Flutter 3.47.6 triad (iPhone 12, iOS 17.5) recorded
+  with the other leg switched off and the measured operator rate as the
+  observed value: floor leg at 573 022 B/s for an operator rate of 572 044 and
+  above 779 355 for 781 317; sample leg at 672 185 for 572 489 and above
+  796 951 for 781 793; both below legs silent. The previous Flutter 3.41.4 set
+  read 1.25 to 1.55 times the operator rate.
+- Example: the memory capture screen records one `heap_growing` leg per
+  run, keeps the measured operator rate as `expectedMagnitude.observed`, and
+  keeps each run's buffers until the screen closes, so their collection
+  never lands inside the next run.
+- Example: the CSV Import demo's `Isolate.run` path spawns from a synchronous
+  helper. A closure created inside the `async` handler captured the
+  handler's completer and failed to send.
+
 ## 0.37.0
 
 Flutter 3.47 support, more accurate detectors, a cheaper VM poll loop, and a
