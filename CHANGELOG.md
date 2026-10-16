@@ -397,8 +397,7 @@
 - `slow_startup_ttff` warning and critical are `runtimeVerified`, backed
   by iPhone 12 cold-launch triads on Flutter 3.47.6 (warning 1003 ms
   silent, 1650 and 2399 ms; critical 2398 ms as a warning only, 3298 and
-  4502 ms). Twenty-five pairs across 18 stable ids are now
-  `runtimeVerified`.
+  4502 ms).
 - `slow_startup_ttff` stamps `observedTtffMs`, and
   `StartupDetector.evaluated` is true once the detector has read the
   first-frame metrics. `Sleuth.startupDetector` returns the instance.
@@ -408,6 +407,25 @@
   `Sleuth.resumeAllTimelineStreams` return whether the VM accepted the
   stream list. The explanation now says 3000 ms or more is critical and
   that the time runs to the first frame's timing report.
+- `raster_dominance` warning and critical are `runtimeVerified`, backed by
+  iPhone 12 triads on Flutter 3.47.6 (warning 1 raster-dominant frame
+  silent, 3 and 6; critical 6 as a warning only, 11 and 20 frames inside
+  one second). Twenty-seven pairs across 19 stable ids are now
+  `runtimeVerified`.
+- `raster_dominance` stamps `observedDominantFrames`, the dominant frames
+  in the one-second span the detector judged. `dominantFrameCount` still
+  counts those since the previous scan, and the two differ when a span
+  reaches back across a scan. The start of a capture scenario clears the
+  detector's held frames, so frames from before it cannot join its first
+  record.
+- Example: a raster_dominance capture screen draws a prerecorded picture
+  of 700 stroked paths on a chosen run of frames, counts the dominant
+  frames in its busiest one-second span from its own frame timings, and
+  refuses a leg whose heavy frames are not all dominant or that has a
+  dominant frame outside the run.
+  `ext.sleuthDemo.rasterBurst` runs such a run in any build and returns
+  each frame's timing, and `ext.sleuthDemo.rasterState` reads the screen's
+  last result.
 - Example: a slow_startup_ttff leg runs at launch. The host copies a
   request file that names the leg into the app container and relaunches
   the app with `xcrun devicectl`. `main()` blocks for the leg's delay

@@ -61,14 +61,17 @@ String _outcome(List<PerformanceIssue> issues) {
   return issues.isEmpty ? 'none' : 'warning';
 }
 
-/// The largest count of frames inside one second any scan reported.
+/// The largest count of frames inside one second any scan reported, read
+/// from the `observedDominantFrames` stamp a capture brackets. Each stamp
+/// must equal the count the issue's detail gives.
 int _maxQualifying(List<PerformanceIssue> issues) {
   var best = 0;
   for (final issue in issues) {
     final match = RegExp(
       r'^(\d+) frames within one second',
     ).firstMatch(issue.detail);
-    final count = int.parse(match!.group(1)!);
+    final count = int.parse(issue.extraTraceArgs!['observedDominantFrames']!);
+    expect(count, int.parse(match!.group(1)!));
     if (count > best) best = count;
   }
   return best;

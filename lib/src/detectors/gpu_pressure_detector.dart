@@ -33,6 +33,10 @@ import '../vm/timeline_parser.dart';
 ///   across a scan, so a burst split by a scan counts once. Frames that
 ///   arrive within [startupPhaseWindowSeconds] of Dart entry are ignored
 ///   (cold-start pipeline compilation belongs to `shader_compilation`).
+///   The issue stamps `observedDominantFrames`, the dominant frames in the
+///   one-second span it judged, and `dominantFrameCount`, the dominant
+///   frames since the previous scan. The two differ when a span reaches
+///   back across a scan.
 /// * **VM leg.** Raster and UI timeline events from the VM, ignored inside
 ///   the same startup window, read once per scan. When the frame leg fires
 ///   and a VM raster frame since the last scan also exceeds the budget and
@@ -332,6 +336,17 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     _clearVmLeg();
   }
 
+  /// Clears the frame leg, the VM leg and any `raster_dominance` issue at
+  /// the start of a capture scenario, so dominant frames from before the
+  /// scenario cannot join its first record. `expensive_gpu_nodes` stays
+  /// until the next scan. Called by `SleuthController.resetCaptureState`,
+  /// which runs only in capture mode.
+  void resetCaptureState() {
+    _resetFrameLeg();
+    _clearVmLeg();
+    _issues.removeWhere((i) => i.stableId == 'raster_dominance');
+  }
+
   void _clearVmLeg() {
     _vmMissedInBatch = 0;
     _vmWorstRasterUs = 0;
@@ -622,6 +637,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           dedupIdentityMicros: frameLeg.identityUs,
           extraTraceArgs: {
             'source': 'frame_timing',
+            'observedDominantFrames': frameLeg.qualifyingCount.toString(),
             'dominantFrameCount': dominantCount.toString(),
             'windowFrameCount': windowFrameCount.toString(),
             'worstFrameRasterUs': worstFrameRasterUs.toString(),
@@ -635,6 +651,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         ),
       );
     } else if (vmAlone) {
+      // This path counts frames in one poll, not in a one-second span, so
+      // it stamps no extra trace args and no `observedDominantFrames`.
       final (hint, effort) = FixHintBuilder.rasterDominance();
       _issues.add(
         PerformanceIssue(
@@ -768,12 +786,80 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         'otherwise. The VM-disconnect setter removes a VM-sourced '
         '`raster_dominance`, returns a VM-confirmed frame-leg issue to '
         '`likely`, and downgrades `expensive_gpu_nodes` only when no '
-        'frame-sourced `raster_dominance` remains. The detector has no '
-        'runtime '
-        'verification against Impeller or Skia budgets and no external '
-        'citation.',
+        'frame-sourced `raster_dominance` remains. '
+        'Runtime verification covers the frame leg of `raster_dominance` '
+        '(warning at 3, critical at 10) on an iPhone 12 at 60 Hz with '
+        'Impeller on Metal. A capture screen draws a prerecorded picture of '
+        '700 stroked paths on a chosen run of consecutive frames. Each such '
+        'frame cost the raster thread 28 to 80 ms against under 6 ms of UI. '
+        'The screen counts the dominant frames in its busiest one-second '
+        'span from its own `FrameTiming` listener with the same rule. The '
+        'issue stamps that span count as `observedDominantFrames`, and the '
+        'screen stashes a leg only when the most the detector stamped '
+        'equals the screen\'s count. Every heavy frame must be dominant. The '
+        'frame that hides the picture, and the first frame drawn after it '
+        'when it starts within 250 ms, belong to the run, because their '
+        'raster time can include waiting for the GPU to finish the heavy '
+        'frames. A dominant frame anywhere else refuses the leg as ambient; '
+        'the screen does not subtract it. The warning legs read 1 dominant '
+        'frame (silent), 3 and 6; the critical legs read 6 (a warning '
+        'only), 11 and 20 within 718 ms. The detector matched the screen in '
+        'every leg, and the critical above leg wrote 8 and then 20 across '
+        'two scans. '
+        'The leg narrows the timeline to the Dart stream, so the VM leg '
+        'sees no raster frames and the records are `likely`; the step to '
+        '`confirmed` that the VM leg gives in other sessions is not part of '
+        'the captures. `expensive_gpu_nodes` has no runtime verification.',
     reproducerPath: 'test/validation/gpu_pressure_reproducer_test.dart',
     coveredStableIds: {'raster_dominance', 'expensive_gpu_nodes'},
+    perStableIdTier: {'raster_dominance': EvidenceTier.runtimeVerified},
+    profileCapturePaths: [
+      'test/validation/captures/gpu_pressure/raster_dominance_below.json',
+      'test/validation/captures/gpu_pressure/raster_dominance_at.json',
+      'test/validation/captures/gpu_pressure/raster_dominance_above.json',
+    ],
+    // The warning fires at 3 dominant frames in a one-second span. The at
+    // band is [3, 4.5] frames and the above band (4.5, 9]. The above band
+    // ends below 10, where the detector records critical instead.
+    bracketThreshold: 3,
+    bracketUnit: 'frames',
+    bracketStableId: 'raster_dominance',
+    bracketSeverityLabel: 'warning',
+    bracketAtTolerance: 0.5,
+    aboveCeilingMultiplier: 3.0,
+    observedAxisArgKey: 'observedDominantFrames',
+    // The tolerance is relative, so any count below 100 must match exactly.
+    observedAxisTolerance: 0.01,
+    observedAxisReduction: 'max',
+    bracketRequireUniqueDetectedAtMicros: true,
+    coveredThresholds: {
+      'raster_dominance.warning',
+      'raster_dominance.critical',
+    },
+    additionalBrackets: [
+      // The critical fires at 10. The at band is [10, 15] frames and the
+      // above band (15, 25]. A run writes one or two critical records, so
+      // there is no in-band minimum.
+      BracketSpec(
+        stableId: 'raster_dominance',
+        severityLabel: 'critical',
+        threshold: 10,
+        unit: 'frames',
+        coveredThresholds: {'raster_dominance.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/gpu_pressure/raster_dominance_critical_below.json',
+          'test/validation/captures/gpu_pressure/raster_dominance_critical_at.json',
+          'test/validation/captures/gpu_pressure/raster_dominance_critical_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.5,
+        observedAxisArgKey: 'observedDominantFrames',
+        observedAxisTolerance: 0.01,
+        observedAxisReduction: 'max',
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+      ),
+    ],
   );
 }
 

@@ -2148,6 +2148,10 @@ class SleuthController {
         // leg's `peakObservedPaintPercent` via the window-close peak
         // comparison.
         detector.resetCaptureState();
+      } else if (detector is GpuPressureDetector) {
+        // Dominant frames held from the second before the scenario would
+        // otherwise join its first raster_dominance record.
+        detector.resetCaptureState();
       }
     }
     // Clear FrameTimingDetector's frame buffer + ephemeral _issues so the

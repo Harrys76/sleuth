@@ -687,6 +687,7 @@ void main() {
         );
         expect(issue.extraTraceArgs!.keys.toSet(), {
           'source',
+          'observedDominantFrames',
           'dominantFrameCount',
           'windowFrameCount',
           'worstFrameRasterUs',
@@ -694,6 +695,7 @@ void main() {
           'lifecyclePhase',
         });
         expect(issue.extraTraceArgs!['source'], 'frame_timing');
+        expect(issue.extraTraceArgs!['observedDominantFrames'], '3');
         expect(issue.extraTraceArgs!['dominantFrameCount'], '3');
         expect(issue.extraTraceArgs!['windowFrameCount'], '3');
         expect(issue.extraTraceArgs!['worstFrameRasterUs'], '20000');
@@ -728,6 +730,7 @@ void main() {
         expect(issue!.detail, startsWith('3 frames within one second'));
         expect(issue.detail, contains('4 of 4 frames since the last scan'));
         expect(issue.extraTraceArgs!['dominantFrameCount'], '4');
+        expect(issue.extraTraceArgs!['observedDominantFrames'], '3');
       });
 
       testWidgets('a frame within its budget does not count, however large '
@@ -929,16 +932,80 @@ void main() {
         expect(issue.detail, contains('1 of 1 frames since the last scan'));
         expect(issue.extraTraceArgs!['dominantFrameCount'], '1');
         expect(issue.extraTraceArgs!['windowFrameCount'], '1');
+        // The span reaches back across the scan, so it holds all three.
+        expect(issue.extraTraceArgs!['observedDominantFrames'], '3');
       });
 
       testWidgets('10 dominant frames split by a scan reach critical', (
         tester,
       ) async {
         feed(List.filled(5, 20000));
-        expect(raster(await scan(tester))!.severity, IssueSeverity.warning);
+        final first = raster(await scan(tester))!;
+        expect(first.severity, IssueSeverity.warning);
+        expect(first.extraTraceArgs!['observedDominantFrames'], '5');
 
         feed(List.filled(5, 20000), startUs: 5 * 16667);
-        expect(raster(await scan(tester))!.severity, IssueSeverity.critical);
+        final second = raster(await scan(tester))!;
+        expect(second.severity, IssueSeverity.critical);
+        expect(second.extraTraceArgs!['observedDominantFrames'], '10');
+        expect(second.dedupIdentityMicros, isNot(first.dedupIdentityMicros));
+      });
+
+      testWidgets('a burst longer than a second stamps its busiest span, '
+          'not its length', (tester) async {
+        // 14 dominant frames 80 ms apart span 1.04 s; the busiest half-open
+        // second holds 13 of them.
+        feed(List.filled(14, 20000), spacingUs: 80000);
+        final issue = raster(await scan(tester))!;
+        expect(issue.extraTraceArgs!['observedDominantFrames'], '13');
+        expect(issue.extraTraceArgs!['dominantFrameCount'], '14');
+        expect(issue.severity, IssueSeverity.critical);
+      });
+
+      testWidgets('two frames exactly a second apart fall in different spans', (
+        tester,
+      ) async {
+        feed([20000, 20000], spacingUs: 1000000);
+        feed([20000], startUs: 1000000 + 16667);
+        // Frames at 0, 1 000 000 and 1 016 667: the second span holds 2.
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('resetCaptureState drops held frames, the VM leg and the '
+          'raster issue', (tester) async {
+        feed([20000, 20000, 20000]);
+        await scan(tester, const _OpacityDeepTree());
+        expect(raster(detector.issues), isNotNull);
+
+        detector.resetCaptureState();
+        expect(raster(detector.issues), isNull);
+        expect(
+          detector.issues.where((i) => i.stableId == 'expensive_gpu_nodes'),
+          hasLength(1),
+        );
+
+        // Two frames after the reset cannot pair with the three before it.
+        feed([20000, 20000], startUs: 3 * 16667);
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('resetCaptureState clears VM timing seen before it', (
+        tester,
+      ) async {
+        detector.vmConnected = true;
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
+        detector.resetCaptureState();
+        feed([20000, 20000, 20000]);
+        final issue = raster(await scan(tester))!;
+        expect(issue.confidence, IssueConfidence.likely);
+        expect(issue.extraTraceArgs!.containsKey('vmWorstRasterUs'), isFalse);
       });
 
       testWidgets('a scan drops held frames more than a second before the '

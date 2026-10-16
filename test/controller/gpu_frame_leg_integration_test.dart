@@ -89,6 +89,7 @@ void main() {
       expect(issues.single.observationSource, ObservationSource.frameTiming);
       expect(issues.single.severity, IssueSeverity.warning);
       expect(issues.single.extraTraceArgs!['dominantFrameCount'], '5');
+      expect(issues.single.extraTraceArgs!['observedDominantFrames'], '5');
       expect(notifications, 1);
     });
 
@@ -104,6 +105,21 @@ void main() {
       final issue = _raster(c).single;
       expect(issue.severity, IssueSeverity.critical);
       expect(issue.extraTraceArgs!['dominantFrameCount'], '20');
+      expect(issue.extraTraceArgs!['observedDominantFrames'], '20');
+    });
+
+    testWidgets('resetCaptureState drops dominant frames held from before '
+        'it', (tester) async {
+      final c = _controller();
+      final root = await _pumpApp(tester);
+
+      c.handleTimingsForTest(_rasterBound(2));
+      // A capture scenario begins here; the next frame alone is below 3.
+      c.resetCaptureState();
+      c.handleTimingsForTest(_rasterBound(1));
+      c.scanTreeFullPathForTest(root);
+
+      expect(_raster(c), isEmpty);
     });
 
     testWidgets('12 ms of raster fits the 60 Hz budget → none', (tester) async {

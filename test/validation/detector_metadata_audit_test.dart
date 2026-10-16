@@ -56,6 +56,7 @@ import 'package:sleuth/sleuth.dart'
         ProfileCaptureSchema;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
 import 'package:sleuth/src/detectors/image_memory_detector.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
@@ -161,11 +162,11 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   // dedicated `RebuildDetector pinned at runtimeVerified for
   // rebuild_activity` anchor block below for the per-family-tier +
   // bracket-field invariants.
-  DetectorType.gpuPressure: (
-    'test/validation/gpu_pressure_reproducer_test.dart',
-    {'raster_dominance', 'expensive_gpu_nodes'},
-    null,
-  ),
+  // GpuPressureDetector lifted out of the v0.17.4 reproducerOnly batch:
+  // base stays reproducerOnly, and `raster_dominance` warning and critical
+  // reach runtimeVerified via perStableIdTier on iPhone 12 capture
+  // triads. `expensive_gpu_nodes` stays reproducerOnly. See the dedicated
+  // `GpuPressureDetector pinned` anchor below.
   DetectorType.eventLoopStall: (
     'test/validation/event_loop_stall_reproducer_test.dart',
     {'event_loop_stall'},
@@ -200,6 +201,7 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
 const legacyObservedAxisAllowlist = <String, LegacyObservedAxisEntry>{};
 
 const _singleDetectorAnchors = <DetectorType>{
+  DetectorType.gpuPressure,
   DetectorType.imageMemory,
   DetectorType.startup,
   DetectorType.networkMonitor,
@@ -1690,6 +1692,113 @@ void main() {
         critical.minInBandSamples,
         isNull,
         reason: 'A launch writes one record.',
+      );
+    });
+
+    test('GpuPressureDetector pinned: base reproducerOnly, raster_dominance '
+        'warning and critical runtimeVerified (v0.38.0)', () {
+      // Anti-tautology anchor. raster_dominance reaches runtimeVerified
+      // through perStableIdTier, warning on the canonical bracket and
+      // critical on additionalBrackets[0], each backed by three iPhone 12
+      // captures whose screen counts the dominant frames of a drawn run
+      // from its own FrameTiming listener.
+      final meta = GpuPressureDetector().validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly);
+      expect(
+        meta.reproducerPath,
+        'test/validation/gpu_pressure_reproducer_test.dart',
+      );
+      expect(meta.coveredStableIds, const {
+        'raster_dominance',
+        'expensive_gpu_nodes',
+      });
+      expect(meta.perStableIdTier, const {
+        'raster_dominance': EvidenceTier.runtimeVerified,
+      });
+      for (final severity in ['warning', 'critical']) {
+        expect(
+          meta.effectiveTierFor('raster_dominance', severity: severity),
+          EvidenceTier.runtimeVerified,
+          reason: severity,
+        );
+      }
+      expect(
+        meta.effectiveTierFor('expensive_gpu_nodes', severity: 'warning'),
+        EvidenceTier.reproducerOnly,
+      );
+      expect(meta.coveredThresholds, const {
+        'raster_dominance.warning',
+        'raster_dominance.critical',
+      });
+
+      // The thresholds track the detector defaults, and the ratio the
+      // controller passes matches the default the capture screen reads.
+      final detector = GpuPressureDetector();
+      expect(
+        detector.rasterMultiplierThreshold,
+        const DetectorThresholds().gpuPressureRatio,
+      );
+
+      // Warning, canonical bracket.
+      expect(meta.bracketStableId, 'raster_dominance');
+      expect(meta.bracketSeverityLabel, 'warning');
+      expect(
+        meta.bracketThreshold,
+        detector.minRasterDominantFrames,
+        reason:
+            'Default drift: the warning bracket tracks '
+            'minRasterDominantFrames.',
+      );
+      expect(meta.bracketUnit, 'frames');
+      expect(meta.bracketAtTolerance, 0.5);
+      expect(meta.aboveCeilingMultiplier, 3.0);
+      expect(
+        meta.bracketThreshold! * meta.aboveCeilingMultiplier!,
+        lessThan(detector.criticalRasterDominantFrames),
+        reason:
+            'The warning above band must end below the critical count, '
+            'where the detector records critical instead.',
+      );
+      expect(meta.observedAxisArgKey, 'observedDominantFrames');
+      expect(meta.observedAxisTolerance, 0.01);
+      expect(meta.observedAxisReduction, 'max');
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
+      expect(meta.profileCapturePaths, const [
+        'test/validation/captures/gpu_pressure/raster_dominance_below.json',
+        'test/validation/captures/gpu_pressure/raster_dominance_at.json',
+        'test/validation/captures/gpu_pressure/raster_dominance_above.json',
+      ]);
+
+      // Critical, additionalBrackets[0].
+      expect(meta.additionalBrackets, hasLength(1));
+      final critical = meta.additionalBrackets!.single;
+      expect(critical.stableId, 'raster_dominance');
+      expect(critical.severityLabel, 'critical');
+      expect(
+        critical.threshold,
+        detector.criticalRasterDominantFrames,
+        reason:
+            'Default drift: the critical bracket tracks '
+            'criticalRasterDominantFrames.',
+      );
+      expect(critical.unit, 'frames');
+      expect(critical.coveredThresholds, {'raster_dominance.critical'});
+      expect(critical.profileCapturePaths, const [
+        'test/validation/captures/gpu_pressure/raster_dominance_critical_below.json',
+        'test/validation/captures/gpu_pressure/raster_dominance_critical_at.json',
+        'test/validation/captures/gpu_pressure/raster_dominance_critical_above.json',
+      ]);
+      expect(critical.atTolerance, 0.5);
+      expect(critical.aboveCeilingMultiplier, 2.5);
+      expect(critical.observedAxisArgKey, 'observedDominantFrames');
+      expect(critical.observedAxisTolerance, meta.observedAxisTolerance);
+      expect(critical.observedAxisReduction, 'max');
+      expect(critical.requireUniqueDetectedAtMicros, isTrue);
+      expect(critical.requireDetectorTraceRecord, isTrue);
+      expect(
+        critical.minInBandSamples,
+        isNull,
+        reason: 'A run writes one or two critical records.',
       );
     });
 
