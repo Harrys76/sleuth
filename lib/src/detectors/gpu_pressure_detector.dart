@@ -33,6 +33,10 @@ import '../vm/timeline_parser.dart';
 ///   across a scan, so a burst split by a scan counts once. Frames that
 ///   arrive within [startupPhaseWindowSeconds] of Dart entry are ignored
 ///   (cold-start pipeline compilation belongs to `shader_compilation`).
+///   The issue stamps `observedDominantFrames`, the dominant frames in the
+///   one-second span it judged, and `dominantFrameCount`, the dominant
+///   frames since the previous scan. The two differ when a span reaches
+///   back across a scan.
 /// * **VM leg.** Raster and UI timeline events from the VM, ignored inside
 ///   the same startup window, read once per scan. When the frame leg fires
 ///   and a VM raster frame since the last scan also exceeds the budget and
@@ -332,6 +336,17 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     _clearVmLeg();
   }
 
+  /// Clears the frame leg, the VM leg and any `raster_dominance` issue at
+  /// the start of a capture scenario, so dominant frames from before the
+  /// scenario cannot join its first record. `expensive_gpu_nodes` stays
+  /// until the next scan. Called by `SleuthController.resetCaptureState`,
+  /// which runs only in capture mode.
+  void resetCaptureState() {
+    _resetFrameLeg();
+    _clearVmLeg();
+    _issues.removeWhere((i) => i.stableId == 'raster_dominance');
+  }
+
   void _clearVmLeg() {
     _vmMissedInBatch = 0;
     _vmWorstRasterUs = 0;
@@ -622,6 +637,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           dedupIdentityMicros: frameLeg.identityUs,
           extraTraceArgs: {
             'source': 'frame_timing',
+            'observedDominantFrames': frameLeg.qualifyingCount.toString(),
             'dominantFrameCount': dominantCount.toString(),
             'windowFrameCount': windowFrameCount.toString(),
             'worstFrameRasterUs': worstFrameRasterUs.toString(),
@@ -635,6 +651,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         ),
       );
     } else if (vmAlone) {
+      // No extra trace args: this path counts frames in one poll, not in a
+      // one-second span, so it carries no `observedDominantFrames`.
       final (hint, effort) = FixHintBuilder.rasterDominance();
       _issues.add(
         PerformanceIssue(

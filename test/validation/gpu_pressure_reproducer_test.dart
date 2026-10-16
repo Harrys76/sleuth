@@ -208,6 +208,7 @@ void main() {
         expect(issue.severity, IssueSeverity.warning);
         expect(issue.confidence, IssueConfidence.likely);
         expect(issue.observationSource, ObservationSource.frameTiming);
+        expect(issue.extraTraceArgs!['observedDominantFrames'], '3');
       });
 
       testWidgets('9 dominant frames stay a warning', (tester) async {
@@ -217,6 +218,7 @@ void main() {
           (i) => i.stableId == 'raster_dominance',
         );
         expect(issue.severity, IssueSeverity.warning);
+        expect(issue.extraTraceArgs!['observedDominantFrames'], '9');
       });
 
       testWidgets('above: 10 dominant frames emit critical', (tester) async {
@@ -227,6 +229,7 @@ void main() {
         );
         expect(issue.severity, IssueSeverity.critical);
         expect(issue.confidence, IssueConfidence.likely);
+        expect(issue.extraTraceArgs!['observedDominantFrames'], '10');
       });
 
       testWidgets('per-frame ratio is strict-greater (exact 2.0 skipped)', (
