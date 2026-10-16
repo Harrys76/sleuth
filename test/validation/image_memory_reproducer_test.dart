@@ -291,4 +291,48 @@ void main() {
       expect(rescanIssues(tester, detector), lacksStableId('uncached_images'));
     });
   });
+
+  group('ImageMemoryDetector reproducer — capture leg sizes at pixel ratio '
+      '3.0', () {
+    // The capture screen shows one square decode in a 48 dp box on an
+    // iPhone 12 (pixel ratio 3.0, so the box needs 144 px) and exports its
+    // own computed waste. These pin the detector's stamp at the same
+    // sizes, so the two sides agree on the bytes.
+    late ImageMemoryDetector detector;
+
+    setUp(() => detector = ImageMemoryDetector());
+    tearDown(() => detector.dispose());
+
+    Future<PerformanceIssue?> scanLeg(WidgetTester tester, int side) async {
+      setDevicePixelRatio(tester, 3.0);
+      final bytes = await pngBytes(tester, width: side, height: side);
+      final issues = await _scanDecoded(tester, detector, [
+        _image(bytes, 48, fit: BoxFit.fill),
+      ]);
+      return issues.where((i) => i.stableId == 'uncached_images').firstOrNull;
+    }
+
+    testWidgets('390 px (the below leg, 525,456 B) stays silent', (
+      tester,
+    ) async {
+      expect(await scanLeg(tester, 390), isNull);
+      expect(detector.uncachedImages.single.wastedBytes, 525456);
+    });
+
+    testWidgets('579 px (the at leg) is a warning of 1,258,020 B', (
+      tester,
+    ) async {
+      final issue = (await scanLeg(tester, 579))!;
+      expect(issue.severity, IssueSeverity.warning);
+      expect(issue.extraTraceArgs!['wastedBytes'], '1258020');
+      expect(issue.extraTraceArgs!['imageCount'], '1');
+    });
+
+    testWidgets('2294 px (the critical at leg) is critical at '
+        '20,966,800 B', (tester) async {
+      final issue = (await scanLeg(tester, 2294))!;
+      expect(issue.severity, IssueSeverity.critical);
+      expect(issue.extraTraceArgs!['wastedBytes'], '20966800');
+    });
+  });
 }

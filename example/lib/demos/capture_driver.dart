@@ -1614,6 +1614,76 @@ class CapturePreflightBanner extends StatelessWidget {
   }
 }
 
+/// The body of a capture screen. On a tall enough body, [controls] scroll
+/// inside [controlsShare] of its height, [pinned] stays in view below them
+/// and [log] fills the rest. A shorter body, such as a phone in landscape
+/// or one at a large text size, scrolls as one column with [log] at
+/// [compactLogHeight].
+class CaptureBodyLayout extends StatelessWidget {
+  const CaptureBodyLayout({
+    super.key,
+    required this.controls,
+    required this.pinned,
+    required this.log,
+    this.controlsShare = 0.5,
+  });
+
+  final List<Widget> controls;
+  final List<Widget> pinned;
+
+  /// A scrollable log. It gets a bounded height in both layouts.
+  final Widget log;
+
+  /// The largest share of the body the controls take before they scroll.
+  final double controlsShare;
+
+  /// The log's height in the single scrolling column.
+  static const double compactLogHeight = 240;
+
+  /// The shortest body, in logical pixels, that keeps the pinned rows in
+  /// view and leaves the log room at [textScale]: 540 at 1.0, 740 at 2.0.
+  static double minSplitHeight(double textScale) => 340 + 200 * textScale;
+
+  @override
+  Widget build(BuildContext context) {
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    return LayoutBuilder(
+      builder: (context, box) {
+        if (box.maxHeight < minSplitHeight(textScale)) {
+          return SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ...controls,
+                ...pinned,
+                SizedBox(height: compactLogHeight, child: log),
+              ],
+            ),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: box.maxHeight * controlsShare,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: controls,
+                ),
+              ),
+            ),
+            ...pinned,
+            Expanded(child: log),
+          ],
+        );
+      },
+    );
+  }
+}
+
 /// Leg buttons, copy button, state line and log shared by the
 /// time-share capture screens. Rebuilds from [CaptureDriver.instance].
 class CaptureLegPanel extends StatelessWidget {

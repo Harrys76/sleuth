@@ -20,7 +20,9 @@ const _floorDir = 'test/validation/captures/memory_pressure_floor';
 
 void main() {
   final meta = MemoryPressureDetector().validationMetadata;
-  final floorSpec = meta.additionalBrackets!.single;
+  final floorSpec = meta.additionalBrackets!.singleWhere(
+    (b) => b.observedAxisArgKey == 'observedFloorSlopeBytesPerSec',
+  );
   final sampleSpec = BracketSpec(
     stableId: meta.bracketStableId!,
     severityLabel: meta.bracketSeverityLabel!,

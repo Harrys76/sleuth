@@ -105,86 +105,112 @@ void main() {
         expect(issue.extraTraceArgs!['oldGenCount'], equals('6'));
         expect(
           issue.dedupIdentityMicros,
-          isNotNull,
+          equals(issue.detectedAt!.microsecondsSinceEpoch),
           reason:
-              'dedupIdentityMicros derived from _gcOverageStart '
-              '(first event timestamp at threshold cross) so consecutive '
-              'in-overage emissions collapse to one trace record.',
+              'The identity is the emission time, so every evaluation over '
+              'the threshold writes its own capture record.',
         );
       });
 
-      test(
-        're-emission inside same overage carries SAME dedupIdentityMicros',
-        () {
-          cycles(41);
-          final firstIdentity = detector.issues
-              .firstWhere((i) => i.stableId == 'gc_pressure')
-              .dedupIdentityMicros;
-          expect(firstIdentity, isNotNull);
-          // _evaluate() clears _issues each call and re-builds them, so
-          // detector.issues only ever shows the latest evaluation's
-          // emissions. Drive one more in-overage cycle, capture identity
-          // again, assert equal — proves _gcOverageStart persists across
-          // consecutive evaluations during a single overage so
-          // CaptureHelper composite-key dedup can collapse re-emissions.
-          cycles(1);
-          final secondIdentity = detector.issues
-              .firstWhere((i) => i.stableId == 'gc_pressure')
-              .dedupIdentityMicros;
-          expect(
-            secondIdentity,
-            equals(firstIdentity),
-            reason:
-                'Same overage episode → same _gcOverageStart → '
-                'same dedupIdentityMicros. Without this, CaptureHelper '
-                'cannot collapse re-emissions to one trace record per '
-                'episode.',
-          );
-        },
-      );
-
-      test('distinct overage episodes carry DISTINCT dedupIdentityMicros '
-          '(_gcOverageStart cleared on no-emit branch)', () {
-        // First overage: 41 young collections in 10s → fires.
+      test('each evaluation inside one overage carries a new identity and '
+          'the current young count', () {
         cycles(41);
-        final firstIdentity = detector.issues
-            .firstWhere((i) => i.stableId == 'gc_pressure')
-            .dedupIdentityMicros;
-        expect(firstIdentity, isNotNull);
+        final first = detector.issues.firstWhere(
+          (i) => i.stableId == 'gc_pressure',
+        );
+        cycles(1);
+        final second = detector.issues.firstWhere(
+          (i) => i.stableId == 'gc_pressure',
+        );
+        expect(
+          second.dedupIdentityMicros,
+          greaterThan(first.dedupIdentityMicros!),
+          reason:
+              'A capture records the count each time it is recorded; one '
+              'identity per overage kept only the count at the crossing.',
+        );
+        expect(first.extraTraceArgs!['scavengeCount'], '41');
+        expect(second.extraTraceArgs!['scavengeCount'], '42');
+      });
 
-        // Advance past the sliding window so the first overage's events
-        // age out, then drive a single sub-threshold cycle. NO reset()
-        // between episodes — `reset()` would null `_gcOverageStart` via
-        // its own clear path and mask the only behavior under test:
-        // the no-emit else-branch clear at or below the threshold.
+      test('two evaluations at one clock reading get identities 1 µs '
+          'apart', () {
+        cycles(41);
+        final first = detector.issues
+            .firstWhere((i) => i.stableId == 'gc_pressure')
+            .dedupIdentityMicros!;
+        detector.recordGcCycle();
+        final second = detector.issues
+            .firstWhere((i) => i.stableId == 'gc_pressure')
+            .dedupIdentityMicros!;
+        expect(second, first + 1);
+      });
+
+      test('identities never repeat across reset()', () {
+        cycles(41);
+        final before = detector.issues
+            .firstWhere((i) => i.stableId == 'gc_pressure')
+            .dedupIdentityMicros!;
+        detector.reset();
+        // The clock reading does not move across the reset. A capture leg
+        // that starts right after another must not reuse an identity, because
+        // the controller's capture dedup set outlives the leg.
+        for (var i = 0; i < 41; i++) {
+          detector.recordGcCycle();
+        }
+        final after = detector.issues
+            .firstWhere((i) => i.stableId == 'gc_pressure')
+            .dedupIdentityMicros!;
+        expect(after, greaterThan(before));
+      });
+
+      test('a later overage after a quiet window fires again', () {
+        cycles(41);
+        expect(detector.issues, hasStableId('gc_pressure'));
         now = now.add(const Duration(seconds: 30));
         detector.recordGcCycle();
-        expect(
-          detector.issues,
-          lacksStableId('gc_pressure'),
-          reason:
-              'Single isolated cycle (windowEvents == 1) does not '
-              'breach threshold; the no-emit else-branch must clear '
-              '_gcOverageStart here so the next overage gets a fresh '
-              'identity.',
-        );
-
-        // Second overage: 41 more → fires with NEW identity.
+        expect(detector.issues, lacksStableId('gc_pressure'));
         cycles(41);
-        final secondIdentity = detector.issues
-            .firstWhere((i) => i.stableId == 'gc_pressure')
-            .dedupIdentityMicros;
-        expect(secondIdentity, isNotNull);
+        expect(detector.issues, hasStableId('gc_pressure'));
+      });
+
+      test('capture leg shape: a steady young rate over 13 s records a '
+          'rising count up to the full window', () {
+        // A capture leg resets the detector at markScenarioBegin, so the
+        // window fills from empty. Young GCs arrive at 6 per second and
+        // the controller records the current issue every 500 ms.
+        detector.reset();
+        final identities = <int>{};
+        final counts = <int>[];
+        for (var tick = 1; tick <= 26; tick++) {
+          for (var i = 0; i < 2; i++) {
+            now = now.add(const Duration(milliseconds: 100));
+            detector.recordGcCycle();
+          }
+          now = now.add(const Duration(milliseconds: 300));
+          detector.recordGcCycle();
+          for (final issue in detector.issues) {
+            if (issue.stableId != 'gc_pressure') continue;
+            identities.add(issue.dedupIdentityMicros!);
+            counts.add(int.parse(issue.extraTraceArgs!['scavengeCount']!));
+          }
+        }
+        expect(counts.first, greaterThan(40));
+        expect(identities, hasLength(counts.length));
         expect(
-          secondIdentity,
-          isNot(equals(firstIdentity)),
-          reason:
-              'Two distinct overage episodes must carry distinct '
-              'dedup identities. If _gcOverageStart were only cleared on '
-              'windowEvents == 0 (instead of at or below the threshold), the second '
-              'overage would inherit stale identity and silent dedup '
-              'collapse would mask the second episode in CI captures.',
+          counts.reduce((a, b) => a > b ? a : b),
+          inInclusiveRange(58, 61),
         );
+        expect(counts.last, inInclusiveRange(58, 61));
+      });
+
+      test('capture leg shape: 2 young GCs per second stay silent', () {
+        detector.reset();
+        for (var i = 0; i < 26; i++) {
+          now = now.add(const Duration(milliseconds: 500));
+          detector.recordGcCycle();
+          expect(detector.issues, lacksStableId('gc_pressure'));
+        }
       });
     });
 

@@ -1052,6 +1052,107 @@ export calls are bounded at 10 s (`withCallTimeout`), any failure ends
 the leg with a `FAILED` line, and closing the screen during a leg ends
 its scenario and restores the streams at once.
 
+## MemoryPressure gc_pressure capture (v0.38.0)
+
+`gc_pressure` fires above 40 young-generation collections in its 10 s
+window (240 per minute). `markScenarioBegin` resets the window, so a
+leg's count climbs from 0 and holds once the window is full. Each
+evaluation over the threshold carries its own identity, so the capture
+records the current `scavengeCount` at every recording point (the 500 ms
+timeline poll, frame batches and the flush). The bracket reads the
+largest in-span value.
+
+The young-collection count follows the VM's new-space size, which the
+operator cannot set. The screen
+(`example/lib/demos/gc_pressure_capture_screen.dart`, tile
+"MemoryPressure (gc_pressure)") therefore counts the collections itself.
+It opens its own VM service connection, listens to the `GC` stream, keeps
+the events of its own isolate (the VM posts each collection once for
+every isolate of the group), classifies `gcType` by the detector's rule,
+and exports the largest count in any 10 s window of the span as
+`expectedMagnitude.observed`. The audit compares that count with the
+detector's records within 25 %.
+
+### Per-leg sequence (GcPressureCaptureScreen)
+
+```
+suspendNonEssentialTimelineStreams()
+holdAllocationProfileReads()                     // reads would add collections
+start the screen's GC feed
+└── 4 s with no allocation: ambient young rate
+└── 4 s at 1000 maps per tick: calibration
+└── 1.5 s settle
+markScenarioBegin(name)                          // resets the detector window
+└── 13 s of allocation; once a second the batch moves toward the target
+    (25, 50 or 80 young collections per 10 s), by at most 30 %
+└── 200 ms barrier
+└── Sleuth.flushTimelineNow()
+markScenarioEnd(name)
+└── screen peak in (0, 41) for below, in the role band for at and above
+└── 800 ms, resumeAllTimelineStreams()
+exportCaptureJson(...)                           // observed = screen peak
+└── checkCaptureJson: no record for below; for at and above, every
+    in-span record stamped, the largest in band and within 25 % of the
+    screen peak, two in band
+```
+
+The allocator builds small maps with 100-element lists, which stay in new
+space, and writes each batch's length to a field so the AOT compiler keeps
+the allocation. The status line shows the screen's count next to the
+detector's `gcWindowStats.young` once a second.
+
+The triad comes from an iPhone 12 (iOS 17.5, Flutter 3.47.6), and each
+leg passed on its first attempt. The ambient young rate was 0 to 2.5 per 10 s.
+The screen peaks were 27 (below, silent), 53 and 84, and the detector's
+largest record equalled the screen peak in the at and above legs (32 and
+54 records). Set Auto-Lock to Never, because a leg takes about 30 s and
+an app-lifecycle change away from resumed ends it as UNMEASURED.
+
+## ImageMemory uncached_images capture (v0.38.0)
+
+`uncached_images` reports decoded images at least 1.5 times larger than
+their display box needs on both axes. It is a warning at 1 MiB of wasted
+RGBA bytes and critical at 16 MiB. Waste is
+`(decodedW × decodedH − neededW × neededH) × 4` with
+`needed = box × devicePixelRatio`.
+
+The screen (`example/lib/demos/uncached_images_capture_screen.dart`, tile
+"ImageMemory (uncached_images)") generates a square checkerboard PNG on
+the device for each leg, sized so that, in a 48 × 48 dp box at the
+measured pixel ratio, it wastes 0.5, 1.2 or 2 MiB (warning legs) or 8,
+20 or 32 MiB (critical legs). It reads the decoded size from its own
+decode and the box from layout, computes the waste with the formula above,
+and exports that value. The audit compares it with the `wastedBytes` the
+detector stamps on each scan within 10 %.
+
+### Per-leg sequence (UncachedImagesCaptureScreen)
+
+```
+suspendNonEssentialTimelineStreams()
+generate the PNG (decode side = sqrt(target / 4 + needed²))
+decode it under the provider the Image will use
+markScenarioBegin(name)
+└── show Image(MemoryImage, 48 × 48 dp, BoxFit.fill), no cacheWidth
+└── 3.5 s dwell                                  // at least two scans
+└── Sleuth.flushTimelineNow()
+markScenarioEnd(name), remove and evict the image
+└── box laid out at 48 dp; computed waste in the role band
+└── 800 ms, resumeAllTimelineStreams()
+exportCaptureJson(...)                           // observed = computed waste
+└── checkCaptureJson; the last record measured one image
+```
+
+Only scans record structural issues, about once a second, and a flush
+adds no record of its own. A 2.5 s dwell gave the critical at leg
+one scan on two of three attempts, so the dwell is 3.5 s.
+
+The triads come from an iPhone 12 (iOS 17.5, Flutter 3.47.6, pixel ratio
+3.0), and each leg passed on its first attempt with the 3.5 s dwell. Decode
+sides 390, 579 and 738 px gave 525,456 B (silent), 1,258,020 B and
+2,095,632 B; 1455, 2294 and 2900 px gave 8,385,156 B (a warning only),
+20,966,800 B and 33,557,056 B. The detector's `wastedBytes` equalled the
+screen's value in every record.
+
 ## NetworkMonitor large_response and request_frequency capture (v0.19.9)
 
 Two more families reach runtimeVerified through `additionalBrackets`,

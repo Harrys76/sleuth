@@ -194,13 +194,14 @@ class MemoryPressureDetector extends BaseDetector
   // episode outlives it while the floor leg publishes.
   DateTime? _sampleSustainedStart;
   DateTime? _sustainedNativeGrowthStart;
-  // First in-window event timestamp at the moment gc_pressure crossed
-  // its rate threshold. Pinned for the full overage episode so
-  // re-emissions across consecutive evaluations share dedup identity
-  // and CaptureHelper collapses them to one trace record per episode.
-  // Evaluation clears it whenever the rate is at or under the threshold,
-  // including an empty window, so a new overage gets a distinct identity.
-  DateTime? _gcOverageStart;
+  // The identity of the last gc_pressure emission is its `detectedAt` in
+  // microseconds, moved 1 µs past the previous identity when two
+  // evaluations share a clock reading. Every evaluation over the threshold
+  // gets its own identity, so capture mode writes the young count at every
+  // recording point instead of only the count at the first crossing.
+  // Kept across `reset()`, because the controller's capture dedup set
+  // outlives every leg.
+  int _lastGcIdentityMicros = 0;
 
   // -- heap_near_capacity (RSS against memoryBudgetBytes) --
   //
@@ -334,7 +335,6 @@ class MemoryPressureDetector extends BaseDetector
       _budgetCrossingStart = null;
       _sampleSustainedStart = null;
       _sustainedNativeGrowthStart = null;
-      _gcOverageStart = null;
       _firstHeapSampleTime = null;
       _lastHeapGrowingEmittedAtMicros = null;
       _endEpisode();
@@ -492,8 +492,6 @@ class MemoryPressureDetector extends BaseDetector
     _issues.clear();
 
     _evictExpiredGcBatches();
-    // This runs on an empty window too, so the overage identity clears
-    // when a burst ages out between two evaluations.
     _evaluateGcPressure();
 
     _evaluateHeapTrend();
@@ -515,10 +513,7 @@ class MemoryPressureDetector extends BaseDetector
 
   void _evaluateGcPressure() {
     final windowEvents = _gcWindow.length;
-    if (windowEvents == 0) {
-      _gcOverageStart = null;
-      return;
-    }
+    if (windowEvents == 0) return;
 
     // Young-generation collections set the rate. Each concurrent old-gen
     // cycle posts a marking start and then a sweep; counting them doubled
@@ -533,12 +528,11 @@ class MemoryPressureDetector extends BaseDetector
         .length;
     final youngPerMinute = (youngCount / _gcWindowDuration.inSeconds) * 60;
     if (youngPerMinute > gcRateThresholdPerMin) {
-      // Pin overage-start on first cross. Persists across consecutive
-      // re-emissions during the same overage so CaptureHelper's
-      // dedup collapses them to one trace record. Cleared in the
-      // else-branch below when the rate drops back to or under
-      // threshold so a new overage produces a fresh identity.
-      _gcOverageStart ??= _gcWindow.first.ts;
+      final detectedAt = _clock();
+      _lastGcIdentityMicros = _nextGcIdentity(
+        detectedAt,
+        _lastGcIdentityMicros,
+      );
       final oldGenCount = _gcWindow
           .where((r) => r.gcClass == _GcClass.old)
           .length;
@@ -575,8 +569,8 @@ class MemoryPressureDetector extends BaseDetector
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
-          detectedAt: _clock(),
-          dedupIdentityMicros: _gcOverageStart!.microsecondsSinceEpoch,
+          detectedAt: detectedAt,
+          dedupIdentityMicros: _lastGcIdentityMicros,
           extraTraceArgs: {
             'observedGcEvents': windowEvents.toString(),
             'scavengeCount': youngCount.toString(),
@@ -589,14 +583,13 @@ class MemoryPressureDetector extends BaseDetector
           confidenceReason: 'Elevated VM GC frequency and object churn rate',
         ),
       );
-    } else {
-      // Below the per-minute threshold. Clearing here (instead of only on
-      // windowEvents == 0) ensures two distinct overage episodes separated
-      // by a sub-threshold dip do not share identity — the second emission
-      // needs a fresh _gcOverageStart so dedup does not collapse two
-      // episodes into one trace record.
-      _gcOverageStart = null;
     }
+  }
+
+  /// [at] in microseconds, or 1 µs past [previous] when [at] is not later.
+  static int _nextGcIdentity(DateTime at, int previous) {
+    final micros = at.microsecondsSinceEpoch;
+    return micros > previous ? micros : previous + 1;
   }
 
   /// Publishes `heap_growing` from one of two legs.
@@ -989,16 +982,17 @@ class MemoryPressureDetector extends BaseDetector
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
   }
 
-  /// Clears every window, issue and identity. The GC pause baseline is
-  /// kept: `SleuthController.resetCaptureState` calls this at every
-  /// capture leg start, and the first GC of the leg still has a
-  /// measurable pause against the last one before it.
+  /// Clears every window, issue and episode. It keeps the GC pause
+  /// baseline, because `SleuthController.resetCaptureState` calls this at
+  /// every capture leg start and the first GC of the leg still has a
+  /// measurable pause against the last one before it. It keeps the last
+  /// gc_pressure identity too, so a new leg's identities never repeat an
+  /// earlier one.
   void reset() {
     _gcWindow.clear();
     _heapSamples.clear();
     _sampleSustainedStart = null;
     _sustainedNativeGrowthStart = null;
-    _gcOverageStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
     _lastHeapGrowingEmittedAtMicros = null;
@@ -1015,7 +1009,6 @@ class MemoryPressureDetector extends BaseDetector
     _heapSamples.clear();
     _sampleSustainedStart = null;
     _sustainedNativeGrowthStart = null;
-    _gcOverageStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
     _lastHeapGrowingEmittedAtMicros = null;
@@ -1078,11 +1071,19 @@ class MemoryPressureDetector extends BaseDetector
         'below the threshold. Producer-side dedup keys on each leg\'s '
         'first publication time in the growth episode, a stable per-leg '
         'identity, so `requireUniqueDetectedAtMicros: true` locks '
-        'single-issue replay protection. The other 3 families '
-        '(`gc_pressure`, `heap_near_capacity`, `native_memory_growing`) '
-        'stay reproducerOnly. Each needs a separate capture campaign with '
-        'multi-axis brackets that the current single-bracket schema cannot '
-        'express. v0.19.18 backfills the `observedSlopeBytesPerSec` '
+        'single-issue replay protection. v0.38.0 raises `gc_pressure` '
+        '(warning) too, through `additionalBrackets[1]`: threshold 41 young '
+        'collections in the 10 s window (the first count above 240/min), '
+        'read from `scavengeCount` as the largest in-span value, on three '
+        'iPhone 12 captures (iOS 17.5, Flutter 3.47.6). The capture screen '
+        'counts its own isolate\'s young collections over its own VM '
+        'service connection, holds the young rate at the leg\'s target '
+        'with a closed allocation loop, and exports its own largest 10 s '
+        'count; the audit compares that with the detector\'s records '
+        'within 25 %. Each evaluation over the threshold carries its own '
+        'identity, so the records follow the count as the window fills '
+        'from the reset at `markScenarioBegin`. `heap_near_capacity` and '
+        '`native_memory_growing` stay reproducerOnly. v0.19.18 backfills the `observedSlopeBytesPerSec` '
         'extraTraceArgs stamp and the `observedAxisArgKey` declaration on '
         'the canonical bracket. The capture screen writes the detector\'s '
         'slope into `expectedMagnitude.observed`, so the cross-check reads '
@@ -1125,8 +1126,11 @@ class MemoryPressureDetector extends BaseDetector
       'heap_near_capacity',
       'native_memory_growing',
     },
-    perStableIdTier: {'heap_growing': EvidenceTier.runtimeVerified},
-    coveredThresholds: {'heap_growing.warning'},
+    perStableIdTier: {
+      'heap_growing': EvidenceTier.runtimeVerified,
+      'gc_pressure': EvidenceTier.runtimeVerified,
+    },
+    coveredThresholds: {'heap_growing.warning', 'gc_pressure.warning'},
     bracketRequireUniqueDetectedAtMicros: true,
     // The floor leg's bracket. Its records carry
     // `observedFloorSlopeBytesPerSec` and never the sample leg's key, so
@@ -1149,6 +1153,34 @@ class MemoryPressureDetector extends BaseDetector
         observedAxisArgKey: 'observedFloorSlopeBytesPerSec',
         observedAxisTolerance: 0.10,
         requireUniqueDetectedAtMicros: true,
+      ),
+      // gc_pressure fires above 40 young collections in the 10 s window,
+      // so 41 is the first count that fires. The at band [41, 61.5] and
+      // the above band (61.5, 102.5] hold the window count; the count
+      // climbs from 0 after the leg's reset, so the largest in-span value
+      // is the leg's steady count. The capture screen exports its own
+      // count of young collections, hence the 25 % tolerance.
+      BracketSpec(
+        stableId: 'gc_pressure',
+        severityLabel: 'warning',
+        threshold: 41,
+        unit: 'gcevents',
+        coveredThresholds: {'gc_pressure.warning'},
+        profileCapturePaths: [
+          'test/validation/captures/gc_pressure/gc_pressure_below.json',
+          'test/validation/captures/gc_pressure/gc_pressure_at.json',
+          'test/validation/captures/gc_pressure/gc_pressure_above.json',
+        ],
+        atTolerance: 0.5,
+        aboveCeilingMultiplier: 2.5,
+        observedAxisArgKey: 'scavengeCount',
+        observedAxisTolerance: 0.25,
+        observedAxisReduction: 'max',
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+        // Every recording point after the crossing writes a record, so a
+        // leg holds many in-band records.
+        minInBandSamples: 2,
       ),
     ],
   );

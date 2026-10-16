@@ -7,10 +7,12 @@
 // emission, and every bracket's `(stableId, severity)` must produce an
 // issue carrying that key.
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart';
+import 'package:sleuth/src/detectors/image_memory_detector.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
@@ -26,7 +28,9 @@ import 'package:sleuth/src/network/request_record.dart';
 import 'package:sleuth/src/validation/detector_metadata.dart';
 import 'package:vm_service/vm_service.dart';
 
+import '../helpers/decoded_image_helpers.dart';
 import '../helpers/timeline_test_helpers.dart';
+import '_helpers/structural_reproducer_harness.dart';
 
 typedef _Bracket = ({String stableId, String severity, String argKey});
 
@@ -85,8 +89,22 @@ final Map<DetectorType, Map<String, Future<List<PerformanceIssue>> Function()>>
 _legRecipes = {
   DetectorType.memoryPressure: {
     'observedFloorSlopeBytesPerSec': _memoryFloorLeg,
+    'scavengeCount': _gcPressureLeg,
   },
 };
+
+/// 41 young collections 200 ms apart, one more than the 40 that the 10 s
+/// window allows.
+Future<List<PerformanceIssue>> _gcPressureLeg() async {
+  var now = DateTime(2026);
+  final d = MemoryPressureDetector(clock: () => now, warmupDurationMs: 0)
+    ..vmConnected = true;
+  for (var i = 0; i < 41; i++) {
+    now = now.add(const Duration(milliseconds: 200));
+    d.recordGcCycle(gcType: 'Scavenge');
+  }
+  return d.issues;
+}
 
 /// Issues from minimal emissions of each detector type, covering every
 /// severity its brackets name.
@@ -321,6 +339,82 @@ bool _inFamily(PerformanceIssue issue, String stableId) {
   return id == stableId || (id != null && id.startsWith('$stableId:'));
 }
 
+/// Recipes for structural detectors, which need a widget tree to scan.
+final Map<DetectorType, Future<List<PerformanceIssue>> Function(WidgetTester)>
+_widgetRecipes = {
+  // One square decode in a 48 dp box at pixel ratio 3.0: 579 px wastes
+  // about 1.2 MiB (warning), 2294 px about 20 MiB (critical).
+  DetectorType.imageMemory: (tester) async {
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final issues = <PerformanceIssue>[];
+    for (final side in [579, 2294]) {
+      final detector = ImageMemoryDetector();
+      addTearDown(detector.dispose);
+      final bytes = await pngBytes(tester, width: side, height: side);
+      await scanAndIssues(
+        tester,
+        detector,
+        Align(
+          alignment: Alignment.topLeft,
+          child: Image(
+            image: MemoryImage(bytes),
+            width: 48,
+            height: 48,
+            fit: BoxFit.fill,
+          ),
+        ),
+      );
+      await decodeImages(tester);
+      issues.addAll(rescanIssues(tester, detector));
+    }
+    return issues;
+  },
+};
+
+/// Checks that each of [meta]'s observed-axis brackets is stamped on the
+/// issues [issuesFor] returns for its arg key, and, for detectors with
+/// [legs], that no issue carries another leg's key.
+Future<void> _checkStamps(
+  DetectorMetadata meta,
+  Map<String, Object>? legs,
+  Future<List<PerformanceIssue>> Function(String argKey) issuesFor,
+) async {
+  final brackets = _axisBrackets(meta);
+  expect(brackets, isNotEmpty);
+  for (final b in brackets) {
+    final issues = await issuesFor(b.argKey);
+    final matching = issues
+        .where((i) => _inFamily(i, b.stableId) && i.severity.name == b.severity)
+        .toList();
+    expect(
+      matching,
+      isNotEmpty,
+      reason: 'no ${b.stableId}.${b.severity} emission from the recipe',
+    );
+    for (final issue in matching) {
+      expect(
+        issue.extraTraceArgs?.containsKey(b.argKey),
+        isTrue,
+        reason:
+            '${issue.stableId}.${b.severity} lacks extraTraceArgs.'
+            '${b.argKey}',
+      );
+      if (legs == null) continue;
+      for (final other in brackets) {
+        if (other.argKey == b.argKey) continue;
+        expect(
+          issue.extraTraceArgs?.containsKey(other.argKey),
+          isFalse,
+          reason:
+              'a ${b.argKey} issue also carries ${other.argKey}, so a '
+              'record of one leg would count toward the other bracket',
+        );
+      }
+    }
+  }
+}
+
 void main() {
   test('every detector with an observed-axis bracket has a recipe here', () {
     final controller = SleuthController()..initializeDetectorsForTest();
@@ -334,7 +428,7 @@ void main() {
           d.type,
     };
     expect(withAxis, isNotEmpty);
-    expect(_recipes.keys.toSet(), containsAll(withAxis));
+    expect({..._recipes.keys, ..._widgetRecipes.keys}, containsAll(withAxis));
   });
 
   final controller = SleuthController()..initializeDetectorsForTest();
@@ -350,42 +444,24 @@ void main() {
     final meta = metadataByType[type];
     test('$type stamps its brackets\' observed-axis keys', () async {
       expect(meta, isNotNull, reason: '$type has no metadata');
-      final brackets = _axisBrackets(meta!);
-      expect(brackets, isNotEmpty);
       final legs = _legRecipes[type];
-      for (final b in brackets) {
-        final issues = await (legs?[b.argKey] ?? entry.value)();
-        final matching = issues
-            .where(
-              (i) => _inFamily(i, b.stableId) && i.severity.name == b.severity,
-            )
-            .toList();
-        expect(
-          matching,
-          isNotEmpty,
-          reason: 'no ${b.stableId}.${b.severity} emission from the recipe',
-        );
-        for (final issue in matching) {
-          expect(
-            issue.extraTraceArgs?.containsKey(b.argKey),
-            isTrue,
-            reason:
-                '${issue.stableId}.${b.severity} lacks extraTraceArgs.'
-                '${b.argKey}',
-          );
-          if (legs == null) continue;
-          for (final other in brackets) {
-            if (other.argKey == b.argKey) continue;
-            expect(
-              issue.extraTraceArgs?.containsKey(other.argKey),
-              isFalse,
-              reason:
-                  'a ${b.argKey} issue also carries ${other.argKey}, so a '
-                  'record of one leg would count toward the other bracket',
-            );
-          }
-        }
-      }
+      await _checkStamps(
+        meta!,
+        legs,
+        (argKey) => (legs?[argKey] ?? entry.value)(),
+      );
+    });
+  }
+
+  for (final entry in _widgetRecipes.entries) {
+    final type = entry.key;
+    final meta = metadataByType[type];
+    testWidgets('$type stamps its brackets\' observed-axis keys', (
+      tester,
+    ) async {
+      expect(meta, isNotNull, reason: '$type has no metadata');
+      final issues = await entry.value(tester);
+      await _checkStamps(meta!, null, (_) async => issues);
     });
   }
 }

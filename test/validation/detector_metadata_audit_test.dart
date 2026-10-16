@@ -56,6 +56,8 @@ import 'package:sleuth/sleuth.dart'
         ProfileCaptureSchema;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/detectors/image_memory_detector.dart';
+import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
@@ -67,10 +69,6 @@ import '_support/audit_invariants.dart';
 // below derives its entries from these maps' keys, so deleting an anchor
 // block removes its detectors from `anchoredTypes` and fires the ratchet.
 const _v0163Expectations = <DetectorType, (String, Set<String>)>{
-  DetectorType.imageMemory: (
-    'test/validation/image_memory_reproducer_test.dart',
-    {'uncached_images'},
-  ),
   DetectorType.listview: (
     'test/validation/listview_reproducer_test.dart',
     {
@@ -205,6 +203,7 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
 const legacyObservedAxisAllowlist = <String, LegacyObservedAxisEntry>{};
 
 const _singleDetectorAnchors = <DetectorType>{
+  DetectorType.imageMemory,
   DetectorType.networkMonitor,
   DetectorType.frameTiming,
   DetectorType.heavyCompute,
@@ -1261,15 +1260,13 @@ void main() {
     });
 
     test('MemoryPressureDetector pinned at runtimeVerified for heap_growing '
-        '(v0.19.3)', () {
-      // Anti-tautology anchor: heap_growing raised from base reproducerOnly
-      // to runtimeVerified via perStableIdTier (warning tier, 512 KB/s
-      // sustained ≥10s) backed by three on-device captures (iPhone 12 /
-      // iOS 17.5 / Flutter 3.47.6). Other 3 families (gc_pressure,
-      // heap_near_capacity, native_memory_growing) stay at base
-      // reproducerOnly — each requires a separate capture campaign with
-      // multi-axis brackets the current single-bracket schema cannot
-      // express.
+        '(v0.19.3) and gc_pressure (v0.38.0)', () {
+      // Anti-tautology anchor. heap_growing (warning, 512 KB/s sustained
+      // for 10 s) and gc_pressure (warning, more than 40 young
+      // collections in 10 s) reach runtimeVerified through
+      // perStableIdTier, each backed by on-device captures (iPhone 12 /
+      // iOS 17.5 / Flutter 3.47.6). heap_near_capacity and
+      // native_memory_growing stay at base reproducerOnly.
       final BaseDetector? mp = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.memoryPressure)
           .cast<BaseDetector?>()
@@ -1299,6 +1296,15 @@ void main() {
       );
       expect(
         meta.effectiveTierFor('heap_growing'),
+        EvidenceTier.runtimeVerified,
+      );
+      expect(
+        meta.perStableIdTier?['gc_pressure'],
+        EvidenceTier.runtimeVerified,
+        reason: 'v0.38.0 raises gc_pressure warning via on-device captures.',
+      );
+      expect(
+        meta.effectiveTierFor('gc_pressure', severity: 'warning'),
         EvidenceTier.runtimeVerified,
       );
       expect(
@@ -1345,10 +1351,10 @@ void main() {
       );
       expect(
         meta.coveredThresholds,
-        equals(const {'heap_growing.warning'}),
+        equals(const {'heap_growing.warning', 'gc_pressure.warning'}),
         reason:
-            'Severity-scoped to warning; the only severity '
-            'heap_growing emits at.',
+            'Severity-scoped to warning; the only severity heap_growing '
+            'and gc_pressure emit at.',
       );
       expect(
         meta.bracketRequireUniqueDetectedAtMicros,
@@ -1405,7 +1411,8 @@ void main() {
         }),
         reason:
             'All four emitted families covered by the layer-2 '
-            'reproducer; perStableIdTier raises only heap_growing.',
+            'reproducer; perStableIdTier raises heap_growing and '
+            'gc_pressure.',
       );
 
       // Prose-drift guard. heap_growing currently emits ONLY warning
@@ -1446,12 +1453,12 @@ void main() {
       );
       // heap_growing has two legs, each with its own bracket and triad:
       // the canonical bracket reads the sample leg
-      // (`observedSlopeBytesPerSec`), the one additional bracket reads
-      // the floor leg (`observedFloorSlopeBytesPerSec`). The other 3
-      // families stay base reproducerOnly.
-      final floorSpec = meta.additionalBrackets?.single;
-      expect(floorSpec, isNotNull);
-      expect(floorSpec!.stableId, 'heap_growing');
+      // (`observedSlopeBytesPerSec`), additionalBrackets[0] the floor leg
+      // (`observedFloorSlopeBytesPerSec`). additionalBrackets[1] is
+      // gc_pressure's.
+      expect(meta.additionalBrackets, hasLength(2));
+      final floorSpec = meta.additionalBrackets![0];
+      expect(floorSpec.stableId, 'heap_growing');
       expect(floorSpec.severityLabel, 'warning');
       expect(floorSpec.threshold, 512000);
       expect(floorSpec.observedAxisArgKey, 'observedFloorSlopeBytesPerSec');
@@ -1472,16 +1479,126 @@ void main() {
         ]),
       );
       expect(meta.observedAxisArgKey, 'observedSlopeBytesPerSec');
+
+      // gc_pressure bracket. The capture screen counts its own isolate's
+      // young collections and holds the rate with a closed allocation
+      // loop; each evaluation over the threshold writes its own record.
+      final gc = meta.additionalBrackets![1];
+      expect(gc.stableId, 'gc_pressure');
+      expect(gc.severityLabel, 'warning');
+      expect(gc.unit, 'gcevents');
       expect(
-        meta.perStableIdTier?['gc_pressure'],
-        isNull,
+        gc.threshold,
+        MemoryPressureDetector().gcRateThresholdPerMin * 10 ~/ 60 + 1,
         reason:
-            'gc_pressure stays at base reproducerOnly. Detector '
-            'emission carries observedGcEvents + dedupIdentityMicros '
-            'as preparatory plumbing (improves dedup quality of ambient '
-            'gc_pressure noise in unrelated captures) but no '
-            'runtimeVerified bracket evidence is committed.',
+            'Default drift: the detector fires above '
+            'gcRateThresholdPerMin per minute in a 10 s window, so the '
+            'first count that fires is the bracket threshold (41).',
       );
+      expect(gc.threshold, 41);
+      expect(gc.coveredThresholds, {'gc_pressure.warning'});
+      expect(gc.profileCapturePaths, const [
+        'test/validation/captures/gc_pressure/gc_pressure_below.json',
+        'test/validation/captures/gc_pressure/gc_pressure_at.json',
+        'test/validation/captures/gc_pressure/gc_pressure_above.json',
+      ]);
+      expect(gc.atTolerance, 0.5);
+      expect(gc.aboveCeilingMultiplier, 2.5);
+      expect(gc.observedAxisArgKey, 'scavengeCount');
+      expect(gc.observedAxisTolerance, 0.25);
+      expect(
+        gc.observedAxisReduction,
+        'max',
+        reason:
+            'The window count climbs from 0 after the leg\'s reset and '
+            'holds once the window is full.',
+      );
+      expect(gc.requireUniqueDetectedAtMicros, isTrue);
+      expect(gc.requireDetectorTraceRecord, isTrue);
+      expect(gc.minInBandSamples, 2);
+      expect(meta.perStableIdTier?['heap_near_capacity'], isNull);
+      expect(meta.perStableIdTier?['native_memory_growing'], isNull);
+    });
+
+    test('ImageMemoryDetector pinned: base reproducerOnly, '
+        'uncached_images warning and critical runtimeVerified (v0.38.0)', () {
+      // Anti-tautology anchor. uncached_images reaches runtimeVerified
+      // through perStableIdTier, warning on the canonical bracket and
+      // critical on additionalBrackets[0], each backed by three iPhone 12
+      // captures whose screen exports its own computed waste.
+      final meta = ImageMemoryDetector().validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly);
+      expect(
+        meta.reproducerPath,
+        'test/validation/image_memory_reproducer_test.dart',
+      );
+      expect(meta.coveredStableIds, const {'uncached_images'});
+      expect(meta.perStableIdTier, const {
+        'uncached_images': EvidenceTier.runtimeVerified,
+      });
+      for (final severity in ['warning', 'critical']) {
+        expect(
+          meta.effectiveTierFor('uncached_images', severity: severity),
+          EvidenceTier.runtimeVerified,
+          reason: severity,
+        );
+      }
+      expect(meta.coveredThresholds, const {
+        'uncached_images.warning',
+        'uncached_images.critical',
+      });
+
+      // Warning, canonical bracket.
+      final detector = ImageMemoryDetector();
+      expect(meta.bracketStableId, 'uncached_images');
+      expect(meta.bracketSeverityLabel, 'warning');
+      expect(
+        meta.bracketThreshold,
+        detector.minWastedBytes,
+        reason: 'Default drift: the warning bracket tracks minWastedBytes.',
+      );
+      expect(meta.bracketThreshold, 1048576);
+      expect(meta.bracketUnit, 'bytes');
+      expect(meta.bracketAtTolerance, 0.5);
+      expect(meta.aboveCeilingMultiplier, 2.5);
+      expect(meta.observedAxisArgKey, 'wastedBytes');
+      expect(meta.observedAxisTolerance, 0.10);
+      expect(meta.observedAxisReduction, 'last');
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
+      expect(meta.profileCapturePaths, const [
+        'test/validation/captures/image_memory/uncached_images_below.json',
+        'test/validation/captures/image_memory/uncached_images_at.json',
+        'test/validation/captures/image_memory/uncached_images_above.json',
+      ]);
+
+      // Critical, additionalBrackets[0].
+      expect(meta.additionalBrackets, hasLength(1));
+      final critical = meta.additionalBrackets!.single;
+      expect(critical.stableId, 'uncached_images');
+      expect(critical.severityLabel, 'critical');
+      expect(
+        critical.threshold,
+        detector.criticalWastedBytes,
+        reason:
+            'Default drift: the critical bracket tracks '
+            'criticalWastedBytes.',
+      );
+      expect(critical.threshold, 16777216);
+      expect(critical.unit, 'bytes');
+      expect(critical.coveredThresholds, {'uncached_images.critical'});
+      expect(critical.profileCapturePaths, const [
+        'test/validation/captures/image_memory/uncached_images_critical_below.json',
+        'test/validation/captures/image_memory/uncached_images_critical_at.json',
+        'test/validation/captures/image_memory/uncached_images_critical_above.json',
+      ]);
+      expect(critical.atTolerance, 0.5);
+      expect(critical.aboveCeilingMultiplier, 2.5);
+      expect(critical.observedAxisArgKey, 'wastedBytes');
+      expect(critical.observedAxisTolerance, 0.10);
+      expect(critical.observedAxisReduction, 'last');
+      expect(critical.requireUniqueDetectedAtMicros, isTrue);
+      expect(critical.requireDetectorTraceRecord, isTrue);
+      expect(critical.minInBandSamples, 2);
     });
 
     test('RebuildDetector pinned at runtimeVerified for rebuild_activity', () {
@@ -2574,9 +2691,10 @@ void main() {
     });
 
     test('v0.16.3 pre-ratchet anchor block', () {
-      // Anchor the 4 v0.16.3 detectors with the same (type →
-      // reproducerPath → coveredStableIds) triple the v0.17.1 structural
-      // batch uses. All four are `reproducerOnly`; extended-claim fields
+      // Anchor the v0.16.3 detectors that stay at reproducerOnly with the
+      // same (type → reproducerPath → coveredStableIds) triple the v0.17.1
+      // structural batch uses. ImageMemory has its own anchor since its
+      // v0.38.0 raise. All of these are `reproducerOnly`; extended-claim fields
       // (citationUrl, profileCapturePaths, bracketThreshold, bracketUnit,
       // coveredThresholds, aboveCeilingMultiplier) MUST remain null.
       const expectations = _v0163Expectations;
