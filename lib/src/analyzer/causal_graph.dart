@@ -51,8 +51,8 @@ class CausalGraphRule extends CorrelationRule {
   @override
   String get name => 'CausalGraph';
 
-  // 41 causal rules. Order doesn't matter — all are evaluated, and the
-  // graph is built from the full edge set.
+  // 42 causal rules. Order doesn't matter. All of them are evaluated, and
+  // the graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
     CausalRule('setstate_scope', 'heavy_compute'),
@@ -152,6 +152,11 @@ class CausalGraphRule extends CorrelationRule {
     // Font loading → frame jank
     CausalRule('runtime_font_loading', 'sustained_jank'),
     CausalRule('runtime_font_loading', 'jank_detected'),
+
+    // A stall is a frame that misses its deadline by 100 ms or more, a
+    // severe jank frame. The jank percentage can come from raster-bound
+    // frames a stall did not cause, so there is no edge to jank_detected.
+    CausalRule('event_loop_stall', 'sustained_jank'),
 
     // Platform channel traffic → compute pressure
     CausalRule('platform_channel_traffic', 'heavy_compute'),

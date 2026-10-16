@@ -123,7 +123,8 @@ class RouteSession {
   /// Composite health score (0–100).
   ///
   /// - **FPS component** (40 pts max): `(throughputFps / fpsTarget * 40)`
-  /// - **Jank penalty** (30 pts max): `(jankFrames / totalFrames * 30)`
+  /// - **Jank penalty** (30 pts max): `(jankFrames / judged frames * 30)`,
+  ///   where frames late only because of Sleuth are not judged
   /// - **Issue penalty** (30 pts max): `criticalCount*10 + warningCount*3`
   ///
   /// 100 = perfect (target FPS, no jank, no issues). 0 = severely degraded.
@@ -149,8 +150,10 @@ class RouteSession {
         ? 40.0
         : (fps / target * 40.0).clamp(0.0, 40.0);
 
-    // Jank penalty: 30 points max
-    final jankRatio = total > 0 ? jank / total : 0.0;
+    // Jank penalty: 30 points max. Frames late only because of Sleuth are
+    // neither jank nor judged, as in the jank detector's percentage.
+    final judged = total - frameStats.sleuthOverheadCount;
+    final jankRatio = judged > 0 ? jank / judged : 0.0;
     final jankPenalty = (jankRatio * 30.0).clamp(0.0, 30.0);
 
     // Issue penalty: 30 points max
@@ -197,6 +200,8 @@ class RouteSession {
       'frameStats': {
         'totalFrames': frameStats.length,
         'jankFrames': frameStats.jankCount,
+        if (frameStats.sleuthOverheadCount > 0)
+          'sleuthOverheadFrames': frameStats.sleuthOverheadCount,
         'averageFps': double.parse(
           frameStats.throughputFps
               .clamp(0.0, fpsTarget.toDouble())

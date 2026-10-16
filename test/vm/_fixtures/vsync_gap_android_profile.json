@@ -1,0 +1,657 @@
+{
+ "platform": "Galaxy A07 (SM-A075F), Android 16, Flutter 3.47.6",
+ "source": "flutter run --profile --no-dds; VM timeline read from the host with tool/device_pass.dart timeline; UI-thread events from 15 ms before one late frame's vsync to just after its build start",
+ "frame": {
+  "vsyncStartUs": 608064796203,
+  "buildStartUs": 608064819286,
+  "vsyncOverheadUs": 23083
+ },
+ "traceEvents": [
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064781617,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PlatformVsync",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064781902,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "VsyncFireCallback",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064781942,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "VsyncFlow",
+   "cat": "Embedder",
+   "ph": "s",
+   "ts": 608064781948,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "609"
+  },
+  {
+   "name": "VsyncFireCallback",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064782024,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PlatformVsync",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064782032,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "VsyncProcessCallback",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064782150,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "Frame Request Pending",
+   "cat": "Embedder",
+   "ph": "e",
+   "ts": 608064782172,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58e"
+  },
+  {
+   "name": "Animator::BeginFrame",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064782180,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "Pipeline Depth",
+   "cat": "Embedder",
+   "ph": "C",
+   "ts": 608064782197,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PipelineItem",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 608064782207,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58d"
+  },
+  {
+   "name": "PipelineItem",
+   "cat": "Embedder",
+   "ph": "s",
+   "ts": 608064782214,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58d"
+  },
+  {
+   "name": "PipelineProduce",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 608064782217,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58d"
+  },
+  {
+   "name": "Frame",
+   "cat": "Dart",
+   "ph": "b",
+   "ts": 608064782494,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "2734fc51"
+  },
+  {
+   "name": "Animate",
+   "cat": "Dart",
+   "ph": "b",
+   "ts": 608064782510,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "2734fc51"
+  },
+  {
+   "name": "Frame Request Pending",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 608064782715,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58f"
+  },
+  {
+   "name": "Animate",
+   "cat": "Dart",
+   "ph": "e",
+   "ts": 608064782891,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "2734fc51"
+  },
+  {
+   "name": "LAYOUT (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064782924,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "LAYOUT",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064782944,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "LAYOUT",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064783139,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "LAYOUT (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064783160,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064783173,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064783187,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064783198,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064783206,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PAINT (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064783217,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PAINT",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064783229,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PAINT",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064783335,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PAINT (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064783343,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "COMPOSITING",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064783357,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "Animator::Render",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064784372,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "Animator::Render",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064784390,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PipelineProduce",
+   "cat": "Embedder",
+   "ph": "e",
+   "ts": 608064784420,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58d"
+  },
+  {
+   "name": "PipelineItem",
+   "cat": "Embedder",
+   "ph": "t",
+   "ts": 608064784422,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58d"
+  },
+  {
+   "name": "COMPOSITING",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064784568,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "FINALIZE TREE",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064784598,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "FINALIZE TREE",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064784621,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "POST_FRAME",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064784654,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "POST_FRAME",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064784670,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "Frame",
+   "cat": "Dart",
+   "ph": "e",
+   "ts": 608064784684,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "2734fc51"
+  },
+  {
+   "name": "Animator::BeginFrame",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064784713,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "VsyncFlow",
+   "cat": "Embedder",
+   "ph": "f",
+   "ts": 608064784719,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "609"
+  },
+  {
+   "name": "VsyncProcessCallback",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064784767,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064785086,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "DartIsolate::HandleMessage",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064785595,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "AsyncWaitForVsync",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064787918,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "AsyncWaitForVsync",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064788229,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "NotifyIdle",
+   "cat": "GC",
+   "ph": "B",
+   "ts": 608064788257,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "NotifyIdle",
+   "cat": "GC",
+   "ph": "E",
+   "ts": 608064788288,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PlatformVsync",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064797310,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "VsyncFireCallback",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064818808,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "VsyncFlow",
+   "cat": "Embedder",
+   "ph": "s",
+   "ts": 608064818815,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "60a"
+  },
+  {
+   "name": "VsyncFireCallback",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064819006,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PlatformVsync",
+   "cat": "Embedder",
+   "ph": "E",
+   "ts": 608064819014,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "VsyncProcessCallback",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064819260,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "Frame Request Pending",
+   "cat": "Embedder",
+   "ph": "e",
+   "ts": 608064819283,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58f"
+  },
+  {
+   "name": "Animator::BeginFrame",
+   "cat": "Embedder",
+   "ph": "B",
+   "ts": 608064819291,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "Pipeline Depth",
+   "cat": "Embedder",
+   "ph": "C",
+   "ts": 608064819304,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PipelineItem",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 608064819312,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58e"
+  },
+  {
+   "name": "PipelineItem",
+   "cat": "Embedder",
+   "ph": "s",
+   "ts": 608064819319,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58e"
+  },
+  {
+   "name": "PipelineProduce",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 608064819322,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "58e"
+  },
+  {
+   "name": "Frame",
+   "cat": "Dart",
+   "ph": "b",
+   "ts": 608064819529,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "2734fc51"
+  },
+  {
+   "name": "Animate",
+   "cat": "Dart",
+   "ph": "b",
+   "ts": 608064819545,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "2734fc51"
+  },
+  {
+   "name": "Frame Request Pending",
+   "cat": "Embedder",
+   "ph": "b",
+   "ts": 608064819825,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "590"
+  },
+  {
+   "name": "Animate",
+   "cat": "Dart",
+   "ph": "e",
+   "ts": 608064819944,
+   "tid": 515617128552,
+   "pid": 12618,
+   "id": "2734fc51"
+  },
+  {
+   "name": "LAYOUT (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064819986,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "LAYOUT",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064820150,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "LAYOUT",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064820364,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "LAYOUT (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064820386,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064820404,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064820422,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064820440,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "UPDATING COMPOSITING BITS (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064820451,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PAINT (root)",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064820464,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PAINT",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064820479,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PAINT",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064820590,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "PAINT (root)",
+   "cat": "Dart",
+   "ph": "E",
+   "ts": 608064820603,
+   "tid": 515617128552,
+   "pid": 12618
+  },
+  {
+   "name": "COMPOSITING",
+   "cat": "Dart",
+   "ph": "B",
+   "ts": 608064820618,
+   "tid": 515617128552,
+   "pid": 12618
+  }
+ ]
+}

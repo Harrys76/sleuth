@@ -60,6 +60,7 @@ void main() {
       expect(copy.routeHistoryCapacity, original.routeHistoryCapacity);
       expect(copy.autoFrameBudget, original.autoFrameBudget);
       expect(copy.profilePlatformChannels, original.profilePlatformChannels);
+      expect(copy.cpuAttribution, original.cpuAttribution);
       expect(copy.maxElementsPerScan, original.maxElementsPerScan);
     });
 
@@ -124,6 +125,14 @@ void main() {
       final copy = original.copyWith(profilePlatformChannels: true);
       expect(copy.profilePlatformChannels, isTrue);
       expect(copy.copyWith().profilePlatformChannels, isTrue);
+    });
+
+    test('overrides cpuAttribution, off by default', () {
+      const original = SleuthConfig();
+      expect(original.cpuAttribution, isFalse);
+      final copy = original.copyWith(cpuAttribution: true);
+      expect(copy.cpuAttribution, isTrue);
+      expect(copy.copyWith().cpuAttribution, isTrue);
     });
 
     test('overrides Set and List fields', () {

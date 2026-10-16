@@ -93,7 +93,7 @@ void main() {
       );
 
       final verdict = controller.verdictNotifier.value!;
-      expect(verdict.reason, contains('Vsync wait: 1.5ms'));
+      expect(verdict.reason, contains('Start delay: 1.5ms'));
     });
 
     test('reason omits vsync text when overhead <= 500us', () {

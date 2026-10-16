@@ -10,13 +10,14 @@ library;
 
 /// stableIds Sleuth reports only with a VM service link: every issue of the
 /// `vmOnly` detectors (memory, heavy compute, shader, platform channel,
-/// stream resource) plus the VM timeline paths of the hybrid rebuild and
+/// stream resource, event-loop stall) plus the VM timeline paths of the hybrid rebuild and
 /// repaint detectors. `raster_dominance` is absent because its frame-timing
 /// leg runs without a VM link.
 const String vmOnlyStableIds =
     'heap_growing, gc_pressure, heap_near_capacity, native_memory_growing, '
     'heavy_compute, shader_compilation, platform_channel_traffic, '
-    'stream_resource_growth, rebuild_activity, excessive_repaint';
+    'stream_resource_growth, event_loop_stall, rebuild_activity, '
+    'excessive_repaint';
 
 /// Advisory for `connectionMode == 'basic'` when the app reports no VM
 /// service link after the warmup window, so VM-only detectors stay silent.

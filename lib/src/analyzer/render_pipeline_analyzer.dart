@@ -21,17 +21,14 @@ class RenderPipelineAnalyzer {
     List<PerformanceIssue> relatedIssues = const [],
   }) {
     final budgetUs = frameStats.frameBudgetUs;
-    final gapUs = frameStats.buildToRasterGap.inMicroseconds;
-    final vsyncUs = frameStats.vsyncOverhead.inMicroseconds;
     final uiUs = frameStats.uiDuration.inMicroseconds;
     final rasterUs = frameStats.rasterDuration.inMicroseconds;
 
+    // A jank frame misses its deadline on the UI thread (start delay plus
+    // build) or the raster thread; the hand-off wait never counts. When
+    // neither thread ran over by itself, the start delay did it.
     PipelinePhase suspected;
-    if (gapUs > budgetUs ~/ 4 && uiUs < budgetUs && rasterUs < budgetUs) {
-      suspected = PipelinePhase.pipelineStall;
-    } else if (vsyncUs > budgetUs ~/ 4 &&
-        uiUs < budgetUs &&
-        rasterUs < budgetUs) {
+    if (uiUs <= budgetUs && rasterUs <= budgetUs) {
       suspected = PipelinePhase.schedulerDelay;
     } else {
       suspected = uiUs > rasterUs ? PipelinePhase.build : PipelinePhase.raster;
@@ -53,6 +50,52 @@ class RenderPipelineAnalyzer {
     );
 
     return _lastVerdict!;
+  }
+
+  /// The phase that made [frameStats] miss its deadline, from the frame's
+  /// own threads. When build and raster each fit, the start delay pushed
+  /// the frame past it ([PipelinePhase.schedulerDelay]); the hand-off wait
+  /// between them never counts. A raster thread that ran longer than the
+  /// UI thread is the raster phase. Otherwise the UI thread ran over, and
+  /// the largest of its measured phases (build, layout, paint) names it,
+  /// or build when none was measured.
+  ///
+  /// [phases] only ranks the UI thread's phases. In the full tier they are
+  /// totals over the whole poll batch, so they never decide which thread
+  /// ran over.
+  static PipelinePhase _framePhase(
+    FrameStats frameStats,
+    Map<PipelinePhase, int> phases,
+  ) {
+    final budgetUs = frameStats.frameBudgetUs;
+    final uiUs = frameStats.uiDuration.inMicroseconds;
+    final rasterUs = frameStats.rasterDuration.inMicroseconds;
+    if (uiUs <= budgetUs && rasterUs <= budgetUs) {
+      return PipelinePhase.schedulerDelay;
+    }
+    if (rasterUs > uiUs) return PipelinePhase.raster;
+    var best = PipelinePhase.build;
+    var bestUs = 0;
+    for (final phase in const [
+      PipelinePhase.build,
+      PipelinePhase.layout,
+      PipelinePhase.paint,
+    ]) {
+      final us = phases[phase] ?? 0;
+      if (us > bestUs) {
+        bestUs = us;
+        best = phase;
+      }
+    }
+    return best;
+  }
+
+  /// The start delay with Sleuth's own share, as the reasons print it.
+  static String _startDelayText(FrameStats frameStats) {
+    final totalMs = frameStats.vsyncOverhead.inMicroseconds / 1000;
+    final ownMs = frameStats.ownStartDelayUs / 1000;
+    return '${totalMs.toStringAsFixed(1)}ms'
+        '${ownMs > 0 ? ' (${ownMs.toStringAsFixed(1)}ms of it Sleuth\'s own work)' : ''}';
   }
 
   /// Analyze a frame with full VM Timeline data.
@@ -79,36 +122,12 @@ class RenderPipelineAnalyzer {
         ? rasterAggregateUs
         : 0;
 
-    // Determine which phase is the widest
-    final phases = {
+    // The frame's own threads decide; the phases only rank the UI side.
+    final suspected = _framePhase(frameStats, {
       PipelinePhase.build: buildUs,
       PipelinePhase.layout: layoutUs,
       PipelinePhase.paint: paintUs,
-      PipelinePhase.raster: rasterUs,
-    };
-
-    PipelinePhase suspected = PipelinePhase.unknown;
-    int maxUs = 0;
-
-    for (final entry in phases.entries) {
-      if (entry.value > maxUs) {
-        maxUs = entry.value;
-        suspected = entry.key;
-      }
-    }
-
-    // If no VM-derived phase dominates but totalSpan exceeds budget,
-    // check for pipeline stall or scheduler delay.
-    final budgetUs = frameStats.frameBudgetUs;
-    if (suspected == PipelinePhase.unknown || maxUs < budgetUs) {
-      final gapUs = frameStats.buildToRasterGap.inMicroseconds;
-      final vsyncUs = frameStats.vsyncOverhead.inMicroseconds;
-      if (gapUs > budgetUs ~/ 4) {
-        suspected = PipelinePhase.pipelineStall;
-      } else if (vsyncUs > budgetUs ~/ 4) {
-        suspected = PipelinePhase.schedulerDelay;
-      }
-    }
+    });
 
     // Build reason string
     final reason = _buildFullReason(
@@ -159,35 +178,12 @@ class RenderPipelineAnalyzer {
         ? correlation.rasterUs
         : frameStats.rasterDuration.inMicroseconds;
 
-    // Determine which phase is the widest
-    final phases = {
+    // The frame's own threads decide; the phases only rank the UI side.
+    final suspected = _framePhase(frameStats, {
       PipelinePhase.build: buildUs,
       PipelinePhase.layout: layoutUs,
       PipelinePhase.paint: paintUs,
-      PipelinePhase.raster: rasterUs,
-    };
-
-    PipelinePhase suspected = PipelinePhase.unknown;
-    int maxUs = 0;
-
-    for (final entry in phases.entries) {
-      if (entry.value > maxUs) {
-        maxUs = entry.value;
-        suspected = entry.key;
-      }
-    }
-
-    // If no correlated phase dominates, check for pipeline stall or scheduler delay.
-    final budgetUs = frameStats.frameBudgetUs;
-    if (suspected == PipelinePhase.unknown || maxUs < budgetUs) {
-      final gapUs = frameStats.buildToRasterGap.inMicroseconds;
-      final vsyncUs = frameStats.vsyncOverhead.inMicroseconds;
-      if (gapUs > budgetUs ~/ 4) {
-        suspected = PipelinePhase.pipelineStall;
-      } else if (vsyncUs > budgetUs ~/ 4) {
-        suspected = PipelinePhase.schedulerDelay;
-      }
-    }
+    });
 
     final reason = _buildCorrelatedReason(
       suspected: suspected,
@@ -270,10 +266,7 @@ class RenderPipelineAnalyzer {
     }
 
     if (frameStats.vsyncOverhead.inMicroseconds > 500) {
-      buf.writeln(
-        '  vsync wait: '
-        '${(frameStats.vsyncOverhead.inMicroseconds / 1000).toStringAsFixed(1)}ms',
-      );
+      buf.writeln('  start delay: ${_startDelayText(frameStats)}');
     }
 
     if (frameStats.buildToRasterGap.inMicroseconds > 500) {
@@ -324,10 +317,7 @@ class RenderPipelineAnalyzer {
     }
 
     if (frameStats.vsyncOverhead.inMicroseconds > 500) {
-      buf.writeln(
-        '  vsync wait: '
-        '${(frameStats.vsyncOverhead.inMicroseconds / 1000).toStringAsFixed(1)}ms',
-      );
+      buf.writeln('  start delay: ${_startDelayText(frameStats)}');
     }
 
     if (frameStats.buildToRasterGap.inMicroseconds > 500) {
@@ -357,10 +347,7 @@ class RenderPipelineAnalyzer {
     }
 
     if (frameStats.vsyncOverhead.inMicroseconds > 500) {
-      buf.write(
-        ', Vsync wait: '
-        '${(frameStats.vsyncOverhead.inMicroseconds / 1000).toStringAsFixed(1)}ms',
-      );
+      buf.write(', Start delay: ${_startDelayText(frameStats)}');
     }
 
     if (frameStats.buildToRasterGap.inMicroseconds > 500) {

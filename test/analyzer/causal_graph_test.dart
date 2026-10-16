@@ -1661,12 +1661,12 @@ void main() {
       ]) {
         expect(pairs, isNot(contains(p)));
       }
-      expect(CausalGraphRule.rulesJson, hasLength(41));
+      expect(CausalGraphRule.rulesJson, hasLength(42));
     });
 
     test('no rule has jank_detected or sustained_jank as effect except the '
-        'layout_bottleneck, runtime_font_loading, and non_lazy_shrinkwrap '
-        'edges', () {
+        'layout_bottleneck, runtime_font_loading, non_lazy_shrinkwrap and '
+        'event_loop_stall edges', () {
       final jankEdges = {
         for (final r in CausalGraphRule.rulesJson)
           if (r['effect'] == 'jank_detected' || r['effect'] == 'sustained_jank')
@@ -1678,6 +1678,7 @@ void main() {
         'runtime_font_loading→sustained_jank',
         'runtime_font_loading→jank_detected',
         'non_lazy_shrinkwrap→jank_detected',
+        'event_loop_stall→sustained_jank',
       });
     });
   });

@@ -17,6 +17,7 @@ class ParsedTimelineData {
     this.phaseEvents = const [],
     this.duplicatesDropped = 0,
     this.maxTimestampUs = -1,
+    this.uiThreadGaps = const [],
   });
 
   /// Exact buildScope durations in microseconds.
@@ -62,6 +63,16 @@ class ParsedTimelineData {
   /// Largest `ts` among the events this call accepted (duplicates
   /// excluded), or −1 when none carried a timestamp.
   final int maxTimestampUs;
+
+  /// Stretches, as `(startUs, endUs)` in timeline microseconds, in which
+  /// the thread that ran this batch's frames (`Animator::BeginFrame`)
+  /// recorded no event, between two of its events and at least
+  /// [TimelineParser.minIdleGapUs] long. `PlatformVsync` spans do not
+  /// count as work, because the begin marks the vsync and the end the
+  /// callback.
+  /// A thread blocked outside Dart (the VM holding its timeline lock,
+  /// native work) leaves such a gap inside a late frame's start delay.
+  final List<(int, int)> uiThreadGaps;
 
   bool get hasData =>
       buildScopeDurations.isNotEmpty ||
@@ -539,6 +550,10 @@ class TimelineParser {
     var buildCount = 0;
     var duplicates = 0;
     var maxTs = -1;
+    // The (ts, ph, dur) of every event except PlatformVsync, per thread,
+    // for uiThreadGaps. The frame threads are picked afterwards.
+    final threadEvents = <int, List<(int, String, int)>>{};
+    final frameTids = <int>{};
     int? cachedTid;
     TimelineCursor? cachedCursor;
 
@@ -591,6 +606,13 @@ class TimelineParser {
       final ph = json['ph'] as String? ?? '';
       final dur = json['dur'] as int?;
       final cat = json['cat'] as String? ?? '';
+
+      if (ts is int && name != 'PlatformVsync' && ph != 'M') {
+        final rawTid = json['tid'];
+        final tid = rawTid is int ? rawTid : 0;
+        (threadEvents[tid] ??= []).add((ts, ph, dur ?? 0));
+        if (name == 'Animator::BeginFrame') frameTids.add(tid);
+      }
 
       // Complete duration events (ph == 'X') have a 'dur' field
       if (ph == 'X' && dur != null) {
@@ -867,7 +889,54 @@ class TimelineParser {
       phaseEvents: phaseEvents,
       duplicatesDropped: duplicates,
       maxTimestampUs: maxTs,
+      uiThreadGaps: [
+        for (final tid in frameTids) ..._idleGaps(threadEvents[tid]!),
+      ],
     );
+  }
+
+  /// Shortest gap reported in [ParsedTimelineData.uiThreadGaps].
+  static const int minIdleGapUs = 2000;
+
+  /// The stretches between one thread's busy intervals: `B`/`E` pairs
+  /// (nested pairs merge), `X` events with their `dur`, and other events
+  /// as points. Only gaps between two events of the batch count; an `E`
+  /// whose begin came in an earlier batch closes a stretch busy since the
+  /// batch's first event, so no gap before it counts.
+  static List<(int, int)> _idleGaps(List<(int, String, int)> events) {
+    events.sort((a, b) => a.$1.compareTo(b.$1));
+    final gaps = <(int, int)>[];
+    var depth = 0;
+    int? idleFrom;
+    for (final (ts, ph, dur) in events) {
+      if (depth == 0 && idleFrom != null && ts - idleFrom >= minIdleGapUs) {
+        gaps.add((idleFrom, ts));
+      }
+      switch (ph) {
+        case 'B':
+          depth++;
+          idleFrom = null;
+        case 'E':
+          if (depth > 0) {
+            depth--;
+          } else {
+            // Its begin came in an earlier batch, so the thread was inside
+            // that scope since then and no stretch before this was idle.
+            gaps.removeWhere((g) => g.$2 <= ts);
+          }
+          if (depth == 0) idleFrom = ts;
+        case 'X':
+          final end = ts + dur;
+          if (depth == 0) {
+            idleFrom = idleFrom == null || end > idleFrom ? end : idleFrom;
+          }
+        default:
+          if (depth == 0) {
+            idleFrom = idleFrom == null || ts > idleFrom ? ts : idleFrom;
+          }
+      }
+    }
+    return gaps;
   }
 
   /// Extract engine-level startup timestamps and first-frame sub-phase

@@ -5,6 +5,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 
 import '../controller/sleuth_controller.dart';
+import '../utils/own_work_log.dart';
 import 'service_extension_handlers.dart';
 
 /// Binds `ext.sleuth.*` extensions to `dart:developer`.
@@ -116,8 +117,13 @@ class ServiceExtensionRegistry {
       );
     }
     try {
-      final payload = await handler(controller, args);
-      return developer.ServiceExtensionResponse.result(jsonEncode(payload));
+      // The handler's synchronous part (snapshot building) and the encode
+      // run on the UI isolate for a sidecar or DevTools request; both are
+      // Sleuth's own work.
+      final payload = await ownWorkLog.measure(() => handler(controller, args));
+      return developer.ServiceExtensionResponse.result(
+        ownWorkLog.measure(() => jsonEncode(payload)),
+      );
     } catch (e, st) {
       // Dispose-race surface: weak ref cleared between entry and throw.
       if (_currentController?.target == null) {

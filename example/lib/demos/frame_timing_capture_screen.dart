@@ -134,17 +134,13 @@ const _atTargetJankPercent = 20;
 const _aboveTargetJankPercent = 27;
 
 // Rate-based jank injection (per-frame Ticker decides whether to spin).
-// Spin amount per chosen frame — pushes that frame's total past the 16ms
-// warning gate but well under the 33ms severe gate. Constant across legs;
+// Spin amount per chosen frame. It pushes that frame's build time past the
+// 16.7ms budget but keeps it under the 33ms severe gate. Constant across legs;
 // what varies is the FREQUENCY of injection (see _JankLeg.targetJankPercent
 // in the enum below).
 //
-// 18ms spin + ~baseline 16ms = ~34ms worst-frame on chosen frames. Below
-// severe (33ms) by a thin margin; cooler devices may drift over. If the
-// validator rejects with "severe co-fire" persistently, consider a
-// shorter spin or accept that calibrated above-leg can occasionally
-// trigger sustained_jank.critical co-fire (parallel emission keeps
-// that benign for the bracket axis).
+// An 18ms spin plus a 1 to 3ms baseline build gives about 20ms of build on
+// chosen frames, over the 16.7ms budget and under the 33ms severe gate.
 const _spinPerFrameMs = 18;
 
 // Scenario span. At 60 Hz the buffer holds 240 frames. Rate-based spin
@@ -320,10 +316,12 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       // frame; spinning every frame makes 100% janky and blows past the
       // above-band ceiling. Instead inject jank at a calibrated rate
       // matched to the leg's target jankPercent: below 0%, at 20%,
-      // above 27%. Each Nth Ticker callback spins 16-18ms (pushes that
-      // frame's totalSpan past the 16ms warning gate but well under the
-      // 33ms severe gate so sustained_jank.critical co-fire stays
-      // proportional to natural ambient noise, not amplified by spin).
+      // above 27%. Each Nth Ticker callback spins 18ms. The ticker runs
+      // inside the frame's UI-thread work, so the spin lands in the
+      // frame's build time, which the jank rule compares with the 16.7ms
+      // budget. The frame stays under the 33ms severe gate, so
+      // sustained_jank.critical co-fire follows the natural ambient noise
+      // and the spin does not add to it.
       final targetPct = leg.targetJankPercent;
       // Modulus N so ~targetPct% of frames are spun. e.g. 20% → every
       // 5th frame; 27% → every ~4th frame. targetPct=0 → never spin.
@@ -333,8 +331,8 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         tickerFrameCount++;
         if (injectModulus == 0) return;
         if (tickerFrameCount % injectModulus != 0) return;
-        // Busy-wait: block UI thread for _spinPerFrameMs so this frame's
-        // `total` (vsync_to_present) crosses the 16ms warning gate.
+        // Busy-wait: block the UI thread for _spinPerFrameMs so this
+        // frame's build time crosses the 16.7ms budget.
         // Stopwatch gives microsecond precision and is monotonic.
         final sw = Stopwatch()..start();
         const targetUs = _spinPerFrameMs * 1000;

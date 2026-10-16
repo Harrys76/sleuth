@@ -9,6 +9,7 @@ import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/framework_painters.dart';
+import '../utils/framework_types.dart' show cupertinoBlurOwner;
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
@@ -115,7 +116,23 @@ class RepaintBoundaryDetector extends BaseDetector
       // Framework-owned painters and Material's own transparency clip are
       // not user widgets to wrap.
       if (widget is CustomPaint && isFrameworkPainterPaint(element)) return;
+      // A CustomPaint without painters draws nothing; Android's scroll
+      // stretch (StretchEffect) keeps one around every scrollable and sets
+      // its painter only while the stretch runs.
+      if (widget is CustomPaint &&
+          widget.painter == null &&
+          widget.foregroundPainter == null) {
+        return;
+      }
       if (widget is ClipPath && isMaterialOwnClip(element)) return;
+      // A disabled BackdropFilter draws nothing (an opaque Cupertino bar
+      // keeps one with `enabled: false`).
+      if (widget is BackdropFilter && !widget.enabled) return;
+      // A Cupertino bar or surface draws this blur itself; the app cannot
+      // wrap it (the GPU card's hint says what to change instead).
+      if (widget is BackdropFilter && cupertinoBlurOwner(element) != null) {
+        return;
+      }
       final ro = element.renderObject;
       if (ro != null && !_hasRepaintBoundaryAncestor(ro)) {
         _found.add(buildAncestorChain(element));

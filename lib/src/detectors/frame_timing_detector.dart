@@ -11,6 +11,7 @@ import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/own_work_log.dart';
 import '../vm/timeline_parser.dart';
 
 /// Detects jank frames using [SchedulerBinding.addTimingsCallback] (fast,
@@ -78,7 +79,9 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     this.onFrame,
     String? Function()? sourceRouteProvider,
     int? Function()? appStartMonotonicUsForTest,
+    int Function(int fromUs, int toUs)? ownWorkOverlapUs,
   }) : _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+       _ownWorkOverlapUs = ownWorkOverlapUs ?? ownWorkLog.overlapUs,
        warningBudgetUs = warningThresholdMs != null
            ? warningThresholdMs * 1000
            : _budgetUsFromFpsTarget(fpsTarget),
@@ -99,6 +102,10 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
              'Detects jank frames against the frame budget '
              '(${warningThresholdMs ?? _budgetUsFromFpsTarget(fpsTarget) ~/ 1000}ms)',
        );
+
+  /// Microseconds of a `Timeline.now` window that Sleuth's own work
+  /// covered. The detector subtracts this from each frame's start delay.
+  final int Function(int fromUs, int toUs) _ownWorkOverlapUs;
 
   /// Validates `fpsTarget` before dividing by it. The `SleuthConfig` assert
   /// guard is stripped in profile/release, so without this check
@@ -245,7 +252,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   static const int _bufferCapacity = 240;
 
   /// `jank_detected` fires when more than this percentage of the frames
-  /// since the route epoch ran over budget.
+  /// since the route epoch missed their deadline.
   static const int jankPercentThreshold = 15;
 
   /// Frames since the route epoch needed before jank is evaluated.
@@ -364,6 +371,16 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   ParsedTimelineData? _lastTimelineData;
 
   FrameStatsBuffer get frameBuffer => _buffer;
+
+  /// Re-reads Sleuth's own share of each buffered frame's start delay and
+  /// re-judges jank when any changed. A VM stall that a later timeline poll
+  /// measures can cover a frame read before it. Returns how many frames
+  /// changed.
+  int refreshOwnStartDelays() {
+    final changed = _buffer.refreshOwnStartDelays(_ownWorkOverlapUs);
+    if (changed > 0) _evaluateJank();
+    return changed;
+  }
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -533,6 +550,9 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         buildFinishUs: buildFinishUs,
         rasterStartUs: rasterStartUs,
         rasterFinishUs: rasterFinishUs,
+        ownStartDelayUs: buildStartUs > vsyncStartUs
+            ? _ownWorkOverlapUs(vsyncStartUs, buildStartUs)
+            : 0,
       );
 
       _buffer.add(stats);
@@ -581,15 +601,23 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     final frames = _framesSinceRouteEpoch;
     if (frames.length < minJankSampleFrames) return; // Need enough data
 
-    // Single-pass: count jank categories and find worst frame (v9.10).
-    int severeCount = 0, jankCount = 0;
-    FrameStats worst = frames.first;
+    // Single pass: count jank categories and find the worst app frame.
+    // Frames late only because of Sleuth's own work count in neither the
+    // jank count nor the frames it is a percentage of.
+    int severeCount = 0, jankCount = 0, overheadCount = 0;
+    FrameStats? worst;
     for (final f in frames) {
+      if (f.isSleuthOverhead) {
+        overheadCount++;
+        continue;
+      }
       if (f.isSevereJank) severeCount++;
       if (f.isJank) jankCount++;
-      if (f.effectiveTotalDuration > worst.effectiveTotalDuration) worst = f;
+      if (worst == null || _deadlineUs(f) > _deadlineUs(worst)) worst = f;
     }
-    final jankPercent = (jankCount / frames.length * 100).round();
+    final appFrames = frames.length - overheadCount;
+    if (worst == null || appFrames < minJankSampleFrames) return;
+    final jankPercent = (jankCount / appFrames * 100).round();
 
     // Classify jank frames by bottleneck thread for attribution.
     final bottleneck = _classifyJankBottleneck(frames);
@@ -625,6 +653,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'observedSevereCount': severeCount.toString(),
             'observedJankPercent': jankPercent.toStringAsFixed(2),
             'bufferSize': frames.length.toString(),
+            'sleuthOverheadFrames': overheadCount.toString(),
             'lifecyclePhase': ?lifecyclePhase,
           },
           confidenceReason: 'Measured directly from FrameTiming API',
@@ -633,7 +662,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     }
     if (jankPercent > jankPercentThreshold) {
       final (hint2, effort2) = FixHintBuilder.jankDetected();
-      final worstMs = worst.effectiveTotalDuration.inMicroseconds / 1000.0;
+      final worstMs = _deadlineUs(worst) / 1000.0;
       // Wall-clock micros plus an instance-monotonic counter so back-to-back
       // emissions never collide under coarse `DateTime.now()` granularity.
       // The audit gate's `bracketRequireUniqueDetectedAtMicros: true`
@@ -663,6 +692,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'observedJankPercent': jankPercent.toStringAsFixed(2),
             'observedWorstFrameMs': worstMs.toStringAsFixed(2),
             'bufferSize': frames.length.toString(),
+            'sleuthOverheadFrames': overheadCount.toString(),
             'lifecyclePhase': ?lifecyclePhase,
           },
           confidenceReason: 'Measured directly from FrameTiming API',
@@ -797,59 +827,63 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   /// Classify jank frames by which thread is the bottleneck.
-  _JankBottleneck _classifyJankBottleneck(List<FrameStats> frames) {
-    int uiBound = 0, rasterBound = 0, pipelineStall = 0;
-    final budgetUs = warningBudgetUs;
+  /// The time [isJank] compares with the budget: the app's start delay plus
+  /// the build, or the raster, whichever is longer.
+  static int _deadlineUs(FrameStats f) {
+    final ui = f.appStartDelayUs + f.uiDuration.inMicroseconds;
+    final raster = f.rasterDuration.inMicroseconds;
+    return ui > raster ? ui : raster;
+  }
 
+  _JankBottleneck _classifyJankBottleneck(List<FrameStats> frames) {
+    int uiBound = 0, rasterBound = 0, startDelay = 0;
     for (final f in frames) {
       if (!f.isJank) continue;
-      if (f.buildToRasterGap.inMicroseconds > budgetUs ~/ 4 &&
-          f.uiDuration.inMicroseconds < budgetUs &&
-          f.rasterDuration.inMicroseconds < budgetUs) {
-        pipelineStall++;
-      } else if (f.uiDuration > f.rasterDuration) {
+      final budgetUs = f.frameBudgetUs;
+      final buildUs = f.uiDuration.inMicroseconds;
+      final rasterUs = f.rasterDuration.inMicroseconds;
+      if (buildUs <= budgetUs && rasterUs <= budgetUs) {
+        // Neither thread ran over by itself, so the app's start delay
+        // pushed the build past the deadline.
+        startDelay++;
+      } else if (buildUs > rasterUs) {
         uiBound++;
       } else {
         rasterBound++;
       }
     }
 
-    final total = uiBound + rasterBound + pipelineStall;
+    final total = uiBound + rasterBound + startDelay;
     if (total == 0) return const _JankBottleneck.none();
 
-    if (pipelineStall > uiBound && pipelineStall > rasterBound) {
+    final counts =
+        'Thread attribution: $uiBound UI-bound, $rasterBound raster-bound, '
+        '$startDelay late start.';
+    if (startDelay > uiBound && startDelay > rasterBound) {
       return _JankBottleneck(
-        label: ' (pipeline stall)',
+        label: ' (late start)',
         summary:
-            'Thread attribution: $uiBound UI-bound, '
-            '$rasterBound raster-bound, $pipelineStall pipeline stall. '
-            'The raster thread is backed up from previous frames.',
+            '$counts Each build and raster fit the budget by itself, but '
+            'the time from vsync to the build plus the build ran past the '
+            'deadline. A long start delay is other work on the UI thread '
+            'between frames: look for long timer callbacks, platform '
+            'message handlers or microtasks. A build just under the budget '
+            'misses it even with the usual 1 ms delay.',
       );
     }
     if (uiBound > rasterBound) {
       return _JankBottleneck(
         label: ' (UI-bound)',
-        summary:
-            'Thread attribution: $uiBound UI-bound, '
-            '$rasterBound raster-bound, $pipelineStall pipeline stall. '
-            'Reduce build, layout and paint work.',
+        summary: '$counts Reduce build, layout and paint work.',
       );
     }
     if (rasterBound > uiBound) {
       return _JankBottleneck(
         label: ' (raster-bound)',
-        summary:
-            'Thread attribution: $uiBound UI-bound, '
-            '$rasterBound raster-bound, $pipelineStall pipeline stall. '
-            'Reduce GPU compositing work.',
+        summary: '$counts Reduce GPU compositing work.',
       );
     }
-    return _JankBottleneck(
-      label: ' (mixed)',
-      summary:
-          'Thread attribution: $uiBound UI-bound, '
-          '$rasterBound raster-bound, $pipelineStall pipeline stall.',
-    );
+    return _JankBottleneck(label: ' (mixed)', summary: counts);
   }
 
   String _buildDetail(FrameStats stats) {
@@ -865,9 +899,11 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     }
 
     if (stats.vsyncOverhead.inMicroseconds > 0) {
+      final own = stats.ownStartDelayUs;
       buf.writeln(
-        'Vsync overhead: '
-        '${(stats.vsyncOverhead.inMicroseconds / 1000).toStringAsFixed(1)}ms',
+        'Start delay: '
+        '${(stats.vsyncOverhead.inMicroseconds / 1000).toStringAsFixed(1)}ms'
+        '${own > 0 ? ' (${(own / 1000).toStringAsFixed(1)}ms of it Sleuth\'s own work)' : ''}',
       );
     }
 
@@ -895,14 +931,13 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
       }
     }
 
-    // Bottleneck hint with pipeline stall detection
+    // The same split as the thread attribution above.
     final budgetUs = stats.frameBudgetUs;
-    if (stats.buildToRasterGap.inMicroseconds > budgetUs ~/ 4 &&
-        stats.uiDuration.inMicroseconds < budgetUs &&
-        stats.rasterDuration.inMicroseconds < budgetUs) {
+    if (stats.uiDuration.inMicroseconds <= budgetUs &&
+        stats.rasterDuration.inMicroseconds <= budgetUs) {
       buf.writeln(
-        'Bottleneck: Pipeline stall '
-        '(raster thread backed up from previous frame)',
+        'Bottleneck: Late start (the start delay plus the build ran past '
+        'the deadline)',
       );
     } else if (stats.uiDuration > stats.rasterDuration) {
       buf.writeln('Bottleneck: UI thread (build/layout/paint)');
@@ -999,8 +1034,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         '`raster_cache_thrashing` fires after at least 15 consecutive '
         'frames in which the picture cache count changes by at least 20%, '
         'seeded by `previous.pictureCacheCount > 5`. `raster_cache_growing` '
-        'fires after at least 30 consecutive frames of monotonic '
-        'picture-cache-count growth. The reproducer bypasses warmup with '
+        'fires after at least 30 consecutive frames of monotonic growth '
+        'in total raster cache bytes. The reproducer bypasses warmup with '
         '`warmupDuration: Duration.zero`. Every stableId has a synthetic '
         '`FrameStats` path and a real `FrameTiming` integration leg through '
         '`handleTimingsForTest`, so hand-written synthetic fixtures cannot '
@@ -1010,8 +1045,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         '`pictureCacheBytes: 1` so that suppression cannot arm and clear '
         'the issues under test. `jank_detected.warning` is runtimeVerified '
         '(via `perStableIdTier`) on three on-device captures (iPhone 12, '
-        'iOS 17.5, Flutter 3.41.4, 60 Hz) that bracket the jank-percent '
-        'threshold. The other three stableIds stay reproducerOnly and are '
+        'iOS 17.5, Flutter 3.47.6, 60 Hz, deadline rule) that bracket the '
+        'jank-percent threshold. The other three stableIds stay reproducerOnly and are '
         'not cited to Flutter engine sources. v0.17.0 extends FPS '
         'semantics. `actualFps` (a rolling count in a 1 s window anchored '
         'on the latest `rasterFinishUs`) and `throughputFps` '

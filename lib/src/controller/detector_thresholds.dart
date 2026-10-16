@@ -28,6 +28,8 @@ class DetectorThresholds {
     this.fontLoadingMaxFamilies = 3,
     this.startupTtffWarningMs = 1500,
     this.startupTtffCriticalMs = 3000,
+    this.stallWarningMs = 100,
+    this.stallCriticalMs = 700,
     this.coldStartShaderWindowSeconds = 5,
     this.shaderKeyframeWindowMs = 100,
     this.startupPhaseWindowSeconds = 5,
@@ -139,6 +141,15 @@ class DetectorThresholds {
        assert(
          startupTtffCriticalMs >= startupTtffWarningMs,
          'startupTtffCriticalMs must be at least startupTtffWarningMs.',
+       ),
+       assert(
+         stallWarningMs >= 100,
+         'stallWarningMs must be at least 100: the VM reports nothing '
+         'shorter.',
+       ),
+       assert(
+         stallCriticalMs >= stallWarningMs,
+         'stallCriticalMs must be at least stallWarningMs.',
        );
 
   /// Shader compilation duration in milliseconds above which
@@ -361,6 +372,20 @@ class DetectorThresholds {
   /// (database migrations, large asset loads). **Lower this** (e.g.
   /// 2000 ms) for stricter startup audits.
   final int startupTtffCriticalMs;
+
+  /// Shortest event-loop stall, in milliseconds, that
+  /// `EventLoopStallDetector` reports.
+  ///
+  /// **Default:** 100 ms, the shortest stall the VM reports (a timer
+  /// firing 100 ms late) and about the point where users notice a delay.
+  /// Must be at least 100 (asserted): the VM reports nothing shorter.
+  final int stallWarningMs;
+
+  /// Event-loop stall, in milliseconds, at which `EventLoopStallDetector`
+  /// escalates to critical.
+  ///
+  /// **Default:** 700 ms, the frozen-frame bound Android vitals uses.
+  final int stallCriticalMs;
 
   /// Polling cadence in seconds for `StreamResourceDetector`.
   /// `getAllocationProfile` is called at most once per this interval.

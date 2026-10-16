@@ -1,5 +1,4 @@
 import 'dart:developer' show Timeline;
-import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -11,8 +10,10 @@ import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/blur_sigma.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/framework_painters.dart';
+import '../utils/framework_types.dart' show cupertinoBlurOwner;
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -126,6 +127,11 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   int _lastUiUs = 0;
   bool _vmConnected = false;
   final List<String> _expensiveNodes = [];
+
+  // Cupertino widgets whose own blur produced an expensive node this scan,
+  // and how many of the expensive nodes were such blurs.
+  final Set<String> _blurChromeOwners = {};
+  int _chromeNodeCount = 0;
   final List<int> _subtreeSizeStack = [];
 
   static const String _structuralOnlyReason =
@@ -353,6 +359,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void prepareScan(BuildContext context) {
     _expensiveNodes.clear();
+    _blurChromeOwners.clear();
+    _chromeNodeCount = 0;
     _highlights.clear();
     _subtreeSizeStack.clear();
   }
@@ -384,6 +392,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     // contains('RenderOpacity') matched it as a false positive.
     String? typeName;
     double? backdropSigma;
+    String? chromeOwner;
     if (ro is RenderOpacity) {
       final val = ro.opacity;
       if (val >= 1.0 || val <= 0.0) return; // no-op or short-circuit
@@ -394,13 +403,16 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       if (isMaterialOwnClip(element)) return;
       typeName = 'RenderClipPath';
     } else if (ro is RenderBackdropFilter) {
-      if (element.widget is BackdropFilter) {
-        backdropSigma = _extractMaxBlurSigma(
-          (element.widget as BackdropFilter).filter,
-        );
+      // A disabled filter draws nothing (an opaque Cupertino bar keeps its
+      // BackdropFilter with `enabled: false`).
+      if (!ro.enabled) return;
+      final widget = element.widget;
+      if (widget is BackdropFilter) {
+        backdropSigma = maxBlurSigma(widget);
         if (backdropSigma != null && backdropSigma <= _lowSigmaThreshold) {
           return;
         }
+        chromeOwner = cupertinoBlurOwner(element);
       }
       typeName = 'RenderBackdropFilter';
     } else if (ro is RenderShaderMask) {
@@ -427,6 +439,13 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         if (backdropSigma > _highSigmaThreshold) {
           highlightSeverity = IssueSeverity.critical;
         }
+      }
+
+      if (chromeOwner != null) {
+        nodeDetail = '$nodeDetail, drawn by $chromeOwner';
+        highlightDetail = '$highlightDetail, drawn by $chromeOwner';
+        _blurChromeOwners.add(chromeOwner);
+        _chromeNodeCount++;
       }
 
       _expensiveNodes.add(nodeDetail);
@@ -543,7 +562,10 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     }
 
     if (_expensiveNodes.isNotEmpty) {
-      final (hint, effort) = FixHintBuilder.expensiveGpuNodes();
+      final (hint, effort) = FixHintBuilder.expensiveGpuNodes(
+        blurChromeOwners: _blurChromeOwners,
+        onlyChrome: _chromeNodeCount == _expensiveNodes.length,
+      );
       final noRasterTiming = !vmConnected && windowFrameCount == 0;
       _issues.add(
         PerformanceIssue(
@@ -573,32 +595,13 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  /// Extract the maximum blur sigma from a [ui.ImageFilter].
-  ///
-  /// `_GaussianBlurImageFilter` is private — `toString()` returns
-  /// `'ImageFilter.blur(sigmaX, sigmaY, TileMode.clamp)'`.
-  // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
-  // (fires only on subclassing). Remove when analyzer-server recognizes the
-  // implement-only kind.
-  static final _blurSigmaRegExp =
-      // ignore: deprecated_member_use
-      RegExp(r'ImageFilter\.blur\((\d+\.?\d*),\s*(\d+\.?\d*)');
-
-  static double? _extractMaxBlurSigma(ui.ImageFilter? filter) {
-    if (filter == null) return null;
-    final match = _blurSigmaRegExp.firstMatch(filter.toString());
-    if (match == null) return null;
-    final sigmaX = double.tryParse(match.group(1)!);
-    final sigmaY = double.tryParse(match.group(2)!);
-    if (sigmaX == null || sigmaY == null) return null;
-    return sigmaX > sigmaY ? sigmaX : sigmaY;
-  }
-
   @override
   void dispose() {
     _issues.clear();
     _highlights.clear();
     _expensiveNodes.clear();
+    _blurChromeOwners.clear();
+    _chromeNodeCount = 0;
     _subtreeSizeStack.clear();
     _resetFrameLeg();
     _frameLegFallback = null;
@@ -638,7 +641,11 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         '(except the clip a transparency `Material` builds for its own '
         'shape), `RenderBackdropFilter` (3 sigma bands: at most 2.0 is '
         'suppressed, above 2.0 up to 10.0 is a warning highlight, above '
-        '10.0 is a critical highlight) and `RenderShaderMask`. One more '
+        '10.0 is a critical highlight; a disabled filter is skipped; the '
+        'sigma is read from the filter fields, because profile builds drop '
+        'the `toString` it was once parsed from; a blur composed with a '
+        'matrix has no known sigma and counts; a blur drawn by a Cupertino '
+        'bar or dialog names that widget) and `RenderShaderMask`. One more '
         'check runs at widget level (`element.widget is ColorFiltered`), '
         'because ColorFiltered has no public RenderObject type. The '
         '`expensive_gpu_nodes` issue severity is always `warning`. An '

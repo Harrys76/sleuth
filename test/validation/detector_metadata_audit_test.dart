@@ -171,6 +171,11 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     {'raster_dominance', 'expensive_gpu_nodes'},
     null,
   ),
+  DetectorType.eventLoopStall: (
+    'test/validation/event_loop_stall_reproducer_test.dart',
+    {'event_loop_stall'},
+    null,
+  ),
   // StreamResourceDetector — base reproducerOnly + perStableIdTier raise
   // on `stream_resource_growth.warning`; pinned by dedicated anchor
   // below.

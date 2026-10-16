@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/utils/own_work_log.dart';
 import 'package:sleuth/src/models/capture_buffer.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/frame_verdict.dart';
@@ -234,9 +236,72 @@ void main() {
     });
   });
 
+  test('a timeline dispatch re-judges buffered frames against own work '
+      'logged since they were read', () {
+    ownWorkLog.clear();
+    addTearDown(ownWorkLog.clear);
+    FrameStatsBuffer frames() => controller.detectorsForAudit
+        .whereType<FrameTimingDetector>()
+        .single
+        .frameBuffer;
+    for (var i = 0; i < 5; i++) {
+      final vsync = 50000000 + i * 100000;
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 900 + i,
+          uiDuration: const Duration(milliseconds: 4),
+          rasterDuration: const Duration(milliseconds: 2),
+          timestamp: DateTime.now(),
+          frameBudgetMs: 16,
+          vsyncOverhead: const Duration(milliseconds: 14),
+          vsyncStartUs: vsync,
+          buildStartUs: vsync + 14000,
+        ),
+      );
+      ownWorkLog.record(vsync, vsync + 14000);
+    }
+    expect(frames().jankCount, 5);
+    controller.feedTimelineDataForTest(ParsedTimelineData());
+    expect(frames().jankCount, 0);
+    expect(frames().sleuthOverheadCount, 5);
+  });
+
   group('CPU attribution', () {
+    /// A controller like the shared one, with CPU attribution on.
+    SleuthController attributing() {
+      final c = SleuthController(
+        config: const SleuthConfig(
+          frameTimingWarmupFrameCount: 0,
+          frameTimingWarmupDuration: Duration.zero,
+          cpuAttribution: true,
+        ),
+      );
+      c.initializeDetectorsForTest();
+      c.markInitializedAtForTest(
+        DateTime.now().subtract(const Duration(seconds: 10)),
+      );
+      c.simulateVmStateChangeForTest(true);
+      return c;
+    }
+
+    test('is off by default: a correlated jank verdict asks for no CPU '
+        'samples', () async {
+      final client = _CountingCpuClient();
+      controller.setVmClientForTest(client);
+
+      controller.addFrameForTest(_jankFrame(0));
+      controller.feedTimelineDataForTest(_batchForFrame(0));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.verdictNotifier.value!.isCorrelated, isTrue);
+      expect(client.cpuSamplesCalls, 0);
+      expect(controller.verdictNotifier.value!.topFunctions, isNull);
+    });
+
     test('a frame is attributed once; a later verdict for it keeps the '
         'attribution', () async {
+      final controller = attributing();
+      addTearDown(controller.dispose);
       final client = _CountingCpuClient();
       controller.setVmClientForTest(client);
 

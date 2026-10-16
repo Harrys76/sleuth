@@ -48,6 +48,12 @@ class SessionMarkdownExporter {
     buf.writeln(
       '- Jank frames: **${stats.jankFrames} / ${stats.totalFrames}**',
     );
+    if (stats.sleuthOverheadFrames > 0) {
+      buf.writeln(
+        '- Late only because of Sleuth (not jank): '
+        '**${stats.sleuthOverheadFrames}**',
+      );
+    }
     buf.writeln();
 
     // Startup metrics

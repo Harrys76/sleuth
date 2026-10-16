@@ -956,10 +956,11 @@ void main() {
         expect(jankIssue.detail, contains('raster-bound'));
       });
 
-      test('pipeline stall labeled when gap is dominant', () {
+      test('frames late only from the hand-off wait are not jank', () {
         addGoodFrames(5);
-        // Add frames with pipeline stall: both threads under budget but
-        // large buildToRasterGap. Use FrameStats directly for gap control.
+        // Both threads stay within the budget, with a long wait for the
+        // raster thread in between. The frame is late end to end, but
+        // neither thread missed its deadline.
         for (var i = 0; i < 10; i++) {
           detector.addFrameForTest(
             FrameStats(
@@ -973,12 +974,83 @@ void main() {
             ),
           );
         }
-        final jankIssue = detector.issues.firstWhere(
-          (i) =>
-              i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+        expect(
+          detector.issues.where(
+            (i) =>
+                i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+          ),
+          isEmpty,
         );
-        expect(jankIssue.title, contains('pipeline stall'));
-        expect(jankIssue.detail, contains('pipeline stall'));
+      });
+
+      test('late start labeled when the start delay pushes frames over', () {
+        addGoodFrames(5);
+        for (var i = 0; i < 10; i++) {
+          detector.addFrameForTest(
+            FrameStats(
+              frameNumber: 100 + i,
+              uiDuration: const Duration(milliseconds: 8),
+              rasterDuration: const Duration(milliseconds: 4),
+              timestamp: DateTime.now(),
+              frameBudgetMs: 16,
+              vsyncOverhead: const Duration(milliseconds: 12),
+            ),
+          );
+        }
+        final jankIssue = detector.issues.firstWhere(
+          (i) => i.stableId == 'jank_detected',
+        );
+        expect(jankIssue.title, contains('late start'));
+        expect(jankIssue.detail, contains('10 late start'));
+        expect(jankIssue.detail, contains('Start delay: 12.0ms'));
+        expect(jankIssue.detail, contains('Bottleneck: Late start'));
+        expect(jankIssue.detail, isNot(contains('Pipeline stall')));
+      });
+
+      test('frames late only from Sleuth\'s own work are left out', () {
+        addGoodFrames(5);
+        for (var i = 0; i < 10; i++) {
+          detector.addFrameForTest(
+            FrameStats(
+              frameNumber: 100 + i,
+              uiDuration: const Duration(milliseconds: 2),
+              rasterDuration: const Duration(milliseconds: 1),
+              timestamp: DateTime.now(),
+              frameBudgetMs: 16,
+              vsyncOverhead: const Duration(milliseconds: 30),
+              ownStartDelayUs: 30000,
+            ),
+          );
+        }
+        expect(
+          detector.issues.where((i) => i.stableId == 'jank_detected'),
+          isEmpty,
+        );
+        expect(detector.frameBuffer.sleuthOverheadCount, 10);
+
+        // Half of the delay is the app's: those frames are app jank, and
+        // the overhead frames stay out of the percentage.
+        for (var i = 0; i < 4; i++) {
+          detector.addFrameForTest(
+            FrameStats(
+              frameNumber: 200 + i,
+              uiDuration: const Duration(milliseconds: 8),
+              rasterDuration: const Duration(milliseconds: 1),
+              timestamp: DateTime.now(),
+              frameBudgetMs: 16,
+              vsyncOverhead: const Duration(milliseconds: 30),
+              ownStartDelayUs: 15000,
+            ),
+          );
+        }
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'jank_detected',
+        );
+        // 4 jank frames of 9 app frames (5 good plus 4); the 10 overhead
+        // frames are left out.
+        expect(issue.extraTraceArgs!['observedJankCount'], '4');
+        expect(issue.extraTraceArgs!['sleuthOverheadFrames'], '10');
+        expect(issue.title, contains('44%'));
       });
 
       test('mixed attribution when UI and raster counts equal', () {
@@ -1015,7 +1087,7 @@ void main() {
         // Detail should show counts for all three categories
         expect(jankIssue.detail, contains('UI-bound'));
         expect(jankIssue.detail, contains('raster-bound'));
-        expect(jankIssue.detail, contains('pipeline stall'));
+        expect(jankIssue.detail, contains('late start'));
       });
 
       test('no attribution label when no jank frames', () {
@@ -1369,21 +1441,23 @@ void main() {
 
   group('FrameTimingDetector frame budget', () {
     var nextVsync = 1000000000;
-    FrameTiming timing(int totalUs) {
+    // A frame whose build takes [buildUs] and whose raster takes 500 µs,
+    // with no start delay.
+    FrameTiming timing(int buildUs) {
       final vsync = nextVsync;
       nextVsync += 50000;
       return FrameTiming(
         vsyncStart: vsync,
         buildStart: vsync,
-        buildFinish: vsync + totalUs ~/ 2,
-        rasterStart: vsync + totalUs ~/ 2,
-        rasterFinish: vsync + totalUs,
-        rasterFinishWallTime: vsync + totalUs,
+        buildFinish: vsync + buildUs,
+        rasterStart: vsync + buildUs,
+        rasterFinish: vsync + buildUs + 500,
+        rasterFinishWallTime: vsync + buildUs + 500,
       );
     }
 
-    bool isJank(FrameTimingDetector d, int totalUs) {
-      d.handleTimingsForTest([timing(totalUs)]);
+    bool isJank(FrameTimingDetector d, int buildUs) {
+      d.handleTimingsForTest([timing(buildUs)]);
       return d.frameBuffer.latest!.isJank;
     }
 
@@ -1448,5 +1522,52 @@ void main() {
       final frames = d.frameBuffer.frames;
       expect(frames[1].rasterFinishUs! - frames[0].rasterFinishUs!, 8333);
     });
+  });
+
+  test('a stall measured after the frames were read re-judges them', () {
+    final own = <(int, int)>[];
+    final detector = FrameTimingDetector(
+      warmupFrameCount: 0,
+      warmupDuration: Duration.zero,
+      ownWorkOverlapUs: (from, to) {
+        var covered = 0;
+        for (final (start, end) in own) {
+          final s = start > from ? start : from;
+          final e = end < to ? end : to;
+          if (e > s) covered += e - s;
+        }
+        return covered;
+      },
+    );
+    addTearDown(detector.dispose);
+    // Ten frames whose 14 ms start delay plus 4 ms build miss 16 ms.
+    for (var i = 0; i < 10; i++) {
+      final vsync = 1000000 + i * 100000;
+      detector.addFrameForTest(
+        FrameStats(
+          frameNumber: i,
+          uiDuration: const Duration(milliseconds: 4),
+          rasterDuration: const Duration(milliseconds: 2),
+          timestamp: DateTime(2026),
+          frameBudgetMs: 16,
+          vsyncOverhead: const Duration(milliseconds: 14),
+          vsyncStartUs: vsync,
+          buildStartUs: vsync + 14000,
+        ),
+      );
+    }
+    expect(detector.frameBuffer.jankCount, 10);
+    expect(detector.issues.any((i) => i.stableId == 'jank_detected'), isTrue);
+
+    // The next timeline poll shows the VM held the thread for each delay.
+    for (var i = 0; i < 10; i++) {
+      final vsync = 1000000 + i * 100000;
+      own.add((vsync - 2000, vsync + 13500));
+    }
+    expect(detector.refreshOwnStartDelays(), 10);
+    expect(detector.frameBuffer.jankCount, 0);
+    expect(detector.frameBuffer.sleuthOverheadCount, 10);
+    expect(detector.issues.any((i) => i.stableId == 'jank_detected'), isFalse);
+    expect(detector.refreshOwnStartDelays(), 0);
   });
 }

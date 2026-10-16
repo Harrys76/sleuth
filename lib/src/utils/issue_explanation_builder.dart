@@ -246,6 +246,7 @@ class IssueExplanationBuilder {
           'sustained jank appears only on the first navigation, consider '
           'shader warm-up strategies.',
       relatedIssues: [
+        'event_loop_stall',
         'gc_pressure',
         'layout_bottleneck',
         'multiple_custom_fonts',
@@ -259,15 +260,19 @@ class IssueExplanationBuilder {
       category: IssueCategory.build,
       whatItIs:
           'More than 15% of the buffered frames (with at least 5 frames '
-          'sampled) exceeded their time budget. At 60 FPS the budget is '
-          '16.7ms. Sustained jank counts severe frames. This issue tracks '
-          'how often ordinary frames run over budget, and Sleuth reports it '
-          'as a warning only.',
+          'sampled) missed their deadline. At 60 FPS the budget is 16.7ms: '
+          'a frame misses it when its start delay plus its build runs past '
+          'the budget, or when its raster alone does. Sustained jank counts '
+          'severe frames. This issue tracks how often ordinary frames miss '
+          'the deadline, and Sleuth reports it as a warning only.',
       readingTheData:
           'Like a single skipped beat in music. It is noticeable but brief, '
           'unlike sustained jank, where the song keeps skipping.\n\n'
-          '• Frame duration is the total time for one frame. The budget is '
-          '16.7ms at 60 FPS.\n\n'
+          '• Start delay is the time from vsync until the build began. '
+          'The part of it Sleuth caused (its own scans, VM reads and the VM '
+          'timeline request) is subtracted; a frame late only because of '
+          'Sleuth counts as Sleuth overhead, not jank. The budget is 16.7ms '
+          'at 60 FPS.\n\n'
           '• Janky % is the share of buffered frames over budget. Sleuth '
           'raises a warning above 15%, once at least 5 frames are '
           'sampled.\n\n'
@@ -281,16 +286,20 @@ class IssueExplanationBuilder {
           'are normal. Frequent single-frame jank makes the app feel less '
           'smooth overall.',
       howToFix:
-          'Check the frame breakdown. Was it build-dominated (expensive '
-          'widget tree construction) or raster-dominated (a GPU '
-          'bottleneck)? For build-heavy frames, look for large setState '
-          'scopes or expensive build methods. For raster-heavy frames, '
-          'check for saveLayer triggers (Opacity, ClipPath, ShaderMask).',
+          'Check the frame breakdown. Was it UI-bound (expensive widget '
+          'tree construction), raster-bound (a GPU bottleneck) or a late '
+          'start (other work held the UI thread when vsync arrived)? For '
+          'build-heavy frames, look for large setState scopes or expensive '
+          'build methods. For raster-heavy frames, check for saveLayer '
+          'triggers (Opacity, ClipPath, ShaderMask). For late starts, look '
+          'for synchronous work in timers, stream listeners and platform '
+          'callbacks.',
       whenToIgnore:
           'Occasional single jank frames during complex transitions or '
           'first renders are normal. Focus on sustained patterns, not '
           'isolated spikes.',
       relatedIssues: [
+        'event_loop_stall',
         'layout_bottleneck',
         'multiple_custom_fonts',
         'non_lazy_shrinkwrap',
@@ -465,6 +474,7 @@ class IssueExplanationBuilder {
           'frames.',
       whenToIgnore: null,
       relatedIssues: [
+        'event_loop_stall',
         'large_response',
         'non_lazy_list',
         'platform_channel_traffic',
@@ -473,6 +483,55 @@ class IssueExplanationBuilder {
         'slow_request',
         'slow_startup_ttff',
       ],
+    ),
+    'event_loop_stall': (
+      displayName: 'Event loop stall',
+      category: IssueCategory.build,
+      whatItIs:
+          'The UI isolate in {routeName} ran work for 100 ms or more '
+          'without returning to its event loop. The Dart VM reports it when '
+          'a timer fires that late. Frames, input and other timers all wait '
+          'until the work ends, so the app looks frozen even if no single '
+          'frame shows it, for example when a tap handler runs synchronous '
+          'work before the next frame is scheduled.',
+      readingTheData:
+          'Like a cashier who stops serving the queue to count the till: '
+          'nothing moves until the count is done.\n\n'
+          '• Stall ms is how late the first waiting timer fired, less any '
+          'debugger pause, hot reload or Sleuth work inside it. It is a '
+          'lower bound: the work may have started before that timer was '
+          'due. Sleuth reports 100 ms or more (warning) and 700 ms or more '
+          '(critical); both are configurable.\n\n'
+          '• Stall count is the number of separate stalls in this episode. '
+          'The issue stays for 10 seconds after the latest one.\n\n'
+          '• The data comes from the VM Timer stream, available from '
+          'Flutter 3.35. A stall is seen only if a timer was due during it; '
+          'while it listens, Sleuth keeps a 50 ms timer running, so every '
+          'stall longer than 150 ms is seen.',
+      whyItMatters:
+          'A stall freezes everything the isolate does: animations stop, '
+          'scrolling does not respond and taps get no feedback. Users notice '
+          'delays from about 100 ms, and a freeze of 700 ms or more is what '
+          'Android vitals counts as a frozen frame.',
+      howToFix:
+          'Find the synchronous work that ran when the app froze: a widget '
+          'build (which also shows as heavy compute), a tap handler, a '
+          'timer, a stream listener or a platform message handler. Typical causes are decoding large JSON, reading '
+          'files or databases synchronously, sorting large lists and image '
+          'processing. Move it to a background isolate:\n\n'
+          '  final data = await Isolate.run(\n'
+          '    () => jsonDecode(hugeJsonString),\n'
+          '  );\n\n'
+          'If it has to stay on the UI isolate, split it into smaller '
+          'pieces and await between them so frames can run.',
+      whenToIgnore:
+          'Time while the app was in the background, debugger pauses and '
+          'hot reloads are already left out. A stall that starts while the '
+          'app is coming back counts from the first lifecycle change Dart '
+          'handles, so slow resume handlers are reported. On Android, work '
+          'for an activity result that reaches Dart before any lifecycle '
+          'change is left out up to the first change after it.',
+      relatedIssues: ['heavy_compute', 'jank_detected', 'sustained_jank'],
     ),
 
     // ── Memory ────────────────────────────────────────────────────────────
@@ -1234,6 +1293,13 @@ class IssueExplanationBuilder {
           '• Descendant count is the subtree size under each expensive node. '
           'Sleuth raises the issue above 5 descendants under specific node '
           'types.\n\n'
+          '• A BackdropFilter blur counts by its sigma, read from the '
+          'filter: 2 or less is ignored and above 10 is heavy. A colour '
+          'filter adds no blur, two blurs in a row draw one of sqrt(a² + '
+          'b²), and a blur combined with a matrix (a scale) has no known '
+          'sigma and counts. A disabled BackdropFilter is ignored.\n\n'
+          '• A blur drawn by a Cupertino bar, popup surface or action sheet '
+          'is named in the node detail ("drawn by CupertinoTabBar").\n\n'
           '• Sleuth finds this with a structural render tree walk, '
           'corroborated by raster-dominant frames (FrameTiming or VM '
           'timeline).',
@@ -1253,7 +1319,8 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Some visual effects need saveLayer, such as BackdropFilter for '
           'blur. The concern is unnecessary layers from convenience '
-          'widgets.',
+          'widgets. A translucent Cupertino bar blurs by design; give it an '
+          'opaque background when the blur is not wanted.',
       relatedIssues: ['opacity_zero'],
     ),
 

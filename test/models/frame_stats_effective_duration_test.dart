@@ -26,7 +26,9 @@ void main() {
       expect(frame.effectiveTotalDuration, const Duration(milliseconds: 10));
     });
 
-    test('isJank uses totalSpan when available', () {
+    test('a long total span from the hand-off wait alone is not jank', () {
+      // A 10 ms build, a 2 ms wait for the raster thread and an 8 ms raster
+      // make 20 ms end to end, but neither thread missed its 16 ms deadline.
       final frame = FrameStats(
         frameNumber: 1,
         uiDuration: const Duration(milliseconds: 10),
@@ -34,9 +36,31 @@ void main() {
         timestamp: DateTime.utc(2026),
         frameBudgetMs: 16,
         totalSpan: const Duration(milliseconds: 20),
+        buildToRasterGap: const Duration(milliseconds: 2),
       );
+      expect(frame.isJank, isFalse);
+    });
 
-      // totalSpan (20ms) > budget (16ms) → jank
+    test('start delay plus build over the budget is jank', () {
+      final frame = FrameStats(
+        frameNumber: 1,
+        uiDuration: const Duration(milliseconds: 10),
+        rasterDuration: const Duration(milliseconds: 4),
+        timestamp: DateTime.utc(2026),
+        frameBudgetMs: 16,
+        vsyncOverhead: const Duration(milliseconds: 8),
+      );
+      expect(frame.isJank, isTrue);
+    });
+
+    test('a raster over the budget is jank', () {
+      final frame = FrameStats(
+        frameNumber: 1,
+        uiDuration: const Duration(milliseconds: 2),
+        rasterDuration: const Duration(milliseconds: 17),
+        timestamp: DateTime.utc(2026),
+        frameBudgetMs: 16,
+      );
       expect(frame.isJank, isTrue);
     });
 
@@ -53,18 +77,80 @@ void main() {
       expect(frame.isJank, isFalse);
     });
 
-    test('isSevereJank with totalSpan', () {
-      final frame = FrameStats(
+    test('isSevereJank uses the same deadlines at twice the budget', () {
+      FrameStats frame({required int delayMs, required int buildMs}) =>
+          FrameStats(
+            frameNumber: 1,
+            uiDuration: Duration(milliseconds: buildMs),
+            rasterDuration: const Duration(milliseconds: 8),
+            timestamp: DateTime.utc(2026),
+            frameBudgetMs: 16,
+            vsyncOverhead: Duration(milliseconds: delayMs),
+            totalSpan: const Duration(milliseconds: 40),
+          );
+      // 20 + 14 = 34 ms, over the 32 ms severe line.
+      expect(frame(delayMs: 20, buildMs: 14).isSevereJank, isTrue);
+      // A 40 ms total span with 10 + 14 = 24 ms on the UI thread is jank,
+      // not severe.
+      expect(frame(delayMs: 10, buildMs: 14).isJank, isTrue);
+      expect(frame(delayMs: 10, buildMs: 14).isSevereJank, isFalse);
+    });
+
+    group('start delay from Sleuth\'s own work', () {
+      FrameStats frame({required int ownUs, int buildMs = 2}) => FrameStats(
         frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 10),
-        rasterDuration: const Duration(milliseconds: 8),
+        uiDuration: Duration(milliseconds: buildMs),
+        rasterDuration: const Duration(milliseconds: 1),
         timestamp: DateTime.utc(2026),
         frameBudgetMs: 16,
-        totalSpan: const Duration(milliseconds: 35),
+        vsyncOverhead: const Duration(milliseconds: 30),
+        ownStartDelayUs: ownUs,
       );
 
-      // totalSpan (35ms) > 2 * budget (32ms) → severe jank
-      expect(frame.isSevereJank, isTrue);
+      test('fully covered: Sleuth overhead, not jank', () {
+        final f = frame(ownUs: 30000);
+        expect(f.appStartDelayUs, 0);
+        expect(f.isJank, isFalse);
+        expect(f.isSleuthOverhead, isTrue);
+      });
+
+      test('half covered with an 8 ms build: still the app\'s jank', () {
+        final f = frame(ownUs: 15000, buildMs: 8);
+        expect(f.appStartDelayUs, 15000);
+        expect(f.isJank, isTrue);
+        expect(f.isSleuthOverhead, isFalse);
+      });
+
+      test('a frame within the budget is neither', () {
+        final f = frame(
+          ownUs: 0,
+        ).copyWith(vsyncOverhead: const Duration(milliseconds: 4));
+        expect(f.isJank, isFalse);
+        expect(f.isSleuthOverhead, isFalse);
+      });
+
+      test('ownStartDelayUs round-trips through JSON; absent reads 0', () {
+        final f = frame(ownUs: 12345);
+        expect(FrameStats.fromJson(f.toJson()).ownStartDelayUs, 12345);
+        final json = frame(ownUs: 0).toJson();
+        expect(json.containsKey('ownStartDelayUs'), isFalse);
+        expect(FrameStats.fromJson(json).ownStartDelayUs, 0);
+      });
+    });
+
+    test('a negative raster duration leaves only the UI side judged', () {
+      final frame = FrameStats(
+        frameNumber: 1,
+        uiDuration: const Duration(milliseconds: 4),
+        rasterDuration: const Duration(milliseconds: -100),
+        timestamp: DateTime.utc(2026),
+        frameBudgetMs: 16,
+      );
+      expect(frame.isJank, isFalse);
+      expect(
+        frame.copyWith(uiDuration: const Duration(milliseconds: 20)).isJank,
+        isTrue,
+      );
     });
 
     test('buildToRasterGap defaults to zero', () {
@@ -80,14 +166,13 @@ void main() {
   });
 
   group('frameBudgetUs', () {
-    FrameStats make({int? ms, int? us, Duration? span}) => FrameStats(
+    FrameStats make({int? ms, int? us, Duration? build}) => FrameStats(
       frameNumber: 1,
-      uiDuration: Duration.zero,
+      uiDuration: build ?? Duration.zero,
       rasterDuration: Duration.zero,
       timestamp: DateTime.utc(2026),
       frameBudgetMs: ms,
       frameBudgetUs: us,
-      totalSpan: span,
     );
 
     test('defaults to frameBudgetMs * 1000', () {
@@ -104,23 +189,23 @@ void main() {
     test('isJank and isSevereJank compare in microseconds', () {
       const us = 16667;
       expect(
-        make(us: us, span: const Duration(microseconds: 16667)).isJank,
+        make(us: us, build: const Duration(microseconds: 16667)).isJank,
         isFalse,
       );
       expect(
-        make(us: us, span: const Duration(microseconds: 16668)).isJank,
+        make(us: us, build: const Duration(microseconds: 16668)).isJank,
         isTrue,
       );
       expect(
-        make(us: us, span: const Duration(microseconds: 16800)).isJank,
+        make(us: us, build: const Duration(microseconds: 16800)).isJank,
         isTrue,
       );
       expect(
-        make(us: us, span: const Duration(milliseconds: 33)).isSevereJank,
+        make(us: us, build: const Duration(milliseconds: 33)).isSevereJank,
         isFalse,
       );
       expect(
-        make(us: us, span: const Duration(microseconds: 33335)).isSevereJank,
+        make(us: us, build: const Duration(microseconds: 33335)).isSevereJank,
         isTrue,
       );
     });

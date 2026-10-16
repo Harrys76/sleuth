@@ -324,6 +324,7 @@ class FrameStatsSummary {
     double? throughputFps,
     double? actualFpsRaw,
     this.fpsPercentiles,
+    this.sleuthOverheadFrames = 0,
   }) : actualFps = actualFps ?? averageFps,
        throughputFps = throughputFps ?? averageFps,
        actualFpsRaw = actualFpsRaw ?? (actualFps ?? averageFps);
@@ -331,8 +332,13 @@ class FrameStatsSummary {
   /// Total frames observed since monitoring started.
   final int totalFrames;
 
-  /// Number of frames that exceeded the frame budget.
+  /// Number of frames that missed their deadline on the UI thread (start
+  /// delay plus build) or the raster thread.
   final int jankFrames;
+
+  /// Frames late only because of Sleuth's own work on the UI isolate; they
+  /// are not in [jankFrames]. Written only when above 0; absent reads as 0.
+  final int sleuthOverheadFrames;
 
   /// Count-based FPS: frames presented in the last 1s window, clamped to
   /// `SleuthConfig.fpsTarget` on the UI path. Added in v5. Backfills from
@@ -362,6 +368,7 @@ class FrameStatsSummary {
   Map<String, dynamic> toJson() => {
     'totalFrames': totalFrames,
     'jankFrames': jankFrames,
+    if (sleuthOverheadFrames > 0) 'sleuthOverheadFrames': sleuthOverheadFrames,
     'actualFps': double.parse(actualFps.toStringAsFixed(1)),
     'actualFpsRaw': double.parse(actualFpsRaw.toStringAsFixed(1)),
     'throughputFps': double.parse(throughputFps.toStringAsFixed(1)),
@@ -380,6 +387,7 @@ class FrameStatsSummary {
     return FrameStatsSummary(
       totalFrames: json['totalFrames'] as int,
       jankFrames: json['jankFrames'] as int,
+      sleuthOverheadFrames: json['sleuthOverheadFrames'] as int? ?? 0,
       averageFps: rawAverage,
       actualFps: rawActual,
       actualFpsRaw: rawActualUncapped,

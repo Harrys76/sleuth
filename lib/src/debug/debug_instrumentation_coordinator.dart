@@ -12,6 +12,7 @@ import 'package:flutter/widgets.dart';
 
 import '../utils/animation_owner_names.dart';
 import '../utils/framework_painters.dart';
+import '../utils/framework_types.dart' show createdInMovedFrameworkPackage;
 import '../utils/overlay_ownership.dart';
 import '../utils/widget_location.dart';
 import 'debug_snapshot.dart';
@@ -72,15 +73,42 @@ class DebugInstrumentationCoordinator {
   /// Whether per-widget counts keep only user widgets: widgets created
   /// outside the Flutter SDK, as the framework's own
   /// `debugIsWidgetLocalCreation` decides (only the project's files once
-  /// DevTools has set its root directories). Framework widgets built
+  /// DevTools has set its root directories), and outside the
+  /// `material_ui` and `cupertino_ui` packages. Framework widgets built
   /// inside them (`RichText` under `Text`, `_InkFeatures` under
   /// `InkWell`, a scaffold's layout) rebuild and repaint with the widget
   /// that builds them and would each report on their own. Needs creation
   /// tracking, which debug builds have; without it every widget counts.
   final bool _userWidgetsOnly;
 
-  bool _isUserWidget(Widget widget) =>
-      !_userWidgetsOnly || debugIsWidgetLocalCreation(widget);
+  bool _isUserWidget(Element element) {
+    if (!_userWidgetsOnly) return true;
+    if (!debugIsWidgetLocalCreation(element.widget)) return false;
+    return !_createdInMovedFrameworkPackage(element);
+  }
+
+  /// Whether `material_ui` or `cupertino_ui` created each widget
+  /// instance. A widget's creation site never changes, so the answer holds
+  /// for its lifetime. An element that a slot reuses for a widget from
+  /// other code (an app icon in place of a package default) gets a fresh
+  /// answer with the new widget. A const widget is one instance, read once.
+  final Expando<bool> _movedFrameworkCreated = Expando<bool>(
+    'SleuthMovedFrameworkCreated',
+  );
+
+  bool _createdInMovedFrameworkPackage(Element element) {
+    final widget = element.widget;
+    final cached = _movedFrameworkCreated[widget];
+    if (cached != null) return cached;
+    // Runs inside the framework's build and paint hooks, which must not
+    // throw.
+    var created = false;
+    try {
+      created = createdInMovedFrameworkPackage(widget);
+    } catch (_) {}
+    _movedFrameworkCreated[widget] = created;
+    return created;
+  }
 
   late final void Function(Element, bool) _onRebuildDirtyWidget;
   late final void Function(RenderObject) _onProfilePaint;
@@ -836,7 +864,7 @@ class DebugInstrumentationCoordinator {
     if (dirty && frame != null && isRebuildDrivenOwnerElement(element)) {
       _ownerRebuildFrame[element] = frame;
     }
-    if (!_isUserWidget(widget)) {
+    if (!_isUserWidget(element)) {
       if (dirty) _buildRoots.add((type: null, depth: depth));
       return;
     }
@@ -941,7 +969,7 @@ class DebugInstrumentationCoordinator {
     // A framework widget's paint still counts in the totals (and its
     // animation ownership below), so the aggregate gates see every paint;
     // only the per-widget maps leave it out.
-    var perWidget = _isUserWidget(element.widget);
+    var perWidget = _isUserWidget(element);
     if (perWidget &&
         _paintCounts.length >= _maxTrackedTypes &&
         !_paintCounts.containsKey(typeName)) {
@@ -1198,11 +1226,11 @@ class DebugInstrumentationCoordinator {
   /// whose widget the app created, not looking past the widget Sleuth
   /// wraps around the app. Null when there is none.
   Element? _nearestUserElement(Element element) {
-    if (_isUserWidget(element.widget)) return element;
+    if (_isUserWidget(element)) return element;
     Element? found;
     element.visitAncestorElements((ancestor) {
       if (OverlayOwnership.isAppBoundary(ancestor)) return false;
-      if (_isUserWidget(ancestor.widget)) {
+      if (_isUserWidget(ancestor)) {
         found = ancestor;
         return false;
       }

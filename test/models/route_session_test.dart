@@ -103,6 +103,37 @@ void main() {
         expect(session.healthScore, lessThan(70));
       });
 
+      test('frames late only because of Sleuth are left out of the jank '
+          'ratio', () {
+        RouteSession session({required bool sleuthDelay}) {
+          final s = RouteSession(routeName: '/home', startedAt: DateTime.now());
+          for (var i = 0; i < 5; i++) {
+            s.frameStats.add(_frame(number: i + 1, uiUs: 20000));
+          }
+          // A 14 ms start delay plus a 4 ms build is late. When the delay
+          // is Sleuth's own, the frames are Sleuth overhead; otherwise they
+          // are app jank.
+          for (var i = 0; i < 5; i++) {
+            s.frameStats.add(
+              _frame(number: i + 6).copyWith(
+                vsyncOverhead: const Duration(milliseconds: 14),
+                ownStartDelayUs: sleuthDelay ? 14000 : 0,
+              ),
+            );
+          }
+          return s;
+        }
+
+        final withOverhead = session(sleuthDelay: true);
+        expect(withOverhead.frameStats.sleuthOverheadCount, 5);
+        expect(withOverhead.frameStats.jankCount, 5);
+        // 5 jank frames of 5 judged frames, the same ratio as 10 of 10.
+        expect(
+          withOverhead.healthScore,
+          session(sleuthDelay: false).healthScore,
+        );
+      });
+
       test('critical issues reduce score by 10 each', () {
         final session = RouteSession(
           routeName: '/home',

@@ -78,25 +78,31 @@ void main() {
     );
   }
 
-  // Real `FrameTiming`. `totalSpan = rasterFinish - vsyncStart` drives
-  // `effectiveTotalDuration` and therefore `isJank`/`isSevereJank` at the
-  // production code path. Each frame's vsync is offset by 20 ms so the
-  // detector's monotonic clock bookkeeping (`_firstFrameVsyncUs`) is
-  // exercised realistically.
+  // Real `FrameTiming` with each phase set explicitly: the start delay
+  // (vsync to build start), the build, the hand-off wait (build finish to
+  // raster start) and the raster. `isJank` compares start delay + build,
+  // and the raster, with the budget; the hand-off wait never counts. Each
+  // frame's vsync is 100 ms after the previous one, so the detector's
+  // monotonic clock bookkeeping (`_firstFrameVsyncUs`) runs realistically.
   FrameTiming makeTiming({
     required int frameNumber,
-    int totalMs = 10,
+    int startDelayMs = 0,
+    int buildMs = 5,
+    int gapMs = 0,
+    int rasterMs = 5,
     int pictureCacheCount = 0,
     int pictureCacheBytes = 1,
   }) {
-    final vsyncStart = frameNumber * 20000;
-    final rasterFinish = vsyncStart + totalMs * 1000;
-    final midpoint = vsyncStart + (totalMs * 1000) ~/ 2;
+    final vsyncStart = frameNumber * 100000;
+    final buildStart = vsyncStart + startDelayMs * 1000;
+    final buildFinish = buildStart + buildMs * 1000;
+    final rasterStart = buildFinish + gapMs * 1000;
+    final rasterFinish = rasterStart + rasterMs * 1000;
     return FrameTiming(
       vsyncStart: vsyncStart,
-      buildStart: vsyncStart,
-      buildFinish: midpoint,
-      rasterStart: midpoint,
+      buildStart: buildStart,
+      buildFinish: buildFinish,
+      rasterStart: rasterStart,
       rasterFinish: rasterFinish,
       rasterFinishWallTime: rasterFinish,
       pictureCacheCount: pictureCacheCount,
@@ -249,8 +255,8 @@ void main() {
       // 34 ms: real frames carry the 16667 us budget, so severe starts
       // above 33.334 ms.
       final timings = <FrameTiming>[
-        for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, totalMs: 34),
-        for (var i = 3; i < 20; i++) makeTiming(frameNumber: i, totalMs: 10),
+        for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, buildMs: 34),
+        for (var i = 3; i < 20; i++) makeTiming(frameNumber: i),
       ];
       detector.handleTimingsForTest(timings);
 
@@ -308,11 +314,36 @@ void main() {
       );
     });
 
+    test('real FrameTiming pipeline — a 20 ms hand-off wait between a 6 ms '
+        'build and a 6 ms raster is not jank', () {
+      detector.handleTimingsForTest([
+        for (var i = 0; i < 19; i++)
+          makeTiming(frameNumber: i, buildMs: 6, gapMs: 20, rasterMs: 6),
+      ]);
+      expect(
+        detector.issues.where((i) => i.stableId == 'jank_detected'),
+        isEmpty,
+      );
+    });
+
+    test('real FrameTiming pipeline — a 12 ms start delay before an 8 ms '
+        'build is jank', () {
+      detector.handleTimingsForTest([
+        for (var i = 0; i < 3; i++)
+          makeTiming(frameNumber: i, startDelayMs: 12, buildMs: 8),
+        for (var i = 3; i < 19; i++) makeTiming(frameNumber: i),
+      ]);
+      expect(
+        detector.issues.where((i) => i.stableId == 'jank_detected'),
+        hasLength(1),
+      );
+    });
+
     test('real FrameTiming pipeline — jank_detected fires via '
         'handleTimingsForTest', () {
       final timings = <FrameTiming>[
-        for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, totalMs: 17),
-        for (var i = 3; i < 19; i++) makeTiming(frameNumber: i, totalMs: 10),
+        for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, buildMs: 17),
+        for (var i = 3; i < 19; i++) makeTiming(frameNumber: i),
       ];
       detector.handleTimingsForTest(timings);
 
@@ -409,7 +440,7 @@ void main() {
       detector.markRouteEpoch();
       route = '/b';
       detector.handleTimingsForTest([
-        for (var i = 30; i < 40; i++) makeTiming(frameNumber: i, totalMs: 40),
+        for (var i = 30; i < 40; i++) makeTiming(frameNumber: i, buildMs: 40),
       ]);
       final sustained = jank().singleWhere(
         (i) => i.stableId == 'sustained_jank',

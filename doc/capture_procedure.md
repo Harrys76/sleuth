@@ -916,6 +916,12 @@ exportCaptureJson(...)                           // compose, then stash
                         inside the leg's band
 ```
 
+The spin runs inside the ticker callback, so it lands in the frame's
+build: an injected frame builds for about 20 ms and misses the deadline
+under the deadline rule whatever its start delay. The current triad was
+recorded on Flutter 3.47.6 under that rule (at 20 %, above 25 %, below
+silent), with no Sleuth overhead frames in any leg.
+
 The screen's bands are below [0, 12] % (target 5 %), at [16, 24] %
 (target 20 %) and above [25, 29] % (target 27 %). The bracket threshold
 is 16 % because the detector fires only when the rounded jank percent

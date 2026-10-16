@@ -165,17 +165,66 @@ class FixHintBuilder {
     );
   }
 
+  /// Set [onlyChrome] when every expensive node is a blur that a Cupertino
+  /// widget draws itself; the hint then leaves out the advice about the
+  /// app's own subtrees.
   static (String, FixEffort) expensiveGpuNodes({
     String? widgetName,
     String? ancestorChain,
+    Set<String> blurChromeOwners = const {},
+    bool onlyChrome = false,
   }) {
     final ctx = _contextPrefix(widgetName, ancestorChain);
+    final chrome = _blurChromeHint(blurChromeOwners);
+    if (onlyChrome && chrome.isNotEmpty) {
+      return ('$ctx${chrome.substring(1)}', FixEffort.quick);
+    }
     return (
       '${ctx}Wrap expensive subtrees in RepaintBoundary:\n'
           'RepaintBoundary(child: ${widgetName ?? "ComplexWidget"}(...))\n'
-          'Simplify visual effects (shadows, clips, opacity layers).',
+          'Simplify visual effects (shadows, clips, opacity layers).'
+          '$chrome',
       FixEffort.medium,
     );
+  }
+
+  static const _blurBars = {
+    'CupertinoNavigationBar',
+    'CupertinoSliverNavigationBar',
+    'CupertinoTabBar',
+  };
+
+  /// `A`, `A and B`, `A, B and C`.
+  static String _joinNames(List<String> names) => names.length == 1
+      ? names.single
+      : '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
+
+  /// What the app can change when a Cupertino widget draws the blur itself.
+  static String _blurChromeHint(Set<String> owners) {
+    if (owners.isEmpty) return '';
+    final bars = owners.where(_blurBars.contains).toList()..sort();
+    final surfaces = owners.where((o) => !_blurBars.contains(o)).toList()
+      ..sort();
+    final buffer = StringBuffer();
+    if (bars.isNotEmpty) {
+      final one = bars.length == 1;
+      buffer.write(
+        '\n${_joinNames(bars)} ${one ? 'blurs' : 'blur'} the content behind '
+        '${one ? 'it' : 'them'} while ${one ? 'its' : 'their'} background '
+        'is translucent. Give ${one ? 'it' : 'them'} an opaque '
+        'backgroundColor; a navigation bar also accepts '
+        'enableBackgroundFilterBlur: false.',
+      );
+    }
+    if (surfaces.isNotEmpty) {
+      final one = surfaces.length == 1;
+      buffer.write(
+        '\n${_joinNames(surfaces)} ${one ? 'blurs' : 'blur'} the page only '
+        'while ${one ? 'it is' : 'they are'} shown; the cost ends when '
+        '${one ? 'it closes' : 'they close'}.',
+      );
+    }
+    return buffer.toString();
   }
 
   // ---------------------------------------------------------------------------
@@ -208,6 +257,22 @@ class FixHintBuilder {
   // ---------------------------------------------------------------------------
   // HeavyComputeDetector
   // ---------------------------------------------------------------------------
+
+  /// A stall of the UI isolate's event loop, in which one synchronous piece
+  /// of work ran for [worstMs] (null when unknown).
+  static (String, FixEffort) eventLoopStall({int? worstMs}) {
+    final length = worstMs == null ? '' : ' (${worstMs}ms)';
+    return (
+      'Find the synchronous work that held the UI isolate$length: a long '
+          'loop, JSON decoding, file or database reads, or image processing '
+          'in a widget build or a callback (a tap handler, a timer, a stream '
+          'listener). A slow build also shows as heavy_compute. Move the work '
+          'off the UI isolate:\n'
+          'final result = await Isolate.run(() => parseJson(data));\n'
+          'or split it into smaller pieces that yield between them.',
+      FixEffort.medium,
+    );
+  }
 
   static (String, FixEffort) heavyCompute({
     double? durationMs,

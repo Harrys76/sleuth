@@ -7,8 +7,10 @@ import 'package:vm_service/vm_service.dart';
 ///
 /// Records every call in [calls] in order, the isolate id passed to each
 /// isolate-scoped RPC in [isolateRpcCalls], and every stream id passed to
-/// `streamListen` in [streamListenCalls]. GC and Extension events are
-/// pushed through [gcController] and [extensionController]. `getVM` and
+/// `streamListen` in [streamListenCalls]. GC, Extension and Timer events
+/// are pushed through [gcController], [extensionController] and
+/// [timerController]; [streamListenErrors] makes `streamListen` fail for
+/// a stream id, as an older VM does for `Timer`. `getVM` and
 /// `getAllocationProfile` can be held open; `getVM` can be made to
 /// throw.
 class FakeVmService implements VmService {
@@ -49,6 +51,15 @@ class FakeVmService implements VmService {
       StreamController<Event>.broadcast(sync: true);
   final StreamController<Event> extensionController =
       StreamController<Event>.broadcast(sync: true);
+  final StreamController<Event> timerController =
+      StreamController<Event>.broadcast(sync: true);
+  final StreamController<Event> debugController =
+      StreamController<Event>.broadcast(sync: true);
+  final StreamController<Event> isolateController =
+      StreamController<Event>.broadcast(sync: true);
+
+  /// Errors `streamListen` throws, by stream id.
+  final Map<String, Object> streamListenErrors = {};
   final Completer<void> _done = Completer<void>();
 
   @override
@@ -70,6 +81,8 @@ class FakeVmService implements VmService {
   Future<Success> streamListen(String streamId) async {
     calls.add('streamListen:$streamId');
     streamListenCalls.add(streamId);
+    final error = streamListenErrors[streamId];
+    if (error != null) throw error;
     return Success();
   }
 
@@ -165,6 +178,22 @@ class FakeVmService implements VmService {
   Stream<Event> get onTimelineEvent => const Stream.empty();
 
   @override
+  Stream<Event> get onDebugEvent => debugController.stream;
+
+  @override
+  Stream<Event> get onIsolateEvent => isolateController.stream;
+
+  @override
+  Stream<Event> onEvent(String streamId) => switch (streamId) {
+    'GC' => gcController.stream,
+    'Extension' => extensionController.stream,
+    'Timer' => timerController.stream,
+    'Debug' => debugController.stream,
+    'Isolate' => isolateController.stream,
+    _ => const Stream.empty(),
+  };
+
+  @override
   Future<void> dispose() async {}
 
   @override
@@ -217,5 +246,55 @@ Event gcEvent({
       'new': {'type': 'HeapSpace', 'time': ?newTime, 'used': ?newUsed},
     if (oldTime != null || oldUsed != null)
       'old': {'type': 'HeapSpace', 'time': ?oldTime, 'used': ?oldUsed},
+  })!;
+}
+
+/// A `TimerSignificantlyOverdue` event, as the VM posts on its `Timer`
+/// stream, for [isolateId] (omit for an event without an isolate ref).
+Event timerOverdueEvent({
+  String? isolateId,
+  int overdueMs = 150,
+  String? details,
+  int timestampMs = 0,
+}) {
+  return Event.parse({
+    'type': 'Event',
+    'kind': 'TimerSignificantlyOverdue',
+    'timestamp': timestampMs,
+    'details':
+        details ??
+        'A timer should have fired $overdueMs ms ago, but just fired now.',
+    if (isolateId != null)
+      'isolate': {
+        'type': '@Isolate',
+        'id': isolateId,
+        'number': isolateId.split('/').last,
+        'name': 'main',
+        'isSystemIsolate': false,
+        'isolateGroupId': 'isolateGroups/1',
+      },
+  })!;
+}
+
+/// A `Debug` or `Isolate` stream event of [kind] (`PauseBreakpoint`,
+/// `Resume`, `IsolateReload`, ...) for [isolateId] at [timestampMs].
+Event isolateStateEvent({
+  required String kind,
+  String? isolateId,
+  int timestampMs = 0,
+}) {
+  return Event.parse({
+    'type': 'Event',
+    'kind': kind,
+    'timestamp': timestampMs,
+    if (isolateId != null)
+      'isolate': {
+        'type': '@Isolate',
+        'id': isolateId,
+        'number': isolateId.split('/').last,
+        'name': 'main',
+        'isSystemIsolate': false,
+        'isolateGroupId': 'isolateGroups/1',
+      },
   })!;
 }

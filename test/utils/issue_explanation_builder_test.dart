@@ -167,8 +167,8 @@ void main() {
       }
     });
 
-    test('allExplanations returns all 51 entries', () {
-      expect(IssueExplanationBuilder.allExplanations.length, 51);
+    test('allExplanations returns all 52 entries', () {
+      expect(IssueExplanationBuilder.allExplanations.length, 52);
     });
 
     test('groupedEntries returns 9 groups', () {
@@ -193,7 +193,7 @@ void main() {
         0,
         (sum, g) => sum + g.entries.length,
       );
-      expect(totalEntries, 51);
+      expect(totalEntries, 52);
     });
 
     test('readingTheData is non-null for runtime detector entries', () {
@@ -600,7 +600,7 @@ void main() {
       test('no duplicate entries (each stableId appears once)', () {
         final all = IssueExplanationBuilder.allExplanations;
         // The map itself enforces uniqueness, but verify the count
-        expect(all.length, 51);
+        expect(all.length, 52);
         // Verify no two entries share the same displayName
         final names = all.values.map((e) => e.displayName).toList();
         expect(

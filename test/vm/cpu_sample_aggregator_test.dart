@@ -543,6 +543,45 @@ void main() {
       expect(result[0].functionName, 'build');
     });
 
+    test('material_ui and cupertino_ui functions count as framework, a '
+        'similarly named app package does not', () {
+      final funcs = [
+        makeClassFunc(
+          funcName: 'build',
+          className: 'W',
+          libraryUri: 'package:app/w.dart',
+        ),
+        makeClassFunc(
+          funcName: 'build',
+          className: 'ScaffoldState',
+          libraryUri: 'package:material_ui/src/scaffold.dart',
+        ),
+        makeClassFunc(
+          funcName: 'build',
+          className: '_CupertinoPageScaffoldState',
+          libraryUri: 'package:cupertino_ui/src/page_scaffold.dart',
+        ),
+        makeClassFunc(
+          funcName: 'paint',
+          className: 'Chart',
+          libraryUri: 'package:material_ui_charts/chart.dart',
+        ),
+      ];
+      // Six app samples (3 + 3) and two framework samples (1 + 1). The
+      // framework holds 25 % of the ticks, so its functions are left out.
+      final samples = [
+        for (var i = 0; i < 3; i++) makeSample(stack: [0]),
+        makeSample(stack: [1]),
+        makeSample(stack: [2]),
+        for (var i = 0; i < 3; i++) makeSample(stack: [3]),
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs, samples: samples),
+      );
+      expect(result.map((r) => r.className), unorderedEquals(['W', 'Chart']));
+    });
+
     test('framework functions kept when > 50% of ticks', () {
       final funcs = [
         makeClassFunc(
