@@ -28,7 +28,7 @@ sleuth_mcp install        # adds mcpServers.sleuth to ~/.claude.json
 
 You can run `install` again. It takes a lock, writes the config through
 an atomic rename and keeps a `.bak` copy. For a project-local install, add
-`sleuth_mcp: ^0.8.0` to `dev_dependencies` instead. The server also sends
+`sleuth_mcp: ^0.9.0` to `dev_dependencies` instead. The server also sends
 this workflow to the client in the `instructions` field of its
 `initialize` result.
 
@@ -61,9 +61,9 @@ child or `iproxy` tunnel it started.
 
 ## Version compatibility
 
-sleuth_mcp 0.8.0 is built against sleuth 0.37.0. When it connects, it
-reads the app's `packageVersion` from `ext.sleuth.diagnose`. Another 0.37
-version connects with `warning: version_skew_minor`, and a 0.36 app with
+sleuth_mcp 0.9.0 is built against sleuth 0.38.0. When it connects, it
+reads the app's `packageVersion` from `ext.sleuth.diagnose`. Another 0.38
+version connects with `warning: version_skew_minor`, and a 0.37 app with
 `warning: version_skew_prior_lineage`. The sidecar refuses any other
 lineage (`version_skew_major`) and a version that is not
 `major.minor.patch` (`version_skew_unknown`), and disconnects.
@@ -78,7 +78,7 @@ lineage (`version_skew_major`) and a version that is not
 | `detach_app` | Ends the session in any state and stops an attach in progress. You can call it when nothing is attached. |
 | `app_status` | Reports whether a session is attached, which tool connected it, and its device, app and session ids. |
 | `hot_reload` | Hot reloads an app attached with `attach_app(device:)` and keeps its state. Other sessions get `hot_reload_unsupported`. |
-| `diagnose` | Reports the package version and the VM link (`vmConnected`), and on sleuth 0.37 the frame budget and VM poll timings. Call it first when other tools return nothing. |
+| `diagnose` | Reports the package version and the VM link (`vmConnected`), the frame budget and VM poll timings, and on sleuth 0.38 the timeline stream and event-loop stall counters. Call it first when other tools return nothing. |
 | `get_issues` | Returns the current issues in rank order, optionally filtered by `route` or `severityAtLeast`. |
 | `get_snapshot` | Returns the performance snapshot: issues, frame stats, route history, session summary and recurrence trends. |
 | `get_route_health` | Returns the health score, FPS and issue counts for each route. |
