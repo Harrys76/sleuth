@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'allocation_entry.dart';
+import 'issue_measurement.dart';
 
 /// Severity levels for detected performance issues.
 enum IssueSeverity { ok, warning, critical }
@@ -100,6 +101,7 @@ class PerformanceIssue {
     this.tabVisitIndex,
     this.sourceRoute,
     this.occurrenceId,
+    this.measurement,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -269,6 +271,11 @@ class PerformanceIssue {
   /// and not part of equality.
   final int? occurrenceId;
 
+  /// The number the detector compared against its thresholds for this
+  /// emission, with the lines it used. Null for issues without a number,
+  /// such as structural patterns.
+  final IssueMeasurement? measurement;
+
   /// Display label for the route: `routeName` for the first visit, or
   /// `"$routeName (tab-$tabVisitIndex)"` for the 2nd+ visit to the same
   /// `(routeName, scaffoldHashKey)` pair. Returns `null` when [routeName] is
@@ -317,6 +324,8 @@ class PerformanceIssue {
     if (scaffoldHashKey != null) 'scaffoldHashKey': scaffoldHashKey,
     if (tabVisitIndex != null) 'tabVisitIndex': tabVisitIndex,
     if (sourceRoute != null) 'sourceRoute': sourceRoute,
+    if (measurement != null && measurement!.hasFiniteValue)
+      'measurement': measurement!.toJson(),
   };
 
   /// Deserializes a [PerformanceIssue] from a JSON map.
@@ -441,6 +450,7 @@ class PerformanceIssue {
           ? json['tabVisitIndex'] as int
           : null,
       sourceRoute: json['sourceRoute'] as String?,
+      measurement: IssueMeasurement.fromJson(json['measurement']),
     );
   }
 
@@ -474,6 +484,7 @@ class PerformanceIssue {
     int? tabVisitIndex,
     String? sourceRoute,
     int? occurrenceId,
+    IssueMeasurement? measurement,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -510,6 +521,7 @@ class PerformanceIssue {
       tabVisitIndex: tabVisitIndex ?? this.tabVisitIndex,
       sourceRoute: sourceRoute ?? this.sourceRoute,
       occurrenceId: occurrenceId ?? this.occurrenceId,
+      measurement: measurement ?? this.measurement,
     );
   }
 

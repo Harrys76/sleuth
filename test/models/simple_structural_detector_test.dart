@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/simple_structural_detector.dart';
 
@@ -14,6 +15,7 @@ class _PlaceholderDetector extends SimpleStructuralDetector {
 
   int inspectCount = 0;
   int prepareCount = 0;
+  IssueMeasurement? measurement;
   bool disposed = false;
 
   @override
@@ -34,6 +36,7 @@ class _PlaceholderDetector extends SimpleStructuralDetector {
         detail: 'Placeholder widgets should be replaced before shipping.',
         fixHint: 'Swap in the real widget.',
         element: element,
+        measurement: measurement,
       );
     }
   }
@@ -73,6 +76,29 @@ void main() {
         expect(h.widgetName, 'Placeholder');
         expect(h.detectorName, 'Placeholder Detector');
       }
+    });
+
+    testWidgets('report passes a measurement to the issue', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(width: 100, height: 100, child: Placeholder()),
+        ),
+      );
+      final context = tester.element(find.byType(Directionality));
+      final detector = _PlaceholderDetector();
+      detector.scanTree(context);
+      expect(detector.issues.single.measurement, isNull);
+
+      const measured = IssueMeasurement(
+        value: 2,
+        unit: MeasurementUnit.count,
+        warningAt: 1,
+      );
+      detector
+        ..measurement = measured
+        ..scanTree(context);
+      expect(detector.issues.single.measurement, measured);
     });
 
     testWidgets('issues and highlights clear between scans', (tester) async {

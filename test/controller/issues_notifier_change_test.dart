@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/vm/service_extension_handlers.dart';
@@ -18,6 +19,7 @@ class _TickingDetector extends BaseDetector {
       );
 
   String title = 'Steady issue';
+  IssueMeasurement? measurement;
   int scans = 0;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
@@ -47,6 +49,7 @@ class _TickingDetector extends BaseDetector {
           fixHint: 'Fix',
           detectedAt: DateTime.fromMillisecondsSinceEpoch(scans * 1000),
           extraTraceArgs: {'tick': '$scans'},
+          measurement: measurement,
         ),
       );
   }
@@ -101,6 +104,36 @@ void main() {
     expect(notifications, 2);
   });
 
+  testWidgets('a change to the measurement alone does not notify', (
+    tester,
+  ) async {
+    // No overlay widget renders the measurement, so a value that moves
+    // while the title and detail stay the same must not rebuild the card.
+    final root = await pumpApp(tester);
+    IssueMeasurement rate(double value) => IssueMeasurement(
+      value: value,
+      unit: MeasurementUnit.perSecond,
+      warningAt: 10,
+      criticalAt: 30,
+    );
+
+    detector.measurement = rate(44.9);
+    controller.scanTreeFullPathForTest(root);
+    expect(notifications, 1);
+
+    detector.measurement = rate(45.1);
+    controller.scanTreeFullPathForTest(root);
+    detector.measurement = null;
+    controller.scanTreeFullPathForTest(root);
+    expect(notifications, 1);
+
+    // Readers that do not go through the notifier see the latest value.
+    detector.measurement = rate(46);
+    controller.scanTreeFullPathForTest(root);
+    expect(controller.latestIssues.single.measurement, rate(46));
+    expect(notifications, 1);
+  });
+
   testWidgets('scan pulse fires once per tick', (tester) async {
     final root = await pumpApp(tester);
     var pulses = 0;
@@ -137,5 +170,26 @@ void main() {
       (issues.single as Map)['detectedAt'],
       latest.detectedAt!.toIso8601String(),
     );
+  });
+
+  testWidgets('ext.sleuth.issues carries the measurement', (tester) async {
+    final root = await pumpApp(tester);
+    detector.measurement = const IssueMeasurement(
+      value: 34,
+      unit: MeasurementUnit.perSecond,
+      warningAt: 20,
+      criticalAt: 40,
+    );
+    controller.scanTreeFullPathForTest(root);
+
+    final env = await extIssuesHandler(controller, const {});
+    final issue =
+        ((env['data'] as Map<String, Object?>)['issues'] as List).single as Map;
+    expect(issue['measurement'], {
+      'value': 34.0,
+      'unit': 'perSecond',
+      'warningAt': 20.0,
+      'criticalAt': 40.0,
+    });
   });
 }

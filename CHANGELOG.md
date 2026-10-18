@@ -1,3 +1,21 @@
+## Unreleased
+
+### Added
+
+- Issues can carry the number their detector compared and the lines it
+  compared it against: `PerformanceIssue.measurement`, an
+  `IssueMeasurement` with `value`, `unit`, `warningAt`, `criticalAt`,
+  `window`, `warningStrict` and `criticalStrict`. A value reaches a line at
+  or above it, or only above it when that line is strict; a line that is
+  absent has no flag. Issue JSON gains
+  an optional `measurement` object; `windowMs` keeps microseconds as a
+  fraction.
+- `MeasurementUnit` is a class with constant instances instead of an enum,
+  so a later release can add a unit without breaking a `switch`. Units
+  compare by name, a custom detector can name its own, and a reader keeps
+  a unit it does not know by name instead of dropping the measurement.
+- `SimpleStructuralDetector.report` takes an optional `measurement`.
+
 ## 0.38.0
 
 More accurate detectors, a VM timeline read that no longer stalls the app,
