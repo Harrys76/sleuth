@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
@@ -642,6 +643,13 @@ class PlatformChannelDetector extends BaseDetector
           'p95CallDurationUs': p95Us.toString(),
           'callsOverThreshold': overCount.toString(),
         },
+        measurement: IssueMeasurement(
+          value: count.toDouble(),
+          unit: MeasurementUnit.perSecond,
+          warningAt: callsPerSecThreshold.toDouble(),
+          criticalAt: (callsPerSecThreshold * criticalMultiplier).toDouble(),
+          strict: true,
+        ),
         confidenceReason:
             'Measured directly from VM timeline platform channel events',
         // Bind active route at emission so the controller's aggregate

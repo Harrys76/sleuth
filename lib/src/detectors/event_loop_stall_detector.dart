@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 
 import '../models/base_detector.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/own_work_log.dart';
@@ -386,6 +387,14 @@ class EventLoopStallDetector extends BaseDetector
             if (worst != null) 'observedStallMs': worst.toString(),
             'stallCount': count.toString(),
           },
+          measurement: worst == null
+              ? null
+              : IssueMeasurement(
+                  value: worst.toDouble(),
+                  unit: MeasurementUnit.milliseconds,
+                  warningAt: warningMs.toDouble(),
+                  criticalAt: criticalMs.toDouble(),
+                ),
           confidenceReason:
               'The VM reported a timer that fired at least 100 ms late',
         ),

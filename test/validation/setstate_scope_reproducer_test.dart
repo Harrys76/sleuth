@@ -18,11 +18,32 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:sleuth/sleuth.dart' show IssueConfidence, IssueSeverity;
+import 'dart:math' as math;
+
+import 'package:sleuth/sleuth.dart'
+    show IssueConfidence, IssueSeverity, MeasurementUnit, PerformanceIssue;
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '_helpers/structural_reproducer_harness.dart';
+
+/// [issue] measures [percent] of the tree against [detector]'s ratio
+/// threshold and its critical ratio, min(1, 1.5 × threshold), in percent.
+void _expectScopeMeasurement(
+  PerformanceIssue issue,
+  SetStateScopeDetector detector,
+  double percent,
+) {
+  expectMeasurement(
+    issue,
+    value: percent,
+    unit: MeasurementUnit.percent,
+    warningAt: detector.dirtyRatioThreshold * 100,
+    criticalAt: math.min(1.0, detector.dirtyRatioThreshold * 1.5) * 100,
+  );
+  expectSeverityMatchesMeasurement(issue, strict: true);
+}
 
 /// Public-named StatefulWidget whose `build()` output is rebuilt (new
 /// widget instance) on every [ChurnStatefulState.bump].
@@ -110,11 +131,13 @@ void main() {
       final issue = issues.firstWhere((i) => i.stableId == 'setstate_scope');
       expect(issue.severity, IssueSeverity.warning);
       expect(issue.confidence, IssueConfidence.likely);
+      _expectScopeMeasurement(issue, detector, 8 / 13 * 100);
     });
 
     testWidgets('setstate_scope: churn above 1.5× the ratio threshold is '
         'critical', (tester) async {
-      // 9 mutable owner-subtree elements of 10 → ratio 0.9 > 0.75.
+      // 8 mutable owner-subtree elements of 10 → ratio 0.8 > 0.75. (The
+      // owner element keeps its widget instance, so it counts as const.)
       final key = GlobalKey<ChurnStatefulState>();
       final detector = SetStateScopeDetector(
         minSubtreeSize: 1,
@@ -131,6 +154,7 @@ void main() {
 
       final issue = issues.firstWhere((i) => i.stableId == 'setstate_scope');
       expect(issue.severity, IssueSeverity.critical);
+      _expectScopeMeasurement(issue, detector, 8 / 10 * 100);
     });
 
     testWidgets('setstate_scope: wide owner without rebuilds stays silent', (

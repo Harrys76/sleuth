@@ -8,6 +8,7 @@ import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../models/phase_event.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -671,6 +672,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
       extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+      measurement: held.measurement(
+        warningAt: _thresholdFor(typeName),
+        criticalAt: _thresholdFor(typeName) * debugCriticalMultiplier,
+      ),
       confidenceReason: 'Measured directly from debug callback rebuild counter',
     );
   }
@@ -746,6 +751,13 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         'observedBuildPercent': formatted,
         'lifecyclePhase': ?lifecyclePhase,
       },
+      measurement: IssueMeasurement(
+        value: percent,
+        unit: MeasurementUnit.percent,
+        warningAt: buildTimePercentThreshold,
+        criticalAt: buildTimePercentThreshold * 3,
+        strict: true,
+      ),
       confidenceReason: 'Measured directly from VM timeline BUILD durations',
     );
   }
@@ -789,6 +801,11 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
         extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+        measurement: IssueMeasurement(
+          value: totalStateful.toDouble(),
+          unit: MeasurementUnit.count,
+          warningAt: statefulDensityThreshold.toDouble(),
+        ),
         confidenceReason:
             'Structural scan only. Connect the VM for higher confidence',
       ),

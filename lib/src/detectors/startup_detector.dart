@@ -109,6 +109,12 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
             'end with SchedulerBinding.addTimingsCallback',
         detectedAt: DateTime.now(),
         extraTraceArgs: {'observedTtffMs': ttff.toStringAsFixed(1)},
+        measurement: IssueMeasurement(
+          value: ttff,
+          unit: MeasurementUnit.milliseconds,
+          warningAt: ttffWarningMs.toDouble(),
+          criticalAt: ttffCriticalMs.toDouble(),
+        ),
       ),
     );
   }

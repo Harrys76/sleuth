@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart';
 import 'package:sleuth/src/detectors/startup_detector.dart';
 
+import '../helpers/measurement_matchers.dart';
+
 void main() {
   setUp(() {
     Sleuth.resetStartupForTest();
@@ -85,6 +87,13 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
+      expectMeasurement(
+        detector.issues.first,
+        value: 800,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: 500,
+        criticalAt: 1000,
+      );
       detector.dispose();
     });
 
@@ -205,6 +214,14 @@ void main() {
         expect(issue.extraTraceArgs, {
           'observedTtffMs': ttffMs.toStringAsFixed(1),
         });
+        expectMeasurement(
+          issue,
+          value: ttffMs,
+          unit: MeasurementUnit.milliseconds,
+          warningAt: detector.ttffWarningMs.toDouble(),
+          criticalAt: detector.ttffCriticalMs.toDouble(),
+        );
+        expectSeverityMatchesMeasurement(issue);
         detector.dispose();
       }
     });

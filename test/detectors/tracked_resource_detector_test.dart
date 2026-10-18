@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/tracked_resource_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
+
+import '../helpers/measurement_matchers.dart';
 
 class _Service {
   _Service(this.id);
@@ -84,6 +87,13 @@ void main() {
           first.extraTraceArgs!['oldestInstanceAgeSeconds']!,
         );
         final firstDedup = first.dedupIdentityMicros!;
+        expectMeasurement(
+          first,
+          value: 310,
+          unit: MeasurementUnit.seconds,
+          warningAt: 300,
+        );
+        expectSeverityMatchesMeasurement(first);
 
         fakeNow = fakeNow.add(const Duration(seconds: 10));
         detector.evaluateNowForTest();
@@ -287,6 +297,13 @@ void main() {
         longLived.first.extraTraceArgs!['oldestInstanceAgeSeconds']!,
       );
       expect(age, greaterThanOrEqualTo(350));
+      // The line is the override, not the 300 s global default.
+      expectMeasurement(
+        longLived.first,
+        value: 350,
+        unit: MeasurementUnit.seconds,
+        warningAt: 200,
+      );
     });
 
     test('register-without-track does not create bucket', () {
@@ -336,6 +353,13 @@ void main() {
       final issue = detector.issues.first;
       expect(issue.extraTraceArgs!['effectiveMaxConcurrent'], equals('3'));
       expect(issue.extraTraceArgs!['thresholdSource'], equals('override'));
+      expectMeasurement(
+        issue,
+        value: 4,
+        unit: MeasurementUnit.count,
+        warningAt: 3,
+      );
+      expectSeverityMatchesMeasurement(issue, strict: true);
     });
 
     test('extraTraceArgs stamps global + thresholdSource when no override', () {
@@ -349,6 +373,13 @@ void main() {
       final issue = detector.issues.first;
       expect(issue.extraTraceArgs!['effectiveMaxConcurrent'], equals('5'));
       expect(issue.extraTraceArgs!['thresholdSource'], equals('global'));
+      expectMeasurement(
+        issue,
+        value: 6,
+        unit: MeasurementUnit.count,
+        warningAt: 5,
+      );
+      expectSeverityMatchesMeasurement(issue, strict: true);
     });
 
     test('lower-threshold-mid-episode emits new dedupIdentityMicros', () {

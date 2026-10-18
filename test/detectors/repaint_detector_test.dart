@@ -3,10 +3,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '../helpers/timeline_test_helpers.dart';
+
+/// [issue] measures [rate] paints per second over [window] against
+/// [detector]'s paint frequency threshold and twice it.
+void _expectPaintRate(
+  PerformanceIssue issue,
+  RepaintDetector detector,
+  double rate,
+  Duration window,
+) {
+  final line = detector.paintFrequencyThreshold.toDouble();
+  expectMeasurement(
+    issue,
+    value: rate,
+    unit: MeasurementUnit.perSecond,
+    warningAt: line,
+    criticalAt: line * RepaintDetector.debugCriticalMultiplier,
+    window: window,
+  );
+}
 
 /// PAINT scope time equal to [percent] % of a 2 s window — the window
 /// length the VM-path tests below advance the fake clock by.
@@ -248,6 +269,48 @@ void main() {
 
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.title, contains('Repainting'));
+        expect(detector.issues.first.severity, IssueSeverity.warning);
+        _expectPaintRate(
+          detector.issues.first,
+          detector,
+          50,
+          const Duration(seconds: 1),
+        );
+      });
+
+      test('an aggregate rate above twice the threshold is critical and '
+          'measured over the snapshot', () {
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 70,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
+        detector.evaluateNow();
+
+        final issue = detector.issues.single;
+        expect(issue.stableId, 'excessive_repaint_debug');
+        expect(issue.severity, IssueSeverity.critical);
+        _expectPaintRate(issue, detector, 70, const Duration(seconds: 1));
+        expectSeverityMatchesMeasurement(issue, criticalStrict: true);
+      });
+
+      test('an aggregate rate exactly on the critical line stays a warning '
+          'and says the line is strict', () {
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 60,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
+        detector.evaluateNow();
+
+        final issue = detector.issues.single;
+        expect(issue.severity, IssueSeverity.warning);
+        expect(issue.measurement!.value, issue.measurement!.criticalAt);
+        expectSeverityMatchesMeasurement(issue, criticalStrict: true);
       });
 
       test('no widgetName on paint-only issues (aggregate data)', () {
@@ -289,6 +352,12 @@ void main() {
         // 20 paints in 0.5s = 40/sec, exceeds threshold of 30
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.title, contains('40'));
+        _expectPaintRate(
+          detector.issues.first,
+          detector,
+          40,
+          const Duration(milliseconds: 500),
+        );
       });
 
       test('no issues when debug paint rate below threshold', () {
@@ -385,6 +454,8 @@ void main() {
         expect(issue.confidence, IssueConfidence.likely);
         expect(issue.widgetName, 'CustomPaint');
         expect(issue.observationSource, ObservationSource.debugCallback);
+        expect(issue.severity, IssueSeverity.warning);
+        _expectPaintRate(issue, detector, 50, const Duration(seconds: 1));
       });
 
       test('widgets that only share the layer get no card', () {
@@ -496,6 +567,12 @@ void main() {
         // 20 paints in 0.5s = 40/sec, exceeds threshold of 30
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.title, contains('40'));
+        _expectPaintRate(
+          detector.issues.first,
+          detector,
+          40,
+          const Duration(milliseconds: 500),
+        );
       });
 
       test('no per-widget issues when paintCounts empty — uses aggregate', () {
@@ -592,6 +669,16 @@ void main() {
 
         expect(detector.issues.single.stableId, 'repaint_debug_HeavyWidget');
         expect(detector.issues.single.severity, IssueSeverity.critical);
+        _expectPaintRate(
+          detector.issues.single,
+          detector,
+          70,
+          const Duration(seconds: 1),
+        );
+        expectSeverityMatchesMeasurement(
+          detector.issues.single,
+          criticalStrict: true,
+        );
       });
     });
   });
@@ -1187,6 +1274,13 @@ void main() {
       expect(issue.detail, contains('PAINT scopes'));
       expect(issue.fixHint, contains('11.0% of UI-thread time'));
       expect(issue.dedupIdentityMicros, isNotNull);
+      expectMeasurement(
+        issue,
+        value: 11,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.paintTimePercentThreshold,
+        criticalAt: detector.paintTimePercentThreshold * 3,
+      );
     });
 
     test('31.0 % is critical; exactly 3× stays warning', () {
@@ -1195,6 +1289,37 @@ void main() {
       closeWindow(310000);
       expect(repaint().single.severity, IssueSeverity.critical);
       expect(repaint().single.extraTraceArgs?['observedPaintPercent'], '31.0');
+      expectMeasurement(
+        repaint().single,
+        value: 31,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.paintTimePercentThreshold,
+        criticalAt: detector.paintTimePercentThreshold * 3,
+      );
+      expectSeverityMatchesMeasurement(repaint().single, strict: true);
+    });
+
+    test('a held critical card carries the current, lower share', () {
+      closeWindow(310000);
+      expect(repaint().single.severity, IssueSeverity.critical);
+      // 15 % is a warning on its own, under 0.8 times the 30 % critical
+      // line for only one window, so the card stays critical. Its
+      // measurement is this window's share, which matches its title.
+      closeWindow(150000);
+      final issue = repaint().single;
+      expect(issue.severity, IssueSeverity.critical);
+      expect(issue.title, contains('15.0% of UI time'));
+      expectMeasurement(
+        issue,
+        value: 15,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.paintTimePercentThreshold,
+        criticalAt: detector.paintTimePercentThreshold * 3,
+      );
+      expect(
+        issue.measurement!.value,
+        lessThan(issue.measurement!.criticalAt!),
+      );
     });
 
     test('a 1 400 ms window is normalised by its real length', () {

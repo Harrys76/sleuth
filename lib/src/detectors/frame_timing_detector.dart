@@ -8,6 +8,7 @@ import '../../sleuth.dart' show Sleuth;
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
 import '../utils/fix_hint_builder.dart';
@@ -239,6 +240,16 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     });
     if (first <= 0) return first == 0 ? frames : const [];
     return frames.sublist(first);
+  }
+
+  /// Time from the oldest to the newest vsync in [frames], or null when
+  /// either has no vsync time. The 240-frame buffer can hold less than
+  /// [jankWindow], so this is the span jank was actually judged over.
+  static Duration? _vsyncSpan(List<FrameStats> frames) {
+    final oldest = frames.first.vsyncStartUs;
+    final newest = frames.last.vsyncStartUs;
+    if (oldest == null || newest == null || newest < oldest) return null;
+    return Duration(microseconds: newest - oldest);
   }
 
   /// Frames ingested since the last [markRouteEpoch] that are still in
@@ -634,6 +645,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
     final frames = _jankFrames;
     if (frames.length < minJankSampleFrames) return; // Need enough data
+    final span = _vsyncSpan(frames);
 
     // Single pass: count jank categories and find the worst app frame.
     // Frames late only because of Sleuth's own work count in neither the
@@ -690,6 +702,12 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'sleuthOverheadFrames': overheadCount.toString(),
             'lifecyclePhase': ?lifecyclePhase,
           },
+          measurement: IssueMeasurement(
+            value: severeCount.toDouble(),
+            unit: MeasurementUnit.frames,
+            criticalAt: sustainedSevereFrameCount.toDouble(),
+            window: span,
+          ),
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
@@ -729,6 +747,13 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'sleuthOverheadFrames': overheadCount.toString(),
             'lifecyclePhase': ?lifecyclePhase,
           },
+          measurement: IssueMeasurement(
+            value: jankPercent.toDouble(),
+            unit: MeasurementUnit.percent,
+            warningAt: jankPercentThreshold.toDouble(),
+            window: span,
+            strict: true,
+          ),
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
@@ -825,6 +850,11 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           fixEffort: effort,
           detectedAt: DateTime.now(),
           extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+          measurement: IssueMeasurement(
+            value: _consecutiveThrashingFrames.toDouble(),
+            unit: MeasurementUnit.frames,
+            warningAt: _thrashingWindowFrames.toDouble(),
+          ),
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
@@ -854,6 +884,11 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           fixEffort: effort,
           detectedAt: DateTime.now(),
           extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+          measurement: IssueMeasurement(
+            value: _consecutiveGrowthFrames.toDouble(),
+            unit: MeasurementUnit.frames,
+            warningAt: _growthWindowFrames.toDouble(),
+          ),
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );

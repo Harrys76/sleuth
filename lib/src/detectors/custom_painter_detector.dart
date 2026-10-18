@@ -197,6 +197,10 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
             fixHint: hint2,
             fixEffort: effort2,
             observationSource: ObservationSource.debugCallbackAndStructural,
+            measurement: held.measurement(
+              warningAt: _frequentRate.toDouble(),
+              warningStrict: true,
+            ),
             confidenceReason:
                 'Debug callback likely-origin rate and a structural scan',
             detectedAt: DateTime.now(),

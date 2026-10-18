@@ -19,8 +19,11 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sleuth/src/detectors/repaint_boundary_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/framework_painter_fixture.dart';
+import '../helpers/measurement_matchers.dart';
 import '_helpers/structural_reproducer_harness.dart';
 
 /// User painter sharing the TabBar indicator painter's class name.
@@ -46,8 +49,54 @@ void main() {
           const Opacity(opacity: 0.5, child: SizedBox(height: 10, width: 10)),
         );
         expect(issues, hasStableId('missing_repaint_boundary'));
+        // One unprotected widget against a line of 1; critical is more
+        // than 3.
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'missing_repaint_boundary',
+        );
+        expect(issue.severity, IssueSeverity.warning);
+        expectMeasurement(
+          issue,
+          value: 1,
+          unit: MeasurementUnit.count,
+          warningAt: 1,
+          criticalAt: 3,
+          criticalStrict: true,
+        );
       },
     );
+
+    testWidgets('missing_repaint_boundary: four unprotected Opacity widgets '
+        'are critical and measured at 4', (tester) async {
+      final detector = RepaintBoundaryDetector();
+      final issues = await scanAndIssues(
+        tester,
+        detector,
+        Column(
+          children: [
+            for (var i = 0; i < 4; i++)
+              Opacity(
+                key: ValueKey(i),
+                opacity: 0.5,
+                child: const SizedBox(height: 10, width: 10),
+              ),
+          ],
+        ),
+      );
+      final issue = issues.firstWhere(
+        (i) => i.stableId == 'missing_repaint_boundary',
+      );
+      expect(issue.severity, IssueSeverity.critical);
+      expectMeasurement(
+        issue,
+        value: 4,
+        unit: MeasurementUnit.count,
+        warningAt: 1,
+        criticalAt: 3,
+        criticalStrict: true,
+      );
+      expectSeverityMatchesMeasurement(issue, criticalStrict: true);
+    });
 
     testWidgets('missing_repaint_boundary: Opacity(0.5) WITH RepaintBoundary '
         'ancestor silent', (tester) async {
@@ -151,6 +200,23 @@ void main() {
         ),
       );
       expect(issues, hasStableId('excessive_repaint_boundary'));
+      // The measured count is the one the title reports: the 21 boundaries
+      // plus any the scroll view adds. It is checked against the
+      // detector's private 20-boundary line; there is no critical line.
+      final excessive = issues.firstWhere(
+        (i) => i.stableId == 'excessive_repaint_boundary',
+      );
+      final titleCount = int.parse(
+        RegExp(r'(\d+) in scrollable').firstMatch(excessive.title)!.group(1)!,
+      );
+      expect(titleCount, greaterThanOrEqualTo(21));
+      expectMeasurement(
+        excessive,
+        value: titleCount.toDouble(),
+        unit: MeasurementUnit.count,
+        warningAt: 20,
+        strict: true,
+      );
     });
 
     testWidgets('excessive_repaint_boundary: 5 RepaintBoundaries silent '

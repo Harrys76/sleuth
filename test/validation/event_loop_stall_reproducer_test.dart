@@ -6,12 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/event_loop_stall_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart' show DetectorType;
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/utils/own_work_log.dart';
 import 'package:sleuth/src/vm/vm_service_client.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../helpers/fake_vm_service.dart';
+import '../helpers/measurement_matchers.dart';
 import '_helpers/structural_reproducer_harness.dart' show hasStableId;
 
 /// Wall clock in epoch microseconds and a monotonic clock that runs in
@@ -83,21 +85,37 @@ void main() {
       stall(d, 150);
       expect(d.issues.single.severity, IssueSeverity.warning);
       expect(observed(d), '150');
+      expectMeasurement(
+        d.issues.single,
+        value: 150,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: d.warningMs.toDouble(),
+        criticalAt: d.criticalMs.toDouble(),
+      );
 
       final c = detector();
       stall(c, 800);
       expect(c.issues.single.severity, IssueSeverity.critical);
       expect(c.issues, hasStableId('event_loop_stall'));
       expect(c.issues.single.confidence, IssueConfidence.confirmed);
+      expectMeasurement(
+        c.issues.single,
+        value: 800,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: c.warningMs.toDouble(),
+        criticalAt: c.criticalMs.toDouble(),
+      );
     });
 
     test('699 ms stays a warning; 700 ms is critical', () {
       final d = detector();
       stall(d, 699);
       expect(d.issues.single.severity, IssueSeverity.warning);
+      expectSeverityMatchesMeasurement(d.issues.single);
       final c = detector();
       stall(c, 700);
       expect(c.issues.single.severity, IssueSeverity.critical);
+      expectSeverityMatchesMeasurement(c.issues.single);
     });
 
     test('events within 50 ms are one stall as long as the longest delay', () {
@@ -124,6 +142,7 @@ void main() {
         isFalse,
       );
       expect(d.issues.single.title, contains('unknown length'));
+      expect(d.issues.single.measurement, isNull);
     });
 
     group('lifecycle', () {

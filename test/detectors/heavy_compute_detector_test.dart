@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
@@ -79,6 +81,21 @@ void main() {
       d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [9000]));
       expect(d.issues.single.extraTraceArgs!['observedDurationMs'], '9.0');
     });
+
+    test('the measurement carries the lines resolved from the budget', () {
+      final d = HeavyComputeDetector(autoThreshold: true)
+        ..updateFrameBudget(8333);
+      d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [9000]));
+      final lineMs = d.effectiveLagThresholdUs / 1000;
+      expectMeasurement(
+        d.issues.single,
+        value: 9,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: lineMs,
+        criticalAt: lineMs * HeavyComputeDetector.criticalMultiplier,
+      );
+      expect(d.issues.single.severity, IssueSeverity.warning);
+    });
   });
 
   group('HeavyComputeDetector without phase events', () {
@@ -91,6 +108,17 @@ void main() {
         ),
       );
       expect(d.issues.single.dedupIdentityMicros, 123456789);
+      expectMeasurement(
+        d.issues.single,
+        value: 20,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: d.effectiveLagThresholdUs / 1000,
+        criticalAt:
+            d.effectiveLagThresholdUs *
+            HeavyComputeDetector.criticalMultiplier /
+            1000,
+      );
+      expectSeverityMatchesMeasurement(d.issues.single, strict: true);
     });
 
     test('no timestamp, no identity', () {
@@ -163,6 +191,17 @@ void main() {
       );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
+      expectMeasurement(
+        detector.issues.first,
+        value: 9,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: detector.effectiveLagThresholdUs / 1000,
+        criticalAt:
+            detector.effectiveLagThresholdUs *
+            HeavyComputeDetector.criticalMultiplier /
+            1000,
+      );
+      expectSeverityMatchesMeasurement(detector.issues.first, strict: true);
     });
 
     test('warning at exactly 2x lagThresholdMs', () {
@@ -181,6 +220,17 @@ void main() {
       );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
+      expectMeasurement(
+        detector.issues.first,
+        value: 17,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: detector.effectiveLagThresholdUs / 1000,
+        criticalAt:
+            detector.effectiveLagThresholdUs *
+            HeavyComputeDetector.criticalMultiplier /
+            1000,
+      );
+      expectSeverityMatchesMeasurement(detector.issues.first, strict: true);
     });
 
     test('warning severity with custom lagThresholdMs', () {
@@ -354,6 +404,16 @@ void main() {
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
       expect(detector.issues.first.title, contains('Heavy Build:'));
+      expectMeasurement(
+        detector.issues.first,
+        value: 12,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: detector.effectiveLagThresholdUs / 1000,
+        criticalAt:
+            detector.effectiveLagThresholdUs *
+            HeavyComputeDetector.criticalMultiplier /
+            1000,
+      );
     });
 
     test('enriched phaseEvent warning tier', () {

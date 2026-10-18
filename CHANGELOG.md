@@ -2,7 +2,7 @@
 
 ### Added
 
-- Issues can carry the number their detector compared and the lines it
+- Issues carry the number their detector compared and the lines it
   compared it against: `PerformanceIssue.measurement`, an
   `IssueMeasurement` with `value`, `unit`, `warningAt`, `criticalAt`,
   `window`, `warningStrict` and `criticalStrict`. A value reaches a line at
@@ -10,6 +10,26 @@
   absent has no flag. Issue JSON gains
   an optional `measurement` object; `windowMs` keeps microseconds as a
   fraction.
+- Built-in detectors set the measurement on 43 issue families. The value
+  is the number that decides the severity. Most titles show it;
+  `raster_dominance` titles show the raster-to-UI ratio and
+  `heap_near_capacity` titles a percent of the budget instead. Six
+  families report a pattern rather than an amount and leave it null
+  (`always_repaint_painter`, `runtime_font_loading`, `expensive_gpu_nodes`,
+  `layout_bottleneck`, `sliver_fill_remaining_scrollable`,
+  `sliver_to_box_adapter_shrinkwrap`), as do `event_loop_stall` when the
+  VM gave no stall length and `non_lazy_shrinkwrap` when the child count is
+  unknown.
+- Some detectors take the severity from a different reading than the
+  value, so a card can report a value below the line of the severity it
+  shows: `rebuild_activity`, `excessive_repaint` and the debug rates hold a
+  severity until the value stays low, the debug rates go critical on the
+  latest window while the value averages two, and `heap_near_capacity`
+  tolerates one sample under its line.
+- `jank_detected` and `sustained_jank` measure over the vsync span of the
+  frames they judged. The 240-frame buffer can make it shorter than 10 s,
+  capture mode judges the whole buffer, and frames without vsync times
+  give no window.
 - `MeasurementUnit` is a class with constant instances instead of an enum,
   so a later release can add a unit without breaking a `switch`. Units
   compare by name, a custom detector can name its own, and a reader keeps

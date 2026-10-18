@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -360,6 +361,12 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
           'worstRatio': worstRatio.toStringAsFixed(2),
           'wastedBytes': '$totalWasted',
         },
+        measurement: IssueMeasurement(
+          value: totalWasted.toDouble(),
+          unit: MeasurementUnit.bytes,
+          warningAt: minWastedBytes.toDouble(),
+          criticalAt: criticalWastedBytes.toDouble(),
+        ),
         detectedAt: DateTime.now(),
       ),
     );

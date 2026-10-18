@@ -8,6 +8,7 @@ import '../models/base_detector.dart';
 import '../models/frame_stats.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/blur_sigma.dart';
@@ -645,6 +646,13 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
             if (vmMissed) 'vmWorstRasterUs': vmWorstUs.toString(),
             'lifecyclePhase': 'steady',
           },
+          measurement: IssueMeasurement(
+            value: frameLeg.qualifyingCount.toDouble(),
+            unit: MeasurementUnit.frames,
+            warningAt: minRasterDominantFrames.toDouble(),
+            criticalAt: criticalRasterDominantFrames.toDouble(),
+            window: const Duration(microseconds: _spanUs),
+          ),
           confidenceReason: vmMissed
               ? '$_frameLegReason, confirmed by the VM timeline raster timing'
               : _frameLegReason,
@@ -677,6 +685,14 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: DateTime.now(),
+          // Counted in one VM poll, not in a one-second span, so the
+          // measurement carries no window.
+          measurement: IssueMeasurement(
+            value: vmMissedInBatch.toDouble(),
+            unit: MeasurementUnit.frames,
+            warningAt: minRasterDominantFrames.toDouble(),
+            criticalAt: criticalRasterDominantFrames.toDouble(),
+          ),
           confidenceReason: 'Measured directly from VM timeline raster timing',
         ),
       );

@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -310,6 +311,13 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
                 'Structural scan only, based on the '
                 'AutomaticKeepAliveClientMixin count',
             detectedAt: DateTime.now(),
+            measurement: IssueMeasurement(
+              value: data.count.toDouble(),
+              unit: MeasurementUnit.count,
+              warningAt: threshold.toDouble(),
+              criticalAt: (threshold * 2).toDouble(),
+              strict: true,
+            ),
           ),
         );
       }

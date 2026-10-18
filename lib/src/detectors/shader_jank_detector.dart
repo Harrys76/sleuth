@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import '../../sleuth.dart' show Sleuth;
 import '../models/base_detector.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/phase_event.dart';
 import '../utils/fix_hint_builder.dart';
@@ -116,6 +117,12 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
                 'events. Frame impact depends on whether a frame waited for '
                 'it',
             extraTraceArgs: {'shaderWarmupContext': context},
+            measurement: IssueMeasurement(
+              value: ms,
+              unit: MeasurementUnit.milliseconds,
+              warningAt: thresholdMs.toDouble(),
+              criticalAt: (thresholdMs * 2).toDouble(),
+            ),
           ),
         );
       }
