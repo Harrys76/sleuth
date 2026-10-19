@@ -2908,15 +2908,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             ),
           ),
         );
-        if (!model.narrowed) return list;
+        // The list keeps its place in the tree whether or not the row
+        // shows, so a scan that only flips the row keeps the scroll offset
+        // and each card's state.
         return Column(
           children: [
-            _ShowingRow(
-              shown: visibleIssues.length,
-              total: model.unfiltered.length,
-              onShowAll: _showAllSeverities,
-            ),
-            Expanded(child: list),
+            if (model.narrowed)
+              _ShowingRow(
+                shown: visibleIssues.length,
+                total: model.unfiltered.length,
+                onShowAll: _showAllSeverities,
+              ),
+            Expanded(key: const ValueKey('issue-list'), child: list),
           ],
         );
       }
