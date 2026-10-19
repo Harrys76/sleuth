@@ -187,6 +187,26 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
     );
     add('run label no-VM dot on $s', t.severityWarningText, surfaces[s]!, 3);
   }
+  // Meta line tags on the card fills.
+  for (final s in ['cardDefault', 'cardHighlighted']) {
+    add(
+      'Jank tag on $s',
+      t.badgeTextOn(t.severityCritical, tinted: t.severityCriticalText),
+      composite(t.badgeFill(t.severityCritical), surfaces[s]!),
+    );
+    add(
+      'New tag on $s',
+      t.badgeTextOn(t.checkboxActive),
+      composite(t.badgeFill(t.checkboxActive), surfaces[s]!),
+    );
+    add(
+      'Debug timing tag on $s',
+      t.badgeDbgText,
+      composite(t.badgeDbgBg, surfaces[s]!),
+    );
+    add('severity icons on $s', t.severityCriticalText, surfaces[s]!, 3);
+    add('crosshair off on $s', t.textSecondary, surfaces[s]!, 3);
+  }
   add('trigger icon on critical', t.triggerIconColor, t.severityCritical, 3);
   add(
     'trigger icon on warning',

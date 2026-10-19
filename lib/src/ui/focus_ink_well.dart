@@ -15,6 +15,7 @@ class SleuthFocusInkWell extends StatefulWidget {
     required this.borderRadius,
     required this.builder,
     this.focusNode,
+    this.excludeFromSemantics = false,
   });
 
   /// Null disables the well; it then takes no focus.
@@ -24,6 +25,10 @@ class SleuthFocusInkWell extends StatefulWidget {
   final BorderRadius borderRadius;
 
   final FocusNode? focusNode;
+
+  /// Leaves the tap out of semantics, for a well whose ancestor node
+  /// carries it.
+  final bool excludeFromSemantics;
 
   /// Builds the child; `showFocus` is true while the outline should show.
   final Widget Function(BuildContext context, bool showFocus) builder;
@@ -58,6 +63,7 @@ class _SleuthFocusInkWellState extends State<SleuthFocusInkWell> {
   Widget build(BuildContext context) => InkWell(
     onTap: widget.onTap,
     focusNode: widget.focusNode,
+    excludeFromSemantics: widget.excludeFromSemantics,
     borderRadius: widget.borderRadius,
     focusColor: Colors.transparent,
     onFocusChange: (focused) {

@@ -41,7 +41,6 @@ FrameVerdict _testVerdict({List<PerformanceIssue> relatedIssues = const []}) {
 Widget _buildCard(
   PerformanceIssue issue, {
   bool jankCorrelated = false,
-  bool jankFlash = false,
   bool highlighted = false,
 }) {
   return MaterialApp(
@@ -49,7 +48,6 @@ Widget _buildCard(
       body: IssueCard(
         issue: issue,
         jankCorrelated: jankCorrelated,
-        jankFlash: jankFlash,
         highlighted: highlighted,
       ),
     ),
@@ -60,12 +58,12 @@ void main() {
   group('JANK badge on issue cards', () {
     testWidgets('badge shown when jankCorrelated is true', (tester) async {
       await tester.pumpWidget(_buildCard(_testIssue(), jankCorrelated: true));
-      expect(find.text('JANK'), findsOneWidget);
+      expect(find.text('Jank'), findsOneWidget);
     });
 
     testWidgets('badge absent when jankCorrelated is false', (tester) async {
       await tester.pumpWidget(_buildCard(_testIssue(), jankCorrelated: false));
-      expect(find.text('JANK'), findsNothing);
+      expect(find.text('Jank'), findsNothing);
     });
 
     testWidgets('badge in card — only on matching issues', (tester) async {
@@ -78,7 +76,10 @@ void main() {
       controller.verdictNotifier.value = _testVerdict(
         relatedIssues: [issue1],
       ); // only issue1
-      final jank = _testIssue(title: 'Jank', stableId: 'jank_detected');
+      final jank = _testIssue(
+        title: 'Jank detected',
+        stableId: 'jank_detected',
+      );
       controller.issuesNotifier.value = [issue1, issue2, jank];
 
       await tester.pumpWidget(
@@ -90,7 +91,7 @@ void main() {
       );
 
       // JANK badge should appear once (only on matched issue)
-      expect(find.text('JANK'), findsOneWidget);
+      expect(find.text('Jank'), findsOneWidget);
 
       controller.dispose();
     });
@@ -99,7 +100,10 @@ void main() {
       tester,
     ) async {
       final cause = _testIssue(title: 'Rebuilds', stableId: 'rebuild_activity');
-      final jank = _testIssue(title: 'Jank', stableId: 'jank_detected');
+      final jank = _testIssue(
+        title: 'Jank detected',
+        stableId: 'jank_detected',
+      );
       final controller = SleuthController()..initializeDetectorsForTest();
       addTearDown(controller.dispose);
       controller.verdictNotifier.value = _testVerdict(relatedIssues: [cause]);
@@ -112,12 +116,12 @@ void main() {
           ),
         ),
       );
-      expect(find.text('JANK'), findsOneWidget);
+      expect(find.text('Jank'), findsOneWidget);
 
       // The verdict notifier keeps the last jank frame's verdict.
       controller.issuesNotifier.value = [cause];
       await tester.pump();
-      expect(find.text('JANK'), findsNothing);
+      expect(find.text('Jank'), findsNothing);
     });
 
     testWidgets('badge stays while the symptom is collapsed under its cause', (
@@ -161,24 +165,7 @@ void main() {
       // The symptom card is folded into its cause, and the cause keeps
       // the tag.
       expect(find.text('Sustained Jank'), findsNothing);
-      expect(find.text('JANK'), findsOneWidget);
-    });
-  });
-
-  group('Edge cases', () {
-    testWidgets('flash takes precedence over locate-highlight', (tester) async {
-      // Both jankFlash and highlighted true — flash wins
-      await tester.pumpWidget(
-        _buildCard(_testIssue(), jankFlash: true, highlighted: true),
-      );
-
-      final cards = tester.widgetList<Card>(find.byType(Card));
-      final flashCards = cards.where((c) => c.color == const Color(0xFF5F2D1E));
-      expect(flashCards, isNotEmpty);
-
-      // Blue locate-highlight should NOT be present
-      final blueCards = cards.where((c) => c.color == const Color(0xFF1E3A5F));
-      expect(blueCards, isEmpty);
+      expect(find.text('Jank'), findsOneWidget);
     });
   });
 }

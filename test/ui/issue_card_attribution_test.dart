@@ -35,164 +35,34 @@ Widget _buildCard(PerformanceIssue issue, {bool initiallyExpanded = false}) {
 }
 
 void main() {
-  /// Find a Container whose BoxDecoration has a left Border with the given color.
-  bool hasLeftBorderColor(Container c, Color color) {
-    final decoration = c.decoration;
-    if (decoration is! BoxDecoration) return false;
-    final border = decoration.border;
-    if (border is! Border) return false;
-    return border.left.color == color && border.left.width == 3;
-  }
-
-  group('IssueCard left border accent', () {
-    testWidgets('vmTimeline source shows green accent', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(observationSource: ObservationSource.vmTimeline)),
-      );
-
-      // Find the accent — a Container with left border in green
-      final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where(
-        (c) => hasLeftBorderColor(c, const Color(0xFF10B981)),
-      );
-      expect(accent, isNotEmpty);
-    });
-
-    testWidgets('debugCallback source shows purple accent', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(
-          _testIssue(observationSource: ObservationSource.debugCallback),
-        ),
-      );
-
-      final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where(
-        (c) =>
-            hasLeftBorderColor(c, const SleuthThemeData().sourceDebugCallback),
-      );
-      expect(accent, isNotEmpty);
-    });
-
-    testWidgets('debugCallbackAndStructural source shows purple accent', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _buildCard(
-          _testIssue(
-            observationSource: ObservationSource.debugCallbackAndStructural,
-          ),
-        ),
-      );
-
-      final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where(
-        (c) =>
-            hasLeftBorderColor(c, const SleuthThemeData().sourceDebugCallback),
-      );
-      expect(accent, isNotEmpty);
-    });
-
-    testWidgets('structural source shows gray accent', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(observationSource: ObservationSource.structural)),
-      );
-
-      final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where(
-        (c) => hasLeftBorderColor(c, const SleuthThemeData().sourceStructural),
-      );
-      expect(accent, isNotEmpty);
-    });
-
-    testWidgets('null source shows subtle gray accent', (tester) async {
-      await tester.pumpWidget(_buildCard(_testIssue(observationSource: null)));
-
-      final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where(
-        (c) => hasLeftBorderColor(c, const SleuthThemeData().sourceNone),
-      );
-      expect(accent, isNotEmpty);
-    });
-
-    testWidgets('accent visible when card is collapsed', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(observationSource: ObservationSource.vmTimeline)),
-      );
-
-      // Card is collapsed by default — accent should still be present
-      expect(find.text('Test detail'), findsNothing); // collapsed
-      final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where((c) {
-        final decoration = c.decoration;
-        if (decoration is! BoxDecoration) return false;
-        final border = decoration.border;
-        if (border is! Border) return false;
-        return border.left.width == 3;
+  group('IssueCard category in the meta line', () {
+    for (final (category, name) in [
+      (IssueCategory.build, 'Build'),
+      (IssueCategory.layout, 'Layout'),
+      (IssueCategory.paint, 'Paint'),
+      (IssueCategory.raster, 'Raster'),
+      (IssueCategory.memory, 'Memory'),
+      (IssueCategory.channel, 'Channel'),
+      (IssueCategory.font, 'Font'),
+      (IssueCategory.network, 'Network'),
+      (IssueCategory.startup, 'Startup'),
+    ]) {
+      testWidgets('${category.name} reads $name', (tester) async {
+        await tester.pumpWidget(_buildCard(_testIssue(category: category)));
+        expect(find.textContaining(name), findsOneWidget);
       });
-      expect(accent, isNotEmpty);
-    });
-  });
+    }
 
-  group('IssueCard category badge', () {
-    testWidgets('build category shows BUILD badge', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(category: IssueCategory.build)),
-      );
-      expect(find.text('BUILD'), findsOneWidget);
-    });
-
-    testWidgets('layout category shows LAYOUT badge', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(category: IssueCategory.layout)),
-      );
-      expect(find.text('LAYOUT'), findsOneWidget);
-    });
-
-    testWidgets('paint category shows PAINT badge', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(category: IssueCategory.paint)),
-      );
-      expect(find.text('PAINT'), findsOneWidget);
-    });
-
-    testWidgets('raster category shows RASTER badge', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(category: IssueCategory.raster)),
-      );
-      expect(find.text('RASTER'), findsOneWidget);
-    });
-
-    testWidgets('memory category shows MEMORY badge', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(category: IssueCategory.memory)),
-      );
-      expect(find.text('MEMORY'), findsOneWidget);
-    });
-
-    testWidgets('channel category shows CHANNEL badge', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(category: IssueCategory.channel)),
-      );
-      expect(find.text('CHANNEL'), findsOneWidget);
-    });
-
-    testWidgets('font category shows FONT badge', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(category: IssueCategory.font)),
-      );
-      expect(find.text('FONT'), findsOneWidget);
-    });
-
-    testWidgets('category badge has correct font size and weight', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _buildCard(_testIssue(category: IssueCategory.build)),
-      );
-
-      final textWidget = tester.widget<Text>(find.text('BUILD'));
-      expect(textWidget.style?.fontSize, 10);
-      expect(textWidget.style?.fontWeight, FontWeight.bold);
+    testWidgets('the line is quiet text, whatever the source', (tester) async {
+      for (final source in [null, ...ObservationSource.values]) {
+        await tester.pumpWidget(
+          _buildCard(_testIssue(observationSource: source)),
+        );
+        const theme = SleuthThemeData();
+        final text = tester.widget<Text>(find.textContaining('Build'));
+        expect(text.style?.fontSize, theme.fontMd);
+        expect(text.style?.color, theme.textTertiary);
+      }
     });
   });
 

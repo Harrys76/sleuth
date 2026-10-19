@@ -13,7 +13,13 @@ import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 import '../helpers/contrast_helpers.dart';
 import '../helpers/overlay_harness.dart'
-    show moreMenuRow, openFromMoreMenu, openMoreMenu;
+    show
+        crosshair,
+        crosshairOn,
+        expandedIssueCards,
+        moreMenuRow,
+        openFromMoreMenu,
+        openMoreMenu;
 
 PerformanceIssue _issue(
   String id, {
@@ -182,13 +188,13 @@ void main() {
       await pumpCard(tester);
       await expand(tester, 'a');
       await expand(tester, 'c');
-      expect(find.byIcon(Icons.push_pin), findsNWidgets(2));
+      expect(expandedIssueCards(), findsNWidgets(2));
 
       await tester.tap(find.bySemanticsLabel('Hide this issue').first);
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(find.text('Title a'), findsNothing);
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      expect(expandedIssueCards(), findsOneWidget);
 
       // Issues update, restore and undo with a card still expanded.
       controller.issuesNotifier.value = [
@@ -205,7 +211,7 @@ void main() {
 
       // Collapsing the last card releases the snapshot.
       await expand(tester, 'c');
-      expect(find.byIcon(Icons.push_pin), findsNothing);
+      expect(expandedIssueCards(), findsNothing);
       expect(tester.takeException(), isNull);
       await drainToasts(tester);
     });
@@ -214,10 +220,10 @@ void main() {
       tester,
     ) async {
       controller.issuesNotifier.value = [
-        _issue('lay', category: IssueCategory.layout),
+        _issue('lay', category: IssueCategory.layout, widgetName: 'Lay'),
       ];
       await pumpCard(tester);
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(crosshair());
       await tester.pump();
       expect(controller.pendingIssueSelection, isNotNull);
 
@@ -233,19 +239,19 @@ void main() {
       tester,
     ) async {
       controller.issuesNotifier.value = [
-        _issue('lay', category: IssueCategory.layout),
+        _issue('lay', category: IssueCategory.layout, widgetName: 'Lay'),
       ];
       // A scan already ran and outlined nothing.
       controller.scanTickNotifier.value = 1;
       await pumpCard(tester);
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(crosshair());
       await tester.pump();
 
       expect(
         find.textContaining('Widget not currently visible'),
         findsOneWidget,
       );
-      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+      expect(crosshairOn(tester, crosshair()), isFalse);
       expect(controller.pendingIssueSelection, isNull);
       expect(controller.selectedHighlightNotifier.value, isNull);
       await drainToasts(tester);
@@ -255,10 +261,10 @@ void main() {
       tester,
     ) async {
       controller.issuesNotifier.value = [
-        _issue('lay', category: IssueCategory.layout),
+        _issue('lay', category: IssueCategory.layout, widgetName: 'Lay'),
       ];
       await pumpCard(tester);
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(crosshair());
       await tester.pump();
       expect(controller.pendingIssueSelection, isNotNull);
 
@@ -343,7 +349,7 @@ void main() {
       ];
       await tester.pump();
       expect(rowOrder(tester, ids), ['a', 'e', 'd', 'c', 'b']);
-      expect(find.byIcon(Icons.push_pin), findsNWidgets(2));
+      expect(expandedIssueCards(), findsNWidgets(2));
       expect(tester.takeException(), isNull);
     }, semanticsEnabled: false);
 
@@ -362,7 +368,7 @@ void main() {
       await tester.tap(find.text('Undo'));
       await tester.pump();
       expect(rowOrder(tester, ['x', 'a', 'y']), ['a', 'x', 'y']);
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      expect(expandedIssueCards(), findsOneWidget);
       expect(tester.takeException(), isNull);
       await drainToasts(tester);
     });
@@ -427,9 +433,7 @@ void main() {
       expect(rowOrder(tester, ids), ['c', 'a', 'b', 'd']);
     }, semanticsEnabled: false);
 
-    testWidgets('a new issue enters at the top with a wider accent', (
-      tester,
-    ) async {
+    testWidgets('a new issue enters at the top with a New tag', (tester) async {
       await pumpABCD(tester);
       controller.issuesNotifier.value = [
         for (final id in ['a', 'b', 'c', 'n', 'd']) _issue(id),
@@ -445,9 +449,11 @@ void main() {
       );
       expect(card('n').isNew, isTrue);
       expect(card('a').isNew, isFalse);
+      expect(find.text('New'), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 2));
       expect(card('n').isNew, isFalse);
+      expect(find.text('New'), findsNothing);
       await tester.pump(const Duration(seconds: 8));
       expect(rowOrder(tester, all), ['a', 'b', 'c', 'n', 'd']);
     }, semanticsEnabled: false);
@@ -620,7 +626,7 @@ void main() {
       expect(rowOrder(tester, ids), ['d', 'c', 'b', 'a']);
     }, semanticsEnabled: false);
 
-    testWidgets('each new card keeps its accent for its own 2 s, without '
+    testWidgets('each new card keeps its New tag for its own 2 s, without '
         'moving the layout', (tester) async {
       await pumpABCD(tester);
       final before = tester.getTopLeft(find.text('Title a'));
@@ -653,7 +659,7 @@ void main() {
       await tester.pump(const Duration(seconds: 10));
     }, semanticsEnabled: false);
 
-    testWidgets('a new card that leaves drops its accent', (tester) async {
+    testWidgets('a new card that leaves drops its New tag', (tester) async {
       await pumpABCD(tester);
       controller.issuesNotifier.value = [
         for (final id in ['a', 'b', 'c', 'd', 'n']) _issue(id),
@@ -661,7 +667,7 @@ void main() {
       await tester.pump();
       controller.issuesNotifier.value = [for (final id in ids) _issue(id)];
       await tester.pump();
-      // Back within its 2 s: a new arrival, so a fresh accent.
+      // Back within its 2 s: a new arrival, so a fresh tag.
       controller.issuesNotifier.value = [
         for (final id in ['a', 'b', 'c', 'd', 'n']) _issue(id),
       ];
@@ -1100,11 +1106,11 @@ void main() {
     testWidgets('turning off the highlighted card\'s severity clears the '
         'highlight', (tester) async {
       controller.issuesNotifier.value = [
-        _issue('lay', category: IssueCategory.layout),
+        _issue('lay', category: IssueCategory.layout, widgetName: 'Lay'),
         _issue('crit', severity: IssueSeverity.critical),
       ];
       await pumpCard(tester);
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(crosshair());
       await tester.pump();
       expect(controller.pendingIssueSelection, isNotNull);
       controller.selectedHighlightNotifier.value = const WidgetHighlight(
@@ -1122,7 +1128,7 @@ void main() {
 
       // Shown again, the card is no longer ticked.
       await tapChip(tester, 'warning');
-      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+      expect(crosshairOn(tester, crosshair()), isFalse);
       await drainToasts(tester);
     });
 
@@ -1169,17 +1175,17 @@ void main() {
       ];
       await pumpCard(tester);
       await expand(tester, 'a');
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      expect(expandedIssueCards(), findsOneWidget);
 
       await tapChip(tester, 'critical');
       expect(tester.takeException(), isNull);
-      expect(find.byIcon(Icons.push_pin), findsNothing);
+      expect(expandedIssueCards(), findsNothing);
       final card = tester.widget<IssueCard>(find.byType(IssueCard));
       expect(card.initiallyExpanded, isFalse);
 
       // Expanding again starts a fresh freeze zone.
       await expand(tester, 'a');
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      expect(expandedIssueCards(), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -1307,13 +1313,10 @@ void main() {
       tester,
     ) async {
       controller.issuesNotifier.value = [
-        _issue('lay', category: IssueCategory.layout),
+        _issue('lay', category: IssueCategory.layout, widgetName: 'Lay'),
       ];
       await pumpCard(tester);
-      expect(
-        find.bySemanticsLabel('Highlight widget on screen'),
-        findsOneWidget,
-      );
+      expect(find.bySemanticsLabel('Show Lay on screen'), findsOneWidget);
       expect(find.bySemanticsLabel('Close Sleuth'), findsOneWidget);
     });
 

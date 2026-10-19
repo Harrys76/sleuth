@@ -54,14 +54,14 @@ void main() {
         ),
       );
 
-      // Effects badge shows count
-      expect(find.text('\u21B3 2'), findsOneWidget);
+      // The meta line counts the effects.
+      expect(find.textContaining('2 effects'), findsOneWidget);
     });
 
     testWidgets('no badge when downstreamIssues is null', (tester) async {
       await tester.pumpWidget(wrap(const IssueCard(issue: rootIssue)));
 
-      expect(find.text('\u21B3 2'), findsNothing);
+      expect(find.textContaining('effect'), findsNothing);
     });
 
     testWidgets('no badge when downstreamIssues is empty', (tester) async {
@@ -69,7 +69,7 @@ void main() {
         wrap(const IssueCard(issue: rootIssue, downstreamIssues: [])),
       );
 
-      expect(find.text('\u21B3 0'), findsNothing);
+      expect(find.textContaining('effect'), findsNothing);
     });
 
     testWidgets('expanding root card shows downstream titles', (tester) async {

@@ -39,15 +39,17 @@ import '../models/performance_issue.dart';
 /// - **Severity text** (3): `severityCriticalText`, `severityWarningText`,
 ///   `severityOkText`, severity-hued text readable on the card surfaces
 /// - **Category badges** (8): one per [IssueCategory] — `categoryBuild`, etc.
-/// - **Confidence** (3): `confidenceConfirmed`, `confidenceLikely`, `confidencePossible`
-/// - **Source accents** (4): left border on issue cards — `sourceVmTimeline`, etc.
+/// - **Confidence** (3): `confidenceConfirmed`, `confidenceLikely`,
+///   `confidencePossible`, unused by the overlay
+/// - **Source accents** (4): `sourceVmTimeline`, etc., for the former left
+///   border of issue cards, unused by the overlay
 /// - **Fix effort** (3): `effortQuick`, `effortMedium`, `effortInvolved`
 /// - **Surfaces** (10): backgrounds, borders, the card divider, card states
 /// - **Text hierarchy** (5): `textPrimary` through `textSubtle`
-/// - **Badge pairs** (6): bg + text for the former VM/FRAME/DBG badges,
-///   unused by the overlay
+/// - **Badge pairs** (6): bg + text for the former VM/FRAME/DBG badges;
+///   the DBG pair draws the Debug timing tag, the others are unused
 /// - **Banner pairs** (8): bg + text for debug/instrumentation/success/warning
-/// - **Causal graph** (1): `effectsBadge` for downstream effects count
+/// - **Causal graph** (1): `effectsBadge`, unused by the overlay
 /// - **Spacing** (6): `spacingXxs` through `spacingXl`
 /// - **Typography** (9): `fontXxs` (10) through `fontDisplay` (24); 10 px
 ///   is the smallest size the overlay draws
@@ -529,7 +531,8 @@ class SleuthThemeData {
   /// 2 px [checkboxActive] outline in every preset.
   final double focusRingWidth;
 
-  /// Width of the source accent on the left edge of an issue card.
+  /// Width of the former source accent on the left edge of an issue card.
+  /// Unused by the overlay; kept for custom themes.
   final double sourceAccentWidth;
 
   /// Trigger icon colour on the warning and OK fills, where the white
@@ -553,11 +556,15 @@ class SleuthThemeData {
   final Color categoryStartup;
 
   // ── Confidence ──
+  // The meta line names the confidence in plain text; these colours are
+  // unused by the overlay and kept for custom themes.
   final Color confidenceConfirmed;
   final Color confidenceLikely;
   final Color confidencePossible;
 
   // ── Source accents ──
+  // The issue card no longer draws a source accent; these colours are
+  // unused by the overlay and kept for custom themes.
   final Color sourceVmTimeline;
   final Color sourceDebugCallback;
   final Color sourceStructural;
@@ -577,6 +584,8 @@ class SleuthThemeData {
   final Color border;
   final Color cardDefault;
   final Color cardHighlighted;
+
+  /// Unused by the overlay; kept for custom themes.
   final Color cardJankFlash;
 
   /// Line between the card's sections. In the dark preset [border] equals
@@ -598,7 +607,8 @@ class SleuthThemeData {
   final Color textSubtle;
 
   // ── Badge pairs ──
-  // The run label in the header replaced the VM+, FRAME and DBG badges.
+  // The run label in the header replaced the VM+, FRAME and DBG badges;
+  // the DBG pair now draws the issue card's Debug timing tag.
 
   /// Unused by the overlay; kept for custom themes.
   final Color badgeVmBg;
@@ -612,10 +622,10 @@ class SleuthThemeData {
   /// Unused by the overlay; kept for custom themes.
   final Color badgeFrameText;
 
-  /// Unused by the overlay; kept for custom themes.
+  /// Fill of the Debug timing tag on timing issues in debug runs.
   final Color badgeDbgBg;
 
-  /// Unused by the overlay; kept for custom themes.
+  /// Text of the Debug timing tag, on [badgeDbgBg].
   final Color badgeDbgText;
 
   // ── Banner pairs ──
@@ -629,10 +639,15 @@ class SleuthThemeData {
   final Color bannerWarningText;
 
   // ── Causal graph ──
+  /// Unused by the overlay: the meta line counts effects in plain text.
+  /// Kept for custom themes.
   final Color effectsBadge;
 
   // ── Special ──
   final Color fixHintText;
+
+  /// Unused by the overlay: the per-card debug note became the Debug
+  /// timing tag. Kept for custom themes.
   final Color disclaimerText;
   final Color dimOverlay;
   final Color shadow;

@@ -1214,17 +1214,17 @@ void main() {
       await tester.pumpAndSettle();
 
       // Collapsed: no pin icon.
-      expect(find.byIcon(Icons.push_pin), findsNothing);
+      expect(expandedIssueCards(), findsNothing);
 
       // Tap the card title to expand → pin icon appears (state hint).
       await tester.tap(find.text('A'));
       await tester.pump();
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      expect(expandedIssueCards(), findsOneWidget);
 
       // Tap again to collapse → pin icon disappears.
       await tester.tap(find.text('A'));
       await tester.pump();
-      expect(find.byIcon(Icons.push_pin), findsNothing);
+      expect(expandedIssueCards(), findsNothing);
     });
 
     testWidgets('summary bar issue count does not change when a card expands', (
@@ -1263,7 +1263,7 @@ void main() {
 
         await tester.tap(find.text('A'));
         await tester.pump();
-        expect(find.byIcon(Icons.push_pin), findsOneWidget);
+        expect(expandedIssueCards(), findsOneWidget);
 
         // Unmount the card — triggers dispose on `_FloatingIssuesCardState`.
         // If dispose only cleared one field, the class invariant
@@ -1280,7 +1280,7 @@ void main() {
         // the new state starts empty and no pin icon shows.
         await tester.pumpWidget(pumpFreezeCard(controller));
         await tester.pump();
-        expect(find.byIcon(Icons.push_pin), findsNothing);
+        expect(expandedIssueCards(), findsNothing);
       },
     );
 
@@ -1293,7 +1293,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('A'));
       await tester.pump();
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      expect(expandedIssueCards(), findsOneWidget);
 
       // Swap to a fresh controller with a differently-identified issue.
       // Without the dual-clear in `didUpdateWidget`, the stale
@@ -1306,7 +1306,7 @@ void main() {
       await tester.pumpWidget(pumpFreezeCard(controllerB));
       await tester.pump();
 
-      expect(find.byIcon(Icons.push_pin), findsNothing);
+      expect(expandedIssueCards(), findsNothing);
       expect(find.text('Z'), findsOneWidget);
     });
 
@@ -1323,11 +1323,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('A'));
       await tester.pump();
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      expect(expandedIssueCards(), findsOneWidget);
 
       await tester.tap(find.text('A'));
       await tester.pump();
-      expect(find.byIcon(Icons.push_pin), findsNothing);
+      expect(expandedIssueCards(), findsNothing);
 
       // Ranker now emits a different top issue. If the snapshot had
       // survived the collapse, a non-null `_orderSnapshot` with empty
@@ -1369,11 +1369,11 @@ void main() {
         controller.scanTreeFullPathForTest(root);
         controller.scanTreeFullPathForTest(root);
         await tester.pump();
-        expect(find.textContaining('Seen 2/2'), findsOneWidget);
+        expect(find.textContaining('seen 2 of 2 scans'), findsOneWidget);
 
         controller.scanTreeFullPathForTest(root);
         await tester.pump();
-        expect(find.textContaining('Seen 3/3'), findsOneWidget);
+        expect(find.textContaining('seen 3 of 3 scans'), findsOneWidget);
         expect(notifications, 1);
       },
     );

@@ -6,7 +6,8 @@ import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 
-import '../helpers/overlay_harness.dart' show openMoreMenu;
+import '../helpers/overlay_harness.dart'
+    show crosshairOn, expandedIssueCards, openMoreMenu;
 
 /// An issue with detector id [id] reported on [widget]; the title names
 /// the widget so the two cards can be told apart.
@@ -69,11 +70,13 @@ void main() {
     matching: find.byType(IssueCard),
   );
 
-  Finder checkboxOf(String name) =>
-      find.descendant(of: cardOf(name), matching: find.byType(Checkbox));
+  Finder checkboxOf(String name) => find.descendant(
+    of: cardOf(name),
+    matching: find.byIcon(Icons.my_location),
+  );
 
   bool? checked(WidgetTester tester, String name) =>
-      tester.widget<Checkbox>(checkboxOf(name)).value;
+      crosshairOn(tester, checkboxOf(name));
 
   Future<void> hideVia(WidgetTester tester, String name) async {
     await tester.tap(
@@ -167,7 +170,7 @@ void main() {
     await pumpCard(tester);
     await tapTitle(tester, 'A');
     await tapTitle(tester, 'B');
-    expect(find.byIcon(Icons.push_pin), findsNWidgets(2));
+    expect(expandedIssueCards(), findsNWidgets(2));
 
     // The ranker reorders and a new critical lands.
     controller.issuesNotifier.value = [
@@ -180,7 +183,7 @@ void main() {
     expect(tester.takeException(), isNull);
     const names = ['A', 'other', 'B', 'new'];
     expect(rowOrder(tester, names), ['A', 'other', 'B', 'new']);
-    expect(find.byIcon(Icons.push_pin), findsNWidgets(2));
+    expect(expandedIssueCards(), findsNWidgets(2));
 
     // One of the pair leaves; the other stays expanded.
     controller.issuesNotifier.value = [
@@ -189,7 +192,7 @@ void main() {
     ];
     await tester.pump();
     expect(tester.takeException(), isNull);
-    expect(find.byIcon(Icons.push_pin), findsOneWidget);
+    expect(expandedIssueCards(), findsOneWidget);
     expect(find.byType(IssueCard), findsNWidgets(2));
   });
 
