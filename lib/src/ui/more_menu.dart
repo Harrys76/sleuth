@@ -317,14 +317,19 @@ class _MenuRow extends StatelessWidget {
   }
 }
 
-/// Theme as a three-way switch: Auto, Light and Dark. The current choice
-/// is filled and outlined, with a filled icon, so the result of a tap
-/// shows before it.
+/// Theme as a three-way switch: Auto, Light and Dark, in one outlined
+/// bar split by thin lines. The current choice fills its cell and reads
+/// in bold, so the result of a tap shows before it.
 class _ThemeRow extends StatelessWidget {
   const _ThemeRow({required this.mode, required this.onChanged});
 
   final SleuthThemeMode mode;
   final ValueChanged<SleuthThemeMode> onChanged;
+
+  /// Each cell is 48 px wide, the touch target, and 32 px tall to the
+  /// eye; taps land over 48 px of height.
+  static const double _cell = 48;
+  static const double _barHeight = 32;
 
   @override
   Widget build(BuildContext context) {
@@ -335,14 +340,46 @@ class _ThemeRow extends StatelessWidget {
       TargetPlatform.iOS || TargetPlatform.macOS => true,
       _ => false,
     };
-    final segmentRadius = BorderRadius.circular(theme.radiusMd);
-    final focusRadius = BorderRadius.circular(theme.radiusLg);
-    Widget segment(
-      SleuthThemeMode value,
-      String name,
-      Widget Function(bool on) face,
-    ) {
+    final radius = Radius.circular(theme.radiusLg);
+    const values = [
+      SleuthThemeMode.system,
+      SleuthThemeMode.light,
+      SleuthThemeMode.dark,
+    ];
+    Widget segment(int index) {
+      final value = values[index];
       final on = mode == value;
+      final name = switch (value) {
+        SleuthThemeMode.system => 'Auto',
+        SleuthThemeMode.light => 'Light',
+        SleuthThemeMode.dark => 'Dark',
+      };
+      final color = on ? theme.textPrimary : theme.textSecondary;
+      final face = switch (value) {
+        SleuthThemeMode.system => Text(
+          'Auto',
+          style: TextStyle(
+            color: color,
+            fontSize: theme.fontBase,
+            fontWeight: on ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+        SleuthThemeMode.light => Icon(
+          Icons.light_mode_outlined,
+          size: 15,
+          color: color,
+        ),
+        SleuthThemeMode.dark => Icon(
+          Icons.dark_mode_outlined,
+          size: 15,
+          color: color,
+        ),
+      };
+      // The end cells follow the bar's rounded corners.
+      final cellRadius = BorderRadius.horizontal(
+        left: index == 0 ? radius : Radius.zero,
+        right: index == values.length - 1 ? radius : Radius.zero,
+      );
       return Semantics(
         button: true,
         inMutuallyExclusiveGroup: true,
@@ -353,39 +390,26 @@ class _ThemeRow extends StatelessWidget {
         excludeSemantics: true,
         child: SleuthFocusInkWell(
           onTap: () => onChanged(value),
-          borderRadius: focusRadius,
+          borderRadius: cellRadius,
           builder: (context, showFocus) => SizedBox(
-            width: 48,
-            height: 48,
+            width: _cell,
+            height: _cell,
             child: Center(
-              // The focus outline sits 1 px outside the segment.
               child: SleuthFocusOutline(
                 show: showFocus,
                 color: theme.checkboxActive,
-                borderRadius: focusRadius,
+                borderRadius: cellRadius,
                 child: SizedBox(
-                  width: 48,
-                  height: 34,
-                  child: Center(
-                    child: SizedBox(
-                      width: 44,
-                      height: 30,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: on
-                              ? theme.checkboxActive.withValues(alpha: 0.24)
-                              : null,
-                          border: on
-                              ? Border.all(
-                                  color: theme.checkboxActive,
-                                  width: 1.5,
-                                )
-                              : null,
-                          borderRadius: segmentRadius,
-                        ),
-                        child: Center(child: face(on)),
-                      ),
+                  width: _cell,
+                  height: _barHeight,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: on
+                          ? theme.checkboxActive.withValues(alpha: 0.24)
+                          : null,
+                      borderRadius: cellRadius,
                     ),
+                    child: Center(child: face),
                   ),
                 ),
               ),
@@ -395,14 +419,15 @@ class _ThemeRow extends StatelessWidget {
       );
     }
 
-    Widget icon(IconData data) =>
-        Icon(data, size: 15, color: theme.textSecondary);
+    Widget divider() => SizedBox(
+      width: 1,
+      height: _barHeight,
+      child: DecoratedBox(decoration: BoxDecoration(color: theme.cardDivider)),
+    );
     return Padding(
       padding: EdgeInsets.only(left: theme.spacingLg, right: theme.spacingXs),
       child: Row(
         children: [
-          Icon(Icons.contrast, size: 16, color: theme.textSecondary),
-          SizedBox(width: theme.spacingMd),
           Expanded(
             child: Text(
               'Theme',
@@ -412,48 +437,35 @@ class _ThemeRow extends StatelessWidget {
               ),
             ),
           ),
-          // The outline is 32 px tall; each segment takes taps over 48 px.
+          // The fills sit under the outline and the dividers, which take
+          // no taps.
           Stack(
             alignment: Alignment.center,
             children: [
-              SizedBox(
-                width: 3 * 48,
-                height: 32,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: theme.cardDivider),
-                    borderRadius: BorderRadius.circular(theme.radiusLg),
-                  ),
-                ),
-              ),
               Row(
                 mainAxisSize: MainAxisSize.min,
-                children: [
-                  segment(
-                    SleuthThemeMode.system,
-                    'Auto',
-                    (on) => Text(
-                      'Auto',
-                      style: TextStyle(
-                        color: on ? theme.textPrimary : theme.textSecondary,
-                        fontSize: theme.fontBase,
-                        fontWeight: on ? FontWeight.w600 : FontWeight.normal,
-                      ),
+                children: [for (var i = 0; i < values.length; i++) segment(i)],
+              ),
+              IgnorePointer(
+                child: SizedBox(
+                  width: values.length * _cell,
+                  height: _barHeight,
+                  child: DecoratedBox(
+                    position: DecorationPosition.foreground,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: theme.cardDivider),
+                      borderRadius: BorderRadius.all(radius),
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: _cell - 0.5),
+                        divider(),
+                        const SizedBox(width: _cell - 1),
+                        divider(),
+                      ],
                     ),
                   ),
-                  segment(
-                    SleuthThemeMode.light,
-                    'Light',
-                    (on) =>
-                        icon(on ? Icons.light_mode : Icons.light_mode_outlined),
-                  ),
-                  segment(
-                    SleuthThemeMode.dark,
-                    'Dark',
-                    (on) =>
-                        icon(on ? Icons.dark_mode : Icons.dark_mode_outlined),
-                  ),
-                ],
+                ),
               ),
             ],
           ),
