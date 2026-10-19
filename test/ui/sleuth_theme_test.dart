@@ -158,7 +158,7 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
     for (final severity in IssueSeverity.values) {
       add(
         'selected ${severity.name} chip border on $s',
-        t.severityTextColor(severity),
+        t.severityGraphicColor(severity),
         surfaces[s]!,
         3,
       );
@@ -179,14 +179,24 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
         3,
       );
     }
-    add('run label VM dot on $s', t.severityOkText, surfaces[s]!, 3);
+    add(
+      'run label VM dot on $s',
+      t.severityGraphicColor(IssueSeverity.ok),
+      surfaces[s]!,
+      3,
+    );
     add(
       'focus outline and selected theme segment on $s',
       t.checkboxActive,
       surfaces[s]!,
       3,
     );
-    add('run label no-VM dot on $s', t.severityWarningText, surfaces[s]!, 3);
+    add(
+      'run label no-VM dot on $s',
+      t.severityGraphicColor(IssueSeverity.warning),
+      surfaces[s]!,
+      3,
+    );
   }
   // Meta line tags on the card fills.
   for (final s in ['cardDefault', 'cardHighlighted']) {
@@ -303,6 +313,52 @@ void main() {
         expect(t.cardDivider, isNot(t.cardDefault));
       });
     }
+
+    test('chips and dots use the fills in dark and mid-tone shades in '
+        'light; the high-contrast presets keep the text shades', () {
+      const light = SleuthThemeData.light();
+      expect(
+        light.severityGraphicColor(IssueSeverity.critical),
+        const Color(0xFFDC2626),
+      );
+      expect(
+        light.severityGraphicColor(IssueSeverity.warning),
+        const Color(0xFFD97706),
+      );
+      expect(
+        light.severityGraphicColor(IssueSeverity.ok),
+        const Color(0xFF059669),
+      );
+      const dark = SleuthThemeData();
+      for (final severity in IssueSeverity.values) {
+        expect(
+          dark.severityGraphicColor(severity),
+          dark.severityColor(severity),
+        );
+      }
+      for (final t in [
+        const SleuthThemeData.highContrastDark(),
+        const SleuthThemeData.highContrastLight(),
+      ]) {
+        for (final severity in IssueSeverity.values) {
+          expect(
+            t.severityGraphicColor(severity),
+            t.severityTextColor(severity),
+          );
+        }
+      }
+      // copyWith keeps and replaces the shades.
+      expect(
+        light.copyWith().severityGraphicColor(IssueSeverity.warning),
+        const Color(0xFFD97706),
+      );
+      expect(
+        light
+            .copyWith(severityWarningGraphic: const Color(0xFFB45309))
+            .severityGraphicColor(IssueSeverity.warning),
+        const Color(0xFFB45309),
+      );
+    });
 
     test('cardBackground is opaque in every preset and fromSeed', () {
       for (final t in [

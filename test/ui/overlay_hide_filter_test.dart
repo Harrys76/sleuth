@@ -1240,7 +1240,7 @@ void main() {
 
       const theme = SleuthThemeData();
       final border = pillBorder(tester, 'warning');
-      expect(border.color, theme.severityWarningText);
+      expect(border.color, theme.severityWarning);
       expect(border.width, 1.5);
       expect(chipGlyph('warning', Icons.warning), findsOneWidget);
 
@@ -1289,6 +1289,37 @@ void main() {
         }
       });
     }
+
+    testWidgets('light: chips tell critical from warning by a red and an '
+        'orange outline and icon', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('c', severity: IssueSeverity.critical),
+        _issue('w'),
+      ];
+      const theme = SleuthThemeData.light();
+      await pumpCard(tester, theme: theme);
+      expect(pillBorder(tester, 'critical').color, const Color(0xFFDC2626));
+      expect(pillBorder(tester, 'warning').color, const Color(0xFFD97706));
+      expect(
+        tester.widget<Icon>(chipGlyph('critical', Icons.error)).color,
+        const Color(0xFFDC2626),
+      );
+      expect(
+        tester.widget<Icon>(chipGlyph('warning', Icons.warning)).color,
+        const Color(0xFFD97706),
+      );
+      // The counts keep the darker text shades.
+      final critical = tester.widget<Text>(
+        find.descendant(of: chip('critical'), matching: find.byType(Text)),
+      );
+      expect(
+        critical.style!.color,
+        theme.badgeTextOn(
+          theme.severityCritical,
+          tinted: theme.severityCriticalText,
+        ),
+      );
+    });
 
     testWidgets('chips report selection to screen readers', (tester) async {
       controller.issuesNotifier.value = [_issue('w')];

@@ -51,6 +51,14 @@
 - `DebugSnapshot.forcedRebuildsOf` (debug callbacks): for each widget type
   a parent's build rebuilt, the types whose builds forced it, framework
   widgets included, and how often. `forcedTypesCapped` reports its caps.
+- `SleuthThemeData.severityGraphicColor` and the optional
+  `severityCriticalGraphic`, `severityWarningGraphic` and
+  `severityOkGraphic` tokens: the colour of severity borders, icons and
+  dots, which need 3:1 where text needs 4.5:1. The dark default uses the
+  severity fills, brighter than its pale text shades; the light preset
+  sets red-600, amber-600 and emerald-600, so its chips read red and
+  orange instead of two dark browns; the high-contrast presets and
+  `fromColorScheme` fall back to the severity text colours.
 - `SleuthThemeData.cardDivider`, the line under the status row. It
   defaults to `0xFF4B5563` in dark and `0xFFB4BAC4` in light, `border` in
   the high-contrast presets and `outlineVariant` in `fromColorScheme`.
@@ -96,8 +104,8 @@
 - The collapsed issue card is flat, with no source bar on its left edge.
   A severity mark replaces the emoji: a disc or triangle filled with the
   severity colour, with a white or near-black mark inside at 3:1 or more
-  against the fill; the discs carry a ring in the text colour. The title runs to 2 lines (3 above 1.3x text), or
-  in full while the card is expanded.
+  against the fill; the discs carry a white ring. The title runs to 2
+  lines (3 above 1.3x text), or in full while the card is expanded.
 - One meta line under the title replaces the badges: category,
   confidence, "seen X of Y scans, label" and "N effects", led by the Jank
   and New tags. New shows for 2 seconds in place of the wider accent.

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
@@ -114,11 +115,14 @@ void main() {
       // the dot alone carries the VM state.
       await pumpCard(tester);
       expect(dot().color, isNull);
-      expect((dot().border! as Border).top.color, theme.severityWarningText);
+      expect(
+        (dot().border! as Border).top.color,
+        theme.severityGraphicColor(IssueSeverity.warning),
+      );
 
       controller.vmConnectedNotifier.value = true;
       await tester.pump();
-      expect(dot().color, theme.severityOkText);
+      expect(dot().color, theme.severityGraphicColor(IssueSeverity.ok));
       expect(dot().border, isNull);
     });
 

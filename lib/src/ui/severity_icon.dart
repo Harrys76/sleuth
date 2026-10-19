@@ -9,9 +9,9 @@ import 'sleuth_theme.dart';
 ///
 /// The fill is the bright [SleuthThemeData.severityColor]. The mark
 /// inside carries the meaning, so it keeps 3:1 against the fill: white
-/// where white reaches it, else a near-black. The discs carry a ring in
-/// [SleuthThemeData.textPrimary], which also sets their edge apart from
-/// the card.
+/// where white reaches it, else a near-black. The discs carry a white
+/// ring, which sets their edge apart from a dark card and stays quiet on
+/// a light one.
 class SleuthSeverityIcon extends StatelessWidget {
   const SleuthSeverityIcon({super.key, required this.severity, this.size = 16});
 
@@ -35,7 +35,7 @@ class SleuthSeverityIcon extends StatelessWidget {
           severity: severity,
           fill: fill,
           mark: markOn(fill),
-          ring: theme.textPrimary,
+          ring: const Color(0xFFFFFFFF),
         ),
       ),
     );
