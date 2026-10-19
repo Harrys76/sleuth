@@ -114,9 +114,9 @@ bool isHiddenBy(PerformanceIssue issue, Set<String> hiddenKeys) {
 /// Keys that tell apart the cards of [issues] in their order: the
 /// [listKeyFor] of each, with `#2`, `#3` added to the second and later
 /// card sharing one (a detector that emits one issue per occurrence
-/// under one stable id and widget). Expansion, the order snapshot and
-/// the highlight selection use these keys, so two such cards keep their
-/// own state.
+/// under one stable id and widget). The card list keys its cards with
+/// these, so two such cards keep their own state; cards frozen while one
+/// is expanded keep the key they had when the zone was captured.
 List<String> occurrenceKeysFor(List<PerformanceIssue> issues) {
   final seen = <String, int>{};
   final keys = <String>[];

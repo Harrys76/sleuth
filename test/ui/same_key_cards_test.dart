@@ -44,22 +44,62 @@ void main() {
       for (final i in l) i.title,
     ];
 
+    List<FrozenCard> zone(List<PerformanceIssue> rows, int expanded) {
+      final keys = occurrenceKeysFor(rows);
+      return [
+        for (var i = 0; i < rows.length; i++)
+          (
+            key: keys[i],
+            issue: rows[i],
+            expanded: i == expanded,
+            reported: true,
+          ),
+      ];
+    }
+
     test('expanding the third card keeps both of the pair', () {
       final result = applyFreezeZone(
         visibleIssues: [a, b, c],
-        orderSnapshot: [a, b, c],
-        expandedIndices: {listKeyFor(c): 2},
+        frozen: zone([a, b, c], 2),
       );
-      expect(titles(result), ['Title a', 'Title b', 'Title c']);
+      expect(titles(result.issues), ['Title a', 'Title b', 'Title c']);
     });
 
     test('expanding the first of the pair keeps every card once', () {
       final result = applyFreezeZone(
         visibleIssues: [a, b, c],
-        orderSnapshot: [a, b, c],
-        expandedIndices: {listKeyFor(a): 0},
+        frozen: zone([a, b, c], 0),
       );
-      expect(titles(result), ['Title a', 'Title b', 'Title c']);
+      expect(titles(result.issues), ['Title a', 'Title b', 'Title c']);
+    });
+
+    test('a frozen card keeps its key when a twin ahead of it goes; the '
+        'flow skips it', () {
+      final x1 = _issue('x1', id: 'layout', widget: 'Row', occurrence: 1);
+      final x2 = _issue('x2', id: 'layout', widget: 'Row', occurrence: 2);
+      final x3 = _issue('x3', id: 'layout', widget: 'Row', occurrence: 3);
+      // x2 expanded under 'layout|Row#2'; x1 goes and x3 arrives.
+      final result = applyFreezeZone(
+        visibleIssues: [x3, x2],
+        frozen: zone([x1, x2], 1),
+      );
+      expect(titles(result.issues), ['Title x2', 'Title x3']);
+      expect(result.keys, ['layout|Row#2', 'layout|Row']);
+    });
+
+    test('a frozen card is matched by occurrence, not position', () {
+      final x1 = _issue('x1', id: 'layout', widget: 'Row', occurrence: 1);
+      final x2 = _issue('x2', id: 'layout', widget: 'Row', occurrence: 2);
+      final x2b = _issue('x2b', id: 'layout', widget: 'Row', occurrence: 2);
+      // x1 goes; the newer report of x2 is matched to its card.
+      final result = applyFreezeZone(
+        visibleIssues: [x2b],
+        frozen: zone([x1, x2], 1),
+      );
+      final card = result.frozen!.single;
+      expect(card.key, 'layout|Row#2');
+      expect(identical(card.issue, x2b), isTrue);
+      expect(card.reported, isTrue);
     });
   });
 
@@ -135,6 +175,85 @@ void main() {
       await tester.tap(find.text('Title $name'));
       await tester.pump();
     }
+
+    bool isExpanded(String name) => find
+        .descendant(of: cardOf(name), matching: expandedIssueCards())
+        .evaluate()
+        .isNotEmpty;
+
+    testWidgets('a kept card keeps its expansion, and a new twin stays '
+        'collapsed, when a card below them expands', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+        _issue('d', id: 'jank_detected', widget: 'List'),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'b');
+      // a goes and c, a new occurrence, arrives.
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+        _issue('c', id: 'layout', widget: 'Row', occurrence: 3),
+        _issue('d', id: 'jank_detected', widget: 'List'),
+      ];
+      await tester.pump();
+      await tapTitle(tester, 'd');
+      await tester.pump();
+      expect(isExpanded('b'), isTrue);
+      expect(isExpanded('c'), isFalse);
+      expect(isExpanded('d'), isTrue);
+    });
+
+    testWidgets('an expanded card stays once its newer report goes too', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'b');
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await tester.pump();
+      controller.issuesNotifier.value = [];
+      await tester.pump();
+      expect(find.text('Title b'), findsOneWidget);
+      expect(isExpanded('b'), isTrue);
+      expect(tester.widget<IssueCard>(cardOf('b')).stale, isTrue);
+    });
+
+    testWidgets('a card expanded beside a kept twin stays when its issue '
+        'goes', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'b');
+      // a goes; c, unrelated, arrives below b.
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+        _issue('c', id: 'jank_detected', widget: 'List'),
+      ];
+      await tester.pump();
+      await tapTitle(tester, 'c');
+      await tester.pump();
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await tester.pump();
+      expect(find.text('Title c'), findsOneWidget);
+      expect(isExpanded('c'), isTrue);
+      expect(tester.widget<IssueCard>(cardOf('c')).stale, isTrue);
+
+      // Collapsing it lets it go.
+      await tapTitle(tester, 'c');
+      await tester.pump();
+      expect(find.text('Title c'), findsNothing);
+      expect(isExpanded('b'), isTrue);
+    });
 
     testWidgets('hiding one of an expanded pair hides both; neither stays', (
       tester,
