@@ -87,15 +87,17 @@
 - The card is at least 320 px wide, or the screen less 16 px margins on
   a narrower screen, and stored narrower widths are raised. Its background
   is opaque.
-- A maximized card draws the resize grip's dots only, and a drag there
-  reaches the list. The list ends with 48 px of padding, so the grip does
-  not cover the last card.
+- The resize grip works on a maximized card too: the first drag or resize
+  step makes it a normal card at the size and place it has, then resizes
+  that. The list ends with 48 px of padding, so the grip does not cover
+  the last card.
 - The overlay no longer uses `TweenAnimationBuilder`, so it is off the
   debug instrumentation's framework denylist and an app's own uses count.
 - The collapsed issue card is flat, with no source bar on its left edge.
-  A severity icon in the severity's text colour replaces the emoji, and
-  the title runs to 2 lines (3 above 1.3x text), or in full while the
-  card is expanded.
+  A severity mark replaces the emoji: a disc or triangle filled with the
+  severity colour, with a white or near-black mark inside at 3:1 or more
+  against the fill. The title runs to 2 lines (3 above 1.3x text), or
+  in full while the card is expanded.
 - One meta line under the title replaces the badges: category,
   confidence, "seen X of Y scans, label" and "N effects", led by the Jank
   and New tags. New shows for 2 seconds in place of the wider accent.
@@ -119,6 +121,12 @@
   crosshair draw the focus outline in keyboard mode.
 - An expanded card no longer draws the pin icon. Its semantics hint
   reads "Pinned while expanded".
+- An expanded card stays until it is collapsed, even when its issue stops
+  being reported or folds under another card. A card whose issue is gone
+  leads its meta line with "Not detected right now" and offers no
+  crosshair, and the empty states wait until it is collapsed.
+- A press on a card, a More menu row, a theme segment or the crosshair
+  draws a light tint instead of the fallback theme's 40 % grey ripple.
 - The overlay no longer uses `Checkbox`, so it is off the framework
   denylist and an app's own checkboxes count.
 - The guide's legend describes the new card. The "Jank flash" card

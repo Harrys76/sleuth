@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
-import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 
@@ -549,47 +548,48 @@ void main() {
       await tester.drag(find.byIcon(Icons.pets), const Offset(0, 120));
       await tester.pumpAndSettle();
       expect(cardRect(tester), before);
-      // The grip draws its dots only: no resize actions.
-      expect(grip(), findsNothing);
-      expect(gripDots(), findsOneWidget);
       expect(controller.overlayUiState.cardOffset, stored);
+      expect(gripDots(), findsOneWidget);
       expectCardOnScreen(tester, 568);
       handle.dispose();
     });
 
-    testWidgets('a maximized grip passes drags to the list', (tester) async {
+    testWidgets('dragging a maximized grip resizes the card from the size '
+        'it shows', (tester) async {
       final controller = await pumpCard(
         tester,
         windowState: CardWindowState.maximized,
       );
-      controller.issuesNotifier.value = [
-        for (final issue in mixedOverlayIssues()) issue,
-        for (var i = 0; i < 12; i++)
-          PerformanceIssue(
-            severity: IssueSeverity.warning,
-            category: IssueCategory.build,
-            confidence: IssueConfidence.confirmed,
-            title: 'Filler $i',
-            detail: 'Detail',
-            fixHint: 'Fix',
-            stableId: 'filler_$i',
-          ),
-      ];
-      await tester.pump();
       final before = cardRect(tester);
-      final list = find.byType(Scrollable).last;
-      final offset = tester.state<ScrollableState>(list).position.pixels;
-
       await tester.dragFrom(
         tester.getCenter(gripDots()),
-        const Offset(0, -120),
+        const Offset(-40, -120),
       );
       await tester.pumpAndSettle();
-      expect(cardRect(tester), before);
-      expect(
-        tester.state<ScrollableState>(list).position.pixels,
-        greaterThan(offset),
+      final after = cardRect(tester);
+      expect(controller.overlayUiState.windowState, CardWindowState.normal);
+      // Same top left corner, smaller by the drag.
+      expect(after.topLeft, before.topLeft);
+      expect(after.height, closeTo(before.height - 120, 1));
+      expect(after.width, before.width);
+      // The window controls offer maximize again.
+      expect(find.byIcon(Icons.crop_square), findsOneWidget);
+      expectCardOnScreen(tester, 568);
+    });
+
+    testWidgets('Shorter on a maximized card makes it a normal card one step '
+        'shorter', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpCard(
+        tester,
+        windowState: CardWindowState.maximized,
       );
+      final before = cardRect(tester);
+      await performCustomAction(tester, grip(), 'Shorter');
+      await tester.pump();
+      expect(controller.overlayUiState.windowState, CardWindowState.normal);
+      expect(cardRect(tester).height, closeTo(before.height - 48, 1));
+      handle.dispose();
     });
 
     for (final keyboard in [150.0, 300.0]) {

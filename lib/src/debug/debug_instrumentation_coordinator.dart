@@ -804,7 +804,7 @@ class DebugInstrumentationCoordinator {
     'TextField',
     'ValueListenableBuilder',
     'Wrap',
-    // --- Sleuth overlay widget classes (43) ---
+    // --- Sleuth overlay widget classes (44) ---
     'FloatingIssuesCard',
     '_StatusRow',
     '_DebugModeBanner',
@@ -848,6 +848,7 @@ class DebugInstrumentationCoordinator {
     '_ShowingRow',
     'SleuthFocusInkWell',
     'SleuthFocusOutline',
+    'SleuthSeverityIcon',
   };
 
   void _handleRebuildDirtyWidget(Element element, bool builtOnce) {

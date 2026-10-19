@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../models/performance_issue.dart';
+
 import 'motion.dart';
+import 'severity_icon.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
@@ -501,27 +504,24 @@ class _GuidePageState extends State<GuidePage>
         // ── Severity ──────────────────────────────────────────────────
         _legendHeading(theme, 'Severity'),
         _legendSubtext(theme, 'Icon at the start of each issue card.'),
-        _LegendRow(
-          icon: Icons.error,
-          color: theme.severityCriticalText,
+        const _LegendRow(
+          severity: IssueSeverity.critical,
           label: 'Critical, needs immediate attention',
         ),
         _legendDetail(
           theme,
           'Sleuth observed an impact, such as dropped frames, high memory or a severe bottleneck.',
         ),
-        _LegendRow(
-          icon: Icons.warning,
-          color: theme.severityWarningText,
+        const _LegendRow(
+          severity: IssueSeverity.warning,
           label: 'Warning, worth investigating',
         ),
         _legendDetail(
           theme,
           'Sleuth found a pattern that could slow the app under load.',
         ),
-        _LegendRow(
-          icon: Icons.check_circle,
-          color: theme.severityOkText,
+        const _LegendRow(
+          severity: IssueSeverity.ok,
           label: 'OK, informational',
         ),
         _legendDetail(
@@ -1097,14 +1097,9 @@ class _GuideStep extends StatelessWidget {
 }
 
 class _LegendRow extends StatelessWidget {
-  const _LegendRow({
-    required this.icon,
-    required this.color,
-    required this.label,
-  });
+  const _LegendRow({required this.severity, required this.label});
 
-  final IconData icon;
-  final Color color;
+  final IssueSeverity severity;
   final String label;
 
   @override
@@ -1115,7 +1110,9 @@ class _LegendRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 3),
       child: Row(
         children: [
-          ExcludeSemantics(child: Icon(icon, size: 14, color: color)),
+          ExcludeSemantics(
+            child: SleuthSeverityIcon(severity: severity, size: 14),
+          ),
           SizedBox(width: theme.spacingSm),
           Expanded(
             child: Text(

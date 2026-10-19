@@ -7,6 +7,7 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/recurrence_trend.dart';
 import 'package:sleuth/src/ui/focus_ink_well.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
+import 'package:sleuth/src/ui/severity_icon.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 import '../helpers/contrast_helpers.dart';
@@ -721,7 +722,7 @@ void main() {
         );
         expect(paragraph.maxLines, scale > 1.3 ? 3 : 2);
         // The icon sits on the title's first line.
-        final icon = tester.getRect(find.byIcon(Icons.warning));
+        final icon = tester.getRect(find.byType(SleuthSeverityIcon));
         final firstLine = paragraph
             .getBoxesForSelection(
               const TextSelection(baseOffset: 0, extentOffset: 1),
@@ -760,18 +761,28 @@ void main() {
       );
     });
 
-    testWidgets('the severity icon uses the severity text colour', (
-      tester,
-    ) async {
-      const theme = SleuthThemeData();
+    testWidgets('the severity icon is a filled mark', (tester) async {
       await tester.pumpWidget(
         cards(320, 1, [
           _testIssue(severity: IssueSeverity.critical, title: 'C'),
         ]),
       );
-      final icon = tester.widget<Icon>(find.byIcon(Icons.error));
-      expect(icon.color, theme.severityCriticalText);
+      final icon = tester.widget<SleuthSeverityIcon>(
+        find.byType(SleuthSeverityIcon),
+      );
+      expect(icon.severity, IssueSeverity.critical);
       expect(find.text('\u{1F534}'), findsNothing);
+      // Its mark keeps 3:1 on the severity fill in every preset.
+      for (final theme in _presets) {
+        for (final severity in IssueSeverity.values) {
+          final fill = theme.severityColor(severity);
+          expect(
+            wcagContrast(SleuthSeverityIcon.markOn(fill), fill),
+            greaterThanOrEqualTo(3),
+            reason: '${theme.brightness.name} $severity',
+          );
+        }
+      }
       // No left accent bar: the card has no decoration border.
       expect(
         find.descendant(
@@ -786,6 +797,25 @@ void main() {
         findsNothing,
       );
     });
+  });
+
+  testWidgets('a press tints the card without a ripple', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: IssueCard(issue: _testIssue())),
+      ),
+    );
+    final well = tester.widget<InkWell>(
+      find.descendant(
+        of: find.byType(IssueCard),
+        matching: find.byType(InkWell),
+      ),
+    );
+    expect(well.splashFactory, NoSplash.splashFactory);
+    expect(
+      well.highlightColor,
+      const SleuthThemeData().textPrimary.withValues(alpha: 0.08),
+    );
   });
 
   testWidgets('the card body draws the focus outline in keyboard mode', (

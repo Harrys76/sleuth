@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 
+import 'sleuth_theme.dart';
+
 /// An [InkWell] that tells [builder] when to draw a keyboard focus
-/// outline.
+/// outline, with a quiet press.
 ///
 /// The overlay sits above the app's `MaterialApp`, so an InkWell's own
-/// focus fill comes from `ThemeData.fallback()` and barely shows on the
-/// card. [builder] gets true while the well has focus and the keyboard
-/// drives focus (`FocusHighlightMode.traditional`), the same rule
-/// InkWell applies to its fill.
+/// colours come from `ThemeData.fallback()`: a focus fill that barely
+/// shows on the card and a 40 % grey splash that floods it. [builder]
+/// gets true while the well has focus and the keyboard drives focus
+/// (`FocusHighlightMode.traditional`), the same rule InkWell applies to
+/// its fill. A press draws no ripple, only a light tint of
+/// [SleuthThemeData.textPrimary].
 class SleuthFocusInkWell extends StatefulWidget {
   const SleuthFocusInkWell({
     super.key,
@@ -66,6 +70,9 @@ class _SleuthFocusInkWellState extends State<SleuthFocusInkWell> {
     excludeFromSemantics: widget.excludeFromSemantics,
     borderRadius: widget.borderRadius,
     focusColor: Colors.transparent,
+    splashFactory: NoSplash.splashFactory,
+    highlightColor: SleuthTheme.of(context).textPrimary.withValues(alpha: 0.08),
+    hoverColor: SleuthTheme.of(context).textPrimary.withValues(alpha: 0.04),
     onFocusChange: (focused) {
       if (focused != _focused) setState(() => _focused = focused);
     },
