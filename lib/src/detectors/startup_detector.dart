@@ -103,7 +103,8 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
         detail: _buildTtffDetail(metrics),
         fixHint: hint,
         fixEffort: effort,
-        observationSource: ObservationSource.structural,
+        // The time ends at the first frame's FrameTiming raster end.
+        observationSource: ObservationSource.frameTiming,
         confidenceReason:
             'Measured from Sleuth.init() to the first FrameTiming raster '
             'end with SchedulerBinding.addTimingsCallback',
