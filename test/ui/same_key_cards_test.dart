@@ -256,6 +256,29 @@ void main() {
       expect(find.text('Title b'), findsOneWidget);
     });
 
+    testWidgets('expanding the card that replaced a twin keeps that card '
+        'and does not bring the old one back', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'b');
+      // c replaces a under the same list key.
+      controller.issuesNotifier.value = [
+        _issue('c', id: 'layout', widget: 'Row', occurrence: 3),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await tester.pump();
+      await tapTitle(tester, 'c');
+      await tester.pump();
+      expect(find.text('Title a'), findsNothing);
+      expect(find.text('Title c'), findsOneWidget);
+      expect(expandedIssueCards(), findsNWidgets(2));
+      expect(tester.widget<IssueCard>(cardOf('c')).stale, isFalse);
+      expect(tester.widget<IssueCard>(cardOf('b')).stale, isFalse);
+    });
+
     testWidgets('hiding the live one of an expanded pair also hides its '
         'stale twin', (tester) async {
       controller.issuesNotifier.value = [
