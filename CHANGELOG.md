@@ -72,6 +72,10 @@
   and screen reader focus to the panel. More, the rows and the theme
   segments draw a 2 px `checkboxActive` outline while the keyboard has
   focus. A failed copy offers Try again.
+- Tab and Shift+Tab move focus, and Enter and Space activate the focused
+  control, inside the card and its pages. The overlay sits above the
+  app's `WidgetsApp`, so the app's default shortcuts never reached it; a
+  focused text field keeps Enter and Space.
 - The footer, the startup banner, the rebuild stats banner, the confidence
   caption and the frame-rate detail row are gone. Hidden issues, Copy
   snapshot, startup and rebuild stats moved into the More menu.

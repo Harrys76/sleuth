@@ -39,6 +39,7 @@ import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 /// and the denylist fails the audit: classify it here only when it is not
 /// a widget.
 const _nonWidgetTypes = <String>{
+  'ActivateIntent',
   'Alignment',
   'AlwaysStoppedAnimation',
   'AnimationController',
