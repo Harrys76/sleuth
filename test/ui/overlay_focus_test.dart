@@ -248,6 +248,51 @@ void main() {
       expect(app.field.hasPrimaryFocus, isTrue);
     });
 
+    testWidgets('above the app\'s MaterialApp, Tab moves through the menu '
+        'and Enter opens a row', (tester) async {
+      final (app, controller) = await _pumpHostApp(tester, config: config);
+      await openDashboard(tester, controller);
+      await openMoreMenu(tester);
+      bool focused(String row) =>
+          Focus.of(tester.element(moreMenuRow(row))).hasPrimaryFocus;
+      // Startup and Rebuild stats are disabled; Encyclopedia comes first.
+      expect(focused('Encyclopedia'), isTrue);
+
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.tab), isTrue);
+      await tester.pump();
+      expect(focused('Guide'), isTrue);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+      expect(focused('Encyclopedia'), isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.enter), isTrue);
+      await tester.pumpAndSettle();
+      expect(find.text('Sleuth Guide'), findsOneWidget);
+      expect(app.pressed, 0);
+    });
+
+    testWidgets('Space in an overlay text field is left to the field', (
+      tester,
+    ) async {
+      final (_, controller) = await _pumpHostApp(tester, config: config);
+      await openDashboard(tester, controller);
+      await openFromMoreMenu(tester, 'Encyclopedia');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(IssueEncyclopediaPage),
+          matching: find.byType(EditableText),
+        ),
+      );
+      await tester.pump();
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.space), isFalse);
+      expect(find.byType(IssueEncyclopediaPage), findsOneWidget);
+    });
+
     testWidgets('with the menu open, Escape closes the menu even when an '
         'app text field had focus, then the card', (tester) async {
       final (app, controller) = await _pumpHostApp(tester, config: config);

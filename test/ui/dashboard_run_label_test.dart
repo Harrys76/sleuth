@@ -24,6 +24,7 @@ void main() {
       bool debug = true,
       SleuthController? card,
       double textScale = 1,
+      SleuthThemeData theme = const SleuthThemeData(),
     }) async {
       tester.view.physicalSize = const Size(800, 800);
       tester.view.devicePixelRatio = 1;
@@ -41,10 +42,13 @@ void main() {
             minScaleFactor: textScale,
             maxScaleFactor: textScale,
             child: Scaffold(
-              body: FloatingIssuesCard(
-                controller: c,
-                onClose: () {},
-                isDebugMode: debug,
+              body: SleuthTheme(
+                data: theme,
+                child: FloatingIssuesCard(
+                  controller: c,
+                  onClose: () {},
+                  isDebugMode: debug,
+                ),
               ),
             ),
           ),
@@ -116,6 +120,21 @@ void main() {
       await tester.pump();
       expect(dot().color, theme.severityOkText);
       expect(dot().border, isNull);
+    });
+
+    testWidgets('a larger label font while open steps the header down', (
+      tester,
+    ) async {
+      await pumpCard(tester, width: 640);
+      expect(step(), 0);
+      // Same card, same scale; only the theme's label size changes.
+      await pumpCard(
+        tester,
+        width: 640,
+        theme: const SleuthThemeData().copyWith(fontXs: 40),
+      );
+      expect(tester.takeException(), isNull);
+      expect(step(), greaterThan(0));
     });
 
     testWidgets('reads Profile outside debug mode', (tester) async {

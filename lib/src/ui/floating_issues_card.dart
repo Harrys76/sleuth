@@ -726,13 +726,56 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// through `DismissIntent`). With a page or the Hidden list open the
   /// app holds no focus, and Escape always closes the layer.
   bool _onKeyEvent(KeyEvent event) {
-    if (!mounted ||
-        event is! KeyDownEvent ||
-        event.logicalKey != LogicalKeyboardKey.escape) {
-      return false;
+    if (!mounted || event is KeyUpEvent) return false;
+    if (event.logicalKey != LogicalKeyboardKey.escape) {
+      return _moveOrActivate(event);
     }
+    if (event is! KeyDownEvent) return false;
     if (openLayerDepth == 0 && !_menuOpen && _appTakesEscape()) return false;
     if (!closeInnermostLayer()) widget.onClose();
+    return true;
+  }
+
+  static final _activateKeys = {
+    LogicalKeyboardKey.enter,
+    LogicalKeyboardKey.numpadEnter,
+    LogicalKeyboardKey.space,
+  };
+
+  /// Tab and Shift+Tab move focus, and Enter and Space activate the
+  /// focused control, while focus is in the card. The overlay sits above
+  /// the app's `WidgetsApp`, whose default shortcuts therefore never reach
+  /// it; a card hosted inside a `WidgetsApp` leaves the keys to those
+  /// shortcuts. A focused text field keeps Enter and Space.
+  bool _moveOrActivate(KeyEvent event) {
+    final focus = FocusManager.instance.primaryFocus;
+    final focusContext = focus?.context;
+    if (focus == null ||
+        focusContext == null ||
+        !focusContext.mounted ||
+        focusContext.findAncestorStateOfType<_FloatingIssuesCardState>() !=
+            this ||
+        focusContext.findAncestorWidgetOfExactType<WidgetsApp>() != null) {
+      return false;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.tab) {
+      if (HardwareKeyboard.instance.isShiftPressed) {
+        focus.previousFocus();
+      } else {
+        focus.nextFocus();
+      }
+      return true;
+    }
+    if (event is! KeyDownEvent ||
+        !_activateKeys.contains(key) ||
+        focusContext.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return false;
+    }
+    const intent = ActivateIntent();
+    final action = Actions.maybeFind<ActivateIntent>(focusContext);
+    if (action == null || !action.isEnabled(intent)) return false;
+    Actions.invoke(focusContext, intent);
     return true;
   }
 
@@ -2335,8 +2378,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   /// Measured fit of the header title, cached for one set of inputs: a
-  /// drag rebuilds the header every frame.
-  ({double width, double scale, bool vm, bool debug})? _titleFitFor;
+  /// drag rebuilds the header every frame. The theme and the inherited
+  /// style are part of the key, since `Sleuth.updateTheme` can change a
+  /// font size or a spacing while the card is open.
+  ({
+    double width,
+    TextScaler scaler,
+    bool vm,
+    bool debug,
+    SleuthThemeData theme,
+    TextStyle inherited,
+  })?
+  _titleFitFor;
   ({bool title, _RunLabelSize label})? _titleFit;
 
   /// The paw, "Sleuth" and the run label, stepped down to the width the
@@ -2355,17 +2408,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     return LayoutBuilder(
       builder: (context, constraints) {
         final scaler = MediaQuery.textScalerOf(context);
+        // Text merges the inherited style (Material's letter spacing), so
+        // the measurement does too.
+        final inherited = DefaultTextStyle.of(context).style;
         final key = (
           width: constraints.maxWidth,
-          scale: scaler.scale(theme.fontBase),
+          scaler: scaler,
           vm: vmConnected,
           debug: debug,
+          theme: theme,
+          inherited: inherited,
         );
         var fit = _titleFit;
         if (fit == null || _titleFitFor != key) {
-          // Text merges the inherited style (Material's letter spacing),
-          // so the measurement does too.
-          final inherited = DefaultTextStyle.of(context).style;
           double measure(String text, TextStyle style) {
             final painter = TextPainter(
               text: TextSpan(text: text, style: inherited.merge(style)),
