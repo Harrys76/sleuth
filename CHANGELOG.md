@@ -96,7 +96,7 @@
 - The collapsed issue card is flat, with no source bar on its left edge.
   A severity mark replaces the emoji: a disc or triangle filled with the
   severity colour, with a white or near-black mark inside at 3:1 or more
-  against the fill. The title runs to 2 lines (3 above 1.3x text), or
+  against the fill; the discs carry a ring in the text colour. The title runs to 2 lines (3 above 1.3x text), or
   in full while the card is expanded.
 - One meta line under the title replaces the badges: category,
   confidence, "seen X of Y scans, label" and "N effects", led by the Jank

@@ -9,7 +9,9 @@ import 'sleuth_theme.dart';
 ///
 /// The fill is the bright [SleuthThemeData.severityColor]. The mark
 /// inside carries the meaning, so it keeps 3:1 against the fill: white
-/// where white reaches it, else a near-black.
+/// where white reaches it, else a near-black. The discs carry a ring in
+/// [SleuthThemeData.textPrimary], which also sets their edge apart from
+/// the card.
 class SleuthSeverityIcon extends StatelessWidget {
   const SleuthSeverityIcon({super.key, required this.severity, this.size = 16});
 
@@ -24,7 +26,8 @@ class SleuthSeverityIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fill = SleuthTheme.of(context).severityColor(severity);
+    final theme = SleuthTheme.of(context);
+    final fill = theme.severityColor(severity);
     return SizedBox.square(
       dimension: size,
       child: CustomPaint(
@@ -32,6 +35,7 @@ class SleuthSeverityIcon extends StatelessWidget {
           severity: severity,
           fill: fill,
           mark: markOn(fill),
+          ring: theme.textPrimary,
         ),
       ),
     );
@@ -43,11 +47,13 @@ class _SeverityIconPainter extends CustomPainter {
     required this.severity,
     required this.fill,
     required this.mark,
+    required this.ring,
   });
 
   final IssueSeverity severity;
   final Color fill;
   final Color mark;
+  final Color ring;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -55,6 +61,11 @@ class _SeverityIconPainter extends CustomPainter {
     canvas.scale(size.width / 24, size.height / 24);
     final body = Paint()
       ..color = fill
+      ..isAntiAlias = true;
+    final ringPaint = Paint()
+      ..color = ring
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
       ..isAntiAlias = true;
     Paint stroke(double width) => Paint()
       ..color = mark
@@ -65,7 +76,9 @@ class _SeverityIconPainter extends CustomPainter {
       ..isAntiAlias = true;
     switch (severity) {
       case IssueSeverity.critical:
-        canvas.drawCircle(const Offset(12, 12), 10, body);
+        canvas
+          ..drawCircle(const Offset(12, 12), 10, body)
+          ..drawCircle(const Offset(12, 12), 10, ringPaint);
         final line = stroke(2.6);
         canvas
           ..drawLine(const Offset(12, 7), const Offset(12, 13.2), line)
@@ -92,7 +105,9 @@ class _SeverityIconPainter extends CustomPainter {
           ..drawLine(const Offset(12, 9), const Offset(12, 14), line)
           ..drawLine(const Offset(12, 17), const Offset(12, 17.3), line);
       case IssueSeverity.ok:
-        canvas.drawCircle(const Offset(12, 12), 10, body);
+        canvas
+          ..drawCircle(const Offset(12, 12), 10, body)
+          ..drawCircle(const Offset(12, 12), 10, ringPaint);
         canvas.drawPath(
           Path()
             ..moveTo(7.5, 12.3)
@@ -105,5 +120,8 @@ class _SeverityIconPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SeverityIconPainter old) =>
-      old.severity != severity || old.fill != fill || old.mark != mark;
+      old.severity != severity ||
+      old.fill != fill ||
+      old.mark != mark ||
+      old.ring != ring;
 }
