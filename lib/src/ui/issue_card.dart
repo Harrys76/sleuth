@@ -188,8 +188,8 @@ class _IssueCardState extends State<IssueCard> {
   /// method. The freeze-above-on-expand contract in [FloatingIssuesCard]
   /// relies on [onExpandedChanged] firing on every state flip — a future
   /// "collapse all" or per-card auto-collapse that sets `_expanded =
-  /// false` directly without calling the callback would leak entries in
-  /// the host's `_expandedIndices` map. If you add such a feature, route
+  /// false` directly without calling the callback would leave the card
+  /// expanded in the host's frozen zone. If you add such a feature, route
   /// it through `_toggle` or a sibling that fires the callback. The one
   /// exception is [collapseEpoch]: there the host has already cleared
   /// every entry.
