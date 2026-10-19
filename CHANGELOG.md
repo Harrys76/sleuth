@@ -1,3 +1,43 @@
+## Unreleased
+
+### Added
+
+- Issues carry the number their detector reports with the detector's
+  warning and critical lines: `PerformanceIssue.measurement`, a final
+  class `IssueMeasurement` with `value`, `unit`, `warningAt`, `criticalAt`,
+  `window`, `warningStrict` and `criticalStrict`. A value reaches a line at
+  or above it, or only above it when that line is strict, and every
+  measurement is higher-is-worse. A line that is absent or not finite has
+  no flag. Issue JSON gains an optional `measurement` object; `windowMs`
+  keeps microseconds as a fraction.
+- Built-in detectors set the measurement on 43 issue families. Most titles
+  show the value; `raster_dominance` titles show the raster-to-UI ratio and
+  `heap_near_capacity` titles a percent of the budget instead. Six
+  families report a pattern rather than an amount and leave it null
+  (`always_repaint_painter`, `runtime_font_loading`, `expensive_gpu_nodes`,
+  `layout_bottleneck`, `sliver_fill_remaining_scrollable`,
+  `sliver_to_box_adapter_shrinkwrap`), as do `event_loop_stall` when the
+  VM gave no stall length and `non_lazy_shrinkwrap` when the child count is
+  unknown.
+- The issue's severity is the detector's and can disagree with the
+  severity the value reaches, in either direction. `rebuild_activity`,
+  `excessive_repaint` and the debug rates hold a severity until the value
+  stays low, and `heap_near_capacity` tolerates one sample under its line,
+  so a value can sit below the line of the severity shown. The debug rates
+  go critical only on the latest window while the value averages two, so a
+  warning can also carry a value above the critical line.
+- `jank_detected` and `sustained_jank` measure over the vsync span of the
+  frames they judged. The 240-frame buffer can make it shorter than 10 s,
+  capture mode judges the whole buffer, and frames without vsync times
+  give no window, as in `raster_dominance`. `rebuild_activity` and
+  `excessive_repaint` give the length of the VM window behind the share,
+  1 to 1.5 s.
+- `MeasurementUnit` is a class with constant instances instead of an enum,
+  so a later release can add a unit without breaking a `switch`. Units
+  compare by name, a custom detector can name its own, and a reader keeps
+  a unit it does not know by name instead of dropping the measurement.
+- `SimpleStructuralDetector.report` takes an optional `measurement`.
+
 ## 0.38.0
 
 More accurate detectors, a VM timeline read that no longer stalls the app,

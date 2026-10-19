@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/shader_jank_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
@@ -46,6 +48,14 @@ void main() {
         detector.issues.first.observationSource,
         ObservationSource.vmTimeline,
       );
+      expectMeasurement(
+        detector.issues.first,
+        value: 150,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: detector.thresholdMs.toDouble(),
+        criticalAt: detector.thresholdMs * 2.0,
+      );
+      expectSeverityMatchesMeasurement(detector.issues.first);
     });
 
     test('critical when shader duration >= 200ms', () {
@@ -54,6 +64,14 @@ void main() {
       );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
+      expectMeasurement(
+        detector.issues.first,
+        value: 250,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: detector.thresholdMs.toDouble(),
+        criticalAt: detector.thresholdMs * 2.0,
+      );
+      expectSeverityMatchesMeasurement(detector.issues.first);
     });
 
     test('stableId, confidence, and category', () {
@@ -145,6 +163,13 @@ void main() {
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
       expect(detector.issues.first.confidence, IssueConfidence.likely);
+      expectMeasurement(
+        detector.issues.first,
+        value: 110,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: 50,
+        criticalAt: 100,
+      );
     });
 
     // -----------------------------------------------------------------

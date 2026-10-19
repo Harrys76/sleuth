@@ -6,6 +6,7 @@ import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -332,6 +333,13 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
             debugCorrelation?.source ?? ObservationSource.structural,
         detectedAt: DateTime.now(),
         confidenceReason: confidenceReasonFor(effectiveConfidence),
+        measurement: IssueMeasurement(
+          value: ratio * 100,
+          unit: MeasurementUnit.percent,
+          warningAt: dirtyRatioThreshold * 100,
+          criticalAt: _criticalRatio * 100,
+          strict: true,
+        ),
       ),
     );
     _addHighlight(

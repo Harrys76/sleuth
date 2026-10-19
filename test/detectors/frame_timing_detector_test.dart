@@ -4,8 +4,11 @@ import 'dart:ui' show FrameTiming;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
+
+import '../helpers/measurement_matchers.dart';
 
 void main() {
   group('FrameTimingDetector', () {
@@ -97,6 +100,10 @@ void main() {
       test('jank inside the last 10 s keeps the card', () {
         jankThenQuietTicks(detector, 9);
         expect(hasJank(detector), isTrue);
+        // Judged from the first janky vsync at 0 to the tick at 9 s.
+        for (final issue in detector.issues) {
+          expect(issue.measurement!.window, const Duration(seconds: 9));
+        }
       });
 
       test('the card clears once the janky frames are more than 10 s older '
@@ -130,6 +137,14 @@ void main() {
             (i) => i.stableId == 'jank_detected',
           );
           expect(issue.extraTraceArgs!['observedJankCount'], '3');
+          expectMeasurement(
+            issue,
+            value: 30,
+            unit: MeasurementUnit.percent,
+            warningAt: FrameTimingDetector.jankPercentThreshold.toDouble(),
+            window: const Duration(seconds: 9),
+            strict: true,
+          );
         });
       });
 
@@ -185,6 +200,15 @@ void main() {
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
       expect(detector.issues.first.title, contains('Jank Detected'));
+      // 3 of 13 frames, rounded as the title rounds it.
+      expectMeasurement(
+        detector.issues.first,
+        value: (3 / 13 * 100).roundToDouble(),
+        unit: MeasurementUnit.percent,
+        warningAt: FrameTimingDetector.jankPercentThreshold.toDouble(),
+        window: null,
+      );
+      expect(detector.issues.first.title, contains('23%'));
     });
 
     test('no warning when exactly 15% janky', () {
@@ -233,6 +257,16 @@ void main() {
               .where((i) => i.stableId == 'jank_detected')
               .map((i) => i.severity),
           equals([IssueSeverity.warning]),
+        );
+        expectMeasurement(
+          detector.issues.singleWhere((i) => i.stableId == 'sustained_jank'),
+          value: 3,
+          unit: MeasurementUnit.frames,
+          criticalAt: FrameTimingDetector.sustainedSevereFrameCount.toDouble(),
+          window: null,
+        );
+        expectSeverityMatchesMeasurement(
+          detector.issues.singleWhere((i) => i.stableId == 'sustained_jank'),
         );
         // Existing assertion shape: at least one issue carries the
         // "Sustained Jank" prefix in title.
@@ -440,6 +474,21 @@ void main() {
           expect(thrashing.first.severity, IssueSeverity.warning);
           expect(thrashing.first.category, IssueCategory.raster);
           expect(thrashing.first.confidence, IssueConfidence.confirmed);
+          // The value is the consecutive count the title names; the line
+          // is the detector's 15-frame window.
+          final named = int.parse(
+            RegExp(
+              r'(\d+) consecutive frames',
+            ).firstMatch(thrashing.first.title)!.group(1)!,
+          );
+          expectMeasurement(
+            thrashing.first,
+            value: named.toDouble(),
+            unit: MeasurementUnit.frames,
+            warningAt: 15,
+            strict: false,
+          );
+          expect(named, greaterThanOrEqualTo(15));
         },
       );
 
@@ -526,6 +575,21 @@ void main() {
         expect(growth.first.severity, IssueSeverity.warning);
         expect(growth.first.category, IssueCategory.raster);
         expect(growth.first.title, contains('KB'));
+        // The value is the consecutive growth count the title names; the
+        // line is the detector's 30-frame window.
+        final named = int.parse(
+          RegExp(
+            r'over (\d+) frames',
+          ).firstMatch(growth.first.title)!.group(1)!,
+        );
+        expectMeasurement(
+          growth.first,
+          value: named.toDouble(),
+          unit: MeasurementUnit.frames,
+          warningAt: 30,
+          strict: false,
+        );
+        expect(named, greaterThanOrEqualTo(30));
       });
 
       test('growth counter resets on decrease', () {

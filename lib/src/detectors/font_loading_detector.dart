@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 
@@ -193,6 +194,12 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
               'Structural scan only. The scan found font families in the '
               'widget tree',
           detectedAt: DateTime.now(),
+          measurement: IssueMeasurement(
+            value: _customFonts.length.toDouble(),
+            unit: MeasurementUnit.count,
+            warningAt: maxFamilies.toDouble(),
+            strict: true,
+          ),
         ),
       );
     }

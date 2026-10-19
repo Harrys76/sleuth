@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'base_detector.dart';
+import 'issue_measurement.dart';
 import 'performance_issue.dart';
 import 'widget_highlight.dart';
 
@@ -150,6 +151,9 @@ abstract class SimpleStructuralDetector extends BaseDetector {
   /// [ObservationSource.structural] when your detector uses a different
   /// data source; most simple structural detectors can leave it at the
   /// default.
+  ///
+  /// Pass [measurement] when the finding compares a number against a
+  /// threshold, so the overlay and exports can show both.
   @protected
   void report({
     required String stableId,
@@ -161,6 +165,7 @@ abstract class SimpleStructuralDetector extends BaseDetector {
     required Element element,
     IssueConfidence confidence = IssueConfidence.possible,
     ObservationSource observationSource = ObservationSource.structural,
+    IssueMeasurement? measurement,
   }) {
     _issues.add(
       PerformanceIssue(
@@ -174,6 +179,7 @@ abstract class SimpleStructuralDetector extends BaseDetector {
         observationSource: observationSource,
         detectedAt: DateTime.now(),
         occurrenceId: identityHashCode(element),
+        measurement: measurement,
       ),
     );
 

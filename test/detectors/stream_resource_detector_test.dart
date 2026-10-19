@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/stream_resource_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:vm_service/vm_service.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 /// Builds a fake [AllocationProfile] with the given (className → instance
@@ -202,6 +204,39 @@ void main() {
       expect(issue.severity, IssueSeverity.warning);
       expect(issue.confidence, IssueConfidence.likely);
       expect(issue.category, IssueCategory.memory);
+      // StreamSubscription grows from 100 to 190 across the window, the
+      // largest single-class delta.
+      expectMeasurement(
+        issue,
+        value: 90,
+        unit: MeasurementUnit.count,
+        warningAt: detector.minDelta.toDouble(),
+      );
+      expectSeverityMatchesMeasurement(issue);
+    });
+
+    test('a configured minDelta is the measurement line', () async {
+      detector = StreamResourceDetector(
+        vmClientProvider: () => null,
+        heapGrowingStateProvider: () => heapGrowing,
+        clock: () => now,
+        sampleSeconds: 10,
+        minDelta: 40,
+        warmupSeconds: 20,
+        windowSize: 4,
+        allocationProfileFetcherForTest: () async {
+          profilesFetched++;
+          if (profileQueue.isEmpty) return null;
+          return profileQueue.removeAt(0);
+        },
+      );
+      await driveGrowthWindow();
+      expectMeasurement(
+        detector.issues.single,
+        value: 90,
+        unit: MeasurementUnit.count,
+        warningAt: 40,
+      );
     });
 
     test('emission stamps the canonical extraTraceArgs keys', () async {

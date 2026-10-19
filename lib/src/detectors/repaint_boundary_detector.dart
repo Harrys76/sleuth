@@ -5,6 +5,7 @@ import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -40,6 +41,9 @@ class RepaintBoundaryDetector extends BaseDetector
 
   /// Threshold: flag when a single scrollable has more boundaries than this.
   static const _excessiveBoundaryThreshold = 20;
+
+  /// More unprotected expensive widgets than this is critical.
+  static const _criticalUnprotectedCount = 3;
 
   /// Boundary-count frames, keyed by the element that pushed them.
   ///
@@ -228,7 +232,7 @@ class RepaintBoundaryDetector extends BaseDetector
       _issues.add(
         PerformanceIssue(
           stableId: 'missing_repaint_boundary',
-          severity: _found.length > 3
+          severity: _found.length > _criticalUnprotectedCount
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           category: IssueCategory.paint,
@@ -250,6 +254,13 @@ class RepaintBoundaryDetector extends BaseDetector
               : 'Structural scan only. Enable debug callbacks for paint '
                     'evidence',
           detectedAt: DateTime.now(),
+          measurement: IssueMeasurement(
+            value: _found.length.toDouble(),
+            unit: MeasurementUnit.count,
+            warningAt: 1,
+            criticalAt: _criticalUnprotectedCount.toDouble(),
+            criticalStrict: true,
+          ),
         ),
       );
     }
@@ -278,6 +289,12 @@ class RepaintBoundaryDetector extends BaseDetector
               'Structural scan only. The scrollable has too many boundaries',
           detectedAt: DateTime.now(),
           occurrenceId: finding.occurrenceId,
+          measurement: IssueMeasurement(
+            value: finding.count.toDouble(),
+            unit: MeasurementUnit.count,
+            warningAt: _excessiveBoundaryThreshold.toDouble(),
+            strict: true,
+          ),
         ),
       );
     }

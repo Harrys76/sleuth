@@ -85,6 +85,8 @@ import 'src/ui/sleuth_theme.dart';
 export 'src/ai/ai_providers.dart' show AiProviderException;
 export 'src/models/ai_chat_adapter.dart';
 export 'src/models/performance_issue.dart';
+export 'src/models/issue_measurement.dart'
+    show IssueMeasurement, MeasurementUnit;
 export 'src/models/frame_stats.dart';
 export 'src/models/frame_budget.dart';
 export 'src/models/frame_verdict.dart';

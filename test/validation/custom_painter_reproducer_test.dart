@@ -11,11 +11,13 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:sleuth/sleuth.dart' show IssueConfidence, ObservationSource;
+import 'package:sleuth/sleuth.dart'
+    show IssueConfidence, MeasurementUnit, ObservationSource;
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/custom_painter_detector.dart';
 
 import '../helpers/framework_painter_fixture.dart';
+import '../helpers/measurement_matchers.dart';
 import '_helpers/structural_reproducer_harness.dart';
 
 /// Always-repaint painter: self-comparison returns true. Reproduces the
@@ -61,6 +63,13 @@ void main() {
         const CustomPaint(painter: _AlwaysRepaintPainter(), size: Size(10, 10)),
       );
       expect(issues, hasStableId('always_repaint_painter'));
+      // A structural pattern with no number: no measurement.
+      expect(
+        issues
+            .firstWhere((i) => i.stableId == 'always_repaint_painter')
+            .measurement,
+        isNull,
+      );
     });
 
     testWidgets('always_repaint_painter: real Material and Cupertino '
@@ -144,6 +153,16 @@ void main() {
           const CustomPaint(painter: _WellBehavedPainter(), size: Size(10, 10)),
         );
         expect(issues, hasStableId('frequent_repaint_painter'));
+        // The rate is the busiest painter's 60 paints over the 1 s
+        // snapshot, against the 30/sec line; there is no critical line.
+        expectMeasurement(
+          issues.firstWhere((i) => i.stableId == 'frequent_repaint_painter'),
+          value: 60,
+          unit: MeasurementUnit.perSecond,
+          warningAt: 30,
+          window: const Duration(seconds: 1),
+          strict: true,
+        );
       },
     );
 

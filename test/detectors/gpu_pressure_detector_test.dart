@@ -18,11 +18,13 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/utils/fix_hint_builder.dart';
 import 'package:sleuth/src/utils/framework_types.dart' show cupertinoBlurOwner;
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
@@ -121,6 +123,14 @@ void main() {
           'took 25.0ms against 10.0ms of UI time. No frame timings arrived, '
           'so this comes from the VM timeline alone.',
         );
+        // Counted in one poll, so no window.
+        expectMeasurement(
+          issue,
+          value: 3,
+          unit: MeasurementUnit.frames,
+          warningAt: detector.minRasterDominantFrames.toDouble(),
+          criticalAt: detector.criticalRasterDominantFrames.toDouble(),
+        );
       });
 
       testWidgets('9 missed frames in one poll warn, 10 are critical', (
@@ -139,7 +149,16 @@ void main() {
         }
 
         expect(severityFor(9), IssueSeverity.warning);
+        expectSeverityMatchesMeasurement(detector.issues.single);
         expect(severityFor(10), IssueSeverity.critical);
+        expectMeasurement(
+          detector.issues.single,
+          value: 10,
+          unit: MeasurementUnit.frames,
+          warningAt: detector.minRasterDominantFrames.toDouble(),
+          criticalAt: detector.criticalRasterDominantFrames.toDouble(),
+        );
+        expectSeverityMatchesMeasurement(detector.issues.single);
       });
 
       testWidgets('severity follows the missed-frame count, not the raster '
@@ -334,6 +353,7 @@ void main() {
         expect(detector.issues.first.confidence, IssueConfidence.possible);
         expect(detector.issues.first.category, IssueCategory.raster);
         expect(detector.issues.first.title, contains('Expensive Render Nodes'));
+        expect(detector.issues.first.measurement, isNull);
       });
 
       testWidgets('skips the clip a transparency Material builds for '
@@ -703,6 +723,15 @@ void main() {
         expect(issue.extraTraceArgs!['lifecyclePhase'], 'steady');
         // Last qualifying frame: vsync 2 × 16667 + raster 20000.
         expect(issue.dedupIdentityMicros, 2 * 16667 + 20000);
+        // The count that sets severity, not the ratio in the title.
+        expectMeasurement(
+          issue,
+          value: 3,
+          unit: MeasurementUnit.frames,
+          warningAt: detector.minRasterDominantFrames.toDouble(),
+          criticalAt: detector.criticalRasterDominantFrames.toDouble(),
+          window: const Duration(seconds: 1),
+        );
         expect(
           detector.issues.where((i) => i.stableId == 'raster_dominance'),
           hasLength(1),
@@ -797,6 +826,14 @@ void main() {
         final issue = raster(await scan(tester));
         expect(issue, isNotNull);
         expect(issue!.dedupIdentityMicros, isNull);
+        // No timestamps, so no one-second span was judged.
+        expectMeasurement(
+          issue,
+          value: 3,
+          unit: MeasurementUnit.frames,
+          warningAt: detector.minRasterDominantFrames.toDouble(),
+          criticalAt: detector.criticalRasterDominantFrames.toDouble(),
+        );
       });
 
       testWidgets('a route epoch drops the dominant frames seen before it', (
@@ -834,6 +871,15 @@ void main() {
         final issue = raster(await scan(tester));
         expect(issue!.severity, IssueSeverity.critical);
         expect(issue.detail, startsWith('10 frames within one second'));
+        expectMeasurement(
+          issue,
+          value: 10,
+          unit: MeasurementUnit.frames,
+          warningAt: detector.minRasterDominantFrames.toDouble(),
+          criticalAt: detector.criticalRasterDominantFrames.toDouble(),
+          window: const Duration(seconds: 1),
+        );
+        expectSeverityMatchesMeasurement(issue);
       });
 
       testWidgets('9 dominant frames in one second → warning', (tester) async {
@@ -849,6 +895,8 @@ void main() {
         final issue = raster(await scan(tester));
         expect(issue!.severity, IssueSeverity.warning);
         expect(issue.detail, startsWith('5 frames within one second'));
+        expect(issue.measurement!.value, 5);
+        expectSeverityMatchesMeasurement(issue);
       });
 
       testWidgets('criticalRasterDominantFrames sets the critical count', (
@@ -861,7 +909,10 @@ void main() {
         feed([20000, 20000, 20000]);
         expect(raster(await scan(tester))!.severity, IssueSeverity.warning);
         feed([20000], startUs: 3 * 16667);
-        expect(raster(await scan(tester))!.severity, IssueSeverity.critical);
+        final critical = raster(await scan(tester))!;
+        expect(critical.severity, IssueSeverity.critical);
+        expect(critical.measurement!.criticalAt, 4);
+        expectSeverityMatchesMeasurement(critical);
       });
 
       testWidgets('frames with zero UI or zero raster are skipped', (

@@ -4,7 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/models/allocation_entry.dart';
 import 'package:sleuth/src/models/heap_sample.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+
+import '../helpers/measurement_matchers.dart';
 
 HeapSample _sample({
   int heapUsage = 50000000,
@@ -123,6 +126,22 @@ void main() {
       }
     }
 
+    test('a configured threshold is the measurement line', () {
+      // 10 young collections in the 10 s window: 60/min against 30/min.
+      feedCycles(detector, 10);
+      final issue = detector.issues.singleWhere(
+        (i) => i.stableId == 'gc_pressure',
+      );
+      expectMeasurement(
+        issue,
+        value: 60,
+        unit: MeasurementUnit.perMinute,
+        warningAt: 30,
+        window: const Duration(seconds: 10),
+        strict: true,
+      );
+    });
+
     test('default threshold is 240/min', () {
       expect(MemoryPressureDetector().gcRateThresholdPerMin, 240);
     });
@@ -169,6 +188,15 @@ void main() {
       expect(issue.confidence, IssueConfidence.likely);
       expect(issue.title, 'High GC Pressure: 246 young GCs/min');
       expect(issue.extraTraceArgs!['observedGcEvents'], '41');
+      // 41 young collections in the 10 s window, as a per-minute rate.
+      expectMeasurement(
+        issue,
+        value: 41 / 10 * 60,
+        unit: MeasurementUnit.perMinute,
+        warningAt: defaultDetector.gcRateThresholdPerMin.toDouble(),
+        window: const Duration(seconds: 10),
+      );
+      expectSeverityMatchesMeasurement(issue, strict: true);
     });
 
     test('old-generation sweeps and marking starts do not count toward the '
@@ -591,6 +619,25 @@ void main() {
           .where((i) => i.stableId == 'heap_growing')
           .toList();
       expect(heapIssues, hasLength(1));
+      // 512000 bytes every 500 ms: the regression slope is 1024000 B/s,
+      // and it matches the slope stamped for the capture pipeline.
+      expectMeasurement(
+        heapIssues.single,
+        value: 1024000,
+        unit: MeasurementUnit.bytesPerSecond,
+        warningAt: detector.growthThresholdBytesPerSec.toDouble(),
+        tolerance: 1,
+      );
+      expect(
+        heapIssues.single.measurement!.value,
+        closeTo(
+          double.parse(
+            heapIssues.single.extraTraceArgs!['observedSlopeBytesPerSec']!,
+          ),
+          0.5,
+        ),
+      );
+      expectSeverityMatchesMeasurement(heapIssues.single, strict: true);
     });
 
     test('heap_growing stableId, confidence, category correct', () {
@@ -844,6 +891,29 @@ void main() {
       expect(issue.extraTraceArgs!['observedRssBytes'], '${85 * mb}');
       expect(issue.extraTraceArgs!['memoryBudgetBytes'], '$budget');
       expect(issue.fixHint, contains('DevTools'));
+      expectMeasurement(
+        issue,
+        value: (85 * mb).toDouble(),
+        unit: MeasurementUnit.bytes,
+        criticalAt: 0.80 * budget,
+      );
+      expectSeverityMatchesMeasurement(issue);
+    });
+
+    test('a dip on the newest sample stays critical with the dip measured', () {
+      // Four of the last five samples over the line still fire, and the
+      // card reports the newest RSS, as its title does.
+      final d = budgetDetector();
+      feedGrowth(d, 26, rss: (i) => i == 25 ? 78 * mb : 85 * mb);
+      final issue = nearCapacity(d)!;
+      expect(issue.severity, IssueSeverity.critical);
+      expect(issue.title, contains('78%'));
+      expectMeasurement(
+        issue,
+        value: (78 * mb).toDouble(),
+        unit: MeasurementUnit.bytes,
+        criticalAt: 0.80 * budget,
+      );
     });
 
     test('heap_growing is evaluated before the budget rule in the same '
@@ -1433,6 +1503,16 @@ void main() {
             .where((i) => i.stableId == 'native_memory_growing')
             .toList();
         expect(nativeIssues, hasLength(1));
+        // RSS rises 1048576 bytes every 500 ms over a flat heap.
+        expectMeasurement(
+          nativeIssues.single,
+          value: 2 * 1048576,
+          unit: MeasurementUnit.bytesPerSecond,
+          warningAt: MemoryPressureDetector.nativeGrowthThresholdBytesPerSec
+              .toDouble(),
+          tolerance: 1,
+        );
+        expectSeverityMatchesMeasurement(nativeIssues.single, strict: true);
       },
     );
 

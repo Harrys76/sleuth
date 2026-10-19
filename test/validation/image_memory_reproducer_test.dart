@@ -41,9 +41,11 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/image_memory_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/decoded_image_helpers.dart';
+import '../helpers/measurement_matchers.dart';
 import '_helpers/structural_reproducer_harness.dart';
 
 /// A copy of [bytes] that decodes as its own image cache entry.
@@ -326,6 +328,14 @@ void main() {
       expect(issue.severity, IssueSeverity.warning);
       expect(issue.extraTraceArgs!['wastedBytes'], '1258020');
       expect(issue.extraTraceArgs!['imageCount'], '1');
+      expectMeasurement(
+        issue,
+        value: 1258020,
+        unit: MeasurementUnit.bytes,
+        warningAt: detector.minWastedBytes.toDouble(),
+        criticalAt: detector.criticalWastedBytes.toDouble(),
+      );
+      expectSeverityMatchesMeasurement(issue);
     });
 
     testWidgets('2294 px (the critical at leg) is critical at '
@@ -333,6 +343,14 @@ void main() {
       final issue = (await scanLeg(tester, 2294))!;
       expect(issue.severity, IssueSeverity.critical);
       expect(issue.extraTraceArgs!['wastedBytes'], '20966800');
+      expectMeasurement(
+        issue,
+        value: 20966800,
+        unit: MeasurementUnit.bytes,
+        warningAt: detector.minWastedBytes.toDouble(),
+        criticalAt: detector.criticalWastedBytes.toDouble(),
+      );
+      expectSeverityMatchesMeasurement(issue);
     });
   });
 }

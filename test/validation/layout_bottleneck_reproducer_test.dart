@@ -23,8 +23,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sleuth/src/detectors/layout_bottleneck_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '_helpers/structural_reproducer_harness.dart';
+
+/// The detector's private Wrap child threshold; critical is twice it.
+const _wrapLine = 30.0;
 
 void main() {
   group('LayoutBottleneckDetector reproducer', () {
@@ -98,6 +104,8 @@ void main() {
         reason: 'Cost of one intrinsic depends on subtree size.',
       );
       expect(issue.confidence.name, 'possible');
+      // Severity comes from nesting, not from a number: no measurement.
+      expect(issue.measurement, isNull);
     });
 
     // --- wrap_layout_bottleneck ----------------------------------------
@@ -111,6 +119,39 @@ void main() {
         Wrap(children: List.generate(31, (i) => SizedBox(key: ValueKey(i)))),
       );
       expect(issues, hasStableId('wrap_layout_bottleneck'));
+      final issue = issues.firstWhere(
+        (i) => i.stableId == 'wrap_layout_bottleneck',
+      );
+      expect(issue.severity, IssueSeverity.warning);
+      expectMeasurement(
+        issue,
+        value: 31,
+        unit: MeasurementUnit.count,
+        warningAt: _wrapLine,
+        criticalAt: _wrapLine * 2,
+      );
+    });
+
+    testWidgets('wrap_layout_bottleneck: Wrap with 61 children is critical '
+        'and measured at 61', (tester) async {
+      final detector = LayoutBottleneckDetector();
+      final issues = await scanAndIssues(
+        tester,
+        detector,
+        Wrap(children: List.generate(61, (i) => SizedBox(key: ValueKey(i)))),
+      );
+      final issue = issues.firstWhere(
+        (i) => i.stableId == 'wrap_layout_bottleneck',
+      );
+      expect(issue.severity, IssueSeverity.critical);
+      expectMeasurement(
+        issue,
+        value: 61,
+        unit: MeasurementUnit.count,
+        warningAt: _wrapLine,
+        criticalAt: _wrapLine * 2,
+      );
+      expectSeverityMatchesMeasurement(issue, strict: true);
     });
 
     testWidgets('wrap_layout_bottleneck: Wrap with 30 children silent '

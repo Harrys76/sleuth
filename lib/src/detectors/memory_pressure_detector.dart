@@ -8,6 +8,7 @@ import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../models/heap_sample.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import 'heap_floor_tracker.dart';
@@ -580,6 +581,13 @@ class MemoryPressureDetector extends BaseDetector
             if (pausePercent != null)
               'gcPausePercent': pausePercent.toStringAsFixed(2),
           },
+          measurement: IssueMeasurement(
+            value: youngPerMinute,
+            unit: MeasurementUnit.perMinute,
+            warningAt: gcRateThresholdPerMin.toDouble(),
+            window: _gcWindowDuration,
+            strict: true,
+          ),
           confidenceReason: 'Elevated VM GC frequency and object churn rate',
         ),
       );
@@ -720,6 +728,12 @@ class MemoryPressureDetector extends BaseDetector
           'observedFloorSlopeBytesPerSec': slope.toStringAsFixed(0),
           'floorPointCount': floor.runPoints.toString(),
         },
+        measurement: IssueMeasurement(
+          value: slope,
+          unit: MeasurementUnit.bytesPerSecond,
+          warningAt: growthThresholdBytesPerSec.toDouble(),
+          strict: true,
+        ),
         topAllocators: _lastTopAllocators,
         confidenceReason:
             'Heap level measured right after idle full collections, which '
@@ -762,6 +776,12 @@ class MemoryPressureDetector extends BaseDetector
           'heapGrowingLeg': 'sample',
           'observedSlopeBytesPerSec': slope.toStringAsFixed(0),
         },
+        measurement: IssueMeasurement(
+          value: slope,
+          unit: MeasurementUnit.bytesPerSecond,
+          warningAt: growthThresholdBytesPerSec.toDouble(),
+          strict: true,
+        ),
         topAllocators: _lastTopAllocators,
         confidenceReason:
             'Heap trend analysis and a sustained growth regression',
@@ -849,6 +869,11 @@ class MemoryPressureDetector extends BaseDetector
           'observedRssBytes': rss.toString(),
           'memoryBudgetBytes': budget.toString(),
         },
+        measurement: IssueMeasurement(
+          value: rss.toDouble(),
+          unit: MeasurementUnit.bytes,
+          criticalAt: line.toDouble(),
+        ),
         confidenceReason:
             'Measured process RSS above the budget the app configured, '
             'with sustained heap growth',
@@ -902,6 +927,12 @@ class MemoryPressureDetector extends BaseDetector
             fixEffort: effort,
             observationSource: ObservationSource.vmTimeline,
             detectedAt: _clock(),
+            measurement: IssueMeasurement(
+              value: slope,
+              unit: MeasurementUnit.bytesPerSecond,
+              warningAt: nativeGrowthThresholdBytesPerSec.toDouble(),
+              strict: true,
+            ),
             confidenceReason:
                 'Native memory trend analysis and a sustained growth '
                 'regression',
