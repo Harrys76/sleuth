@@ -279,6 +279,46 @@ void main() {
       expect(tester.widget<IssueCard>(cardOf('b')).stale, isFalse);
     });
 
+    testWidgets('a kept card\'s crosshair stays on through later updates', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'b');
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await tester.pump();
+
+      final target = find.descendant(
+        of: cardOf('b'),
+        matching: find.byIcon(Icons.my_location),
+      );
+      await tester.tap(target);
+      await tester.pump();
+      controller.selectedHighlightNotifier.value = const WidgetHighlight(
+        rect: Rect.fromLTWH(0, 0, 10, 10),
+        widgetName: 'Row',
+        severity: IssueSeverity.warning,
+        detectorName: 'LayoutDetector',
+        occurrenceId: 2,
+      );
+      await tester.pump();
+      expect(crosshairOn(tester, target), isTrue);
+
+      // A later report of the same issue keeps the selection.
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await tester.pump();
+      expect(crosshairOn(tester, target), isTrue);
+      expect(controller.selectedHighlightNotifier.value, isNotNull);
+      await tester.pump(const Duration(seconds: 5));
+    });
+
     testWidgets('hiding the live one of an expanded pair also hides its '
         'stale twin', (tester) async {
       controller.issuesNotifier.value = [
