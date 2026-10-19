@@ -177,6 +177,15 @@ void main() {
 
       detector.scanTree(context);
       expect([for (final i in detector.issues) i.occurrenceId], first);
+      // The issue names the widget its highlight names.
+      expect(
+        [for (final i in detector.issues) i.widgetName],
+        ['Placeholder', 'Placeholder'],
+      );
+      expect(
+        [for (final h in detector.highlights) h.widgetName],
+        ['Placeholder', 'Placeholder'],
+      );
     });
 
     test('dispose clears state and calls onDispose hook', () {
