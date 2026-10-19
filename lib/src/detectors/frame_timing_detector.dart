@@ -684,6 +684,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
       _issues.add(
         PerformanceIssue(
           stableId: 'sustained_jank',
+          observationSource: ObservationSource.frameTiming,
           severity: IssueSeverity.critical,
           category: IssueCategory.build,
           confidence: IssueConfidence.confirmed,
@@ -724,6 +725,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
       _issues.add(
         PerformanceIssue(
           stableId: 'jank_detected',
+          observationSource: ObservationSource.frameTiming,
           severity: IssueSeverity.warning,
           category: IssueCategory.build,
           confidence: IssueConfidence.confirmed,

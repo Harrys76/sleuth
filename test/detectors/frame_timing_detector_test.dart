@@ -258,6 +258,11 @@ void main() {
               .map((i) => i.severity),
           equals([IssueSeverity.warning]),
         );
+        // Both are timed from FrameTiming, which the card's Debug timing
+        // tag reads.
+        expect(detector.issues.map((i) => i.observationSource).toSet(), {
+          ObservationSource.frameTiming,
+        });
         expectMeasurement(
           detector.issues.singleWhere((i) => i.stableId == 'sustained_jank'),
           value: 3,
