@@ -8,6 +8,8 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/ai_chat_adapter.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 
+import 'package:sleuth/src/ui/more_menu.dart';
+
 import '../helpers/overlay_harness.dart';
 
 /// 48 x 48 for every tappable node, except the compact card-header
@@ -24,7 +26,7 @@ class SleuthTapTargetGuideline extends MinimumTapTargetGuideline {
   static const compactHeaderLabels = {
     'Show overlay',
     'Hide overlay',
-    'Toggle theme',
+    'More',
     'Minimize',
     'Maximize',
     'Restore',
@@ -191,6 +193,8 @@ void main() {
           await _expectGuidelines(tester, 'collapsed');
           await _open(tester, find.textContaining('Nested intrinsic layout'));
           await _expectGuidelines(tester, 'expanded');
+          await openMoreMenu(tester);
+          await _expectGuidelines(tester, 'menu');
           handle.dispose();
         });
       }
@@ -218,13 +222,12 @@ void main() {
         'encyclopedia',
       );
       await page(find.bySemanticsLabel('Ask AI about this issue'), 'AI chat');
-      await page(find.bySemanticsLabel('Guide'), 'guide');
+      await openMoreMenu(tester);
+      await page(moreMenuRow('Guide'), 'guide');
       controller.overlayUiState.hide('slow_request');
       await tester.pump();
-      await page(
-        find.bySemanticsLabel('1 hidden. Show hidden issues'),
-        'hidden issues',
-      );
+      await openMoreMenu(tester);
+      await page(moreMenuRow('Hidden issues'), 'hidden issues');
       handle.dispose();
     });
 
@@ -245,8 +248,8 @@ void main() {
   }
 
   for (final scale in [1.0, 1.3]) {
-    testWidgets('footer: the Hidden action keeps a 48 x 48 target and its '
-        'whole label on a 220 px card at ${scale}x', (tester) async {
+    testWidgets('menu: every row keeps a 48 px target and its whole label on '
+        'a 320 px screen at ${scale}x', (tester) async {
       final handle = tester.ensureSemantics();
       tester.view.physicalSize = const Size(320, 568);
       tester.view.devicePixelRatio = 1;
@@ -260,61 +263,53 @@ void main() {
         ),
       );
       controller.overlayUiState.setCardGeometry(
-        offset: const Offset(40, 0),
-        width: 220,
+        offset: const Offset(0, 0),
+        width: 320,
         height: 548,
         windowState: CardWindowState.normal,
       );
       controller.issuesNotifier.value = mixedOverlayIssues();
       controller.overlayUiState.hide('slow_request');
+      controller.suppressedCountNotifier.value = 3;
       await openDashboard(tester, controller);
+      await openMoreMenu(tester);
+      expect(tester.takeException(), isNull);
       final card = tester.getRect(
         find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
       );
+      final panel = tester.getRect(find.byType(SleuthMoreMenu));
+      expect(card.contains(panel.topLeft), isTrue);
+      expect(card.contains(panel.bottomRight - const Offset(1, 1)), isTrue);
 
-      for (final (suppressed, label) in [
-        (0, '1 hidden'),
-        (3, '1 hidden · 3 suppressed'),
+      for (final label in [
+        'Startup',
+        'Rebuild stats',
+        'Hidden issues',
+        'Encyclopedia',
+        'Guide',
+        'Copy snapshot',
       ]) {
-        controller.suppressedCountNotifier.value = suppressed;
+        final text = moreMenuRow(label);
+        await tester.ensureVisible(text);
         await tester.pump();
-        expect(tester.takeException(), isNull, reason: label);
-
-        final action = tester.getRect(
-          find.bySemanticsLabel('$label. Show hidden issues'),
-        );
-        expect(action.width, greaterThanOrEqualTo(48), reason: label);
-        expect(action.height, greaterThanOrEqualTo(48), reason: label);
-        expect(card.contains(action.topLeft), isTrue, reason: label);
-        expect(card.contains(action.bottomRight - const Offset(1, 1)), isTrue);
-
-        // The whole label is laid out, inside the action.
-        final text = find.text(label);
         expect(
           tester.renderObject<RenderParagraph>(text).didExceedMaxLines,
           isFalse,
           reason: label,
         );
-        final textRect = tester.getRect(text);
-        expect(action.left, lessThanOrEqualTo(textRect.left), reason: label);
-        expect(action.right, greaterThanOrEqualTo(textRect.right));
-        expect(action.top, lessThanOrEqualTo(textRect.top), reason: label);
-        expect(action.bottom, greaterThanOrEqualTo(textRect.bottom));
-
-        await expectLater(
-          tester,
-          meetsGuideline(_sleuthTapTargetGuideline),
-          reason: label,
+        final row = tester.getRect(
+          find.ancestor(of: text, matching: find.byType(InkWell)).first,
         );
-        await expectLater(
-          tester,
-          meetsGuideline(labeledTapTargetGuideline),
-          reason: label,
-        );
+        expect(row.height, greaterThanOrEqualTo(48), reason: label);
+        expect(row.width, panel.width, reason: label);
       }
+      await expectLater(tester, meetsGuideline(_sleuthTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
 
-      // It still opens the Hidden list.
-      await tester.tap(find.text('1 hidden · 3 suppressed'));
+      // The hidden count includes the config's suppressions, and the row
+      // opens the Hidden list.
+      expect(find.bySemanticsLabel('Hidden issues, 4'), findsOneWidget);
+      await tester.tap(moreMenuRow('Hidden issues'));
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
       expect(_routeNodes(tester), 1);

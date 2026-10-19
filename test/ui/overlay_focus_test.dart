@@ -7,6 +7,7 @@ import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/hidden_issues_page.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/issue_encyclopedia_page.dart';
+import 'package:sleuth/src/ui/more_menu.dart';
 
 import '../helpers/overlay_harness.dart';
 
@@ -60,7 +61,7 @@ Future<(_HostApp, SleuthController)> _pumpHostApp(
 }
 
 Future<void> _openGuide(WidgetTester tester) async {
-  await tester.tap(find.bySemanticsLabel('Guide'));
+  await openFromMoreMenu(tester, 'Guide');
   await tester.pumpAndSettle();
   expect(find.text('Sleuth Guide'), findsOneWidget);
 }
@@ -172,7 +173,7 @@ void main() {
       app.field.requestFocus();
       await tester.pump();
       await openDashboard(tester, controller);
-      await tester.tap(find.text('1 hidden'));
+      await openFromMoreMenu(tester, 'Hidden issues');
       await tester.pumpAndSettle();
       expect(find.byType(HiddenIssuesPage), findsOneWidget);
       expect(app.field.hasFocus, isFalse);
@@ -227,9 +228,102 @@ void main() {
       expect(find.byType(FloatingIssuesCard), findsNothing);
       expect(app.field.hasPrimaryFocus, isTrue);
     });
+
+    testWidgets('the More menu takes focus from the app, and closing the '
+        'dashboard gives it back', (tester) async {
+      final (app, controller) = await _pumpHostApp(tester, config: config);
+      app.field.requestFocus();
+      await tester.pump();
+      await openDashboard(tester, controller);
+      await openMoreMenu(tester);
+      expect(app.field.hasFocus, isFalse);
+      expect(_focusInOverlay(), isTrue);
+
+      // Closing the menu leaves focus on More.
+      await systemBack(tester);
+      expect(_focusInOverlay(), isTrue);
+
+      controller.overlayUiState.dashboardOpen = false;
+      await tester.pumpAndSettle();
+      expect(app.field.hasPrimaryFocus, isTrue);
+    });
+
+    testWidgets('with the menu open, Escape closes the menu even when an '
+        'app text field had focus, then the card', (tester) async {
+      final (app, controller) = await _pumpHostApp(tester, config: config);
+      app.field.requestFocus();
+      await tester.pump();
+      await openDashboard(tester, controller);
+      await openMoreMenu(tester);
+      expect(find.byType(SleuthMoreMenu), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+      expect(controller.overlayUiState.dashboardOpen, isTrue);
+
+      // Focus is on More now, not in the app's field, so Escape closes the
+      // card.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(controller.overlayUiState.dashboardOpen, isFalse);
+      expect(app.field.hasPrimaryFocus, isTrue);
+    });
   });
 
   group('Screen reader focus and list position', () {
+    testWidgets('opening the More menu moves screen reader focus to the '
+        'panel', (tester) async {
+      final focusEvents = _recordScreenReaderFocus(tester);
+      final controller = await pumpOverlay(tester, config: config);
+      await openDashboard(tester, controller);
+      focusEvents.clear();
+      await openMoreMenu(tester);
+      final panel = tester.getSemantics(
+        find.descendant(
+          of: find.byType(SleuthMoreMenu),
+          matching: find.bySemanticsLabel('More'),
+        ),
+      );
+      expect(focusEvents, [panel.id]);
+    });
+
+    testWidgets('Show all moves screen reader focus to the first chip', (
+      tester,
+    ) async {
+      final focusEvents = _recordScreenReaderFocus(tester);
+      final controller = await pumpOverlay(tester, config: config);
+      controller.issuesNotifier.value = [
+        _rebuildIssue(0),
+        PerformanceIssue(
+          severity: IssueSeverity.critical,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'Critical one',
+          detail: 'Detail',
+          fixHint: 'Fix',
+          stableId: 'critical_one',
+        ),
+      ];
+      await openDashboard(tester, controller);
+      final critical = find.bySemanticsLabel('1 critical, on');
+      await tester.ensureVisible(critical);
+      await tester.pump();
+      await tester.tap(critical);
+      await tester.pump();
+      expect(find.text('Showing 1 of 2'), findsOneWidget);
+
+      focusEvents.clear();
+      await tester.tap(find.text('Show all'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.textContaining('Showing'), findsNothing);
+      final first = tester.getSemantics(
+        find.bySemanticsLabel('1 critical, on'),
+      );
+      expect(focusEvents, [first.id]);
+    });
+
     testWidgets('opening the dashboard moves screen reader focus to the '
         'card header', (tester) async {
       final focusEvents = _recordScreenReaderFocus(tester);
@@ -291,8 +385,8 @@ void main() {
       expect(focusEvents, [card.id]);
     });
 
-    testWidgets('closing a page opened from the footer moves screen reader '
-        'focus to the header', (tester) async {
+    testWidgets('closing a page opened from the More menu moves screen '
+        'reader focus to More', (tester) async {
       final focusEvents = _recordScreenReaderFocus(tester);
       final controller = await pumpOverlay(tester, config: config);
       await openDashboard(tester, controller);
@@ -300,8 +394,8 @@ void main() {
       focusEvents.clear();
 
       await systemBack(tester);
-      final header = tester.getSemantics(find.bySemanticsLabel('Sleuth'));
-      expect(focusEvents, [header.id]);
+      final more = tester.getSemantics(find.bySemanticsLabel('More'));
+      expect(focusEvents, [more.id]);
     });
   });
 }

@@ -23,13 +23,13 @@ import '../demo_scaffold.dart';
 ///
 ///   1. Open the Sleuth overlay (paw icon).
 ///   2. Tap "Start Ticker" and wait a few seconds.
-///   3. The "Rebuilds: N across M widgets" banner at the top of the card
-///      counts every widget type built on this screen; tap it to expand
-///      the top three.
-///   4. Tap "See all M" to open the Rebuild stats page, every
-///      widget type sorted by count.
+///   3. Open the card's More menu: Rebuild stats counts every widget
+///      built on this screen.
+///   4. Tap Rebuild stats to open the Rebuild stats page, every widget
+///      type sorted by count.
 ///
-/// In debug mode the banner stays empty (it reads the profile timeline).
+/// In debug mode the row reads "No counts yet" (it reads the profile
+/// timeline).
 /// Sleuth instead counts a rebuild for the widget that started it: the
 /// dashboard's `ValueListenableBuilder<int>` and the metric chips'
 /// builders rebuild about 30 times a second together, the builder alert
@@ -104,9 +104,9 @@ class _RebuildHotspotDemoState extends State<RebuildHotspotDemo> {
           'subscribes to the tick notifier, so each tick rebuilds one '
           'widget.\n\n'
           'Tap "Start Ticker", open the Sleuth overlay (paw icon) and '
-          'wait a few seconds. In PROFILE mode the "Rebuilds" banner at the '
-          'top of the card counts the widgets built on this screen; expand '
-          'it and tap "See all" for the Rebuild stats page. In DEBUG '
+          'wait a few seconds. In PROFILE mode Rebuild stats in the card\'s '
+          'More menu counts the widgets built on this screen. Tap it for '
+          'the Rebuild stats page. In DEBUG '
           'mode Sleuth names the widget that starts each rebuild: a card '
           'for ValueListenableBuilder<int>, whose detail counts the '
           'dashboard widgets it rebuilt.',

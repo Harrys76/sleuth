@@ -186,7 +186,7 @@ void main() {
         // The overlay's own replacements are dropped.
         'SleuthListenableBuilder',
         '_ToastFade',
-        '_SeverityChipPill',
+        '_SeverityChip',
         '_TriggerLayout',
       ]) {
         FlutterTimeline.startSync(name);
