@@ -692,34 +692,54 @@ void main() {
       expect(shown().single.color, const SleuthThemeData().checkboxActive);
     });
 
-    testWidgets('the selected theme segment is outlined and filled; the '
-        'others show outlined icons', (tester) async {
+    testWidgets('the theme bar fills and bolds the current choice in one '
+        'outlined bar', (tester) async {
       await tester.pumpWidget(pumpMenuCard(controller));
       await openMoreMenu(tester);
       await tester.ensureVisible(moreMenuRow('Theme'));
       await tester.pump();
-      expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+      final theme = SleuthTheme.of(tester.element(moreMenuRow('Theme')));
+      BoxDecoration cellOf(Finder face) =>
+          tester
+                  .widget<DecoratedBox>(
+                    find
+                        .ancestor(of: face, matching: find.byType(DecoratedBox))
+                        .first,
+                  )
+                  .decoration
+              as BoxDecoration;
+      // No icon before the label, outline icons whatever the choice.
+      expect(
+        find.descendant(
+          of: find.byType(SleuthMoreMenu),
+          matching: find.byIcon(Icons.contrast),
+        ),
+        findsNothing,
+      );
+      final auto = tester.widget<Text>(find.text('Auto'));
+      expect(auto.style!.fontWeight, FontWeight.w600);
+      expect(
+        cellOf(find.text('Auto')).color,
+        theme.checkboxActive.withValues(alpha: 0.24),
+      );
+      expect(cellOf(find.text('Auto')).border, isNull);
 
       await tester.tap(find.bySemanticsLabel('Dark theme'));
       await tester.pump();
-      expect(find.byIcon(Icons.dark_mode), findsOneWidget);
-      expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
-      final segment = tester.widget<DecoratedBox>(
-        find
-            .ancestor(
-              of: find.byIcon(Icons.dark_mode),
-              matching: find.byType(DecoratedBox),
-            )
-            .first,
-      );
-      final border = (segment.decoration as BoxDecoration).border! as Border;
-      expect(border.top.width, 1.5);
+      final dark = find.byIcon(Icons.dark_mode_outlined);
+      expect(dark, findsOneWidget);
+      expect(find.byIcon(Icons.dark_mode), findsNothing);
+      expect(tester.widget<Icon>(dark).color, theme.textPrimary);
+      expect(cellOf(dark).color, theme.checkboxActive.withValues(alpha: 0.24));
+      expect(cellOf(find.text('Auto')).color, isNull);
       expect(
-        border.top.color,
-        SleuthTheme.of(
-          tester.element(find.byIcon(Icons.dark_mode)),
-        ).checkboxActive,
+        tester.widget<Text>(find.text('Auto')).style!.fontWeight,
+        FontWeight.normal,
+      );
+      // Each choice stays a 48 px target.
+      expect(
+        tester.getSize(find.bySemanticsLabel('Dark theme')),
+        const Size(48, 48),
       );
     });
 
