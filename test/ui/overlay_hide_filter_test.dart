@@ -788,6 +788,34 @@ void main() {
       await drainToasts(tester);
     });
 
+    testWidgets('a scan that only flips the row keeps the list mounted '
+        'and scrolled', (tester) async {
+      final warnings = [for (var i = 0; i < 20; i++) _issue('w$i')];
+      controller.issuesNotifier.value = [
+        ...warnings,
+        _issue('crit', severity: IssueSeverity.critical),
+      ];
+      await pumpCard(tester);
+      await tapChip(tester, 'critical');
+      expect(find.text('Showing 20 of 21'), findsOneWidget);
+
+      final scrollable = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      );
+      final state = tester.state<ScrollableState>(scrollable);
+      state.position.jumpTo(60);
+      await tester.pump();
+
+      // The critical issue goes away: the same cards show, the row goes.
+      controller.issuesNotifier.value = [...warnings];
+      await tester.pump();
+      expect(find.textContaining('Showing'), findsNothing);
+      expect(tester.state<ScrollableState>(scrollable), same(state));
+      expect(state.position.pixels, 60);
+      await drainToasts(tester);
+    });
+
     testWidgets('hidden cards do not narrow; the More menu counts them', (
       tester,
     ) async {
