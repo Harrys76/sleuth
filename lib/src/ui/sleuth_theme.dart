@@ -42,9 +42,10 @@ import '../models/performance_issue.dart';
 /// - **Confidence** (3): `confidenceConfirmed`, `confidenceLikely`, `confidencePossible`
 /// - **Source accents** (4): left border on issue cards — `sourceVmTimeline`, etc.
 /// - **Fix effort** (3): `effortQuick`, `effortMedium`, `effortInvolved`
-/// - **Surfaces** (9): backgrounds, borders, card states
+/// - **Surfaces** (10): backgrounds, borders, the card divider, card states
 /// - **Text hierarchy** (5): `textPrimary` through `textSubtle`
-/// - **Badge pairs** (6): bg + text for VM/FRAME/DBG badges
+/// - **Badge pairs** (6): bg + text for the former VM/FRAME/DBG badges,
+///   unused by the overlay
 /// - **Banner pairs** (8): bg + text for debug/instrumentation/success/warning
 /// - **Causal graph** (1): `effectsBadge` for downstream effects count
 /// - **Spacing** (6): `spacingXxs` through `spacingXl`
@@ -134,7 +135,7 @@ class SleuthThemeData {
     this.effortInvolved = const Color(0xFFEF4444),
 
     // ── Surfaces ──
-    this.cardBackground = const Color(0xF51E1E2E),
+    this.cardBackground = const Color(0xFF1E1E2E),
     this.pageBackground = const Color(0xFF1E1E2E),
     this.sectionBackground = const Color(0xFF252536),
     this.aboutBackground = const Color(0xFF111827),
@@ -228,7 +229,8 @@ class SleuthThemeData {
     this.radiusXxl = 12,
     this.radiusCard = 16,
     this.radiusFull = 20,
-  });
+    Color? cardDivider,
+  }) : _cardDivider = cardDivider;
 
   /// Explicit dark theme — identical to the default constructor.
   ///
@@ -258,7 +260,7 @@ class SleuthThemeData {
         sourceStructural: const Color(0xFF6B7280),
         sourceNone: const Color(0xFF4B5563),
         // Surfaces
-        cardBackground: const Color(0xF5FFFFFF),
+        cardBackground: const Color(0xFFFFFFFF),
         pageBackground: const Color(0xFFF9FAFB),
         sectionBackground: const Color(0xFFF3F4F6),
         aboutBackground: const Color(0xFFE5E7EB),
@@ -317,6 +319,7 @@ class SleuthThemeData {
         textTertiary: const Color(0xFFD1D5DB),
         textQuaternary: const Color(0xFFD1D5DB),
         border: const Color(0xFF9CA3AF),
+        cardDivider: const Color(0xFF9CA3AF),
         sourceStructural: const Color(0xFFD1D5DB),
         sourceNone: const Color(0xFF9CA3AF),
         badgeFillAlpha: 1,
@@ -328,12 +331,13 @@ class SleuthThemeData {
   const SleuthThemeData.highContrastLight()
     : this(
         brightness: Brightness.light,
-        cardBackground: const Color(0xF5FFFFFF),
+        cardBackground: const Color(0xFFFFFFFF),
         pageBackground: const Color(0xFFF9FAFB),
         sectionBackground: const Color(0xFFF3F4F6),
         aboutBackground: const Color(0xFFE5E7EB),
         fixHintBackground: const Color(0xFFEFF6FF),
         border: const Color(0xFF6B7280),
+        cardDivider: const Color(0xFF6B7280),
         cardDefault: const Color(0xFFE5E7EB),
         cardHighlighted: const Color(0xFFDBEAFE),
         cardJankFlash: const Color(0xFFFEE2E2),
@@ -378,11 +382,11 @@ class SleuthThemeData {
   /// Maps a Material [ColorScheme] onto the overlay's surfaces and text.
   ///
   /// `surface` → [pageBackground], `surfaceContainer` → [cardBackground]
-  /// (alpha 0xF5), `surfaceContainerHigh` → [sectionBackground],
+  /// (opaque), `surfaceContainerHigh` → [sectionBackground],
   /// `surfaceContainerHighest` → [cardDefault], `onSurface` →
   /// [textPrimary], `onSurfaceVariant` → [textSecondary] and
   /// [textTertiary], `outline` → [textQuaternary], `outlineVariant` →
-  /// [border], `primary` → [checkboxActive], [guideStepAccent] and
+  /// [border] and [cardDivider], `primary` → [checkboxActive], [guideStepAccent] and
   /// [aiChatUserBubbleBg], `onPrimary` → [aiChatUserBubbleText],
   /// `primaryContainer` → [cardHighlighted], `errorContainer` →
   /// [cardJankFlash]. Every other token, including the severity, category,
@@ -391,8 +395,8 @@ class SleuthThemeData {
   /// `scheme.surface` (which also sets [brightness]).
   ///
   /// Every pair the overlay draws on a surface is checked: text and
-  /// severity text at 4.5:1 (the translucent [cardBackground] over a black
-  /// and a white host), badges over their tint, the source accent strip at
+  /// severity text at 4.5:1 (on [cardBackground], also blended over a black
+  /// and a white host for a custom translucent card), badges over their tint, the source accent strip at
   /// 3:1. The text group (primary to quaternary) is tried in order: the
   /// scheme's, the scheme's with `onSurfaceVariant` for [textQuaternary],
   /// then the preset's. With each, a scheme surface that fails takes the
@@ -435,7 +439,7 @@ class SleuthThemeData {
     for (final text in textGroups) {
       final surfaces = <_SchemeSurface, Color>{
         _SchemeSurface.page: scheme.surface,
-        _SchemeSurface.card: scheme.surfaceContainer.withAlpha(0xF5),
+        _SchemeSurface.card: scheme.surfaceContainer.withAlpha(0xFF),
         _SchemeSurface.section: scheme.surfaceContainerHigh,
         _SchemeSurface.cardDefault: scheme.surfaceContainerHighest,
         _SchemeSurface.highlighted: scheme.primaryContainer,
@@ -450,6 +454,7 @@ class SleuthThemeData {
         cardHighlighted: surfaces[_SchemeSurface.highlighted],
         cardJankFlash: surfaces[_SchemeSurface.jankFlash],
         border: scheme.outlineVariant,
+        cardDivider: scheme.outlineVariant,
         textPrimary: text[0],
         textSecondary: text[1],
         textTertiary: text[2],
@@ -518,9 +523,10 @@ class SleuthThemeData {
   /// the high-contrast presets.
   final double badgeFillAlpha;
 
-  /// Reserved for a keyboard focus indicator: 2 in the high-contrast
-  /// presets, 0 otherwise. The overlay does not read it; its controls are
-  /// touch targets without keyboard focus and draw no ring.
+  /// Reserved for a wider focus indicator: 2 in the high-contrast presets,
+  /// 0 otherwise. The overlay does not read it. The controls that take
+  /// keyboard focus, the More button and the More menu's rows, draw a
+  /// 2 px [checkboxActive] outline in every preset.
   final double focusRingWidth;
 
   /// Width of the source accent on the left edge of an issue card.
@@ -573,6 +579,17 @@ class SleuthThemeData {
   final Color cardHighlighted;
   final Color cardJankFlash;
 
+  /// Line between the card's sections. In the dark preset [border] equals
+  /// [cardDefault], so a divider drawn in [border] vanishes against a
+  /// card; this token stays visible. When not set it is 0xFF4B5563 for a
+  /// dark [brightness] and 0xFFB4BAC4 for a light one.
+  Color get cardDivider =>
+      _cardDivider ??
+      (brightness == Brightness.dark
+          ? const Color(0xFF4B5563)
+          : const Color(0xFFB4BAC4));
+  final Color? _cardDivider;
+
   // ── Text hierarchy ──
   final Color textPrimary;
   final Color textSecondary;
@@ -581,11 +598,24 @@ class SleuthThemeData {
   final Color textSubtle;
 
   // ── Badge pairs ──
+  // The run label in the header replaced the VM+, FRAME and DBG badges.
+
+  /// Unused by the overlay; kept for custom themes.
   final Color badgeVmBg;
+
+  /// Unused by the overlay; kept for custom themes.
   final Color badgeVmText;
+
+  /// Unused by the overlay; kept for custom themes.
   final Color badgeFrameBg;
+
+  /// Unused by the overlay; kept for custom themes.
   final Color badgeFrameText;
+
+  /// Unused by the overlay; kept for custom themes.
   final Color badgeDbgBg;
+
+  /// Unused by the overlay; kept for custom themes.
   final Color badgeDbgText;
 
   // ── Banner pairs ──
@@ -909,6 +939,7 @@ class SleuthThemeData {
     Color? effortMedium,
     Color? effortInvolved,
     Color? cardBackground,
+    Color? cardDivider,
     Color? pageBackground,
     Color? sectionBackground,
     Color? aboutBackground,
@@ -1009,6 +1040,7 @@ class SleuthThemeData {
       effortMedium: effortMedium ?? this.effortMedium,
       effortInvolved: effortInvolved ?? this.effortInvolved,
       cardBackground: cardBackground ?? this.cardBackground,
+      cardDivider: cardDivider ?? _cardDivider,
       pageBackground: pageBackground ?? this.pageBackground,
       sectionBackground: sectionBackground ?? this.sectionBackground,
       aboutBackground: aboutBackground ?? this.aboutBackground,

@@ -6139,8 +6139,8 @@ class SleuthConfig {
   /// Sleuth installs a `FlutterTimeline.debugCollect()` drain that records
   /// per-widget rebuild counts and attributes them to the active
   /// `RouteSession`'s `rebuildCountsByType` map. These counts power the
-  /// always-on `_RebuildStatsBanner` panel on the floating issues card
-  /// and the "See all N →" drilldown page (`RebuildStatsPage`).
+  /// More menu's Rebuild stats row on the floating issues card and its
+  /// drilldown page (`RebuildStatsPage`).
   /// **Note:** profile-mode counts include initial widget inflations as
   /// well as `setState`-driven rebuilds (the Flutter framework emits the
   /// same `BUILD` timeline scope for both), so route entry shows

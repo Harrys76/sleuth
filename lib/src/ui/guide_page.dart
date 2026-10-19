@@ -364,9 +364,19 @@ class _GuidePageState extends State<GuidePage>
           theme,
           '\u{1F4CA}',
           'FPS display',
-          'The number on the trigger button and the card status row. Its '
-              'color follows your target frame rate. It is green at or above '
-              'about 83%, amber at or above 50% and red below that.',
+          'The number on the trigger button, coloured by your target frame '
+              'rate: green at or above about 83%, amber at or above 50% and '
+              'red below that. The status row repeats it at its end.',
+        ),
+        _infoTile(
+          theme,
+          '\u{1F7E2}',
+          'Run label',
+          'The header names the build mode and whether Sleuth reached the '
+              'VM service, for example "Debug · VM" or "Profile · no VM". '
+              'Without the VM, the checks that need it are off and some run '
+              'in part. The dot is green with the VM and amber without it. '
+              'A narrow card shortens the text, down to the dot alone.',
         ),
         _infoTile(
           theme,
@@ -374,17 +384,16 @@ class _GuidePageState extends State<GuidePage>
           'Severity dot',
           'Red means at least one critical issue. Amber means warnings only. '
               'Green means no issues. Hidden cards and severities turned off '
-              'in the summary bar do not count.',
+              'in the status row do not count.',
         ),
         _infoTile(
           theme,
           '\u{2705}',
-          'Summary bar',
-          'Each severity count is also a filter. Tap one to show or hide '
-              'that severity. One always stays on. The right side shows '
-              'evidence quality (confirmed and heuristic counts), or '
-              '"Showing X of Y" while a filter or a hidden card narrows the '
-              'list.',
+          'Severity chips',
+          'The chips under the header count the cards of each severity and '
+              'filter the list. Tap one to show or hide that severity. One '
+              'always stays on. While one is off, "Showing X of Y" sits '
+              'above the list, with Show all.',
         ),
         _infoTile(
           theme,
@@ -396,13 +405,11 @@ class _GuidePageState extends State<GuidePage>
         _infoTile(
           theme,
           '\u{1F501}',
-          'Rebuild stats panel',
-          'An always-on row above the issue list, in profile mode with '
-              'enableDeepDebugInstrumentation. It shows total rebuilds and '
-              'the unique widget count. Tap it to expand the top 3 widgets '
-              'with live counts and bar fills. Pause freezes the snapshot and '
-              'Resume unfreezes it. See all N opens the full drilldown. '
-              'Counts include initial widget inflations.',
+          'Rebuild stats',
+          'In profile mode with enableDeepDebugInstrumentation, the More '
+              'menu shows the rebuilds counted on this route. Tap Rebuild '
+              'stats for every widget type, sorted by count, as they were '
+              'when you tapped. Counts include initial widget inflations.',
         ),
         _infoTile(
           theme,
@@ -410,9 +417,9 @@ class _GuidePageState extends State<GuidePage>
           'Copy and hide',
           'Expand an issue to copy its details as plain text, or long-press '
               'the title to copy them. You can also hide the card, with Undo. '
-              'The footer shows how many cards are hidden. Tap it to restore '
-              'them. Hiding affects only the overlay. Exports, snapshots and '
-              'MCP still include the issue.',
+              'Hidden issues in the More menu counts them and opens the list '
+              'where you restore them. Hiding affects only the overlay. '
+              'Exports, snapshots and MCP still include the issue.',
         ),
         _infoTile(
           theme,
@@ -432,9 +439,9 @@ class _GuidePageState extends State<GuidePage>
         _infoTile(
           theme,
           '\u{1F4CB}',
-          'Export',
-          'Tap the export button in the footer to copy a JSON snapshot '
-              'of the current session to your clipboard.',
+          'Copy snapshot',
+          'Copy snapshot in the More menu copies a JSON snapshot of the '
+              'current session to your clipboard.',
         ),
       ],
     );
@@ -988,8 +995,8 @@ class _GuidePageState extends State<GuidePage>
         ),
         _tipRow(
           theme,
-          Icons.ios_share,
-          'Export a JSON snapshot to share with teammates or attach to bug reports.',
+          Icons.content_copy,
+          'Copy a JSON snapshot from the More menu to share with teammates or attach to bug reports.',
         ),
         _tipRow(
           theme,
@@ -1031,7 +1038,7 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.contrast,
-          'The theme button cycles System, Light and Dark. Increase '
+          'Theme in the More menu picks Auto, Light or Dark. Increase '
           'Contrast picks the high-contrast theme.',
         ),
         _tipRow(

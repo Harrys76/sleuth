@@ -59,7 +59,7 @@ List<Object?> _recordFrameworkBackRequests(WidgetTester tester) {
 }
 
 Future<void> _openEncyclopedia(WidgetTester tester) async {
-  await tester.tap(find.bySemanticsLabel('Encyclopedia'));
+  await openFromMoreMenu(tester, 'Encyclopedia');
   await tester.pumpAndSettle();
   expect(find.byType(IssueEncyclopediaPage), findsOneWidget);
 }
@@ -116,11 +116,27 @@ void main() {
       expect(controller.overlayUiState.dashboardOpen, isTrue);
     });
 
+    testWidgets('More menu open: back closes the menu, then the card', (
+      tester,
+    ) async {
+      final controller = await pumpOverlay(tester);
+      await openDashboard(tester, controller);
+      await openMoreMenu(tester);
+
+      expect(await systemBack(tester), isTrue);
+      expect(find.byIcon(Icons.more_horiz), findsOneWidget);
+      expect(moreMenuRow('Guide'), findsNothing);
+      expect(controller.overlayUiState.dashboardOpen, isTrue);
+
+      expect(await systemBack(tester), isTrue);
+      expect(controller.overlayUiState.dashboardOpen, isFalse);
+    });
+
     testWidgets('Hidden list open: back closes only the list', (tester) async {
       final controller = await pumpOverlay(tester);
       controller.overlayUiState.hide('some_issue');
       await openDashboard(tester, controller);
-      await tester.tap(find.text('1 hidden'));
+      await openFromMoreMenu(tester, 'Hidden issues');
       await tester.pumpAndSettle();
       expect(find.byType(HiddenIssuesPage), findsOneWidget);
 
@@ -361,7 +377,7 @@ void main() {
       final controller = await pumpOverlay(tester);
       await openDashboard(tester, controller);
       // Drag the card by its title bar.
-      await tester.drag(find.text('Sleuth'), const Offset(-120, -60));
+      await tester.drag(find.byIcon(Icons.pets), const Offset(-120, -60));
       await tester.pumpAndSettle();
       final moved = controller.overlayUiState.cardOffset;
       expect(moved, isNotNull);
@@ -369,10 +385,10 @@ void main() {
       await systemBack(tester);
       await openDashboard(tester, controller);
       expect(controller.overlayUiState.cardOffset, moved);
-      final cardTopLeft = tester.getTopLeft(find.text('Sleuth'));
+      final cardTopLeft = tester.getTopLeft(find.byIcon(Icons.pets));
       await systemBack(tester);
       await openDashboard(tester, controller);
-      expect(tester.getTopLeft(find.text('Sleuth')), cardTopLeft);
+      expect(tester.getTopLeft(find.byIcon(Icons.pets)), cardTopLeft);
     });
   });
 }

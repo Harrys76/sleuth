@@ -169,6 +169,24 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
       3,
     );
   }
+  for (final s in ['cardBackground/black', 'cardBackground/white']) {
+    for (final severity in IssueSeverity.values) {
+      add(
+        'off ${severity.name} chip outline on $s',
+        t.textQuaternary,
+        surfaces[s]!,
+        3,
+      );
+    }
+    add('run label VM dot on $s', t.severityOkText, surfaces[s]!, 3);
+    add(
+      'focus outline and selected theme segment on $s',
+      t.checkboxActive,
+      surfaces[s]!,
+      3,
+    );
+    add('run label no-VM dot on $s', t.severityWarningText, surfaces[s]!, 3);
+  }
   add('trigger icon on critical', t.triggerIconColor, t.severityCritical, 3);
   add(
     'trigger icon on warning',
@@ -223,6 +241,42 @@ void main() {
         expect(_failures(preset.value), isEmpty);
       });
     }
+
+    // The divider only separates regions that differ anyway, so it is
+    // decorative and below 3:1 outside the high-contrast presets. The
+    // ratios are pinned so a token change is a decision.
+    const dividerRatios = {
+      'dark': (onCard: 2.17, onCardDefault: 1.36),
+      'light': (onCard: 1.95, onCardDefault: 1.58),
+      'highContrastDark': (onCard: 6.46, onCardDefault: 4.06),
+      'highContrastLight': (onCard: 4.83, onCardDefault: 3.90),
+    };
+    for (final preset in _presets.entries) {
+      test('${preset.key}: cardDivider ratios are pinned', () {
+        final t = preset.value;
+        final pinned = dividerRatios[preset.key]!;
+        expect(
+          wcagContrast(t.cardDivider, composite(t.cardBackground, _black)),
+          closeTo(pinned.onCard, 0.01),
+        );
+        expect(
+          wcagContrast(t.cardDivider, t.cardDefault),
+          closeTo(pinned.onCardDefault, 0.01),
+        );
+        // In dark, border equals cardDefault; the divider must not.
+        expect(t.cardDivider, isNot(t.cardDefault));
+      });
+    }
+
+    test('cardBackground is opaque in every preset and fromSeed', () {
+      for (final t in [
+        ..._presets.values,
+        for (final b in Brightness.values)
+          SleuthThemeData.fromSeed(const Color(0xFF6750A4), brightness: b),
+      ]) {
+        expect(t.cardBackground.a, 1);
+      }
+    });
 
     for (final preset in _presets.entries) {
       test('${preset.key}: the trigger badge colour is opaque', () {
@@ -492,7 +546,7 @@ void main() {
       // Surfaces
       expect(t.pageBackground, const Color(0xFF1E1E2E));
       expect(t.sectionBackground, const Color(0xFF252536));
-      expect(t.cardBackground, const Color(0xF51E1E2E));
+      expect(t.cardBackground, const Color(0xFF1E1E2E));
       expect(t.border, const Color(0xFF374151));
       // Text hierarchy
       expect(t.textPrimary, const Color(0xFFFFFFFF));

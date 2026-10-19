@@ -752,7 +752,7 @@ class DebugInstrumentationCoordinator {
   /// uses Sleuth-named equivalents listed below, so app-owned rebuilds of
   /// those widgets are counted.
   static const Set<String> _frameworkWidgetDenyList = {
-    // --- Flutter framework widgets used in lib/src/ui/ (53) ---
+    // --- Flutter framework widgets used in lib/src/ui/ (52) ---
     'Align',
     'AnimatedBuilder',
     'AnimatedRotation',
@@ -803,20 +803,13 @@ class DebugInstrumentationCoordinator {
     'Stack',
     'Text',
     'TextField',
-    'TweenAnimationBuilder',
     'ValueListenableBuilder',
     'Wrap',
     // --- Sleuth overlay widget classes (43) ---
     'FloatingIssuesCard',
     '_StatusRow',
-    '_ThroughputDetailRow',
-    '_FpsCell',
     '_DebugModeBanner',
     '_WarningBanners',
-    '_CardFooter',
-    '_IssuesSummaryBar',
-    '_StartupMetricsBanner',
-    '_RebuildStatsBanner',
     'TriggerButton',
     'SleuthOverlay',
     'HighlightOverlay',
@@ -843,13 +836,19 @@ class DebugInstrumentationCoordinator {
     '_HiddenRow',
     '_TextAction',
     '_SeverityChip',
-    '_SeverityChipPill',
     '_EmptyListMessage',
     '_ToastFade',
     '_TriggerLayout',
     'SleuthListenableBuilder',
     '_AppSemanticsBlocker',
-    '_LeadTrailLine',
+    'SleuthMoreMenu',
+    '_MenuRow',
+    '_ThemeRow',
+    '_FpsText',
+    '_RunLabel',
+    '_ShowingRow',
+    'SleuthFocusInkWell',
+    'SleuthFocusOutline',
   };
 
   void _handleRebuildDirtyWidget(Element element, bool builtOnce) {
