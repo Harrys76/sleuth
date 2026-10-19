@@ -1054,12 +1054,10 @@ void main() {
       expect(ids0(result), ['A', 'B', 'C', 'D', 'E']);
     });
 
-    test('frozen-zone entry disappeared from visible is dropped silently', () {
+    test('an expanded entry that disappeared from visible keeps its place', () {
       // Snapshot said [A, B, C] with B expanded at index 1. On the next
       // frame B is gone (downstream absorbed, detector evicted, etc.).
-      // B must drop silently; A and C stay frozen; `_pruneStaleState`
-      // would remove the expand entry on its next sweep but the render
-      // must not throw in the interim.
+      // The user is reading B, so it stays where it was.
       final snapshot = List<PerformanceIssue>.of(abc);
       final rankerFlow = [_pinIssue(id: 'A'), _pinIssue(id: 'C')];
       final result = applyFreezeZone(
@@ -1067,7 +1065,19 @@ void main() {
         orderSnapshot: snapshot,
         expandedIndices: const {'B': 1},
       );
-      expect(ids0(result), ['A', 'C']);
+      expect(ids0(result), ['A', 'B', 'C']);
+    });
+
+    test('a collapsed frozen entry that disappeared is dropped', () {
+      // A is above the expanded B and leaves; only expanded cards stay.
+      final snapshot = List<PerformanceIssue>.of(abc);
+      final rankerFlow = [_pinIssue(id: 'B'), _pinIssue(id: 'C')];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'B': 1},
+      );
+      expect(ids0(result), ['B', 'C']);
     });
 
     test('freezeEnd clamped when snapshot shorter than captured index '
@@ -1093,9 +1103,9 @@ void main() {
         orderSnapshot: snapshot,
         expandedIndices: const {'C': 2},
       );
-      // C disappeared; with the surviving identity 'A' the result is
-      // just [A]. No throw, no corruption.
-      expect(ids0(result), ['A']);
+      // B disappeared and is dropped; C disappeared but is expanded, so
+      // it stays. No throw, no corruption.
+      expect(ids0(result), ['A', 'C']);
     });
 
     test('flow section preserves ranker order for non-frozen items', () {

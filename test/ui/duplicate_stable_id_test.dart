@@ -185,14 +185,21 @@ void main() {
     expect(rowOrder(tester, names), ['A', 'other', 'B', 'new']);
     expect(expandedIssueCards(), findsNWidgets(2));
 
-    // One of the pair leaves; the other stays expanded.
+    // One of the pair leaves: it stays expanded, marked, until it is
+    // collapsed.
     controller.issuesNotifier.value = [
       _issue('dup', widget: 'B'),
       _issue('other'),
     ];
     await tester.pump();
     expect(tester.takeException(), isNull);
+    expect(expandedIssueCards(), findsNWidgets(2));
+    expect(find.byType(IssueCard), findsNWidgets(3));
+    expect(find.text('Not detected right now'), findsOneWidget);
+
+    await tapTitle(tester, 'A');
     expect(expandedIssueCards(), findsOneWidget);
+    expect(find.text('Title A'), findsNothing);
     expect(find.byType(IssueCard), findsNWidgets(2));
   });
 

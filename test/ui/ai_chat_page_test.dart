@@ -2416,8 +2416,8 @@ void main() {
         makeIssue(stableId: 'rebuild_activity', title: 'Rebuilds'),
       ];
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.tap(find.text('Rebuilds'));
-      await tester.pump(const Duration(milliseconds: 600));
+      // The card stayed expanded while its issue was gone.
+      expect(find.text('Not detected right now'), findsNothing);
       await tester.ensureVisible(
         find.bySemanticsLabel('Ask AI about this issue'),
       );

@@ -9,6 +9,7 @@ import '../models/recurrence_trend.dart';
 import '../utils/issue_metadata_builder.dart';
 import 'focus_ink_well.dart';
 import 'motion.dart';
+import 'severity_icon.dart';
 import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
@@ -49,6 +50,7 @@ class IssueCard extends StatefulWidget {
     this.onHide,
     this.collapseEpoch = 0,
     this.isNew = false,
+    this.stale = false,
   }) : assert(
          suppressedParentCount >= 0,
          'suppressedParentCount must be at least 0. A negative value '
@@ -134,6 +136,11 @@ class IssueCard extends StatefulWidget {
   /// The card just entered the list: the meta line leads with a New tag
   /// and the card's semantics carry the hint "New".
   final bool isNew;
+
+  /// The issue is no longer reported. The host keeps an expanded card
+  /// until it is collapsed; its meta line leads with "Not detected right
+  /// now".
+  final bool stale;
 
   @override
   State<IssueCard> createState() => _IssueCardState();
@@ -490,6 +497,18 @@ class _IssueCardState extends State<IssueCard> {
     InlineSpan inline(Widget child) =>
         WidgetSpan(alignment: PlaceholderAlignment.middle, child: child);
     final spans = <InlineSpan>[
+      if (widget.stale)
+        inline(
+          Padding(
+            padding: EdgeInsets.only(right: theme.spacingSm),
+            child: _tag(
+              theme,
+              'Not detected right now',
+              fill: theme.badgeFill(theme.textSecondary),
+              text: theme.textPrimary,
+            ),
+          ),
+        ),
       if (widget.isNew)
         inline(
           Padding(
@@ -532,6 +551,7 @@ class _IssueCardState extends State<IssueCard> {
     // Read as one phrase; the separators and the New tag (in the card's
     // hint) are left out.
     final spoken = [
+      if (widget.stale) 'Not detected right now',
       if (widget.jankCorrelated) 'Jank',
       _categoryName(issue.category),
       if (debugTiming) 'Debug timing' else _confidenceName(issue.confidence),
@@ -1166,22 +1186,21 @@ class _IssueCardState extends State<IssueCard> {
     );
   }
 
-  /// Severity icon in the severity's text colour (the accent colours fall
-  /// below 3:1 on the card fills). Announced as the severity name.
+  /// The severity mark, announced as the severity name.
   Widget _severityIcon(
     IssueSeverity severity,
     SleuthThemeData theme, {
     double size = 14,
   }) {
-    final (icon, name) = switch (severity) {
-      IssueSeverity.critical => (Icons.error, 'critical'),
-      IssueSeverity.warning => (Icons.warning, 'warning'),
-      IssueSeverity.ok => (Icons.check_circle, 'ok'),
+    final name = switch (severity) {
+      IssueSeverity.critical => 'critical',
+      IssueSeverity.warning => 'warning',
+      IssueSeverity.ok => 'ok',
     };
     return Semantics(
       label: name,
       excludeSemantics: true,
-      child: Icon(icon, size: size, color: theme.severityTextColor(severity)),
+      child: SleuthSeverityIcon(severity: severity, size: size),
     );
   }
 

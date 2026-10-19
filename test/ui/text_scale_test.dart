@@ -130,6 +130,9 @@ void main() {
           await _settle(tester, 'expand ${issue.stableId}');
           await _tapFinder(tester, find.text('About this detection'));
           await _settle(tester, 'about ${issue.stableId}');
+          // An expanded card outlives its issue; collapse it first.
+          await _tapFinder(tester, find.text(issue.title));
+          await _settle(tester, 'collapse ${issue.stableId}');
         }
         controller.issuesNotifier.value = [issues.first];
         await _settle(tester, 'root only');
@@ -446,15 +449,14 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('a maximized card offers no resize actions', (tester) async {
+    testWidgets('a maximized card offers the resize actions', (tester) async {
       final handle = tester.ensureSemantics();
       await pumpView(
         tester,
         const Size(400, 800),
         windowState: CardWindowState.maximized,
       );
-      // The grip draws its dots only.
-      expect(find.bySemanticsLabel('Resize card'), findsNothing);
+      expect(find.bySemanticsLabel('Resize card'), findsOneWidget);
       handle.dispose();
     });
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart'
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/severity_icon.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 import '../helpers/contrast_helpers.dart';
@@ -204,8 +205,18 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
       t.badgeDbgText,
       composite(t.badgeDbgBg, surfaces[s]!),
     );
-    add('severity icons on $s', t.severityCriticalText, surfaces[s]!, 3);
+    add('crosshair off on $s background', t.textSecondary, surfaces[s]!, 3);
     add('crosshair off on $s', t.textSecondary, surfaces[s]!, 3);
+  }
+  // The severity icon's mark on its own fill.
+  for (final severity in IssueSeverity.values) {
+    final fill = t.severityColor(severity);
+    add(
+      '${severity.name} icon mark on its fill',
+      SleuthSeverityIcon.markOn(fill),
+      fill,
+      3,
+    );
   }
   add('trigger icon on critical', t.triggerIconColor, t.severityCritical, 3);
   add(

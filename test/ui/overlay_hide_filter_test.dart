@@ -764,6 +764,46 @@ void main() {
     });
   });
 
+  group('An expanded card outlives its issue', () {
+    testWidgets('it stays, marked, with no crosshair; collapsing it lets it '
+        'go and the empty state show', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('lay', category: IssueCategory.layout, widgetName: 'Lay'),
+      ];
+      await pumpCard(tester);
+      await expand(tester, 'lay');
+      expect(crosshair(), findsOneWidget);
+
+      controller.issuesNotifier.value = const [];
+      await tester.pump();
+      expect(find.text('Title lay'), findsOneWidget);
+      expect(find.text('Not detected right now'), findsOneWidget);
+      expect(crosshair(), findsNothing);
+      expect(find.textContaining('No issues detected'), findsNothing);
+
+      await expand(tester, 'lay');
+      expect(find.text('Title lay'), findsNothing);
+      expect(find.textContaining('No issues detected'), findsOneWidget);
+    });
+
+    testWidgets('it turns live again when the issue comes back', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [_issue('a'), _issue('b')];
+      await pumpCard(tester);
+      await expand(tester, 'a');
+      controller.issuesNotifier.value = [_issue('b')];
+      await tester.pump();
+      expect(find.text('Not detected right now'), findsOneWidget);
+
+      controller.issuesNotifier.value = [_issue('a'), _issue('b')];
+      await tester.pump();
+      expect(find.text('Not detected right now'), findsNothing);
+      expect(expandedIssueCards(), findsOneWidget);
+      expect(find.text('Title a'), findsOneWidget);
+    });
+  });
+
   group('Showing X of Y', () {
     testWidgets('counts cards, not ids, under a severity filter', (
       tester,
