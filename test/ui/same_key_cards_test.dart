@@ -22,6 +22,7 @@ PerformanceIssue _issue(
   String? widget,
   IssueSeverity severity = IssueSeverity.warning,
   IssueCategory category = IssueCategory.build,
+  int? occurrence,
 }) => PerformanceIssue(
   severity: severity,
   category: category,
@@ -31,6 +32,7 @@ PerformanceIssue _issue(
   fixHint: 'Fix $name',
   stableId: id,
   widgetName: widget,
+  occurrenceId: occurrence,
 );
 
 void main() {
@@ -133,6 +135,79 @@ void main() {
       await tester.tap(find.text('Title $name'));
       await tester.pump();
     }
+
+    testWidgets('hiding one of an expanded pair hides both; neither stays', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'heavy_compute', widget: 'Scope'),
+        _issue('b', id: 'heavy_compute', widget: 'Scope'),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'a');
+      await tapTitle(tester, 'b');
+      expect(expandedIssueCards(), findsNWidgets(2));
+
+      await tester.tap(
+        find.descendant(
+          of: cardOf('b'),
+          matching: find.bySemanticsLabel('Hide this issue'),
+        ),
+      );
+      await tester.pump();
+      // The shared hide key hides both, the expanded twin included.
+      expect(find.text('Title a'), findsNothing);
+      expect(find.text('Title b'), findsNothing);
+      await tester.pump(const Duration(seconds: 15));
+    });
+
+    testWidgets('of an expanded pair, only the card whose element went is '
+        'stale', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'a');
+      await tapTitle(tester, 'b');
+
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+      ];
+      await tester.pump();
+      expect(expandedIssueCards(), findsNWidgets(2));
+      expect(
+        find.descendant(
+          of: cardOf('b'),
+          matching: find.text('Not detected right now'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: cardOf('a'),
+          matching: find.text('Not detected right now'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a card that outlives its issue shows the last report, not '
+        'the one it was expanded with', (tester) async {
+      controller.issuesNotifier.value = [_issue('a', id: 'heavy_compute')];
+      await pumpCard(tester);
+      await tapTitle(tester, 'a');
+      // The issue turns critical, then stops being reported.
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'heavy_compute', severity: IssueSeverity.critical),
+      ];
+      await tester.pump();
+      controller.issuesNotifier.value = const [];
+      await tester.pump();
+      final card = tester.widget<IssueCard>(cardOf('a'));
+      expect(card.issue.severity, IssueSeverity.critical);
+      expect(card.stale, isTrue);
+    });
 
     testWidgets('expanding an unrelated card keeps both of the pair', (
       tester,
