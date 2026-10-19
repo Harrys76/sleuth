@@ -843,7 +843,8 @@ class SleuthController {
     final pending = _pendingHighlight;
     if (pending == null) return;
     _pendingHighlight = null;
-    pending.onResolved?.call(_selectHighlight(pending.issue));
+    final result = _selectHighlight(pending.issue);
+    pending.onResolved?.call(result);
   }
 
   HighlightLookup _selectHighlight(PerformanceIssue issue) {
@@ -3562,10 +3563,17 @@ class SleuthController {
     highlightsNotifier.value = (generation: _highlightGeneration, items: items);
     final selected = selectedHighlightNotifier.value;
     if (selected != null) {
+      // A selection with an element identity follows that element only, so
+      // the outline neither jumps to a sibling of the same type nor moves
+      // to one when the element goes.
+      final occurrence = selected.occurrenceId;
       WidgetHighlight? refreshed;
       for (final h in items) {
-        if (h.detectorName == selected.detectorName &&
-            h.widgetName == selected.widgetName) {
+        final same = occurrence != null
+            ? h.occurrenceId == occurrence
+            : h.detectorName == selected.detectorName &&
+                  h.widgetName == selected.widgetName;
+        if (same) {
           refreshed = h;
           break;
         }

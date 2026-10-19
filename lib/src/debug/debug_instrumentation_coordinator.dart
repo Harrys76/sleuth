@@ -117,20 +117,23 @@ class DebugInstrumentationCoordinator {
   final Map<String, int> _paintCounts = {};
   final Map<String, String> _ancestorChains = {};
   final Map<String, int> _forcedRebuildsByRoot = {};
-  final Map<String, Map<String, int>> _forcedRebuildsOf = {};
+
+  /// Forced type, then forcing type, then count. Keyed by [Type] so the
+  /// rebuild hook does no name lookup; [snapshot] names them.
+  final Map<Type, Map<Type, int>> _forcedRebuildsOf = {};
   bool _forcedTypesCapped = false;
   bool _rebuildTypesCapped = false;
   bool _paintTypesCapped = false;
   int _paintCount = 0;
 
   /// The self-dirtied elements whose builds are running, outermost first,
-  /// as (user type or null, framework widget type, depth). Callbacks
-  /// arrive in tree pre-order inside a build, so an entry at or below a
-  /// callback's depth is not its ancestor and is dropped. A forced rebuild
-  /// is credited to the innermost entry in [_forcedRebuildsByRoot] when it
-  /// is a user widget, and in [_forcedRebuildsOf] either way; a framework
-  /// entry's name is looked up only then. Cleared when a new frame starts.
-  final List<({String? type, Type? frameworkType, int depth})> _buildRoots = [];
+  /// as (user type name or null, widget type, depth). Callbacks arrive in
+  /// tree pre-order inside a build, so an entry at or below a callback's
+  /// depth is not its ancestor and is dropped. A forced rebuild is
+  /// credited to the innermost entry: in [_forcedRebuildsByRoot] when it
+  /// is a user widget, in [_forcedRebuildsOf] either way. Cleared when a
+  /// new frame starts.
+  final List<({String? type, Type widgetType, int depth})> _buildRoots = [];
 
   /// Most forcing types [_forcedRebuildsOf] keeps per forced type.
   static const int _maxForcingTypes = 8;
@@ -464,10 +467,7 @@ class DebugInstrumentationCoordinator {
           ? RebuildCountSource.debugCallback
           : RebuildCountSource.none,
       forcedRebuildsByRoot: Map<String, int>.of(_forcedRebuildsByRoot),
-      forcedRebuildsOf: {
-        for (final e in _forcedRebuildsOf.entries)
-          e.key: Map<String, int>.of(e.value),
-      },
+      forcedRebuildsOf: _namedForcedRebuilds(),
       forcedTypesCapped: _forcedTypesCapped,
       rebuildTypesCapped: _rebuildTypesCapped,
       paintTypesCapped: _paintTypesCapped,
@@ -881,7 +881,7 @@ class DebugInstrumentationCoordinator {
       if (dirty) {
         _buildRoots.add((
           type: null,
-          frameworkType: widget.runtimeType,
+          widgetType: widget.runtimeType,
           depth: depth,
         ));
       }
@@ -908,16 +908,15 @@ class DebugInstrumentationCoordinator {
         _forcedRebuildsByRoot[rootType] =
             (_forcedRebuildsByRoot[rootType] ?? 0) + 1;
       }
-      final forcing =
-          rootType ??
-          (root.frameworkType == null ? null : _typeName(root.frameworkType!));
-      if (forcing != null) {
-        _recordForcedBy(_typeName(widget.runtimeType), forcing);
-      }
+      _recordForcedBy(widget.runtimeType, root.widgetType);
       return;
     }
     final typeName = _typeName(widget.runtimeType);
-    _buildRoots.add((type: typeName, frameworkType: null, depth: depth));
+    _buildRoots.add((
+      type: typeName,
+      widgetType: widget.runtimeType,
+      depth: depth,
+    ));
     if (_rebuildCounts.length >= _maxTrackedTypes &&
         !_rebuildCounts.containsKey(typeName)) {
       _rebuildTypesCapped = true;
@@ -937,7 +936,7 @@ class DebugInstrumentationCoordinator {
     }
   }
 
-  void _recordForcedBy(String forced, String forcing) {
+  void _recordForcedBy(Type forced, Type forcing) {
     var roots = _forcedRebuildsOf[forced];
     if (roots == null) {
       if (_forcedRebuildsOf.length >= _maxTrackedTypes) {
@@ -952,6 +951,19 @@ class DebugInstrumentationCoordinator {
       return;
     }
     roots[forcing] = (count ?? 0) + 1;
+  }
+
+  /// [_forcedRebuildsOf] by type name. Types that share a name are summed.
+  Map<String, Map<String, int>> _namedForcedRebuilds() {
+    final named = <String, Map<String, int>>{};
+    for (final forced in _forcedRebuildsOf.entries) {
+      final roots = named.putIfAbsent(_typeName(forced.key), () => {});
+      for (final root in forced.value.entries) {
+        final name = _typeName(root.key);
+        roots[name] = (roots[name] ?? 0) + root.value;
+      }
+    }
+    return named;
   }
 
   /// The current frame's system time stamp in microseconds, or null

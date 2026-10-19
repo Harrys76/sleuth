@@ -175,6 +175,108 @@ void main() {
       expect(controller.selectedHighlightNotifier.value, isNull);
     });
 
+    testWidgets('a pending lookup without a callback still selects', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
+          ),
+        ),
+      );
+      controller.highlightEnabledNotifier.value = true;
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        title: 'Non-lazy',
+        detail: '',
+        fixHint: '',
+        widgetName: 'SingleChildScrollView',
+      );
+      expect(
+        controller.selectHighlightForIssue(issue),
+        HighlightLookup.pending,
+      );
+      controller.runTreeScanForTest(
+        tester.element(find.byType(Directionality)),
+      );
+      expect(
+        controller.selectedHighlightNotifier.value?.widgetName,
+        'SingleChildScrollView',
+      );
+    });
+
+    testWidgets('the selection follows its own element across scans', (
+      tester,
+    ) async {
+      Widget list(int key) => SingleChildScrollView(
+        key: ValueKey('list$key'),
+        child: Column(
+          children: List.generate(
+            55,
+            (i) => SizedBox(key: ValueKey(i), width: 10, height: 1),
+          ),
+        ),
+      );
+      Future<void> pumpLists(List<int> keys) => tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              for (final k in keys) SizedBox(height: 100, child: list(k)),
+            ],
+          ),
+        ),
+      );
+      void scan() => controller.runTreeScanForTest(
+        tester.element(find.byType(Directionality)),
+      );
+
+      await pumpLists([1, 2]);
+      controller.highlightEnabledNotifier.value = true;
+      scan();
+      final reported = controller.latestIssues
+          .where((i) => i.widgetName == 'SingleChildScrollView')
+          .toList();
+      expect(reported, hasLength(2));
+      final second = reported.firstWhere(
+        (i) =>
+            i.occurrenceId ==
+            identityHashCode(
+              tester.element(find.byKey(const ValueKey('list2'))),
+            ),
+      );
+      expect(controller.selectHighlightForIssue(second), HighlightLookup.found);
+
+      // A new scan republishes both highlights; the outline stays on the
+      // second list, not the first one with the same name.
+      scan();
+      expect(
+        controller.selectedHighlightNotifier.value?.occurrenceId,
+        second.occurrenceId,
+      );
+      controller.refreshHighlightRects();
+      await tester.pump();
+      expect(
+        controller.selectedHighlightNotifier.value?.occurrenceId,
+        second.occurrenceId,
+      );
+
+      // The second list goes: the outline clears instead of moving to the
+      // first list.
+      await pumpLists([1]);
+      scan();
+      expect(controller.selectedHighlightNotifier.value, isNull);
+    });
+
     testWidgets(
       'GpuPressureDetector highlights flow through to highlightsNotifier',
       (tester) async {
