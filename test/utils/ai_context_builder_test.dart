@@ -594,7 +594,12 @@ void main() {
           flushPaintDurations: [800],
           rasterDurations: [3000],
         ),
-        relatedIssues: [makeIssue(title: 'Hidden secret title')],
+        relatedIssues: [
+          makeIssue(
+            title: 'Hidden secret title',
+            category: IssueCategory.build,
+          ),
+        ],
       );
       expect(verdict.reason, contains('Related: Hidden secret title'));
 

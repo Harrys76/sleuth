@@ -7,6 +7,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../../sleuth.dart' show Sleuth;
+import '../analyzer/jank_relation.dart';
+import '../controller/highlight_lookup.dart';
 import '../controller/sleuth_controller.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
@@ -21,6 +23,7 @@ import 'startup_metrics_page.dart';
 import '../models/ai_chat_adapter.dart';
 import '../utils/ai_session_context.dart';
 import '../utils/issue_explanation_builder.dart';
+import '../utils/own_work_log.dart';
 import '../vm/connection_mode.dart';
 import 'hidden_issues_page.dart';
 import 'motion.dart';
@@ -450,8 +453,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// [SemanticsBinding.semanticsEnabled] it sets the toast timing.
   bool _accessibleNavigation = false;
 
-  bool _debugBannerDismissed = false;
   bool _showHidden = false;
+
+  /// A snapshot copy is running; another tap is ignored until it ends.
+  bool _copyInFlight = false;
   bool _showGuide = false;
   bool _showDetail = false;
   bool _showStartupDetail = false;
@@ -1200,31 +1205,45 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   /// Stable keys from verdict.relatedIssues that match current issuesNotifier.
+  ///
+  /// The verdict stays after the jank ends, so keys are returned only while
+  /// a jank symptom is reported. The reported list is checked, not the
+  /// visible one: collapsing, hiding or filtering a symptom keeps the tag.
   Set<String> _matchingIssueKeys(FrameVerdict? verdict) {
     if (verdict == null || verdict.relatedIssues.isEmpty) return const {};
+    final current = widget.controller.issuesNotifier.value;
+    if (!current.any(isJankSymptom)) return const {};
     final verdictKeys = <String>{
       for (final ri in verdict.relatedIssues) ri.stableId ?? ri.title,
     };
     final currentKeys = <String>{
-      for (final issue in widget.controller.issuesNotifier.value)
-        issue.stableId ?? issue.title,
+      for (final issue in current) issue.stableId ?? issue.title,
     };
     return verdictKeys.intersection(currentKeys);
   }
 
   Future<void> _exportToClipboard() async {
-    final json = widget.controller.exportSnapshotJson();
+    if (_copyInFlight) return;
+    _copyInFlight = true;
     try {
-      await Clipboard.setData(ClipboardData(text: json));
-    } catch (e) {
-      debugPrint('Sleuth: snapshot copy failed: $e');
-      if (mounted) {
-        _toast.show("Couldn't copy snapshot", tone: OverlayToastTone.warning);
+      // Building and encoding the snapshot is Sleuth's own work, which the
+      // jank rule leaves out of the next frame's start delay.
+      ownWorkLog.recordUntilMicrotask();
+      final json = widget.controller.exportSnapshotJson();
+      try {
+        await Clipboard.setData(ClipboardData(text: json));
+      } catch (e) {
+        debugPrint('Sleuth: snapshot copy failed: $e');
+        if (mounted) {
+          _toast.show("Couldn't copy snapshot", tone: OverlayToastTone.warning);
+        }
+        return;
       }
-      return;
+      if (!mounted) return;
+      _toast.show('Snapshot copied to clipboard');
+    } finally {
+      _copyInFlight = false;
     }
-    if (!mounted) return;
-    _toast.show('Snapshot copied to clipboard');
   }
 
   void _onHighlightChanged(
@@ -1235,20 +1254,31 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (checked) {
       setState(() => _selectedIssueId = issueKey);
       widget.controller.highlightEnabledNotifier.value = true;
-      final found = widget.controller.selectHighlightForIssue(issue);
-      if (!found) {
-        widget.controller.pendingIssueSelection = issue;
-        _toast.show(
-          'Widget not currently visible. Navigate to the screen where this '
-          'issue occurs.',
-          tone: OverlayToastTone.warning,
-          duration: const Duration(seconds: 3),
-        );
-      }
+      final result = widget.controller.selectHighlightForIssue(
+        issue,
+        onResolved: (result) {
+          if (!mounted || _selectedIssueId != issueKey) return;
+          if (result == HighlightLookup.notFound) _onHighlightNotFound();
+        },
+      );
+      if (result == HighlightLookup.notFound) _onHighlightNotFound();
     } else {
       setState(() => _selectedIssueId = null);
       widget.controller.clearSelectedHighlight();
     }
+  }
+
+  /// Unticks the card, so it does not claim an outline that never comes,
+  /// and says why.
+  void _onHighlightNotFound() {
+    setState(() => _selectedIssueId = null);
+    widget.controller.clearSelectedHighlight();
+    _toast.show(
+      'Widget not currently visible. Navigate to the screen where this '
+      'issue occurs.',
+      tone: OverlayToastTone.warning,
+      duration: const Duration(seconds: 3),
+    );
   }
 
   /// Whether an issue can be visually located on screen.
@@ -1711,10 +1741,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                       ),
                       if (widget.isDebugMode &&
                           widget.controller.config.showDebugModeBanner &&
-                          !_debugBannerDismissed)
+                          !widget.controller.debugBannerDismissed)
                         _DebugModeBanner(
-                          onDismiss: () =>
-                              setState(() => _debugBannerDismissed = true),
+                          onDismiss: () => setState(
+                            () => widget.controller.debugBannerDismissed = true,
+                          ),
                         ),
                       if (Sleuth.startupMetrics != null)
                         _StartupMetricsBanner(

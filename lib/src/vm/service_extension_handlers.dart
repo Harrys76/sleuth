@@ -280,6 +280,8 @@ FutureOr<Map<String, Object?>> extIssuesHandler(
       'issues': [for (final i in filtered) i.toJson()],
       'route': ?route,
       'vmConnected': controller.isVmConnected,
+      if (controller.notUsefulMarksForExport() case final marks?)
+        'notUsefulMarks': [for (final m in marks) m.toJson()],
     },
   );
 }

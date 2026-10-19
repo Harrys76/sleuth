@@ -117,17 +117,23 @@ class DebugInstrumentationCoordinator {
   final Map<String, int> _paintCounts = {};
   final Map<String, String> _ancestorChains = {};
   final Map<String, int> _forcedRebuildsByRoot = {};
+  final Map<String, Map<String, int>> _forcedRebuildsOf = {};
+  bool _forcedTypesCapped = false;
   bool _rebuildTypesCapped = false;
   bool _paintTypesCapped = false;
   int _paintCount = 0;
 
   /// The self-dirtied elements whose builds are running, outermost first,
-  /// as (user type or null, depth). Callbacks arrive in tree pre-order
-  /// inside a build, so an entry at or below a callback's depth is not its
-  /// ancestor and is dropped. A forced rebuild is credited to the
-  /// innermost entry; a framework widget's entry (null type) credits
-  /// nothing. Cleared when a new frame starts.
-  final List<({String? type, int depth})> _buildRoots = [];
+  /// as (user type or null, framework widget type, depth). Callbacks
+  /// arrive in tree pre-order inside a build, so an entry at or below a
+  /// callback's depth is not its ancestor and is dropped. A forced rebuild
+  /// is credited to the innermost entry in [_forcedRebuildsByRoot] when it
+  /// is a user widget, and in [_forcedRebuildsOf] either way; a framework
+  /// entry's name is looked up only then. Cleared when a new frame starts.
+  final List<({String? type, Type? frameworkType, int depth})> _buildRoots = [];
+
+  /// Most forcing types [_forcedRebuildsOf] keeps per forced type.
+  static const int _maxForcingTypes = 8;
   int? _buildRootsFrame;
 
   /// Frame (system time stamp in microseconds) in which each
@@ -458,6 +464,11 @@ class DebugInstrumentationCoordinator {
           ? RebuildCountSource.debugCallback
           : RebuildCountSource.none,
       forcedRebuildsByRoot: Map<String, int>.of(_forcedRebuildsByRoot),
+      forcedRebuildsOf: {
+        for (final e in _forcedRebuildsOf.entries)
+          e.key: Map<String, int>.of(e.value),
+      },
+      forcedTypesCapped: _forcedTypesCapped,
       rebuildTypesCapped: _rebuildTypesCapped,
       paintTypesCapped: _paintTypesCapped,
       paintOrigins: _originStats(),
@@ -483,6 +494,8 @@ class DebugInstrumentationCoordinator {
     _ancestorChains.clear();
     _animationOwnedPaintCounts.clear();
     _forcedRebuildsByRoot.clear();
+    _forcedRebuildsOf.clear();
+    _forcedTypesCapped = false;
     _originCounts.clear();
     _ownedOriginCounts.clear();
     _rebuildTypesCapped = false;
@@ -865,7 +878,13 @@ class DebugInstrumentationCoordinator {
       _ownerRebuildFrame[element] = frame;
     }
     if (!_isUserWidget(element)) {
-      if (dirty) _buildRoots.add((type: null, depth: depth));
+      if (dirty) {
+        _buildRoots.add((
+          type: null,
+          frameworkType: widget.runtimeType,
+          depth: depth,
+        ));
+      }
       return;
     }
     // First observation of this element = initial build (don't count).
@@ -882,14 +901,23 @@ class DebugInstrumentationCoordinator {
     if (!dirty) {
       // Rebuilt because its parent's build passed it a new widget: part
       // of that parent's cost, not a rebuild of its own.
-      final root = _buildRoots.isEmpty ? null : _buildRoots.last.type;
-      if (root != null) {
-        _forcedRebuildsByRoot[root] = (_forcedRebuildsByRoot[root] ?? 0) + 1;
+      if (_buildRoots.isEmpty) return;
+      final root = _buildRoots.last;
+      final rootType = root.type;
+      if (rootType != null) {
+        _forcedRebuildsByRoot[rootType] =
+            (_forcedRebuildsByRoot[rootType] ?? 0) + 1;
+      }
+      final forcing =
+          rootType ??
+          (root.frameworkType == null ? null : _typeName(root.frameworkType!));
+      if (forcing != null) {
+        _recordForcedBy(_typeName(widget.runtimeType), forcing);
       }
       return;
     }
     final typeName = _typeName(widget.runtimeType);
-    _buildRoots.add((type: typeName, depth: depth));
+    _buildRoots.add((type: typeName, frameworkType: null, depth: depth));
     if (_rebuildCounts.length >= _maxTrackedTypes &&
         !_rebuildCounts.containsKey(typeName)) {
       _rebuildTypesCapped = true;
@@ -907,6 +935,23 @@ class DebugInstrumentationCoordinator {
         }());
       }
     }
+  }
+
+  void _recordForcedBy(String forced, String forcing) {
+    var roots = _forcedRebuildsOf[forced];
+    if (roots == null) {
+      if (_forcedRebuildsOf.length >= _maxTrackedTypes) {
+        _forcedTypesCapped = true;
+        return;
+      }
+      roots = _forcedRebuildsOf[forced] = {};
+    }
+    final count = roots[forcing];
+    if (count == null && roots.length >= _maxForcingTypes) {
+      _forcedTypesCapped = true;
+      return;
+    }
+    roots[forcing] = (count ?? 0) + 1;
   }
 
   /// The current frame's system time stamp in microseconds, or null

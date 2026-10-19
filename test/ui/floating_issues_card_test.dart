@@ -297,7 +297,7 @@ void main() {
       expect(find.textContaining(bannerText), findsNothing);
     });
 
-    testWidgets('new widget instance shows banner again after dismiss', (
+    testWidgets('a dismissal lasts for the controller\'s session', (
       tester,
     ) async {
       await tester.pumpWidget(pumpCard(isDebugMode: true));
@@ -310,11 +310,17 @@ void main() {
       await tester.pump();
       expect(find.textContaining(bannerText), findsNothing);
 
-      // Force state disposal by pumping a different widget, then rebuild
+      // Closing and reopening the dashboard keeps it dismissed: the
+      // controller holds the dismissal for the session.
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       await tester.pumpWidget(pumpCard(isDebugMode: true));
+      expect(find.textContaining(bannerText), findsNothing);
 
-      // Banner should reappear (per-instance, not persisted)
+      // A new session shows it again.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pumpWidget(
+        pumpCard(isDebugMode: true, config: const SleuthConfig()),
+      );
       expect(find.textContaining(bannerText), findsOneWidget);
     });
   });

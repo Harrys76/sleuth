@@ -107,6 +107,20 @@ String buildAncestorChain(
   return chain.reversed.join(' > ');
 }
 
+/// The leaf widget's `file:line` from a [buildAncestorChain] result, or
+/// null when the chain is null or its leaf has no location (the build
+/// does not track widget creation).
+String? leafSourceLocation(String? ancestorChain) {
+  if (ancestorChain == null) return null;
+  final separator = ancestorChain.lastIndexOf(' > ');
+  final leaf = separator < 0
+      ? ancestorChain
+      : ancestorChain.substring(separator + 3);
+  return _trailingLocation.firstMatch(leaf.trimRight())?.group(1);
+}
+
+final RegExp _trailingLocation = RegExp(r' \(([^()]+:\d+)\)$');
+
 /// Extracts the package name from the leaf element's source location.
 /// Returns null when the build does not track widget creation.
 String? extractPackageNameFromElement(Element element) {

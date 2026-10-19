@@ -30,6 +30,8 @@ class DebugSnapshot {
     this.totalAnimationOwnedPaintCount = 0,
     this.source = RebuildCountSource.none,
     this.forcedRebuildsByRoot = const {},
+    this.forcedRebuildsOf = const {},
+    this.forcedTypesCapped = false,
     this.rebuildTypesCapped = false,
     this.paintTypesCapped = false,
     this.paintOrigins = const {},
@@ -49,6 +51,17 @@ class DebugSnapshot {
   /// the type of the self-dirtied widget whose build caused them
   /// (debug mode).
   final Map<String, int> forcedRebuildsByRoot;
+
+  /// Why each widget type was rebuilt by a parent: forced type, then the
+  /// type of the self-dirtied widget whose build forced it, then the count
+  /// (debug mode). Unlike [forcedRebuildsByRoot] the forcing widget can be
+  /// a framework one, such as a `ValueListenableBuilder` whose listenable
+  /// changed. At most 8 forcing types are kept per forced type.
+  final Map<String, Map<String, int>> forcedRebuildsOf;
+
+  /// Some forced types, or forcing types of one, were left out of
+  /// [forcedRebuildsOf] by its caps.
+  final bool forcedTypesCapped;
 
   /// Some widget types were left out of [rebuildCounts] by the type cap,
   /// so a type missing from it is not known to be idle.

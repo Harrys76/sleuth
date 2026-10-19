@@ -14,6 +14,7 @@ class WidgetHighlight {
     required this.detectorName,
     this.detail,
     this.renderObject,
+    this.occurrenceId,
   });
 
   /// The widget's bounding box in global (screen) coordinates.
@@ -35,4 +36,9 @@ class WidgetHighlight {
   /// [rect] after a scroll without rescanning the tree. Null for highlights
   /// built without one; those are dropped by a rect-only refresh.
   final RenderObject? renderObject;
+
+  /// Identity of the element this highlight was measured from, equal to
+  /// the [PerformanceIssue.occurrenceId] of the issue it belongs to. Null
+  /// when the detector gives its issues no element identity. Runtime only.
+  final int? occurrenceId;
 }

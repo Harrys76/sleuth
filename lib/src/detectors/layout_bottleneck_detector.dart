@@ -152,6 +152,7 @@ class LayoutBottleneckDetector extends BaseDetector
               WidgetHighlight(
                 rect: rect,
                 renderObject: ro,
+                occurrenceId: identityHashCode(element),
                 widgetName: 'Wrap',
                 severity: childCount > _wrapChildThreshold * 2
                     ? IssueSeverity.critical

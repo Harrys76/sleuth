@@ -78,7 +78,8 @@ void main() {
       controller.verdictNotifier.value = _testVerdict(
         relatedIssues: [issue1],
       ); // only issue1
-      controller.issuesNotifier.value = [issue1, issue2]; // both
+      final jank = _testIssue(title: 'Jank', stableId: 'jank_detected');
+      controller.issuesNotifier.value = [issue1, issue2, jank];
 
       await tester.pumpWidget(
         MaterialApp(
@@ -92,6 +93,75 @@ void main() {
       expect(find.text('JANK'), findsOneWidget);
 
       controller.dispose();
+    });
+
+    testWidgets('badge clears when the jank symptom leaves the reported list', (
+      tester,
+    ) async {
+      final cause = _testIssue(title: 'Rebuilds', stableId: 'rebuild_activity');
+      final jank = _testIssue(title: 'Jank', stableId: 'jank_detected');
+      final controller = SleuthController()..initializeDetectorsForTest();
+      addTearDown(controller.dispose);
+      controller.verdictNotifier.value = _testVerdict(relatedIssues: [cause]);
+      controller.issuesNotifier.value = [cause, jank];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FloatingIssuesCard(controller: controller, onClose: () {}),
+          ),
+        ),
+      );
+      expect(find.text('JANK'), findsOneWidget);
+
+      // The verdict notifier keeps the last jank frame's verdict.
+      controller.issuesNotifier.value = [cause];
+      await tester.pump();
+      expect(find.text('JANK'), findsNothing);
+    });
+
+    testWidgets('badge stays while the symptom is collapsed under its cause', (
+      tester,
+    ) async {
+      final stall = _testIssue(
+        title: 'Event loop stall',
+        stableId: 'event_loop_stall',
+        severity: IssueSeverity.critical,
+      );
+      final sustained = PerformanceIssue(
+        stableId: 'sustained_jank',
+        severity: IssueSeverity.critical,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'Sustained Jank',
+        detail: 'Detail',
+        fixHint: 'Fix',
+        rootCauseIds: const ['event_loop_stall'],
+      );
+      final controller = SleuthController()..initializeDetectorsForTest();
+      addTearDown(controller.dispose);
+      controller.verdictNotifier.value = FrameVerdict(
+        frameNumber: 1,
+        totalFrameTime: const Duration(milliseconds: 40),
+        uiThreadTime: const Duration(milliseconds: 4),
+        rasterThreadTime: const Duration(milliseconds: 3),
+        suspectedPhase: PipelinePhase.schedulerDelay,
+        reason: 'Start delay',
+        relatedIssues: [stall],
+      );
+      controller.issuesNotifier.value = [stall, sustained];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FloatingIssuesCard(controller: controller, onClose: () {}),
+          ),
+        ),
+      );
+      // The symptom card is folded into its cause, and the cause keeps
+      // the tag.
+      expect(find.text('Sustained Jank'), findsNothing);
+      expect(find.text('JANK'), findsOneWidget);
     });
   });
 

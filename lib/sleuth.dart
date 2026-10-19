@@ -92,6 +92,7 @@ export 'src/models/frame_budget.dart';
 export 'src/models/frame_verdict.dart';
 export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';
+export 'src/models/not_useful_mark.dart' show NotUsefulMark;
 export 'src/models/session_snapshot.dart';
 export 'src/models/snapshot_sections.dart';
 export 'src/controller/sleuth_controller.dart' show SleuthConfig;
@@ -678,7 +679,7 @@ class Sleuth {
   /// [resource].
   static void trackResource(String name, Object resource) {
     if (kReleaseMode) return;
-    _controller?.trackedResourceDetector?.track(name, resource);
+    _controller?.trackResource(name, resource);
   }
 
   /// Best-effort decrement: removes a registration whose target is

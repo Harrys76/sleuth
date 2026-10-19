@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/controller/highlight_lookup.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
@@ -102,6 +103,77 @@ void main() {
         );
       },
     );
+
+    testWidgets('a pending lookup resolves after the first scan', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
+          ),
+        ),
+      );
+      PerformanceIssue issue(String widgetName) => PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        title: widgetName,
+        detail: '',
+        fixHint: '',
+        widgetName: widgetName,
+      );
+      controller.highlightEnabledNotifier.value = true;
+
+      final results = <HighlightLookup>[];
+      expect(
+        controller.selectHighlightForIssue(
+          issue('SingleChildScrollView'),
+          onResolved: results.add,
+        ),
+        HighlightLookup.pending,
+      );
+      controller.runTreeScanForTest(
+        tester.element(find.byType(Directionality)),
+      );
+      expect(results, [HighlightLookup.found]);
+      expect(
+        controller.selectedHighlightNotifier.value?.widgetName,
+        'SingleChildScrollView',
+      );
+      // The highlight carries the identity of the element its issue was
+      // reported for.
+      final reported = controller.latestIssues.singleWhere(
+        (i) => i.widgetName == 'SingleChildScrollView',
+      );
+      expect(reported.occurrenceId, isNotNull);
+      expect(
+        controller.selectedHighlightNotifier.value?.occurrenceId,
+        reported.occurrenceId,
+      );
+
+      // After a scan a widget it did not outline is not found at once, and
+      // a later scan selects nothing for it.
+      controller.clearSelectedHighlight();
+      expect(
+        controller.selectHighlightForIssue(
+          issue('Missing'),
+          onResolved: results.add,
+        ),
+        HighlightLookup.notFound,
+      );
+      controller.runTreeScanForTest(
+        tester.element(find.byType(Directionality)),
+      );
+      expect(results, [HighlightLookup.found]);
+      expect(controller.selectedHighlightNotifier.value, isNull);
+    });
 
     testWidgets(
       'GpuPressureDetector highlights flow through to highlightsNotifier',
@@ -348,14 +420,14 @@ void main() {
       );
 
       final matched = controller.selectHighlightForIssue(issue);
-      expect(matched, isTrue);
+      expect(matched, HighlightLookup.found);
       expect(
         controller.selectedHighlightNotifier.value?.widgetName,
         'MyWidget',
       );
     });
 
-    test('falls back to detectorName via category mapping', () {
+    test('never falls back to another widget of the same category', () {
       controller.highlightsNotifier.value = (
         generation: 1,
         items: [
@@ -379,12 +451,31 @@ void main() {
       );
 
       final matched = controller.selectHighlightForIssue(issue);
-      expect(matched, isTrue);
+      expect(matched, HighlightLookup.notFound);
+      expect(controller.selectedHighlightNotifier.value, isNull);
+      expect(controller.pendingIssueSelection, isNull);
     });
 
-    test('returns false when no highlights available', () {
-      controller.highlightsNotifier.value = (generation: 0, items: []);
-
+    test('an occurrence match beats a name match', () {
+      controller.highlightsNotifier.value = (
+        generation: 1,
+        items: const [
+          WidgetHighlight(
+            rect: Rect.fromLTWH(0, 0, 10, 10),
+            widgetName: 'ListView',
+            severity: IssueSeverity.warning,
+            detectorName: 'Non-lazy',
+            occurrenceId: 1,
+          ),
+          WidgetHighlight(
+            rect: Rect.fromLTWH(0, 50, 10, 10),
+            widgetName: 'ListView',
+            severity: IssueSeverity.warning,
+            detectorName: 'Non-lazy',
+            occurrenceId: 2,
+          ),
+        ],
+      );
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
         category: IssueCategory.build,
@@ -392,10 +483,39 @@ void main() {
         title: 'Test',
         detail: 'Test',
         fixHint: 'Test',
+        widgetName: 'ListView',
+        occurrenceId: 2,
       );
 
-      final matched = controller.selectHighlightForIssue(issue);
-      expect(matched, isFalse);
+      expect(controller.selectHighlightForIssue(issue), HighlightLookup.found);
+      expect(controller.selectedHighlightNotifier.value?.occurrenceId, 2);
+    });
+
+    test('before the first scan the lookup is pending', () {
+      controller.highlightsNotifier.value = (generation: 0, items: []);
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'Test',
+        detail: 'Test',
+        fixHint: 'Test',
+        widgetName: 'MyWidget',
+      );
+
+      expect(
+        controller.selectHighlightForIssue(issue),
+        HighlightLookup.pending,
+      );
+      expect(controller.pendingIssueSelection, same(issue));
+
+      // After a scan an empty list means the widget is not on screen.
+      controller.scanTickNotifier.value = 1;
+      expect(
+        controller.selectHighlightForIssue(issue),
+        HighlightLookup.notFound,
+      );
+      expect(controller.pendingIssueSelection, isNull);
     });
 
     test('sets highlightEnabledNotifier to true on match', () {
@@ -457,36 +577,6 @@ void main() {
       controller.clearSelectedHighlight();
       expect(controller.selectedHighlightNotifier.value, isNull);
       expect(controller.pendingIssueSelection, isNull);
-    });
-  });
-
-  group('detectorNamesForCategory', () {
-    test('layout category maps to Layout', () {
-      final names = SleuthController.detectorNamesForCategory(
-        IssueCategory.layout,
-      );
-      expect(names, contains('Layout'));
-    });
-
-    test('raster category maps to GPU', () {
-      final names = SleuthController.detectorNamesForCategory(
-        IssueCategory.raster,
-      );
-      expect(names, contains('GPU'));
-    });
-
-    test('build category maps to expected detector names', () {
-      final names = SleuthController.detectorNamesForCategory(
-        IssueCategory.build,
-      );
-      expect(names, containsAll(['Non-lazy', 'setState', 'Rebuild']));
-    });
-
-    test('paint category maps to expected detector names', () {
-      final names = SleuthController.detectorNamesForCategory(
-        IssueCategory.paint,
-      );
-      expect(names, containsAll(['Painter', 'Repaint']));
     });
   });
 
