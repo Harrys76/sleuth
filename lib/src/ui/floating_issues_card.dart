@@ -406,6 +406,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// [listKeyFor] of the issue whose highlight checkbox is checked.
   String? _selectedIssueId;
 
+  /// The issue of the card whose crosshair is on. The selection is pruned
+  /// by this issue's identity: a kept expanded card can show under a key
+  /// that differs from its place in the visible list.
+  PerformanceIssue? _selectedIssue;
+
   /// Bumped when the host clears every expansion at once (severity filter
   /// change); [IssueCard] collapses without calling back.
   int _collapseEpoch = 0;
@@ -1502,7 +1507,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
 
     final selected = _selectedIssueId;
-    if (selected != null && !visibleKeys.contains(selected)) {
+    final selectedIssue = _selectedIssue;
+    if (selected != null &&
+        (selectedIssue == null
+            ? !visibleKeys.contains(selected)
+            : _reportOf(selectedIssue, visible) == null)) {
       _selectedIssueId = null;
       widget.controller.clearSelectedHighlight();
       changed = true;
@@ -1622,7 +1631,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     PerformanceIssue issue,
   ) {
     if (checked) {
-      setState(() => _selectedIssueId = issueKey);
+      setState(() {
+        _selectedIssueId = issueKey;
+        _selectedIssue = issue;
+      });
       widget.controller.highlightEnabledNotifier.value = true;
       final result = widget.controller.selectHighlightForIssue(
         issue,
