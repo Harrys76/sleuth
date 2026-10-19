@@ -432,6 +432,13 @@ void main() {
         // Count includes 25 explicit + framework-internal boundaries
         expect(excessiveIssues.first.stableId, 'excessive_repaint_boundary');
         expect(excessiveIssues.first.category, IssueCategory.paint);
+        // The card's crosshair needs a name; the issue carries its
+        // highlight's name and element.
+        final highlight = detector.highlights.singleWhere(
+          (h) => h.occurrenceId == excessiveIssues.first.occurrenceId,
+        );
+        expect(excessiveIssues.first.widgetName, isNotNull);
+        expect(excessiveIssues.first.widgetName, highlight.widgetName);
       });
 
       testWidgets('no issue for ListView with <=20 RepaintBoundary children', (

@@ -106,6 +106,12 @@
 - `jank_detected`, `sustained_jank` and `slow_startup_ttff` carry
   `observationSource: frameTiming`, the source of their times. Startup
   said `structural` before and the jank issues carried none.
+- `wrap_layout_bottleneck`, `excessive_repaint_boundary` and issues from
+  `SimpleStructuralDetector.report` carry the `widgetName` their highlight
+  carries (`Wrap`, the scrollable's type, the reported widget's runtime
+  type), so their cards keep the crosshair. Their overlay keys now
+  include the name, so such a card hidden under an older release shows
+  again.
 - A crosshair replaces the highlight checkbox and shows only for an issue
   that names a widget, labelled "Show <widget> on screen" and read as on
   or off. Layout and paint cards without a widget name no longer offer a
