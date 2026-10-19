@@ -3024,8 +3024,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                             _orderSnapshot = snapshot;
                           }
                           _expandedIndices[issueKey] = capturedIndex;
+                          // The card the user tapped, which a snapshot slot
+                          // under the same key may not hold after a twin
+                          // was replaced.
+                          _retained[issueKey] = issue;
                         } else {
                           _expandedIndices.remove(issueKey);
+                          _retained.remove(issueKey);
                           // 1→0 transition: release the snapshot so
                           // the next expand captures a fresh one from
                           // whatever the ranker currently shows. The
