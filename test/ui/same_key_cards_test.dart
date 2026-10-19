@@ -230,6 +230,60 @@ void main() {
       expect(tester.widget<IssueCard>(cardOf('a')).stale, isTrue);
     });
 
+    testWidgets('the expanded second of a pair stays expanded when the '
+        'first goes', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'b');
+      expect(expandedIssueCards(), findsOneWidget);
+
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Title a'), findsNothing);
+      expect(find.text('Title b'), findsOneWidget);
+      expect(expandedIssueCards(), findsOneWidget);
+      expect(tester.widget<IssueCard>(cardOf('b')).stale, isFalse);
+
+      // Collapsing it works on the key it is shown under.
+      await tapTitle(tester, 'b');
+      expect(expandedIssueCards(), findsNothing);
+      expect(find.text('Title b'), findsOneWidget);
+    });
+
+    testWidgets('hiding the live one of an expanded pair also hides its '
+        'stale twin', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'heavy_compute', widget: 'Scope', occurrence: 1),
+        _issue('b', id: 'heavy_compute', widget: 'Scope', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'a');
+      await tapTitle(tester, 'b');
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'heavy_compute', widget: 'Scope', occurrence: 2),
+      ];
+      await tester.pump();
+      expect(tester.widget<IssueCard>(cardOf('a')).stale, isTrue);
+
+      await tester.tap(
+        find.descendant(
+          of: cardOf('b'),
+          matching: find.bySemanticsLabel('Hide this issue'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Title a'), findsNothing);
+      expect(find.text('Title b'), findsNothing);
+      await tester.pump(const Duration(seconds: 15));
+    });
+
     testWidgets('an expanded card goes when it falls back under its hide '
         'key', (tester) async {
       // Hidden while a warning; it came back critical and was expanded.

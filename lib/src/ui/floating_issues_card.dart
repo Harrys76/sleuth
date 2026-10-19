@@ -122,20 +122,29 @@ List<PerformanceIssue> applyFreezeZone({
 
   // An expanded slot shows the instance [retained] matched to it by
   // element; a slot's occurrence key alone can point at a twin once a
-  // card ahead of it sharing its list key has gone. Each issue shows once:
-  // the flow leaves out what the frozen zone shows, by identity.
-  final frozen = <PerformanceIssue>[];
+  // card ahead of it sharing its list key has gone. Expanded slots claim
+  // their issues first, so a collapsed slot whose key now names an
+  // expanded twin stays empty. Each issue shows once: the flow leaves out
+  // what the frozen zone shows, by identity.
   final shown = Set<PerformanceIssue>.identity();
+  final expandedSlots = <int, PerformanceIssue>{};
   for (var i = 0; i <= freezeEnd; i++) {
     final key = snapshotKeys[i];
-    final PerformanceIssue? issue;
-    if (expandedIndices.containsKey(key)) {
-      // The user is reading it: it stays, as last reported.
-      issue = retained[key] ?? visibleById[key] ?? orderSnapshot[i];
-    } else {
-      issue = visibleById[key];
+    if (!expandedIndices.containsKey(key)) continue;
+    // The user is reading it: it stays, as last reported.
+    final issue = retained[key] ?? visibleById[key] ?? orderSnapshot[i];
+    if (shown.add(issue)) expandedSlots[i] = issue;
+  }
+  final frozen = <PerformanceIssue>[];
+  for (var i = 0; i <= freezeEnd; i++) {
+    final expanded = expandedSlots[i];
+    if (expanded != null) {
+      frozen.add(expanded);
+      continue;
     }
-    if (issue != null && shown.add(issue)) frozen.add(issue);
+    if (expandedIndices.containsKey(snapshotKeys[i])) continue;
+    final live = visibleById[snapshotKeys[i]];
+    if (live != null && shown.add(live)) frozen.add(live);
   }
 
   final flow = <PerformanceIssue>[
@@ -1348,6 +1357,39 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// whose issue leaves the visible list. Refreshed on every list build.
   final Map<String, PerformanceIssue> _retained = {};
 
+  /// Keys of the cards in [ordered]: a kept expanded card keeps the key its
+  /// expansion is stored under, and the others get occurrence keys
+  /// ([occurrenceKeysFor]) that skip the kept ones. Positional keys alone
+  /// would hand a kept card's key to its twin once a card ahead of both
+  /// goes, and the card would lose its expansion.
+  List<String> _cardKeys(List<PerformanceIssue> ordered) {
+    final keptKeys = Map<PerformanceIssue, String>.identity();
+    for (final entry in _retained.entries) {
+      if (_expandedIndices.containsKey(entry.key)) {
+        keptKeys[entry.value] = entry.key;
+      }
+    }
+    if (keptKeys.isEmpty) return occurrenceKeysFor(ordered);
+    final used = <String>{...keptKeys.values};
+    final counts = <String, int>{};
+    return [
+      for (final issue in ordered)
+        keptKeys[issue] ??
+            () {
+              final base = listKeyFor(issue);
+              var n = counts[base] ?? 0;
+              String key;
+              do {
+                n++;
+                key = n == 1 ? base : '$base#$n';
+              } while (used.contains(key));
+              counts[base] = n;
+              used.add(key);
+              return key;
+            }(),
+    ];
+  }
+
   /// The report of [known] among [reported]: same list key and element
   /// identity. Of two cards sharing a list key, an occurrence key would
   /// point at the twin once the first one goes; the element does not.
@@ -1425,9 +1467,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       for (var i = 0; i < snapshot.length; i++) {
         final key = snapshotKeys[i];
         if (!_expandedIndices.containsKey(key)) continue;
-        // Judged on the current report: hiding depends on its severity.
-        final current = _reportOf(_retained[key] ?? snapshot[i], issues);
-        if (current != null && _ui.isHidden(current)) {
+        // Judged on the current report, as hiding depends on its
+        // severity; a card no longer reported is judged as last seen.
+        final kept = _retained[key] ?? snapshot[i];
+        if (_ui.isHidden(_reportOf(kept, issues) ?? kept)) {
           _expandedIndices.remove(key);
           changed = true;
         }
@@ -1501,9 +1544,29 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final positions = <String, int>{
       for (var i = 0; i < keys.length; i++) keys[i]: i,
     };
+    // By identity: PerformanceIssue equality compares stable ids, which
+    // twins share.
+    final byIdentity = Map<PerformanceIssue, int>.identity();
+    for (var i = 0; i < snapshot.length; i++) {
+      byIdentity[snapshot[i]] = i;
+    }
+    final next = <String, int>{};
+    final retained = <String, PerformanceIssue>{};
+    for (final key in _expandedIndices.keys) {
+      final kept = _retained[key];
+      // A kept card follows its issue: its key in the new snapshot can
+      // differ once a twin ahead of it has gone.
+      final at = (kept == null ? null : byIdentity[kept]) ?? positions[key];
+      if (at == null) continue;
+      next[keys[at]] = at;
+      if (kept != null) retained[keys[at]] = kept;
+    }
     _expandedIndices
-      ..removeWhere((key, _) => !positions.containsKey(key))
-      ..updateAll((key, _) => positions[key]!);
+      ..clear()
+      ..addAll(next);
+    _retained
+      ..clear()
+      ..addAll(retained);
   }
 
   /// Keys of the reported issues among [held], the issues a jank verdict
@@ -2803,7 +2866,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // name). Repeats get an occurrence suffix, which keys the sliver
         // child, the expansion and the highlight selection; the held
         // order, the new-card accent and hiding use the shared key.
-        final listKeys = occurrenceKeysFor(orderedIssues);
+        final listKeys = _cardKeys(orderedIssues);
         final orderedIndexByKey = <String, int>{
           for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
