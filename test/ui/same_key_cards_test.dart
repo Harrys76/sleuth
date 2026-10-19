@@ -192,6 +192,64 @@ void main() {
       );
     });
 
+    testWidgets('when the first of an expanded pair goes, each card shows '
+        'once and only the gone one is stale', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'a');
+      await tapTitle(tester, 'b');
+
+      // b now holds the occurrence key a had.
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await tester.pump();
+      expect(find.text('Title a'), findsOneWidget);
+      expect(find.text('Title b'), findsOneWidget);
+      expect(tester.widget<IssueCard>(cardOf('a')).stale, isTrue);
+      expect(tester.widget<IssueCard>(cardOf('b')).stale, isFalse);
+    });
+
+    testWidgets('when the expanded first of a pair goes, the other stays in '
+        'the list once', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'layout', widget: 'Row', occurrence: 1),
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'a');
+      controller.issuesNotifier.value = [
+        _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
+      ];
+      await tester.pump();
+      expect(find.text('Title a'), findsOneWidget);
+      expect(find.text('Title b'), findsOneWidget);
+      expect(tester.widget<IssueCard>(cardOf('a')).stale, isTrue);
+    });
+
+    testWidgets('an expanded card goes when it falls back under its hide '
+        'key', (tester) async {
+      // Hidden while a warning; it came back critical and was expanded.
+      controller.overlayUiState.hide(
+        hideKeyFor(_issue('a', id: 'heavy_compute')),
+      );
+      controller.issuesNotifier.value = [
+        _issue('a', id: 'heavy_compute', severity: IssueSeverity.critical),
+      ];
+      await pumpCard(tester);
+      await tapTitle(tester, 'a');
+      expect(expandedIssueCards(), findsOneWidget);
+
+      controller.issuesNotifier.value = [_issue('a', id: 'heavy_compute')];
+      await tester.pump();
+      expect(find.text('Title a'), findsNothing);
+      await tester.pump();
+      expect(find.text('Title a'), findsNothing);
+    });
+
     testWidgets('a card that outlives its issue shows the last report, not '
         'the one it was expanded with', (tester) async {
       controller.issuesNotifier.value = [_issue('a', id: 'heavy_compute')];

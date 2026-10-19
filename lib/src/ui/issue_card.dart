@@ -505,7 +505,7 @@ class _IssueCardState extends State<IssueCard> {
               theme,
               'Not detected right now',
               fill: theme.badgeFill(theme.textSecondary),
-              text: theme.textPrimary,
+              text: theme.badgeTextOn(theme.textSecondary),
             ),
           ),
         ),

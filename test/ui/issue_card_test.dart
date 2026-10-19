@@ -928,6 +928,31 @@ void main() {
       expect(find.textContaining('2 effects'), findsOneWidget);
     });
 
+    testWidgets('Not detected right now reads in every preset', (tester) async {
+      for (final theme in _presets) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SleuthTheme(
+                data: theme,
+                child: IssueCard(issue: _testIssue(), stale: true),
+              ),
+            ),
+          ),
+        );
+        final tag = tester.widget<Text>(find.text('Not detected right now'));
+        expect(tag.style!.color, theme.badgeTextOn(theme.textSecondary));
+        expect(
+          wcagContrast(
+            tag.style!.color!,
+            composite(theme.badgeFill(theme.textSecondary), theme.cardDefault),
+          ),
+          greaterThanOrEqualTo(4.5),
+          reason: theme.brightness.name,
+        );
+      }
+    });
+
     testWidgets('the per-card debug disclaimer is gone', (tester) async {
       await tester.pumpWidget(card(_testIssue(debugModeDisclaimer: true)));
       expect(find.textContaining('Debug mode result'), findsNothing);
