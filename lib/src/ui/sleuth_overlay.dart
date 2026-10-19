@@ -164,8 +164,11 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     _appSemanticsBlocked.value =
         layers && (host.openLayerDepth > 0 || host.menuOpen);
     // Reported from the card's build, before the menu's scope takes
-    // focus, so the app's node is still the primary focus here.
-    if (layers && host.menuOpen && _appFocusBeforeMenu == null) {
+    // focus, so the app's node is still the primary focus here. Each
+    // opening records the app node focused now; with focus already in the
+    // overlay (More, after an earlier close), the node recorded before
+    // stays.
+    if (layers && host.menuOpen) {
       final focus = FocusManager.instance.primaryFocus;
       if (focus != null && _isAppFocus(focus)) _appFocusBeforeMenu = focus;
     }

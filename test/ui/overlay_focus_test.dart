@@ -293,6 +293,29 @@ void main() {
       expect(find.byType(IssueEncyclopediaPage), findsOneWidget);
     });
 
+    testWidgets('each menu opening records the app node focused then', (
+      tester,
+    ) async {
+      final (app, controller) = await _pumpHostApp(tester, config: config);
+      app.button.requestFocus();
+      await tester.pump();
+      await openDashboard(tester, controller);
+      await openMoreMenu(tester);
+
+      // A tap on the app's field closes the menu and focuses the field.
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+      expect(app.field.hasPrimaryFocus, isTrue);
+
+      await openMoreMenu(tester);
+      expect(app.field.hasFocus, isFalse);
+      controller.overlayUiState.dashboardOpen = false;
+      await tester.pumpAndSettle();
+      expect(app.field.hasPrimaryFocus, isTrue);
+      expect(app.button.hasFocus, isFalse);
+    });
+
     testWidgets('with the menu open, Escape closes the menu even when an '
         'app text field had focus, then the card', (tester) async {
       final (app, controller) = await _pumpHostApp(tester, config: config);

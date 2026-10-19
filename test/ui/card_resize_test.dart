@@ -191,6 +191,27 @@ void main() {
       expect(controller.overlayUiState.restoreWidth, 320);
     });
 
+    testWidgets('Wider grows a raised stored width from the width shown', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      controller.overlayUiState.setCardGeometry(
+        offset: const Offset(100, 100),
+        width: 220,
+        height: 400,
+        windowState: CardWindowState.normal,
+      );
+      await tester.pumpWidget(buildCard());
+      expect(findCardConstrainedBox(tester).constraints.maxWidth, 320);
+      await performCustomAction(
+        tester,
+        find.bySemanticsLabel('Resize card'),
+        'Wider',
+      );
+      expect(findCardConstrainedBox(tester).constraints.maxWidth, 368);
+      handle.dispose();
+    });
+
     testWidgets('width clamps at minimum (320 px)', (tester) async {
       await tester.pumpWidget(buildCard());
 
