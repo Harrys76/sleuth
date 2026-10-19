@@ -1508,19 +1508,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   /// Whether an issue can be visually located on screen.
-  static bool _isLocatableIssue(PerformanceIssue issue) {
-    return switch (issue.category) {
-      IssueCategory.layout => true,
-      IssueCategory.build => issue.widgetName != null,
-      IssueCategory.paint => true,
-      IssueCategory.memory => issue.widgetName != null,
-      IssueCategory.raster => false,
-      IssueCategory.channel => false,
-      IssueCategory.font => false,
-      IssueCategory.network => false,
-      IssueCategory.startup => false,
-    };
-  }
+  /// A card can outline its widget only when the issue names one: the
+  /// highlight lookup matches the reported element or the widget name.
+  static bool _isLocatableIssue(PerformanceIssue issue) =>
+      issue.widgetName != null;
 
   @override
   Widget build(BuildContext context) {
@@ -2905,7 +2896,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     jankCorrelated: _cachedJankKeys.contains(
                       issue.stableId ?? issue.title,
                     ),
-                    jankFlash: false,
                     downstreamIssues: downstream,
                     parentIssues: parents,
                     suppressedParentCount: suppressedParentCount,

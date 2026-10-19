@@ -84,6 +84,7 @@ const _nonWidgetTypes = <String>{
   'UnmodifiableSetView',
   'ValueKey',
   'ValueNotifier',
+  'WidgetSpan',
 };
 
 /// Framework widgets apps use widely. Denylisting one would drop the app's
@@ -356,7 +357,7 @@ final b = Row(children: [Icon(x)]);
       };
       // Each framework widget the overlay uses is one an app's own use of
       // can no longer be counted. The overlay may drop entries, never add.
-      expect(framework.length, lessThanOrEqualTo(52), reason: '$framework');
+      expect(framework.length, lessThanOrEqualTo(51), reason: '$framework');
     });
 
     test('every framework entry in the denylist still corresponds to a UI '

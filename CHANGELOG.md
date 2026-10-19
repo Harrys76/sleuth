@@ -92,6 +92,35 @@
   not cover the last card.
 - The overlay no longer uses `TweenAnimationBuilder`, so it is off the
   debug instrumentation's framework denylist and an app's own uses count.
+- The collapsed issue card is flat, with no source bar on its left edge.
+  A severity icon in the severity's text colour replaces the emoji, and
+  the title runs to 2 lines (3 above 1.3x text), or in full while the
+  card is expanded.
+- One meta line under the title replaces the badges: category,
+  confidence, "seen X of Y scans, label" and "N effects", led by the Jank
+  and New tags. New shows for 2 seconds in place of the wider accent.
+- A Debug timing tag replaces the confidence on a timing issue in a debug
+  run: a time-based measurement (milliseconds, seconds, percent or
+  frames) from the VM timeline or `FrameTiming`. The per-card "Debug mode
+  result" note is gone.
+- `jank_detected`, `sustained_jank` and `slow_startup_ttff` carry
+  `observationSource: frameTiming`, the source of their times. Startup
+  said `structural` before and the jank issues carried none.
+- A crosshair replaces the highlight checkbox and shows only for an issue
+  that names a widget, labelled "Show <widget> on screen" and read as on
+  or off. Layout and paint cards without a widget name no longer offer a
+  highlight that could not find anything. The card body and the
+  crosshair draw the focus outline in keyboard mode.
+- An expanded card no longer draws the pin icon. Its semantics hint
+  reads "Pinned while expanded".
+- The overlay no longer uses `Checkbox`, so it is off the framework
+  denylist and an app's own checkboxes count.
+- The guide's legend describes the new card. The "Jank flash" card
+  colour, which the overlay never drew, is gone from it.
+- `badgeDbgBg` and `badgeDbgText` draw the Debug timing tag. The
+  confidence colours, the source accents, `sourceAccentWidth`,
+  `effectsBadge`, `disclaimerText` and `cardJankFlash` are unused by the
+  overlay and kept for custom themes.
 
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase: the issues of the phase's category, `event_loop_stall`

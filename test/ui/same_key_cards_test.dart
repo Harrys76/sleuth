@@ -185,8 +185,10 @@ void main() {
         ),
       ];
       await pumpCard(tester);
-      Finder checkboxOf(String name) =>
-          find.descendant(of: cardOf(name), matching: find.byType(Checkbox));
+      Finder checkboxOf(String name) => find.descendant(
+        of: cardOf(name),
+        matching: find.byIcon(Icons.my_location),
+      );
       await tester.tap(checkboxOf('a'));
       await tester.pump();
       controller.selectedHighlightNotifier.value = const WidgetHighlight(
@@ -197,8 +199,8 @@ void main() {
       );
       await tester.pump();
 
-      expect(tester.widget<Checkbox>(checkboxOf('a')).value, isTrue);
-      expect(tester.widget<Checkbox>(checkboxOf('b')).value, isFalse);
+      expect(crosshairOn(tester, checkboxOf('a')), isTrue);
+      expect(crosshairOn(tester, checkboxOf('b')), isFalse);
     });
 
     testWidgets('Ask AI on the second of two same-id cards opens a chat '

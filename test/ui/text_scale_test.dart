@@ -271,6 +271,11 @@ void main() {
       matching: find.text(mixedOverlayIssues().first.detail),
     );
 
+    /// Taps the context card's first title line: at 2.0x the title can be
+    /// taller than the room the context gets above the keyboard.
+    Future<void> tapContextTitle(WidgetTester tester) =>
+        tester.tapAt(tester.getTopLeft(contextTitle) + const Offset(8, 8));
+
     /// The input bar is whole above [usableBottom].
     void expectInputVisible(WidgetTester tester, double usableBottom) {
       final send = tester.getRect(find.bySemanticsLabel('Send'));
@@ -288,7 +293,7 @@ void main() {
         await openChat(tester, scale);
         tester.view.viewInsets = const FakeViewPadding(bottom: 253);
         await _settle(tester, 'keyboard up');
-        await tester.tap(contextTitle);
+        await tapContextTitle(tester);
         await _settle(tester, 'context expanded');
         expect(contextDetail, findsOneWidget);
         expectInputVisible(tester, 568 - 253);
@@ -307,7 +312,7 @@ void main() {
         await openChat(tester, scale);
         tester.view.physicalSize = const Size(568, 320);
         await _settle(tester, 'landscape');
-        await tester.tap(contextTitle);
+        await tapContextTitle(tester);
         await _settle(tester, 'context expanded');
         expect(contextDetail, findsOneWidget);
 

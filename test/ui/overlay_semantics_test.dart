@@ -260,45 +260,27 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('the confidence badge is read once', (tester) async {
-      await tester.pumpWidget(card(issue));
-      final all = _labels(tester).join('\n');
-      expect(all, contains('CONFIRMED: Measured on the VM timeline'));
-      expect('CONFIRMED'.allMatches(all), hasLength(1));
-    });
-
-    testWidgets('the recurrence badge matches the other badges', (
+    testWidgets('the meta line is read once, without its separators', (
       tester,
     ) async {
+      await tester.pumpWidget(card(issue));
+      final all = _labels(tester).join('\n');
+      expect('Build, Confirmed'.allMatches(all), hasLength(1));
+      expect(all, isNot(contains('\u00B7')));
+      // The severity icon reads its name.
+      expect(_labels(tester), contains('warning'));
+    });
+
+    testWidgets('recurrence joins the meta line phrase', (tester) async {
       final trend = RecurrenceTrend(capacity: 4);
       for (var i = 0; i < 4; i++) {
         trend.recordPresent(i, severityIndex: 2);
       }
       await tester.pumpWidget(card(issue, trend: trend));
-      final recurrence = tester.widget<Text>(find.textContaining('Seen'));
-      final category = tester.widget<Text>(find.text('BUILD'));
-      expect(recurrence.style!.fontSize, category.style!.fontSize);
-      final box = tester.widget<DecoratedBox>(
-        find
-            .ancestor(
-              of: find.textContaining('Seen'),
-              matching: find.byType(DecoratedBox),
-            )
-            .first,
+      expect(
+        _labels(tester),
+        contains('Build, Confirmed, seen 4 of 4 scans, persistent'),
       );
-      expect((box.decoration as BoxDecoration).border, isNotNull);
-    });
-
-    testWidgets('high contrast draws the pin at full opacity', (tester) async {
-      await tester.pumpWidget(
-        card(
-          issue,
-          theme: const SleuthThemeData.highContrastDark(),
-          expanded: true,
-        ),
-      );
-      final pin = tester.widget<Icon>(find.byIcon(Icons.push_pin));
-      expect(pin.color!.a, 1);
     });
   });
 
