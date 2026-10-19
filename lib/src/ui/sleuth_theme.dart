@@ -38,6 +38,10 @@ import '../models/performance_issue.dart';
 /// - **Severity** (3): `severityCritical`, `severityWarning`, `severityOk`
 /// - **Severity text** (3): `severityCriticalText`, `severityWarningText`,
 ///   `severityOkText`, severity-hued text readable on the card surfaces
+/// - **Severity graphics** (3, optional): borders, icons and dots
+///   ([severityGraphicColor]); the dark default uses the severity fills,
+///   the light preset mid-tone shades, the high-contrast presets and
+///   [SleuthThemeData.fromColorScheme] the severity text
 /// - **Category badges** (8): one per [IssueCategory] — `categoryBuild`, etc.
 /// - **Confidence** (3): `confidenceConfirmed`, `confidenceLikely`,
 ///   `confidencePossible`, unused by the overlay
@@ -232,7 +236,15 @@ class SleuthThemeData {
     this.radiusCard = 16,
     this.radiusFull = 20,
     Color? cardDivider,
-  }) : _cardDivider = cardDivider;
+    // The severity fills, as on dark surfaces they keep 3:1 and read
+    // brighter than the pale text shades.
+    Color? severityCriticalGraphic = const Color(0xFFEF4444),
+    Color? severityWarningGraphic = const Color(0xFFF59E0B),
+    Color? severityOkGraphic = const Color(0xFF10B981),
+  }) : _cardDivider = cardDivider,
+       _severityCriticalGraphic = severityCriticalGraphic,
+       _severityWarningGraphic = severityWarningGraphic,
+       _severityOkGraphic = severityOkGraphic;
 
   /// Explicit dark theme — identical to the default constructor.
   ///
@@ -281,6 +293,11 @@ class SleuthThemeData {
         severityCriticalText: const Color(0xFF991B1B),
         severityWarningText: const Color(0xFF92400E),
         severityOkText: const Color(0xFF065F46),
+        // Borders, icons and dots: one shade lighter than the text, so
+        // critical, warning and OK read as red, orange and green.
+        severityCriticalGraphic: const Color(0xFFDC2626),
+        severityWarningGraphic: const Color(0xFFD97706),
+        severityOkGraphic: const Color(0xFF059669),
         // Badge pairs (inverted: light bg, dark text)
         badgeVmBg: const Color(0xFFD1FAE5),
         badgeVmText: const Color(0xFF065F46),
@@ -327,6 +344,10 @@ class SleuthThemeData {
         badgeFillAlpha: 1,
         focusRingWidth: 2,
         sourceAccentWidth: 5,
+        // Borders, icons and dots take the lighter text shades.
+        severityCriticalGraphic: null,
+        severityWarningGraphic: null,
+        severityOkGraphic: null,
       );
 
   /// High-contrast light theme. See [SleuthThemeData.highContrastDark].
@@ -351,6 +372,9 @@ class SleuthThemeData {
         severityCriticalText: const Color(0xFF991B1B),
         severityWarningText: const Color(0xFF92400E),
         severityOkText: const Color(0xFF065F46),
+        severityCriticalGraphic: null,
+        severityWarningGraphic: null,
+        severityOkGraphic: null,
         badgeVmBg: const Color(0xFFD1FAE5),
         badgeVmText: const Color(0xFF065F46),
         badgeFrameBg: const Color(0xFFDBEAFE),
@@ -449,6 +473,11 @@ class SleuthThemeData {
       };
       SleuthThemeData build() => base.copyWith(
         brightness: brightness,
+        // A scheme's tinted surfaces can take the light preset's
+        // mid-tone graphics below 3:1; the text shades hold on any of them.
+        severityCriticalGraphic: base.severityCriticalText,
+        severityWarningGraphic: base.severityWarningText,
+        severityOkGraphic: base.severityOkText,
         pageBackground: surfaces[_SchemeSurface.page],
         cardBackground: surfaces[_SchemeSurface.card],
         sectionBackground: surfaces[_SchemeSurface.section],
@@ -765,6 +794,22 @@ class SleuthThemeData {
     IssueSeverity.ok => severityOkText,
   };
 
+  /// Colour of [severity] for borders, icons and dots, which need 3:1
+  /// against the card where text needs 4.5:1. The dark default uses the
+  /// severity fills and the light preset mid-tone shades, as its text
+  /// shades are too dark to tell red from orange; without one set, the
+  /// severity text colour.
+  Color severityGraphicColor(IssueSeverity severity) =>
+      switch (severity) {
+        IssueSeverity.critical => _severityCriticalGraphic,
+        IssueSeverity.warning => _severityWarningGraphic,
+        IssueSeverity.ok => _severityOkGraphic,
+      } ??
+      severityTextColor(severity);
+  final Color? _severityCriticalGraphic;
+  final Color? _severityWarningGraphic;
+  final Color? _severityOkGraphic;
+
   /// Badge fill for [accent]: the accent at [badgeFillAlpha].
   Color badgeFill(Color accent) => accent.withValues(alpha: badgeFillAlpha);
 
@@ -955,6 +1000,9 @@ class SleuthThemeData {
     Color? effortInvolved,
     Color? cardBackground,
     Color? cardDivider,
+    Color? severityCriticalGraphic,
+    Color? severityWarningGraphic,
+    Color? severityOkGraphic,
     Color? pageBackground,
     Color? sectionBackground,
     Color? aboutBackground,
@@ -1056,6 +1104,10 @@ class SleuthThemeData {
       effortInvolved: effortInvolved ?? this.effortInvolved,
       cardBackground: cardBackground ?? this.cardBackground,
       cardDivider: cardDivider ?? _cardDivider,
+      severityCriticalGraphic:
+          severityCriticalGraphic ?? _severityCriticalGraphic,
+      severityWarningGraphic: severityWarningGraphic ?? _severityWarningGraphic,
+      severityOkGraphic: severityOkGraphic ?? _severityOkGraphic,
       pageBackground: pageBackground ?? this.pageBackground,
       sectionBackground: sectionBackground ?? this.sectionBackground,
       aboutBackground: aboutBackground ?? this.aboutBackground,

@@ -3349,12 +3349,14 @@ class _RunLabel extends StatelessWidget {
               DecoratedBox(
                 decoration: vmConnected
                     ? BoxDecoration(
-                        color: theme.severityOkText,
+                        color: theme.severityGraphicColor(IssueSeverity.ok),
                         shape: BoxShape.circle,
                       )
                     : BoxDecoration(
                         border: Border.all(
-                          color: theme.severityWarningText,
+                          color: theme.severityGraphicColor(
+                            IssueSeverity.warning,
+                          ),
                           width: 1.5,
                         ),
                         shape: BoxShape.circle,
@@ -3625,6 +3627,11 @@ class _SeverityChip extends StatelessWidget {
     final foreground = selected
         ? theme.badgeTextOn(accent, tinted: tinted)
         : theme.textTertiary;
+    // The outline and icon carry the hue (red, orange, green); the count
+    // keeps the darker text shade.
+    final graphic = selected
+        ? theme.severityGraphicColor(severity)
+        : theme.textTertiary;
     return Semantics(
       button: true,
       selected: selected,
@@ -3646,7 +3653,7 @@ class _SeverityChip extends StatelessWidget {
                   color: selected ? theme.badgeFill(accent) : null,
                   borderRadius: BorderRadius.circular(theme.radiusFull),
                   border: Border.all(
-                    color: selected ? tinted : theme.textQuaternary,
+                    color: selected ? graphic : theme.textQuaternary,
                     width: 1.5,
                   ),
                 ),
@@ -3660,7 +3667,7 @@ class _SeverityChip extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(icon, size: 14, color: foreground),
+                      Icon(icon, size: 14, color: graphic),
                       SizedBox(width: theme.spacingXs),
                       Text(
                         '$count $name',
