@@ -110,11 +110,7 @@ List<PerformanceIssue> applyFreezeZone({
   if (freezeEnd > maxSnapshotIdx) freezeEnd = maxSnapshotIdx;
   if (freezeEnd < 0) return visibleIssues;
 
-  // Build identity set from the frozen slice.
   final snapshotKeys = occurrenceKeysFor(orderSnapshot);
-  final frozenKeys = <String>{
-    for (var i = 0; i <= freezeEnd; i++) snapshotKeys[i],
-  };
 
   // Index current visible issues by identity so we can re-anchor the
   // snapshot slice to the latest PerformanceIssue instances (the
@@ -125,21 +121,27 @@ List<PerformanceIssue> applyFreezeZone({
       visibleKeys[i]: visibleIssues[i],
   };
 
+  // An expanded slot shows the instance [retained] matched to it by
+  // element; a slot's occurrence key alone can point at a twin once a
+  // card ahead of it sharing its list key has gone. Each issue shows once:
+  // the flow leaves out what the frozen zone shows, by identity.
   final frozen = <PerformanceIssue>[];
+  final shown = Set<PerformanceIssue>.identity();
   for (var i = 0; i <= freezeEnd; i++) {
     final key = snapshotKeys[i];
-    final live = visibleById[key];
-    if (live != null) {
-      frozen.add(live);
-    } else if (expandedIndices.containsKey(key)) {
+    final PerformanceIssue? issue;
+    if (expandedIndices.containsKey(key)) {
       // The user is reading it: it stays, as last reported.
-      frozen.add(retained[key] ?? orderSnapshot[i]);
+      issue = retained[key] ?? visibleById[key] ?? orderSnapshot[i];
+    } else {
+      issue = visibleById[key];
     }
+    if (issue != null && shown.add(issue)) frozen.add(issue);
   }
 
   final flow = <PerformanceIssue>[
-    for (var i = 0; i < visibleIssues.length; i++)
-      if (!frozenKeys.contains(visibleKeys[i])) visibleIssues[i],
+    for (final issue in visibleIssues)
+      if (!shown.contains(issue)) issue,
   ];
 
   return <PerformanceIssue>[...frozen, ...flow];
@@ -1335,17 +1337,31 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// whose issue leaves the visible list. Refreshed on every list build.
   final Map<String, PerformanceIssue> _retained = {};
 
-  /// Refreshes [_retained] for the expanded cards and returns the keys of
-  /// those whose issue is no longer reported. A card is matched to the
-  /// visible list by its occurrence key, else to the reported issues by
-  /// its list key and element identity, so of two cards sharing a key only
-  /// the one that went is stale.
-  Set<String> _refreshRetained(
+  /// The report of [known] among [reported]: same list key and element
+  /// identity. Of two cards sharing a list key, an occurrence key would
+  /// point at the twin once the first one goes; the element does not.
+  static PerformanceIssue? _reportOf(
+    PerformanceIssue known,
+    Iterable<PerformanceIssue> reported,
+  ) {
+    final key = listKeyFor(known);
+    for (final r in reported) {
+      if (r.occurrenceId == known.occurrenceId && listKeyFor(r) == key) {
+        return r;
+      }
+    }
+    return null;
+  }
+
+  /// Refreshes [_retained] for the expanded cards and returns those whose
+  /// issue is no longer reported. A card without an element identity is
+  /// matched to the visible list by its occurrence key first.
+  Set<PerformanceIssue> _refreshRetained(
     List<PerformanceIssue> issues,
     List<PerformanceIssue> visible,
   ) {
     final snapshot = _orderSnapshot;
-    final stale = <String>{};
+    final stale = Set<PerformanceIssue>.identity();
     if (snapshot == null || _expandedIndices.isEmpty) {
       _retained.clear();
       return stale;
@@ -1361,20 +1377,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       if (!_expandedIndices.containsKey(key)) continue;
       kept.add(key);
       final known = _retained[key] ?? snapshot[i];
-      final live =
-          visibleByKey[key] ??
-          issues
-              .where(
-                (r) =>
-                    listKeyFor(r) == listKeyFor(known) &&
-                    r.occurrenceId == known.occurrenceId,
-              )
-              .firstOrNull;
+      final live = known.occurrenceId != null
+          ? _reportOf(known, visible) ?? _reportOf(known, issues)
+          : visibleByKey[key] ?? _reportOf(known, issues);
       if (live != null) {
         _retained[key] = live;
       } else {
         _retained[key] = known;
-        stale.add(key);
+        stale.add(known);
       }
     }
     _retained.removeWhere((key, _) => !kept.contains(key));
@@ -1402,9 +1412,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (snapshot != null && _expandedIndices.isNotEmpty) {
       final snapshotKeys = occurrenceKeysFor(snapshot);
       for (var i = 0; i < snapshot.length; i++) {
-        if (!visibleKeys.contains(snapshotKeys[i]) &&
-            _ui.isHidden(_retained[snapshotKeys[i]] ?? snapshot[i]) &&
-            _expandedIndices.remove(snapshotKeys[i]) != null) {
+        final key = snapshotKeys[i];
+        if (!_expandedIndices.containsKey(key)) continue;
+        // Judged on the current report: hiding depends on its severity.
+        final current = _reportOf(_retained[key] ?? snapshot[i], issues);
+        if (current != null && _ui.isHidden(current)) {
+          _expandedIndices.remove(key);
           changed = true;
         }
       }
@@ -2749,7 +2762,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         );
         _recordHeldOrder(held);
         final heldIssues = held.issues;
-        final staleKeys = _refreshRetained(issues, heldIssues);
+        final staleIssues = _refreshRetained(issues, heldIssues);
         final orderedIssues = applyFreezeZone(
           visibleIssues: heldIssues,
           orderSnapshot: _orderSnapshot,
@@ -2836,7 +2849,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                 itemBuilder: (_, index) {
                   final issue = orderedIssues[index];
                   final issueKey = listKeys[index];
-                  final stale = staleKeys.contains(issueKey);
+                  final stale = staleIssues.contains(issue);
                   final locatable = !stale && _isLocatableIssue(issue);
                   final isHighlighted =
                       selectedHighlight != null &&

@@ -201,6 +201,11 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
       composite(t.badgeFill(t.checkboxActive), surfaces[s]!),
     );
     add(
+      'Not detected right now tag on $s',
+      t.badgeTextOn(t.textSecondary),
+      composite(t.badgeFill(t.textSecondary), surfaces[s]!),
+    );
+    add(
       'Debug timing tag on $s',
       t.badgeDbgText,
       composite(t.badgeDbgBg, surfaces[s]!),
