@@ -2105,14 +2105,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     void resizeBy(double dw, double dh) {
       // A right-flush card grows leftwards ([_clampOffset] moves it), up
       // to the safe-area width minus [_clampOffset]'s 5 px margin, so it
-      // never reaches under a landscape notch.
-      _cardWidth = (_cardWidth + dw).clamp(
+      // never reaches under a landscape notch. The step starts from the
+      // width shown: a stored width from an older release or a larger
+      // screen is clamped first.
+      final maxWidth = math.max(
         minWidth,
-        math.max(
-          minWidth,
-          screenSize.width - _cachedSafePadding.horizontal - 5,
-        ),
+        screenSize.width - _cachedSafePadding.horizontal - 5,
       );
+      final shown = _cardWidth.clamp(minWidth, maxWidth);
+      _cardWidth = (shown + dw).clamp(minWidth, maxWidth);
       final stored = _cardHeight ?? cardHeight;
       final base = dh < 0 ? math.min(stored, cardHeight) : cardHeight;
       _cardHeight = (base + dh).clamp(
