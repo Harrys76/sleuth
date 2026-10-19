@@ -271,9 +271,10 @@ class PerformanceIssue {
   /// and not part of equality.
   final int? occurrenceId;
 
-  /// The number the detector compared against its thresholds for this
-  /// emission, with the lines it used. Null for issues without a number,
-  /// such as structural patterns.
+  /// The number the detector reported for this emission, with its warning
+  /// and critical lines. Null for issues without a number, such as
+  /// structural patterns. [severity] is the detector's and can differ from
+  /// the severity the value reaches; see [IssueMeasurement].
   final IssueMeasurement? measurement;
 
   /// Display label for the route: `routeName` for the first visit, or

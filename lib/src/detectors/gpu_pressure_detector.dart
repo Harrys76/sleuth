@@ -438,11 +438,13 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       }
     }
     var bestSpan = timed.sublist(bestLeft, bestLeft + bestCount);
+    var timedSpan = true;
     // Untimed frames never outlive a scan, so they all arrived since the
     // previous one.
     if (untimed.length > bestCount) {
       bestCount = untimed.length;
       bestSpan = untimed;
+      timedSpan = false;
     }
     if (bestCount < minRasterDominantFrames) return null;
 
@@ -460,6 +462,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       medianRatio: median,
       critical: bestCount >= criticalRasterDominantFrames,
       identityUs: _ringHasIdentity[last] ? _ringIdentityUs[last] : null,
+      timed: timedSpan,
     );
   }
 
@@ -651,7 +654,9 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
             unit: MeasurementUnit.frames,
             warningAt: minRasterDominantFrames.toDouble(),
             criticalAt: criticalRasterDominantFrames.toDouble(),
-            window: const Duration(microseconds: _spanUs),
+            window: frameLeg.timed
+                ? const Duration(microseconds: _spanUs)
+                : null,
           ),
           confidenceReason: vmMissed
               ? '$_frameLegReason, confirmed by the VM timeline raster timing'
@@ -886,6 +891,7 @@ class _FrameLegResult {
     required this.medianRatio,
     required this.critical,
     required this.identityUs,
+    required this.timed,
   });
 
   /// Dominant frames in the qualifying one-second span.
@@ -900,4 +906,8 @@ class _FrameLegResult {
 
   /// `rasterFinishUs ?? vsyncStartUs` of the last qualifying frame.
   final int? identityUs;
+
+  /// Whether the qualifying frames had timestamps, so a one-second span
+  /// was judged; untimed frames are counted as one group.
+  final bool timed;
 }

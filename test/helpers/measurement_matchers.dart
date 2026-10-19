@@ -53,8 +53,9 @@ void expectMeasurement(
 /// strict line needs a value above it; [strict] sets both lines,
 /// [warningStrict] and [criticalStrict] one each), that the value reaches
 /// the warning line when there is one, and that the severity is the one
-/// the value reaches. Held severities report a value under their line, so
-/// tests of a hold check the measurement with [expectMeasurement] only.
+/// the value reaches. A held severity can carry a value under its line,
+/// and a debug rate's warning a value over the critical line, so tests of
+/// those cases check the measurement with [expectMeasurement] only.
 void expectSeverityMatchesMeasurement(
   PerformanceIssue issue, {
   bool strict = false,

@@ -137,6 +137,9 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// null = no VM window completed since last evaluate.
   double? _pendingVmWindowPercent;
 
+  /// Measured length of the window behind [_pendingVmWindowPercent].
+  int _pendingVmWindowUs = 0;
+
   /// null = no new snapshot delivered since last evaluate.
   DebugSnapshot? _pendingDebugSnapshot;
 
@@ -226,6 +229,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       // phase time than the window holds.
       final percent = (_paintTimeUs / elapsedUs * 100).clamp(0.0, 100.0);
       _pendingVmWindowPercent = percent;
+      _pendingVmWindowUs = elapsedUs;
       // Refresh capture-mode observables on every window close — before
       // _evaluateVmData's threshold guard so sub-threshold legs still
       // expose a measurement. The emission for this window stamps the
@@ -556,6 +560,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
         unit: MeasurementUnit.percent,
         warningAt: paintTimePercentThreshold,
         criticalAt: paintTimePercentThreshold * 3,
+        window: Duration(microseconds: _pendingVmWindowUs),
         strict: true,
       ),
       confidenceReason: 'Measured directly from VM timeline PAINT durations',

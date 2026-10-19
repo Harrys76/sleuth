@@ -215,6 +215,30 @@ void main() {
       expectSeverityMatchesMeasurement(issue);
     });
 
+    test('a configured minDelta is the measurement line', () async {
+      detector = StreamResourceDetector(
+        vmClientProvider: () => null,
+        heapGrowingStateProvider: () => heapGrowing,
+        clock: () => now,
+        sampleSeconds: 10,
+        minDelta: 40,
+        warmupSeconds: 20,
+        windowSize: 4,
+        allocationProfileFetcherForTest: () async {
+          profilesFetched++;
+          if (profileQueue.isEmpty) return null;
+          return profileQueue.removeAt(0);
+        },
+      );
+      await driveGrowthWindow();
+      expectMeasurement(
+        detector.issues.single,
+        value: 90,
+        unit: MeasurementUnit.count,
+        warningAt: 40,
+      );
+    });
+
     test('emission stamps the canonical extraTraceArgs keys', () async {
       await driveGrowthWindow();
       final args = detector.issues.first.extraTraceArgs!;

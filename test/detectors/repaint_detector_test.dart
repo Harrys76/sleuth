@@ -1280,6 +1280,7 @@ void main() {
         unit: MeasurementUnit.percent,
         warningAt: detector.paintTimePercentThreshold,
         criticalAt: detector.paintTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
       );
     });
 
@@ -1295,6 +1296,7 @@ void main() {
         unit: MeasurementUnit.percent,
         warningAt: detector.paintTimePercentThreshold,
         criticalAt: detector.paintTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
       );
       expectSeverityMatchesMeasurement(repaint().single, strict: true);
     });
@@ -1315,6 +1317,7 @@ void main() {
         unit: MeasurementUnit.percent,
         warningAt: detector.paintTimePercentThreshold,
         criticalAt: detector.paintTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
       );
       expect(
         issue.measurement!.value,
@@ -1328,6 +1331,14 @@ void main() {
       expect(repaint(), isEmpty);
       closeWindow(154000, windowMs: 1400);
       expect(repaint().single.extraTraceArgs?['observedPaintPercent'], '11.0');
+      expectMeasurement(
+        repaint().single,
+        value: 11,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.paintTimePercentThreshold,
+        criticalAt: detector.paintTimePercentThreshold * 3,
+        window: const Duration(milliseconds: 1400),
+      );
     });
 
     test('custom threshold gates warning and 3× critical', () {

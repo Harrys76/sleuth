@@ -75,25 +75,28 @@ final class MeasurementUnit {
   String toString() => name;
 }
 
-/// The number a detector compared against its thresholds when it reported
-/// an issue, with the warning and critical lines it used.
+/// The number a detector reported with an issue, with the detector's
+/// warning and critical lines.
 ///
-/// A line is null when the detector has no line at that severity. Every
-/// built-in measurement is higher-is-worse. A value at or above a line
-/// reaches that severity, or only a value above it when the line's strict
-/// flag ([warningStrict], [criticalStrict]) is set.
+/// A line is null when the detector has no line at that severity. A value
+/// at or above a line reaches that severity, or only a value above it when
+/// the line's strict flag ([warningStrict], [criticalStrict]) is set.
+/// Every measurement is higher-is-worse. A custom detector's must be too,
+/// since the class has no way to mark a lower value as worse.
 ///
-/// The value is the number the detector reports. Most titles show it;
-/// `raster_dominance` titles show a raster-to-UI ratio and
-/// `heap_near_capacity` titles a percent of the budget instead. Some
-/// detectors take the severity from a different reading than the value,
-/// so the value can sit below the line of the severity shown: rebuild and
-/// paint shares and debug rates hold a severity until the value stays
-/// low, debug rates go critical on the latest window while the value
-/// averages two, and `heap_near_capacity` tolerates one sample under its
+/// Most titles show the value; `raster_dominance` titles show a
+/// raster-to-UI ratio and `heap_near_capacity` titles a percent of the
+/// budget instead. The issue's severity is the detector's, and some
+/// detectors take it from a different reading than the value, so the two
+/// can disagree in either direction. Rebuild and paint shares and debug
+/// rates hold a severity until the value stays low, and
+/// `heap_near_capacity` tolerates one sample under its line, so a value
+/// can sit below the line of the severity shown. Debug rates also go
+/// critical only on the latest window's rate while the value averages the
+/// last two windows, so a warning can carry a value above the critical
 /// line.
 @immutable
-class IssueMeasurement {
+final class IssueMeasurement {
   /// [strict] sets both lines' strict flags; [warningStrict] and
   /// [criticalStrict] override it for one line. A flag is false when its
   /// line is null.
@@ -142,15 +145,22 @@ class IssueMeasurement {
   /// value is not finite, and [toJson] leaves out a line that is not.
   bool get hasFiniteValue => value.isFinite;
 
-  Map<String, dynamic> toJson() => {
-    'value': value,
-    'unit': unit.name,
-    if (warningAt != null && warningAt!.isFinite) 'warningAt': warningAt,
-    if (criticalAt != null && criticalAt!.isFinite) 'criticalAt': criticalAt,
-    'windowMs': ?_windowMs,
-    if (warningStrict) 'warningStrict': true,
-    if (criticalStrict) 'criticalStrict': true,
-  };
+  /// Writes [value] as it is, so a caller that encodes the map itself
+  /// checks [hasFiniteValue] first. A line that is not finite is left out
+  /// together with its strict flag.
+  Map<String, dynamic> toJson() {
+    final warning = _finite(warningAt);
+    final critical = _finite(criticalAt);
+    return {
+      'value': value,
+      'unit': unit.name,
+      'warningAt': ?warning,
+      'criticalAt': ?critical,
+      'windowMs': ?_windowMs,
+      if (warningStrict && warning != null) 'warningStrict': true,
+      if (criticalStrict && critical != null) 'criticalStrict': true,
+    };
+  }
 
   /// Reads a measurement written by [toJson]. Returns null when [json] is
   /// not a map, when `value` is missing or not a finite number, or when

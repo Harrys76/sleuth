@@ -26,6 +26,12 @@ class HeldRate {
   /// lines it is held against. [RateHysteresis] enters a rate at or above
   /// its threshold and makes it critical only above the critical line;
   /// [warningStrict] marks callers whose threshold enters only above it.
+  ///
+  /// [critical] can disagree with where [rate] sits against the lines, in
+  /// either direction. A held type turns critical on the latest window's
+  /// rate while [rate] averages two windows, and a critical one stays
+  /// critical until the average falls below [RateHysteresis.exitFactor]
+  /// times the critical line.
   IssueMeasurement measurement({
     required double warningAt,
     double? criticalAt,

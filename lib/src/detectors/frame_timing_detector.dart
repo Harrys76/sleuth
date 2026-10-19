@@ -645,7 +645,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
     final frames = _jankFrames;
     if (frames.length < minJankSampleFrames) return; // Need enough data
-    final span = _vsyncSpan(frames);
+    // Computed on first read, so only when an issue is emitted.
+    late final span = _vsyncSpan(frames);
 
     // Single pass: count jank categories and find the worst app frame.
     // Frames late only because of Sleuth's own work count in neither the

@@ -59,6 +59,27 @@ void main() {
       expectSeverityMatchesMeasurement(detector.issues.first, strict: true);
     });
 
+    test('a configured threshold sets both measurement lines', () {
+      detector = PlatformChannelDetector(
+        callsPerSecThreshold: 10,
+        clock: () => fakeNow,
+      );
+      detector.processTimelineData(platformChannelData(channelEventCount: 15));
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+
+      final issue = detector.issues.single;
+      expect(issue.severity, IssueSeverity.warning);
+      expectMeasurement(
+        issue,
+        value: 15,
+        unit: MeasurementUnit.perSecond,
+        warningAt: 10,
+        criticalAt: 20,
+        strict: true,
+      );
+    });
+
     test('critical when calls/sec exceed 2x threshold after flush', () {
       detector.processTimelineData(platformChannelData(channelEventCount: 45));
       fakeNow = fakeNow.add(const Duration(seconds: 2));

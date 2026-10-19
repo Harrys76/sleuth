@@ -507,6 +507,49 @@ void main() {
           criticalStrict: true,
         );
       });
+
+      test('a warning can carry a value above the critical line', () {
+        void window(int count) {
+          detector.updateDebugSnapshot(
+            DebugSnapshot(
+              rebuildCounts: {'MyWidget': count},
+              totalPaintCount: 0,
+              elapsed: const Duration(seconds: 1),
+            ),
+          );
+          detector.evaluateNow();
+        }
+
+        window(100);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+        window(2);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+        // (2 + 40) / 2 = 21 is under 0.75 times the line of 30, so the
+        // critical hold ends although this window alone is 40.
+        window(40);
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+        // 30 in the latest second is not above 30, so the rate stays a
+        // warning while its two-second average, 35/sec, is above the line.
+        window(30);
+        final issue = detector.issues.single;
+        expect(issue.severity, IssueSeverity.warning);
+        expect(issue.title, contains('(35/sec)'));
+        expectMeasurement(
+          issue,
+          value: 35,
+          unit: MeasurementUnit.perSecond,
+          warningAt: detector.rebuildsPerSecThreshold.toDouble(),
+          criticalAt:
+              detector.rebuildsPerSecThreshold *
+              RebuildDetector.debugCriticalMultiplier.toDouble(),
+          window: const Duration(seconds: 2),
+          criticalStrict: true,
+        );
+        expect(
+          issue.measurement!.value,
+          greaterThan(issue.measurement!.criticalAt!),
+        );
+      });
     });
 
     group('VM disconnected — structural fallback', () {
@@ -1391,6 +1434,7 @@ void main() {
         unit: MeasurementUnit.percent,
         warningAt: detector.buildTimePercentThreshold,
         criticalAt: detector.buildTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
       );
     });
 
@@ -1406,6 +1450,7 @@ void main() {
         unit: MeasurementUnit.percent,
         warningAt: detector.buildTimePercentThreshold,
         criticalAt: detector.buildTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
       );
       expectSeverityMatchesMeasurement(issues.single, strict: true);
     });
@@ -1426,6 +1471,7 @@ void main() {
         unit: MeasurementUnit.percent,
         warningAt: detector.buildTimePercentThreshold,
         criticalAt: detector.buildTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
       );
       expect(
         issue.measurement!.value,
@@ -1446,6 +1492,14 @@ void main() {
       closeWindow(154000, windowMs: 1400);
       expect(detector.lastObservedBuildPercent, closeTo(11.0, 1e-9));
       expect(activity().single.extraTraceArgs?['observedBuildPercent'], '11.0');
+      expectMeasurement(
+        activity().single,
+        value: 11,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.buildTimePercentThreshold,
+        criticalAt: detector.buildTimePercentThreshold * 3,
+        window: const Duration(milliseconds: 1400),
+      );
     });
 
     test('custom threshold gates warning and 3× critical', () {

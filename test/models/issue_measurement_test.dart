@@ -134,6 +134,43 @@ void main() {
       },
     );
 
+    test('toJson drops a strict flag with the line it leaves out', () {
+      for (final line in [
+        double.nan,
+        double.infinity,
+        double.negativeInfinity,
+      ]) {
+        final m = IssueMeasurement(
+          value: 1,
+          unit: MeasurementUnit.percent,
+          warningAt: 0.5,
+          criticalAt: line,
+          strict: true,
+        );
+        expect(m.criticalStrict, isTrue, reason: '$line');
+        expect(m.toJson(), {
+          'value': 1.0,
+          'unit': 'percent',
+          'warningAt': 0.5,
+          'warningStrict': true,
+        }, reason: '$line');
+        final back = IssueMeasurement.fromJson(
+          jsonDecode(jsonEncode(m.toJson())),
+        )!;
+        expect(back.criticalAt, isNull, reason: '$line');
+        expect(back.criticalStrict, isFalse, reason: '$line');
+        expect(back.warningStrict, isTrue, reason: '$line');
+      }
+      final noFiniteLine = IssueMeasurement(
+        value: 1,
+        unit: MeasurementUnit.count,
+        warningAt: double.nan,
+        criticalAt: double.infinity,
+        strict: true,
+      );
+      expect(noFiniteLine.toJson(), {'value': 1.0, 'unit': 'count'});
+    });
+
     test('windows keep their microseconds through JSON', () {
       const m = IssueMeasurement(
         value: 45,

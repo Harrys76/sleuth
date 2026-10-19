@@ -826,6 +826,14 @@ void main() {
         final issue = raster(await scan(tester));
         expect(issue, isNotNull);
         expect(issue!.dedupIdentityMicros, isNull);
+        // No timestamps, so no one-second span was judged.
+        expectMeasurement(
+          issue,
+          value: 3,
+          unit: MeasurementUnit.frames,
+          warningAt: detector.minRasterDominantFrames.toDouble(),
+          criticalAt: detector.criticalRasterDominantFrames.toDouble(),
+        );
       });
 
       testWidgets('a route epoch drops the dominant frames seen before it', (

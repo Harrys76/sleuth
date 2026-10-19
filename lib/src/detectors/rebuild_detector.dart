@@ -199,6 +199,9 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// >0 = a window completed with build time (may produce issues).
   double? _pendingVmWindowPercent;
 
+  /// Measured length of the window behind [_pendingVmWindowPercent].
+  int _pendingVmWindowUs = 0;
+
   /// null = no new snapshot delivered since last evaluate.
   /// A snapshot with 0 counts means activity stopped (should clear issues).
   DebugSnapshot? _pendingDebugSnapshot;
@@ -376,6 +379,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       // phase time than the window holds.
       final percent = (_buildTimeUs / elapsedUs * 100).clamp(0.0, 100.0);
       _pendingVmWindowPercent = percent;
+      _pendingVmWindowUs = elapsedUs;
       _lastObservedBuildPercent = percent;
       // Stage enrichment atomically with the window share
       _stagedEnrichedNames = _pendingEnrichedNames.isNotEmpty
@@ -756,6 +760,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         unit: MeasurementUnit.percent,
         warningAt: buildTimePercentThreshold,
         criticalAt: buildTimePercentThreshold * 3,
+        window: Duration(microseconds: _pendingVmWindowUs),
         strict: true,
       ),
       confidenceReason: 'Measured directly from VM timeline BUILD durations',

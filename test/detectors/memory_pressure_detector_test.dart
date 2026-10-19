@@ -126,6 +126,22 @@ void main() {
       }
     }
 
+    test('a configured threshold is the measurement line', () {
+      // 10 young collections in the 10 s window: 60/min against 30/min.
+      feedCycles(detector, 10);
+      final issue = detector.issues.singleWhere(
+        (i) => i.stableId == 'gc_pressure',
+      );
+      expectMeasurement(
+        issue,
+        value: 60,
+        unit: MeasurementUnit.perMinute,
+        warningAt: 30,
+        window: const Duration(seconds: 10),
+        strict: true,
+      );
+    });
+
     test('default threshold is 240/min', () {
       expect(MemoryPressureDetector().gcRateThresholdPerMin, 240);
     });
