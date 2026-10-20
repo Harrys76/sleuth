@@ -415,6 +415,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// epoch that asks it to, and whether keyboard focus goes with it.
   PerformanceIssue? _crosshairFocusIssue;
   String? _crosshairFocusKey;
+
+  /// The target card started its scroll; the host clears the target when
+  /// the scroll ends rather than after the first frame.
+  bool _crosshairFocusStarted = false;
   int _crosshairFocusEpoch = 0;
   bool _crosshairKeyboardFocus = false;
 
@@ -2137,6 +2141,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       if (focusCrosshair && selected != null) {
         _crosshairFocusIssue = selected;
         _crosshairFocusKey = key;
+        _crosshairFocusStarted = false;
         _crosshairFocusEpoch++;
       }
     });
@@ -2145,19 +2150,27 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     controller.highlightEnabledNotifier.value = _markersBefore;
     if (!wasOpen) return;
     _listAtTop = _listScroll.keptOffset <= 0;
-    // Registered before the list builds, so this runs before the card's
-    // own post-frame focus and a card rebuilt later does not repeat it.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      // The list builds every card for this frame only.
-      setState(() {
-        _crosshairFocusIssue = null;
-        _crosshairFocusKey = null;
+      // Runs after the frame's other callbacks, the card's included. When
+      // no card started a scroll to its crosshair, the target is gone and
+      // the list stops building every card; else the card's scroll end
+      // clears it.
+      scheduleMicrotask(() {
+        if (mounted && !_crosshairFocusStarted) {
+          setState(_clearCrosshairFocus);
+        }
       });
       if (!refocusHeader) return;
       if (keyboardToHeader) _moreFocus.requestFocus();
       _focusSemantics(_headerKey);
     });
+  }
+
+  void _clearCrosshairFocus() {
+    _crosshairFocusIssue = null;
+    _crosshairFocusKey = null;
+    _crosshairFocusStarted = false;
   }
 
   /// While the bar is up and its widget has left the screen, a later
@@ -3666,6 +3679,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                       ? _crosshairFocusEpoch
                       : 0,
                   crosshairKeyboardFocus: _crosshairKeyboardFocus,
+                  onCrosshairFocused: (scrolled) {
+                    _crosshairFocusStarted = true;
+                    final epoch = _crosshairFocusEpoch;
+                    scrolled.whenComplete(() {
+                      if (mounted && epoch == _crosshairFocusEpoch) {
+                        setState(_clearCrosshairFocus);
+                      }
+                    });
+                  },
                   onHighlightChanged: locatable
                       ? (checked) =>
                             _onHighlightChanged(checked, issueKey, issue)

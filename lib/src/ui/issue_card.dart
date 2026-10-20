@@ -73,6 +73,7 @@ class IssueCard extends StatefulWidget {
     this.onFocused,
     this.crosshairFocusEpoch = 0,
     this.crosshairKeyboardFocus = false,
+    this.onCrosshairFocused,
   }) : assert(
          suppressedParentCount >= 0,
          'suppressedParentCount must be at least 0. A negative value '
@@ -224,9 +225,11 @@ class IssueCard extends StatefulWidget {
 
   /// Bumped by the host to move the screen reader to the crosshair, as
   /// when the highlight bar it opened closes; keyboard focus goes too when
-  /// [crosshairKeyboardFocus].
+  /// [crosshairKeyboardFocus]. [onCrosshairFocused] gets the scroll's
+  /// future, so the host keeps the card built until it is in view.
   final int crosshairFocusEpoch;
   final bool crosshairKeyboardFocus;
+  final ValueChanged<Future<void>>? onCrosshairFocused;
 
   @override
   State<IssueCard> createState() => _IssueCardState();
@@ -278,20 +281,27 @@ class _IssueCardState extends State<IssueCard> {
   }
 
   /// After the next frame: scrolls the crosshair into view if it is not,
-  /// leaving the list's restored offset alone otherwise, and moves the
-  /// screen reader, and keyboard focus when asked, to it.
+  /// leaving the list's restored offset alone otherwise, and moves
+  /// keyboard focus, when asked, to it. The screen reader follows once
+  /// the crosshair is in view.
   void _focusCrosshair() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final target = _crosshairKey.currentContext;
       if (!mounted || target == null) return;
-      revealWithMotion(
+      final scrolled = revealWithMotion(
         context,
         target,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
       );
       if (widget.crosshairKeyboardFocus) _crosshairFocus.requestFocus();
-      target.findRenderObject()?.sendSemanticsEvent(const FocusSemanticEvent());
+      widget.onCrosshairFocused?.call(scrolled);
+      scrolled.whenComplete(() {
+        if (!mounted) return;
+        _crosshairKey.currentContext?.findRenderObject()?.sendSemanticsEvent(
+          const FocusSemanticEvent(),
+        );
+      });
     });
   }
 

@@ -451,6 +451,28 @@ void main() {
       expect(focused.last, tester.getSemantics(crosshairOf).id);
     });
 
+    testWidgets('focus reaches a crosshair that new cards pushed off '
+        'screen while the bar was up', (tester) async {
+      final controller = await _openWith(tester, [_lay]);
+      _seedHighlight(controller, _top);
+      final focused = _recordScreenReaderFocus(tester);
+      await _tapCrosshair(tester);
+      // Under a screen reader new cards enter at their rank, here above
+      // Lay.
+      controller.issuesNotifier.value = [
+        for (var i = 0; i < 30; i++) _other('n$i'),
+        _lay,
+      ];
+      await tester.pump();
+      await tester.tap(_back);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      final target = find.bySemanticsLabel('Show Lay on screen');
+      expect(target, findsOneWidget);
+      expect(focused.last, tester.getSemantics(target).id);
+    });
+
     testWidgets('a second tap of a double tap does not reach the app', (
       tester,
     ) async {
