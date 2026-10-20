@@ -3269,14 +3269,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     lastSeenOf: () => widget.controller.lastSeenAt(issue),
                     relatedLinkOf: _relatedLinkOf,
                     onOpenRelated: _openRelated,
-                    onSeeRebuildStats:
-                        _showsRebuildStats(issue) && _onCurrentScreen(issue)
+                    // The screen can change without the issue list
+                    // changing (a kept card, a screen with no issues), so
+                    // the count and the tap check it each time.
+                    onSeeRebuildStats: _showsRebuildStats(issue)
                         ? () {
+                            if (!_onCurrentScreen(issue)) return;
                             _onSeeAllRebuildsTap();
                             if (_showRebuildStats) _layerOpener = issueKey;
                           }
                         : null,
-                    rebuildStatsTotalOf: _rebuildTotal,
+                    rebuildStatsTotalOf: () =>
+                        _onCurrentScreen(issue) ? _rebuildTotal() : 0,
                     onSeeStartup: issue.stableId == 'slow_startup_ttff'
                         ? () => setState(() {
                             _showStartupDetail = true;
