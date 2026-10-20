@@ -15,7 +15,7 @@ import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
-/// What the Why it rebuilds row shows for a widget type over `seconds`:
+/// What the Why it rebuilds row shows for a widget type over `window`:
 /// rebuilds the widget started itself (`own`: a setState, a changed
 /// dependency or a listenable), those its parents forced (`forced`, from
 /// `parents` parent types), and the parent that forced the most with its
@@ -29,7 +29,7 @@ typedef RebuildCause = ({
   int parents,
   String? parent,
   int parentForced,
-  int seconds,
+  Duration window,
   bool capped,
   bool otherScreen,
 });
@@ -431,9 +431,10 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
           cause == null
               ? 'No rebuild counts yet'
               : cause.capped
-              ? 'No rebuilds counted in the last ${cause.seconds} s; some '
+              ? 'No rebuilds counted in the last ${formatWindow(cause.window)}; '
+                    'some '
                     'widget types went untracked'
-              : 'No rebuilds in the last ${cause.seconds} s',
+              : 'No rebuilds in the last ${formatWindow(cause.window)}',
           style: style.copyWith(color: theme.textSecondary),
         );
       } else {
@@ -475,7 +476,7 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
             theme,
             cause == null || cause.otherScreen
                 ? 'Why it rebuilds'
-                : 'Why it rebuilds · last ${cause.seconds} s',
+                : 'Why it rebuilds · last ${formatWindow(cause.window)}',
           ),
           SizedBox(height: theme.spacingXs),
           DecoratedBox(
