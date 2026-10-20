@@ -122,6 +122,8 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
               WidgetHighlight(
                 rect: rect,
                 renderObject: ro,
+                occurrenceId: identityHashCode(element),
+                stableId: 'always_repaint_painter',
                 widgetName: 'CustomPaint',
                 severity: IssueSeverity.warning,
                 detectorName: 'Painter',

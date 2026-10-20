@@ -403,10 +403,12 @@ class _GuidePageState extends State<GuidePage>
           theme,
           '\u{1F50D}',
           'Show on screen',
-          'Tap the crosshair on an issue that names a widget to outline '
-              'that widget on screen, in the issue\'s severity color. The '
-              'card shrinks to a bar until you tap Back to issues. When the '
-              'widget is not on screen, a toast says so.',
+          'Tap the crosshair on an issue that names or lists widgets to '
+              'outline its widget on screen, in the issue\'s severity color. '
+              'The card shrinks to a bar until you tap Back to issues. On an '
+              'issue that lists several widgets, such as Missing '
+              'RepaintBoundary, Next in the bar moves the outline to the '
+              'next one. When no widget is on screen, a toast says so.',
         ),
         _infoTile(
           theme,

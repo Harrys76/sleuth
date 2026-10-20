@@ -107,6 +107,20 @@ void main() {
         );
         expect(detector.highlights, hasLength(3));
         expect(detector.highlights.first.detail, contains('MemoryImage'));
+        // Each highlight names its issue and element, for the crosshair's
+        // steps.
+        expect(
+          detector.highlights.map((h) => h.stableId),
+          everyElement('uncached_images'),
+        );
+        expect(
+          detector.highlights.map((h) => h.occurrenceId).toSet(),
+          hasLength(detector.highlights.length),
+        );
+        expect(
+          detector.highlights.map((h) => h.occurrenceId),
+          everyElement(isNotNull),
+        );
       });
 
       testWidgets('1200 px at 100 dp: ratio 6, 5.6 MB, warning', (

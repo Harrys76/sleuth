@@ -388,6 +388,20 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
       expect(detector.issues, isNotEmpty);
       expect(detector.highlights, isNotEmpty);
+      // Each highlight names its issue and element, for the crosshair's
+      // steps.
+      expect(
+        detector.highlights.map((h) => h.stableId),
+        everyElement('missing_repaint_boundary'),
+      );
+      expect(
+        detector.highlights.map((h) => h.occurrenceId).toSet(),
+        hasLength(detector.highlights.length),
+      );
+      expect(
+        detector.highlights.map((h) => h.occurrenceId),
+        everyElement(isNotNull),
+      );
 
       detector.dispose();
       expect(detector.issues, isEmpty);

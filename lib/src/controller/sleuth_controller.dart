@@ -531,6 +531,18 @@ class SleuthController {
   final ValueNotifier<WidgetHighlight?> selectedHighlightNotifier =
       ValueNotifier(null);
 
+  /// Position of the outline among the widgets of an issue that lists
+  /// several ([listsWidgets]): `index` of `count`, both from the latest
+  /// publish. Null for an issue that names one widget and while nothing
+  /// is outlined.
+  final ValueNotifier<({int index, int count})?> highlightStepNotifier =
+      ValueNotifier(null);
+
+  /// The edge the highlight bar sits at while it is up: true at the top.
+  /// The card sets it after laying the bar out; the outline label reads it
+  /// to stay clear of the bar. Null while no bar is up.
+  final ValueNotifier<bool?> highlightBarAtTopNotifier = ValueNotifier(null);
+
   /// Runtime theme override. Takes precedence over [config.theme] and
   /// auto-detection when non-null; Light or Dark picked under Theme in
   /// the More menu takes precedence over it.
@@ -659,6 +671,15 @@ class SleuthController {
   /// Severity of the issue whose widget is outlined, which the outline
   /// takes; null while nothing is outlined.
   IssueSeverity? get highlightTargetSeverity => _highlightTarget?.severity;
+
+  /// Element identity of the outlined widget of a [listsWidgets] target,
+  /// kept while the widget is off screen so a later publish finds it again.
+  int? _stepOccurrence;
+
+  /// Place of that widget among the issue's widgets at the latest publish
+  /// that had it. [highlightStepNotifier] shows a position that changes
+  /// only with Next and the lookup; this one tracks the list.
+  int _stepPlace = 0;
 
   /// Highlights are collected while the markers are on, and while an
   /// issue's outline is shown or looked up.
@@ -889,6 +910,61 @@ class SleuthController {
     selectedHighlightNotifier.value = null;
     _pendingHighlight = null;
     _highlightTarget = null;
+    _stepOccurrence = null;
+    highlightStepNotifier.value = null;
+    highlightBarAtTopNotifier.value = null;
+  }
+
+  /// Issue families whose single issue lists several widgets, each with
+  /// its own highlight tagged with the family's id
+  /// ([WidgetHighlight.stableId]).
+  static const _listFamilies = {
+    'always_repaint_painter',
+    'missing_repaint_boundary',
+    'layout_bottleneck',
+    'uncached_images',
+    'expensive_gpu_nodes',
+  };
+
+  /// Whether [issue] lists several widgets rather than naming one, so its
+  /// outline steps through them ([nextHighlightStep]).
+  static bool listsWidgets(PerformanceIssue issue) =>
+      issue.widgetName == null && _listFamilies.contains(issue.stableId);
+
+  /// The widgets of a [listsWidgets] issue among [highlights], one per
+  /// element, in scan order.
+  static List<WidgetHighlight> _stepsOf(
+    PerformanceIssue issue,
+    List<WidgetHighlight> highlights,
+  ) {
+    final seen = <int>{};
+    return [
+      for (final h in highlights)
+        if (h.stableId == issue.stableId &&
+            h.occurrenceId != null &&
+            seen.add(h.occurrenceId!))
+          h,
+    ];
+  }
+
+  /// Outlines the next widget of the outlined [listsWidgets] issue, after
+  /// the last one wrapping to the first. When the outlined widget is off
+  /// screen, the next one is the widget now at its place, the one that
+  /// followed it.
+  void nextHighlightStep() {
+    final target = _highlightTarget;
+    final step = highlightStepNotifier.value;
+    if (target == null || step == null || !listsWidgets(target)) return;
+    final steps = _stepsOf(target, highlightsNotifier.value.items);
+    if (steps.isEmpty) return;
+    final current = steps.indexWhere((h) => h.occurrenceId == _stepOccurrence);
+    final next = current >= 0
+        ? (current + 1) % steps.length
+        : _stepPlace % steps.length;
+    _stepOccurrence = steps[next].occurrenceId;
+    _stepPlace = next;
+    selectedHighlightNotifier.value = steps[next];
+    highlightStepNotifier.value = (index: next, count: steps.length);
   }
 
   /// Selects the highlight of [issue]: the one measured from the issue's
@@ -909,6 +985,8 @@ class SleuthController {
   }) {
     _pendingHighlight = null;
     _highlightTarget = null;
+    _stepOccurrence = null;
+    highlightStepNotifier.value = null;
     // Detectors computed their highlights in their last scan, but they are
     // collected only while highlighting is on, which it may just have
     // been switched to.
@@ -930,11 +1008,34 @@ class SleuthController {
   }
 
   HighlightLookup _selectHighlight(PerformanceIssue issue) {
+    if (listsWidgets(issue)) {
+      // Built widgets include ones scrolled out of view (a list's cache
+      // extent); the outline starts on the first one on screen.
+      final steps = _stepsOf(issue, highlightsNotifier.value.items);
+      final screen = _screenRect();
+      final first = steps.indexWhere(
+        (h) => screen == null || h.rect.overlaps(screen),
+      );
+      if (first < 0) return HighlightLookup.notFound;
+      _highlightTarget = issue;
+      _stepOccurrence = steps[first].occurrenceId;
+      _stepPlace = first;
+      selectedHighlightNotifier.value = steps[first];
+      highlightStepNotifier.value = (index: first, count: steps.length);
+      return HighlightLookup.found;
+    }
     final match = _highlightOf(issue, highlightsNotifier.value.items);
     if (match == null) return HighlightLookup.notFound;
     _highlightTarget = issue;
     selectedHighlightNotifier.value = match;
     return HighlightLookup.found;
+  }
+
+  /// The app's screen in logical pixels, null without a view.
+  static Rect? _screenRect() {
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+    if (view == null || view.devicePixelRatio <= 0) return null;
+    return Offset.zero & (view.physicalSize / view.devicePixelRatio);
   }
 
   static WidgetHighlight? _highlightOf(
@@ -3685,6 +3786,7 @@ class SleuthController {
             detail: h.detail,
             renderObject: ro,
             occurrenceId: h.occurrenceId,
+            stableId: h.stableId,
           ),
         );
       }
@@ -3722,7 +3824,22 @@ class SleuthController {
     }
     // An outline that lost its element takes it back from a later publish.
     final target = _highlightTarget;
-    if (target != null && selectedHighlightNotifier.value == null) {
+    if (target != null && listsWidgets(target)) {
+      final steps = _stepsOf(target, items);
+      final index = steps.indexWhere((h) => h.occurrenceId == _stepOccurrence);
+      // The shown position changes with Next and the lookup, not with each
+      // scan: a screen reader would read the bar's label again after every
+      // scroll. Only a change in whether there is a next widget shows at
+      // once. While its widget is off screen the step keeps its position.
+      if (index >= 0) {
+        _stepPlace = index;
+        selectedHighlightNotifier.value = steps[index];
+        final shown = highlightStepNotifier.value;
+        if (shown == null || (shown.count > 1) != (steps.length > 1)) {
+          highlightStepNotifier.value = (index: index, count: steps.length);
+        }
+      }
+    } else if (target != null && selectedHighlightNotifier.value == null) {
       selectedHighlightNotifier.value = _ownHighlightOf(target, items);
     }
   }
@@ -5853,6 +5970,8 @@ class SleuthController {
     highlightsNotifier.dispose();
     highlightEnabledNotifier.dispose();
     selectedHighlightNotifier.dispose();
+    highlightStepNotifier.dispose();
+    highlightBarAtTopNotifier.dispose();
     suppressedCountNotifier.dispose();
     _notUseful.clear();
     notUsefulNotifier.dispose();

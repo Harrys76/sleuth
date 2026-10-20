@@ -413,6 +413,7 @@ void main() {
     Widget card(
       PerformanceIssue issue, {
       bool finding = false,
+      bool locatable = true,
       ValueChanged<bool>? onChanged,
       SleuthThemeData theme = const SleuthThemeData(),
       double width = 320,
@@ -425,7 +426,7 @@ void main() {
               width: width,
               child: IssueCard(
                 issue: issue,
-                locatable: true,
+                locatable: locatable,
                 finding: finding,
                 onHighlightChanged: onChanged ?? (_) {},
               ),
@@ -435,8 +436,12 @@ void main() {
       ),
     );
 
-    testWidgets('shows only for an issue that names a widget', (tester) async {
-      await tester.pumpWidget(card(_testIssue()));
+    testWidgets('shows only when the host can locate the issue', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        card(_testIssue(widgetName: 'PriceTag'), locatable: false),
+      );
       expect(find.byIcon(Icons.my_location), findsNothing);
       expect(find.byType(Checkbox), findsNothing);
 
@@ -444,6 +449,17 @@ void main() {
       expect(find.byIcon(Icons.my_location), findsOneWidget);
       expect(find.bySemanticsLabel('Show PriceTag on screen'), findsOneWidget);
     });
+
+    testWidgets(
+      "on an issue that lists widgets reads Show this issue's widgets",
+      (tester) async {
+        await tester.pumpWidget(card(_testIssue()));
+        expect(
+          find.bySemanticsLabel("Show this issue's widgets on screen"),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('is a 48 px button in the card corner; while finding it '
         'reads Finding and a second tap cancels', (tester) async {
