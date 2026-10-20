@@ -104,8 +104,11 @@
 - The collapsed issue card is flat, with no source bar on its left edge.
   A severity mark replaces the emoji: a disc or triangle filled with the
   severity colour, with a white or near-black mark inside at 3:1 or more
-  against the fill; the discs carry a white ring. The title runs to 2
-  lines (3 above 1.3x text), or in full while the card is expanded.
+  against the fill; the discs carry a white ring. Where neither the fill
+  nor the ring reaches 3:1 on the card (the light presets' warning and OK
+  marks), the shape is outlined in a darker shade of its colour. The
+  title runs to 2 lines (3 above 1.3x text), or in full while the card is
+  expanded.
 - One meta line under the title replaces the badges: category,
   confidence, "seen X of Y scans, label" and "N effects", led by the Jank
   and New tags. New shows for 2 seconds in place of the wider accent.
@@ -212,26 +215,28 @@
   session, and focus then moves to the severity chips.
 - The trigger shows its count in debug runs too; the warning badge is
   gone.
-- While the card is open, a toast says when the VM link drops, unless an
-  action toast holds the slot, or a screen reader is on and the status
-  line can announce it (no page, menu or highlight bar covers it and the
-  card is not minimized).
 - While an issue's widget is outlined, the card shrinks to a bar at the
   screen edge away from the widget: "Showing <widget>", or "<widget> is
   off screen" once it scrolls away, detaches or sits behind the keyboard,
   until a later scan finds that element again. Back to issues, system
   back and Escape (also while an app text field has focus) bring the
   card back as it was (window state, size and list offset) with focus on
-  the crosshair. The bar's close ends the
-  outline with the dashboard. When the issue is no longer reported the
-  card comes back and a toast says so. The bar is never stored, and the
-  flagged-widget markers return to their state from before the tap
-  however the outline ends. Outlines follow a rotation or a keyboard at
-  once instead of at the next scan, and the outline's label stays below
-  the status bar.
+  the crosshair. The bar's close ends the outline with the dashboard.
+  When the issue is no longer reported the card comes back and a toast
+  says so. The bar is never stored. Outlines follow a rotation or a
+  keyboard at once instead of at the next scan, and the outline's label
+  stays below the status bar.
+- An outline no longer turns the flagged-widget markers on: while the
+  bar is up only the issue's widget is outlined, unless the markers were
+  already on. Sleuth collects highlights while an outline is shown or
+  looked up, and finds the issue's own element again after it detaches.
 - The header's markers toggle is named "Mark flagged widgets" and read as
-  on or off. Turning it off hides the corner markers at once instead of
-  at the next scan.
+  on or off. It turns the markers alone on and off, never an outline or
+  a lookup, and turning it off hides them at once instead of at the next
+  scan.
+- Toasts use the theme's text and card colours swapped, regular 12 px
+  text and a bold action label in the accent at 4.5:1, and span the
+  screen up to 480 px.
 - The outline's label sizes to its text, up to two lines, follows the
   text scale up to the chrome limit, and draws its text in the colour
   that reads on its severity fill. It stays below the highlight bar when

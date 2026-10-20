@@ -396,60 +396,29 @@ void main() {
       );
     });
 
-    testWidgets('a lost link toasts while no action toast holds the slot', (
-      tester,
-    ) async {
-      controller.vmConnectedNotifier.value = true;
-      await pumpCard(tester);
-      controller.vmConnectedNotifier.value = false;
-      await tester.pump();
-      expect(find.textContaining('VM link lost. Checks'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 15));
-    }, semanticsEnabled: false);
-
-    testWidgets('an Undo toast keeps the slot when the link drops', (
-      tester,
-    ) async {
-      controller.issuesNotifier.value = [issue('a')];
-      controller.vmConnectedNotifier.value = true;
-      await pumpCard(tester);
-      await tester.tap(find.text('Title a'));
-      await tester.pump();
-      // Semantics are off here, so the button is found by its icon.
-      final hide = find.byIcon(Icons.visibility_off_outlined);
-      await tester.ensureVisible(hide);
-      await tester.pump();
-      await tester.tap(hide);
-      await tester.pump();
-      expect(find.text('Undo'), findsOneWidget);
-      controller.vmConnectedNotifier.value = false;
-      await tester.pump();
-      expect(find.textContaining('VM link lost. Checks'), findsNothing);
-      expect(find.text('Undo'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 15));
-    }, semanticsEnabled: false);
-
-    testWidgets('under a screen reader the status line says it instead', (
-      tester,
-    ) async {
-      controller.vmConnectedNotifier.value = true;
-      await pumpCard(tester);
-      controller.vmConnectedNotifier.value = false;
-      await tester.pump();
-      expect(find.textContaining('VM link lost. Checks'), findsNothing);
-    });
-
-    testWidgets('under a screen reader the toast still comes when the '
-        'status line is out of reach', (tester) async {
-      controller.vmConnectedNotifier.value = true;
-      await pumpCard(tester);
-      await tester.tap(find.bySemanticsLabel('Minimize'));
-      await tester.pump();
-      controller.vmConnectedNotifier.value = false;
-      await tester.pump();
-      expect(find.textContaining('VM link lost. Checks'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 15));
-    });
+    for (final reader in [false, true]) {
+      testWidgets('a dropped link shows no toast; the status line says it '
+          '(screen reader ${reader ? 'on' : 'off'})', (tester) async {
+        controller.issuesNotifier.value = [issue('a')];
+        controller.vmConnectedNotifier.value = true;
+        await pumpCard(tester);
+        controller.vmConnectedNotifier.value = false;
+        controller.runStateNotifier.value = const SleuthRunState(
+          phase: SleuthRunPhase.running,
+          everConnected: true,
+          reconnectAttempt: 1,
+          maxReconnectAttempts: 7,
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(
+          find.textContaining('Checks that need it are paused'),
+          findsNothing,
+        );
+        expect(find.byType(SleuthStatusBox), findsOneWidget);
+        expect(find.textContaining('Reconnecting, attempt 1 of 7'), findsOne);
+      }, semanticsEnabled: reader);
+    }
 
     testWidgets('Copy command copies the run command and confirms', (
       tester,

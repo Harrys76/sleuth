@@ -6,13 +6,39 @@ import 'package:flutter/material.dart';
 import 'motion.dart';
 import 'sleuth_theme.dart';
 
-/// Visual tone of an [OverlayToastModel].
+/// Tone of an [OverlayToastModel]. Both draw the same; the tone records
+/// whether the toast confirms an action or reports one that did not
+/// happen.
 enum OverlayToastTone {
   /// Confirmation (copied, exported, hidden).
   info,
 
   /// Something did not happen as asked.
   warning,
+}
+
+/// Colours of a toast: the theme's text and card colours swapped, so the
+/// toast reads as one object over the card and the app in either theme,
+/// with an action in the theme accent, shifted in lightness until it
+/// reaches 4.5:1 on the toast.
+@visibleForTesting
+({Color fill, Color text, Color action}) toastColorsOf(SleuthThemeData theme) {
+  final fill = theme.textPrimary;
+  final text = theme.cardBackground;
+  var hsl = HSLColor.fromColor(theme.checkboxActive);
+  final darken = fill.computeLuminance() > 0.5;
+  for (var i = 0; i < 40; i++) {
+    if (SleuthThemeData.contrastRatio(hsl.toColor(), fill) >= 4.5) break;
+    hsl = hsl.withLightness(
+      (hsl.lightness + (darken ? -0.025 : 0.025)).clamp(0.0, 1.0),
+    );
+  }
+  final action = hsl.toColor();
+  return (
+    fill: fill,
+    text: text,
+    action: SleuthThemeData.contrastRatio(action, fill) >= 4.5 ? action : text,
+  );
 }
 
 /// One toast message.
@@ -157,16 +183,9 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
 /// live region. A held toast ([OverlayToastModel.held]) adds a Dismiss
 /// button and a dismiss semantics action.
 class OverlayToast extends StatelessWidget {
-  const OverlayToast({
-    super.key,
-    required this.controller,
-    this.bottomClearance = 0,
-  });
+  const OverlayToast({super.key, required this.controller});
 
   final OverlayToastController controller;
-
-  /// Extra space kept free below the toast, for chrome at the bottom edge.
-  final double bottomClearance;
 
   static const Duration _fade = Duration(milliseconds: 200);
 
@@ -177,10 +196,11 @@ class OverlayToast extends StatelessWidget {
       MediaQuery.maybeViewInsetsOf(context)?.bottom ?? 0.0,
       MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0.0,
     );
+    final padding = MediaQuery.maybeViewPaddingOf(context) ?? EdgeInsets.zero;
     return Positioned(
-      left: theme.spacingXl,
-      right: theme.spacingXl,
-      bottom: theme.spacingXl + bottomInset + bottomClearance,
+      left: theme.spacingXl + padding.left,
+      right: theme.spacingXl + padding.right,
+      bottom: theme.spacingXl + bottomInset,
       child: ValueListenableBuilder<OverlayToastModel?>(
         valueListenable: controller,
         builder: (context, model, _) => _ToastFade(
@@ -303,103 +323,113 @@ class _ToastBody extends StatelessWidget {
   final VoidCallback onAction;
   final VoidCallback onDismiss;
 
+  /// Widest a toast grows, the highlight bar's width.
+  static const double _maxWidth = 480;
+
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    final warning = model.tone == OverlayToastTone.warning;
-    final background = warning ? theme.bannerWarningBg : theme.bannerSuccessBg;
-    final foreground = warning
-        ? theme.bannerWarningText
-        : theme.bannerSuccessText;
+    final colors = toastColorsOf(theme);
+    final hasButtons = model.actionLabel != null || model.held;
     return Center(
-      child: Semantics(
-        liveRegion: true,
-        container: true,
-        // A held toast stays until used or dismissed; screen readers get a
-        // dismiss action next to the Dismiss button.
-        onDismiss: model.held ? onDismiss : null,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(theme.radiusLg),
-            boxShadow: [BoxShadow(color: theme.shadow, blurRadius: 8)],
-          ),
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: theme.spacingLg,
-              right: model.actionLabel == null
-                  ? theme.spacingLg
-                  : theme.spacingXs,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxWidth),
+        child: Semantics(
+          liveRegion: true,
+          container: true,
+          // A held toast stays until used or dismissed; screen readers get a
+          // dismiss action next to the Dismiss button.
+          onDismiss: model.held ? onDismiss : null,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: colors.fill,
+              borderRadius: BorderRadius.circular(theme.radiusXl),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.shadow,
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: theme.spacingMd),
-                    child: Text(
-                      model.text,
-                      style: TextStyle(
-                        color: foreground,
-                        fontSize: theme.fontSm,
-                        fontWeight: FontWeight.w600,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: theme.spacingLg,
+                right: hasButtons ? theme.spacingXs : theme.spacingLg,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        vertical: theme.spacingMd + theme.spacingXxs,
                       ),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
+                      child: Text(
+                        model.text,
+                        style: TextStyle(
+                          color: colors.text,
+                          fontSize: theme.fontBase,
+                          height: 1.35,
+                        ),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                ),
-                if (model.actionLabel != null)
-                  Semantics(
-                    container: true,
-                    button: true,
-                    child: GestureDetector(
-                      onTap: onAction,
-                      behavior: HitTestBehavior.opaque,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          minWidth: 48,
-                          minHeight: 48,
-                        ),
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: theme.spacingMd,
+                  if (model.actionLabel != null)
+                    Semantics(
+                      container: true,
+                      button: true,
+                      child: GestureDetector(
+                        onTap: onAction,
+                        behavior: HitTestBehavior.opaque,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minWidth: 48,
+                            minHeight: 48,
                           ),
-                          child: Center(
-                            widthFactor: 1,
-                            child: Text(
-                              model.actionLabel!,
-                              style: TextStyle(
-                                color: foreground,
-                                fontSize: theme.fontSm,
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.underline,
-                                decorationColor: foreground,
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: theme.spacingMd,
+                            ),
+                            child: Center(
+                              widthFactor: 1,
+                              child: Text(
+                                model.actionLabel!,
+                                style: TextStyle(
+                                  color: colors.action,
+                                  fontSize: theme.fontBase,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                if (model.held)
-                  Semantics(
-                    container: true,
-                    button: true,
-                    label: 'Dismiss',
-                    child: GestureDetector(
-                      onTap: onDismiss,
-                      behavior: HitTestBehavior.opaque,
-                      child: SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Center(
-                          child: Icon(Icons.close, size: 16, color: foreground),
+                  if (model.held)
+                    Semantics(
+                      container: true,
+                      button: true,
+                      label: 'Dismiss',
+                      child: GestureDetector(
+                        onTap: onDismiss,
+                        behavior: HitTestBehavior.opaque,
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Center(
+                            child: Icon(
+                              Icons.close,
+                              size: 16,
+                              color: colors.text,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -632,8 +634,14 @@ void main() {
       );
       expect(icon.severity, IssueSeverity.critical);
       expect(find.text('\u{1F534}'), findsNothing);
-      // Its mark keeps 3:1 on the severity fill in every preset.
-      for (final theme in _presets) {
+      // Its mark keeps 3:1 on the severity fill, and its shape (the fill,
+      // or the outline where the fill falls short) 3:1 on the card
+      // surfaces, in every preset.
+      for (final theme in [
+        ..._presets,
+        SleuthThemeData.fromSeed(Colors.teal),
+        SleuthThemeData.fromSeed(Colors.teal, brightness: Brightness.dark),
+      ]) {
         for (final severity in IssueSeverity.values) {
           final fill = theme.severityColor(severity);
           expect(
@@ -641,7 +649,29 @@ void main() {
             greaterThanOrEqualTo(3),
             reason: '${theme.brightness.name} $severity',
           );
+          final edge = SleuthSeverityIcon.edgeOf(theme, severity);
+          // A disc's white ring outlines it unless an edge colour does.
+          final outlines = [
+            ?edge,
+            if (edge == null) fill,
+            if (edge == null && severity != IssueSeverity.warning)
+              const Color(0xFFFFFFFF),
+          ];
+          for (final surface in [theme.cardDefault, theme.cardBackground]) {
+            expect(
+              outlines.map((c) => wcagContrast(c, surface)).reduce(math.max),
+              greaterThanOrEqualTo(3),
+              reason: '${theme.brightness.name} $severity shape',
+            );
+          }
         }
+      }
+      // The dark default keeps its unoutlined fills.
+      for (final severity in IssueSeverity.values) {
+        expect(
+          SleuthSeverityIcon.edgeOf(const SleuthThemeData(), severity),
+          isNull,
+        );
       }
       // No left accent bar: the card has no decoration border.
       expect(

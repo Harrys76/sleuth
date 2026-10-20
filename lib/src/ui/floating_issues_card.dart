@@ -340,8 +340,7 @@ abstract interface class OverlayLayerHost {
   bool get menuOpen;
 
   /// Ends the card's highlight (the bar, or a lookup still running) when
-  /// the dashboard closes. The outline goes, and the markers toggle
-  /// returns to its value from before the tap.
+  /// the dashboard closes, so the outline goes with it.
   void endHighlight();
 }
 
@@ -390,10 +389,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// of it is written to [OverlayUiState]. With [_selectedIssue] set and
   /// this false, the lookup is pending (Finding).
   bool _barOpen = false;
-
-  /// The flagged-widget markers toggle before the crosshair tap; the
-  /// toggle returns to it when the highlight ends.
-  bool _markersBefore = false;
 
   /// The bar sat at the top of the screen when its widget was last on
   /// screen; while the widget is off screen it stays there.
@@ -638,9 +633,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     super.initState();
     widget.controller.verdictNotifier.addListener(_onVerdictChanged);
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
-    _vmWasConnected = widget.controller.vmConnectedNotifier.value;
-    widget.controller.vmConnectedNotifier.addListener(_onVmLinkChanged);
-    widget.controller.highlightsNotifier.addListener(_onHighlightsChanged);
     widget.controller.selectedHighlightNotifier.addListener(_onBarTarget);
     _ui.addListener(_onUiStateChanged);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
@@ -760,19 +752,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.verdictNotifier.removeListener(_onVerdictChanged);
       oldWidget.controller.issuesNotifier.removeListener(_onIssuesChanged);
-      oldWidget.controller.vmConnectedNotifier.removeListener(_onVmLinkChanged);
-      oldWidget.controller.highlightsNotifier.removeListener(
-        _onHighlightsChanged,
-      );
       oldWidget.controller.selectedHighlightNotifier.removeListener(
         _onBarTarget,
       );
       oldWidget.controller.overlayUiState.removeListener(_onUiStateChanged);
       widget.controller.verdictNotifier.addListener(_onVerdictChanged);
       widget.controller.issuesNotifier.addListener(_onIssuesChanged);
-      _vmWasConnected = widget.controller.vmConnectedNotifier.value;
-      widget.controller.vmConnectedNotifier.addListener(_onVmLinkChanged);
-      widget.controller.highlightsNotifier.addListener(_onHighlightsChanged);
       widget.controller.selectedHighlightNotifier.addListener(_onBarTarget);
       widget.controller.overlayUiState.addListener(_onUiStateChanged);
       _readGeometry();
@@ -881,8 +866,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     SemanticsBinding.instance.removeSemanticsEnabledListener(_syncToastTiming);
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
-    widget.controller.vmConnectedNotifier.removeListener(_onVmLinkChanged);
-    widget.controller.highlightsNotifier.removeListener(_onHighlightsChanged);
     widget.controller.selectedHighlightNotifier.removeListener(_onBarTarget);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     _toast.dispose();
@@ -1392,72 +1375,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       (_) => _focusSemantics(_firstChipKey),
     );
   }
-
-  /// Says the VM link dropped while the card is open. A screen reader
-  /// hears it from the status line when that line is reachable, and an
-  /// action toast keeps the slot.
-  void _onVmLinkChanged() {
-    final connected = widget.controller.vmConnectedNotifier.value;
-    final was = _vmWasConnected;
-    _vmWasConnected = connected;
-    if (!was || connected || !mounted) return;
-    // Read now: the list updates its own copy only when it lists cards.
-    final screenReader =
-        (MediaQuery.maybeAccessibleNavigationOf(context) ?? false) ||
-        SemanticsBinding.instance.semanticsEnabled;
-    if (!screenReader || !_statusLineReachable) {
-      _showVmLostToast();
-      return;
-    }
-    // The line announces it if the next frame shows it; a keyboard can
-    // squeeze its area to nothing.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || widget.controller.vmConnectedNotifier.value) return;
-      if (!_statusLineReachable || !_statusLineShown()) _showVmLostToast();
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
-  }
-
-  void _showVmLostToast() {
-    if (_toast.value?.actionLabel != null) return;
-    _toast.show(
-      'VM link lost. Checks that need it are paused until it is back.',
-      tone: OverlayToastTone.warning,
-    );
-  }
-
-  /// Whether some of the status line lies inside the area that scrolls
-  /// it, as laid out in the last frame.
-  bool _statusLineShown() {
-    final statusContext = _statusKey.currentContext;
-    final box = statusContext?.findRenderObject();
-    if (statusContext == null ||
-        box is! RenderBox ||
-        !box.attached ||
-        !box.hasSize ||
-        box.size.isEmpty) {
-      return false;
-    }
-    final viewport = Scrollable.maybeOf(
-      statusContext,
-    )?.context.findRenderObject();
-    if (viewport is! RenderBox || !viewport.hasSize) return true;
-    final rect = MatrixUtils.transformRect(
-      box.getTransformTo(viewport),
-      Offset.zero & box.size,
-    );
-    return rect.bottom > 0 && rect.top < viewport.size.height;
-  }
-
-  bool _vmWasConnected = false;
-
-  /// The card body with its status line is on screen and in the semantics
-  /// tree: no page, bar or menu covers it and the card is not minimized.
-  bool get _statusLineReachable =>
-      openLayerDepth == 0 &&
-      !_barOpen &&
-      !_menuOpen &&
-      _windowState != CardWindowState.minimized;
 
   final GlobalKey _statusKey = GlobalKey(debugLabel: 'status line');
 
@@ -2062,17 +1979,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       return;
     }
     final controller = widget.controller;
-    // A second card tapped while a lookup runs keeps the first's value.
-    if (_selectedIssue == null) {
-      _markersBefore = controller.highlightEnabledNotifier.value;
-    }
     _crosshairKeyboardFocus = _focusInCard();
     setState(() {
       _selectedIssueId = issueKey;
       _selectedIssue = issue;
     });
-    // Highlights are collected only while this is on.
-    controller.highlightEnabledNotifier.value = true;
     void resolved(HighlightLookup result) {
       if (!mounted || _barOpen || _selectedIssueId != issueKey) return;
       if (result == HighlightLookup.found) {
@@ -2133,9 +2044,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     widget.onClose();
   }
 
-  /// Ends a lookup or the bar. The outline goes, and the markers toggle
-  /// returns to its value from before the tap. [focusCrosshair] moves
-  /// focus to the card's crosshair, [refocusHeader] to the header.
+  /// Ends a lookup or the bar, and the outline with it. [focusCrosshair]
+  /// moves focus to the card's crosshair, [refocusHeader] to the header.
   void _endHighlight({
     bool focusCrosshair = false,
     bool refocusHeader = false,
@@ -2159,9 +2069,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         _crosshairFocusEpoch++;
       }
     });
-    final controller = widget.controller;
-    controller.clearSelectedHighlight();
-    controller.highlightEnabledNotifier.value = _markersBefore;
+    widget.controller.clearSelectedHighlight();
     if (!wasOpen) return;
     _listAtTop = _listScroll.keptOffset <= 0;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2185,27 +2093,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _crosshairFocusIssue = null;
     _crosshairFocusKey = null;
     _crosshairFocusStarted = false;
-  }
-
-  /// While the bar is up and its widget has left the screen, a later
-  /// scan that finds it again outlines it again.
-  void _onHighlightsChanged() {
-    final issue = _selectedIssue;
-    if (!_barOpen || issue == null) return;
-    final controller = widget.controller;
-    if (controller.selectedHighlightNotifier.value != null) return;
-    // An empty list would make the lookup collect, and publish, again.
-    final items = controller.highlightsNotifier.value.items;
-    if (items.isEmpty) return;
-    // Only the issue's own element counts. Another widget of the same name
-    // would be outlined under its label.
-    final occurrence = issue.occurrenceId;
-    if (occurrence != null && !items.any((h) => h.occurrenceId == occurrence)) {
-      return;
-    }
-    controller.selectHighlightForIssue(
-      _reportOf(issue, controller.issuesNotifier.value) ?? issue,
-    );
   }
 
   /// Rebuilds the bar when the outlined widget moves, leaves the screen or
@@ -2457,13 +2344,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             ),
           ),
         // Single toast slot for every confirmation and notice; above the
-        // card and any full-screen page, and above the bar at the bottom.
-        OverlayToast(
-          controller: _toast,
-          bottomClearance: layerDepth == 0 && _barOpen && !_barAtTop
-              ? highlightBarHeight(chromeScale) + theme.spacingMd
-              : 0,
-        ),
+        // card and any full-screen page.
+        OverlayToast(controller: _toast),
       ],
     );
   }
@@ -3120,21 +3002,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                         color: enabled
                             ? theme.checkboxActive
                             : theme.textTertiary,
+                        // The markers only: an issue's outline and its
+                        // lookup stay as they are.
                         onTap: () {
                           _closeMenu(refocus: false);
-                          final newValue = !enabled;
-                          // Off during a lookup ends it; the markers stay
-                          // off afterwards.
-                          if (!newValue && _selectedIssue != null) {
-                            _markersBefore = false;
-                            _endHighlight();
-                            return;
-                          }
                           widget.controller.highlightEnabledNotifier.value =
-                              newValue;
-                          if (!newValue) {
-                            widget.controller.clearSelectedHighlight();
-                          }
+                              !enabled;
                         },
                         tooltip: 'Mark flagged widgets',
                         toggled: enabled,
