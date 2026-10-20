@@ -174,4 +174,22 @@ void main() {
     c.nextHighlightStep();
     expect(c.selectedHighlightNotifier.value?.occurrenceId, 2);
   });
+
+  testWidgets('Next comes back when a widget arrives after none were left', (
+    tester,
+  ) async {
+    final c = SleuthController();
+    addTearDown(c.dispose);
+    c.scanTickNotifier.value = 1;
+    c.publishHighlightsForTest([_h(1), _h(2)]);
+    c.selectHighlightForIssue(_issue('always_repaint_painter'));
+
+    // A rect refresh mid-scroll drops every highlight.
+    c.publishHighlightsForTest([]);
+    expect(c.canStepNext, isFalse);
+    c.publishHighlightsForTest([_h(3)]);
+    expect(c.canStepNext, isTrue);
+    c.nextHighlightStep();
+    expect(c.selectedHighlightNotifier.value?.occurrenceId, 3);
+  });
 }
