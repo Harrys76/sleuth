@@ -21,8 +21,8 @@ against this written matrix, not against ad hoc spot checks.
    ```
    Without `--no-dds`, `flutter run` starts DDS, which takes the VM
    service as its only client. Sleuth then cannot connect and stays in
-   FRAME mode on every platform. Run without `--no-dds` only when you
-   want FRAME mode, as in the degradation checks below.
+   no-VM mode on every platform. Run without `--no-dds` only when you
+   want no-VM mode, as in the degradation checks below.
 
 2. For each platform and mode combination, work through the validation
    grid below.
@@ -39,14 +39,16 @@ against this written matrix, not against ad hoc spot checks.
 1. Launch the example app. Check that it boots without a crash.
 2. Tap the dog button. Check that the dashboard opens and responds.
 3. Check that the FPS value in the dashboard status row updates.
-4. Check the mode badge next to the FPS value (VM+ or FRAME).
+4. Check the run label in the card header ("Profile · VM" or "Profile ·
+   no VM").
 5. Read the issue list in the dashboard. Note which issues appear;
    structural detectors should always fire.
 6. Open a jank-producing demo (for example, "CSV Import"). Return to
    the dashboard and check the verdict: issue cards linked to the jank
-   frame carry a JANK badge.
-7. In debug mode with `enableDebugCallbacks` on, check that the "DBG"
-   badge appears.
+   frame carry a Jank tag.
+7. In a debug run, check that the run label starts with "Debug", that
+   the "Debug build" banner shows, and that timing issues carry a Debug
+   timing tag.
 8. Record all results in the grid.
 
 ---
@@ -66,7 +68,7 @@ against this written matrix, not against ad hoc spot checks.
 
 **Key:**
 - "Best-effort": the VM may or may not connect. When it does not, the
-  package falls back to FRAME mode.
+  package falls back to no-VM mode.
 - "Good": the VM connects reliably in practice when the app runs with
   `--no-dds`.
 - "Available if enabled": debug callbacks work with
@@ -87,11 +89,11 @@ against this written matrix, not against ad hoc spot checks.
 | 2 | Overlay renders (dog button visible) | | | |
 | 3 | Dashboard opens and responds | | | |
 | 4 | FrameTiming produces frame data (FPS value updates) | | | |
-| 5 | VM connection status | | | Record: VM+ or FRAME |
+| 5 | VM connection status | | | Record: VM or no VM |
 | 6 | Structural detector issues appear | | | Read the issue list after visiting demos |
 | 7 | VM-backed issues appear (if VM connected) | | | ShaderJank, HeavyCompute, etc. |
-| 8 | Mode badge matches connection state | | | VM+ (green) or FRAME (blue) |
-| 9 | Debug mode warning shown (debug only) | | N/A | Yellow "Debug mode" banner |
+| 8 | Run label matches connection state | | | "· VM" (filled green dot) or "· no VM" (amber ring) |
+| 9 | Debug mode warning shown (debug only) | | N/A | "Debug build" banner |
 | 10 | Verdict appears on jank frame | | | Open the CSV Import demo and trigger jank |
 | 11 | Confidence wording matches mode | | | Confirmed/Likely with VM, Possible without |
 
@@ -105,10 +107,10 @@ against this written matrix, not against ad hoc spot checks.
 | 2 | Overlay renders (dog button visible) | | | |
 | 3 | Dashboard opens and responds | | | |
 | 4 | FrameTiming produces frame data | | | |
-| 5 | VM connection status | | | Record: VM+ or FRAME |
+| 5 | VM connection status | | | Record: VM or no VM |
 | 6 | Structural detector issues appear | | | |
 | 7 | VM-backed issues appear (if VM connected) | | | |
-| 8 | Mode badge matches connection state | | | |
+| 8 | Run label matches connection state | | | |
 | 9 | Debug mode warning shown (debug only) | | N/A | |
 | 10 | Verdict appears on jank frame | | | |
 | 11 | Confidence wording matches mode | | | |
@@ -123,10 +125,10 @@ against this written matrix, not against ad hoc spot checks.
 | 2 | Overlay renders (dog button visible) | | | |
 | 3 | Dashboard opens and responds | | | |
 | 4 | FrameTiming produces frame data | | | |
-| 5 | VM connection status | | | Expect: VM+ |
+| 5 | VM connection status | | | Expect: "· VM" |
 | 6 | Structural detector issues appear | | | |
 | 7 | VM-backed issues appear | | | Expect: yes (VM should connect) |
-| 8 | Mode badge matches connection state | | | Expect: VM+ (green) |
+| 8 | Run label matches connection state | | | Expect: "· VM" (filled green dot) |
 | 9 | Debug mode warning shown (debug only) | | N/A | |
 | 10 | Verdict appears on jank frame | | | |
 | 11 | Confidence wording matches mode | | | Expect: Confirmed/Likely verdicts |
@@ -141,10 +143,10 @@ against this written matrix, not against ad hoc spot checks.
 | 2 | Overlay renders (dog button visible) | | | |
 | 3 | Dashboard opens and responds | | | |
 | 4 | FrameTiming produces frame data | | | |
-| 5 | VM connection status | | | Expect: VM+ |
+| 5 | VM connection status | | | Expect: "· VM" |
 | 6 | Structural detector issues appear | | | |
 | 7 | VM-backed issues appear | | | Expect: yes |
-| 8 | Mode badge matches connection state | | | Expect: VM+ (green) |
+| 8 | Run label matches connection state | | | Expect: "· VM" (filled green dot) |
 | 9 | Debug mode warning shown (debug only) | | N/A | |
 | 10 | Verdict appears on jank frame | | | |
 | 11 | Confidence wording matches mode | | | |
@@ -158,18 +160,18 @@ against this written matrix, not against ad hoc spot checks.
 These checks cover how the package behaves without a VM connection.
 Desktop debug mode is the best place to test them, because the VM
 connects reliably there and you can watch the behavior change. Running
-without `--no-dds` gives FRAME mode on any platform.
+without `--no-dds` gives no-VM mode on any platform.
 
 ### Forced degradation test
 
-On a platform where VM+ connects:
+On a platform where the VM connects:
 
 | # | Check | Result | Notes |
 |---|-------|--------|-------|
-| 1 | With VM+ active, the issue list shows VM-backed issues (e.g., build or paint share of UI time) | | |
+| 1 | With the VM connected, the issue list shows VM-backed issues (e.g., build or paint share of UI time) | | |
 | 2 | Structural issues (ListView, RepaintBoundary, etc.) are always present regardless of VM | | |
-| 3 | Verdict includes phase breakdown (build/layout/paint/raster) in VM+ mode | | |
-| 4 | Mode badge shows "VM+" in green | | |
+| 3 | Verdict includes phase breakdown (build/layout/paint/raster) with the VM | | |
+| 4 | Run label shows "· VM" with a filled green dot | | |
 
 ### Natural degradation (Android without VM)
 
@@ -177,7 +179,7 @@ On Android where the VM fails to connect:
 
 | # | Check | Result | Notes |
 |---|-------|--------|-------|
-| 1 | Mode badge shows "FRAME" in blue | | |
+| 1 | Run label shows "· no VM" with an amber ring | | |
 | 2 | FrameTiming data still flows (FPS value updates) | | |
 | 3 | Structural issues appear (visit demos, read the issue list) | | |
 | 4 | No VM-backed issues present (no shader jank, no heavy compute, no memory pressure, no event loop stall) | | |
@@ -194,26 +196,26 @@ issue list.
 
 | Detector | Demo Screen | Expected Issue | Verified |
 |----------|------------|----------------|----------|
-| Rebuild | High-Level setState | "Rebuild Activity: build phase N% of UI time" (VM+) or `rebuild_debug_*` (debug) | |
+| Rebuild | High-Level setState | "Rebuild Activity: build phase N% of UI time" (VM) or `rebuild_debug_*` (debug) | |
 | SetStateScope | High-Level setState | "Wide setState Scope" | |
 | ListView | Non-Lazy ListView | "Non-lazy ListView" with child count | |
 | LayoutBottleneck | IntrinsicHeight Abuse | "Layout Bottleneck: N intrinsic nodes" | |
 | CustomPainter | Always-Repaint CustomPainter | "Always-Repaint CustomPainter" | |
 | ImageMemory | Uncached Images | "Oversized Images" with decoded vs shown size | |
-| HeavyCompute | CSV Import (VM+ only) | "Heavy Build" or "Heavy Computation" on the main thread | |
+| HeavyCompute | CSV Import (VM only) | "Heavy Build" or "Heavy Computation" on the main thread | |
 | KeepAlive | KeepAlive Overuse | "Excessive Keep-Alive" | |
 | FontLoading | Font Loading Stress | "Multiple Custom Fonts" with family count | |
 | RepaintBoundary | Missing RepaintBoundary | "Missing RepaintBoundary: N expensive widgets unprotected" | |
-| Repaint | Live Waveform (VM+/debug) | "Likely Repaint Origin" (`repaint_debug_*`) or `excessive_repaint_debug` (debug); "Excessive Repainting: paint phase N% of UI time" only above 10 % (VM+) | |
-| ShaderJank | Shader Jank (first run) | "Shader Compilation" (VM+ only) | |
-| MemoryPressure | Memory Pressure | "Heap Growing" or "High GC Pressure" (VM+ only) | |
-| PlatformChannel | Platform Channel Traffic | "High Platform Channel Traffic" (VM+ only) | |
-| GpuPressure | GPU Pressure | "Raster Dominance" (FrameTiming leg `likely`, `confirmed` when a VM+ raster frame also misses the budget) | |
+| Repaint | Live Waveform (VM or debug) | "Likely Repaint Origin" (`repaint_debug_*`) or `excessive_repaint_debug` (debug); "Excessive Repainting: paint phase N% of UI time" only above 10 % (VM) | |
+| ShaderJank | Shader Jank (first run) | "Shader Compilation" (VM only) | |
+| MemoryPressure | Memory Pressure | "Heap Growing" or "High GC Pressure" (VM only) | |
+| PlatformChannel | Platform Channel Traffic | "High Platform Channel Traffic" (VM only) | |
+| GpuPressure | GPU Pressure | "Raster Dominance" (FrameTiming leg `likely`, `confirmed` when a VM raster frame also misses the budget) | |
 | FrameTiming | CSV Import | "Jank Detected" with the share of frames over budget | |
 | NetworkMonitor | Search + Gallery | "Slow Request", "Large Response" or "Request Frequency Spike" | |
 | NetworkMonitor | NetworkMonitor capture helper, HTTP error spike and same-path modes | "HTTP Error Spike" or "High-Frequency Requests" | |
-| EventLoopStall | Any screen, `ext.sleuthDemo.uiBlock ms=300` (VM+ only, Flutter 3.35 and later) | "Event Loop Stall: at least N ms" | |
-| StreamResource | Stream Resource Leaks (VM+ only) | "Stream Resources Growing" | |
+| EventLoopStall | Any screen, `ext.sleuthDemo.uiBlock ms=300` (VM only, Flutter 3.35 and later) | "Event Loop Stall: at least N ms" | |
+| StreamResource | Stream Resource Leaks (VM only) | "Stream Resources Growing" | |
 | TrackedResource | Tracked Resource Leaks | "Tracked Resource Concurrent" or "Tracked Resource Long-Lived" | |
 | Startup | (any cold launch) | "Slow Startup" when time to first frame passes the warning threshold | |
 

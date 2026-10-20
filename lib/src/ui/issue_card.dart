@@ -83,15 +83,16 @@ class IssueCard extends StatefulWidget {
 
   final PerformanceIssue issue;
 
-  /// Recurrence trend for this issue, used to render "Seen X/Y" badge.
+  /// Recurrence trend for this issue, for the meta line's "seen X of Y
+  /// scans" text.
   /// Null when the issue has no trend data (e.g. first scan).
   ///
   /// Fixed at build time. Prefer [recurrenceTrendOf] when the trend
   /// changes between rebuilds of the parent.
   final RecurrenceTrend? recurrenceTrend;
 
-  /// Live source for the "Seen X/Y" badge. Called on every [scanTick]
-  /// notification, so the badge tracks the latest trend without the
+  /// Live source for the "seen X of Y scans" text. Called on every
+  /// [scanTick] notification, so the text tracks the latest trend without the
   /// parent list rebuilding. Takes precedence over [recurrenceTrend]
   /// when it returns non-null.
   final RecurrenceTrend? Function()? recurrenceTrendOf;
@@ -937,8 +938,8 @@ class _IssueCardState extends State<IssueCard> {
   /// See [RecurrenceTrend.computeTrend] for the window (default 10
   /// entries) and the ±0.3 severity-delta thresholds.
   // NOTE: These labels are documented. If you rename one, update the
-  // table in `RecurrenceTrend`'s enum dartdoc, the "Recurrence badge"
-  // section of doc/internals.md and the label list in README.md.
+  // table in `RecurrenceTrend`'s enum dartdoc, the "Recurrence" section
+  // of doc/internals.md and the label list in README.md.
   static String _trendLabel(RecurrenceTrend trend) {
     final total = trend.length;
     final ratio = total == 0 ? 0.0 : trend.presentCount / total;

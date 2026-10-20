@@ -29,14 +29,14 @@ import 'capture_driver.dart';
 /// **VM-service connection required.** This screen produces captures
 /// that satisfy `ProfileCaptureSchema.validateBracket(...
 /// requireDetectorTraceRecord: true, ...)` ONLY when SleuthController's
-/// VmServiceClient is connected — i.e. the run is in VM+ mode, not
-/// FRAME mode. Sleuth connects to the app's own VM service from inside
+/// VmServiceClient is connected, that is, the run label reads "· VM".
+/// Sleuth connects to the app's own VM service from inside
 /// the app, so USB and wireless both work. `flutter run` starts DDS by
 /// default, and DDS keeps the VM service as its only client, which
-/// leaves Sleuth in FRAME mode. Launch with `--no-dds` (step 1), or
+/// leaves Sleuth in no-VM mode. Launch with `--no-dds` (step 1), or
 /// start the installed app from the home screen.
 ///
-/// In FRAME mode, the `HeavyComputeDetector` (vmOnly lifecycle) never
+/// In no-VM mode, the `HeavyComputeDetector` (vmOnly lifecycle) never
 /// observes BUILD events, so the detector never emits the required
 /// `sleuth.issue.heavy_compute.<severity>` trace record. The schema
 /// audit will reject the resulting capture as "Missing detector trace
@@ -296,8 +296,8 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
   /// Refuses when:
   /// - No leg has completed in-band since screen open (or since the
   ///   last leg tap).
-  /// - VM service is not connected — the procedure requires VM+
-  ///   mode (launched with `--no-dds`, or started from the home screen).
+  /// - VM service is not connected: the procedure requires the VM link
+  ///   (launched with `--no-dds`, or started from the home screen).
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
     final tier = _lastCompletedTier;
@@ -489,7 +489,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       // Timeline → SleuthController → `_recordIssuesForCapture` →
       // `CaptureHelper.recordIssue`. That pipeline only runs when
       // VM service is connected (launched with `--no-dds`, or from the
-      // home screen). FRAME-mode runs WILL NOT produce a
+      // home screen). no-VM runs WILL NOT produce a
       // `sleuth.issue.heavy_compute.*` trace record, and the
       // resulting capture is NOT acceptable for `runtimeVerified`
       // — the schema audit will reject it as "Missing detector

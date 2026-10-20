@@ -29,10 +29,10 @@ import 'capture_driver.dart';
 ///        --dart-define=SLEUTH_CAPTURE_MODE=true \
 ///        --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
 ///  2. Sleuth's VmServiceClient connects to the app's own VM service
-///     (VM+ mode), so the real `NetworkMonitorDetector` observes HTTP
+///     (VM mode), so the real `NetworkMonitorDetector` observes HTTP
 ///     completions and emits the three target trace records. Without
 ///     `--no-dds`, `flutter run` starts DDS, which keeps the VM service
-///     as its only client and leaves Sleuth in FRAME mode. In that case
+///     as its only client and leaves Sleuth in no-VM mode. In that case
 ///     quit `flutter run` (`q`) and re-open the app from the home
 ///     screen, so no DDS attaches.
 ///  3. Navigate to "NetworkMonitor capture helper" → pick a mode →

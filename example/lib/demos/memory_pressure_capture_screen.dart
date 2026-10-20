@@ -15,14 +15,14 @@ import 'heap_growing_capture_check.dart';
 /// **VM-service connection required.** This screen produces captures that
 /// satisfy `ProfileCaptureSchema.validateBracket(...
 /// requireDetectorTraceRecord: true, ...)` ONLY when SleuthController's
-/// VmServiceClient is connected — i.e. the run is in VM+ mode, not FRAME
-/// mode. Sleuth connects to the app's own VM service from inside the app,
+/// VmServiceClient is connected, that is, the run label reads "· VM".
+/// Sleuth connects to the app's own VM service from inside the app,
 /// so USB and wireless both work. What blocks it is DDS: `flutter run`
 /// starts DDS by default and DDS keeps the VM service as its only client,
-/// which leaves Sleuth in FRAME mode. Launch with `--no-dds` (step 1), or
+/// which leaves Sleuth in no-VM mode. Launch with `--no-dds` (step 1), or
 /// start the installed app from the home screen.
 ///
-/// In FRAME mode, the `MemoryPressureDetector` (vmOnly lifecycle) never
+/// In no-VM mode, the `MemoryPressureDetector` (vmOnly lifecycle) never
 /// receives heap samples, so `_recordIssuesForCapture` never emits the
 /// required `sleuth.issue.heap_growing.warning` trace record. The schema
 /// audit will reject the resulting capture as "Missing detector trace
@@ -465,7 +465,7 @@ class _MemoryPressureCaptureScreenState
           _log.add(
             '[${leg.label}] ABORT: Sleuth could not hold its '
             'allocation-profile reads. The VM service is not connected '
-            '(FRAME mode: relaunch with --no-dds), its session changed, or '
+            '(relaunch with --no-dds), its session changed, or '
             'a read was still in flight after $_profileDrainTimeoutSec s. '
             'Re-tap the leg.',
           );
@@ -724,8 +724,8 @@ class _MemoryPressureCaptureScreenState
           'the app with `--dart-define=SLEUTH_CAPTURE_MODE=true`. '
           'Without it, markScenarioBegin/End emit nothing and the '
           'export has no markers to wrap. (2) The VM service '
-          'disconnected (FRAME mode). Kill the app from Xcode and '
-          're-open it from the home screen so VM+ mode activates. '
+          'disconnected (run label "· no VM"). Kill the app from Xcode and '
+          're-open it from the home screen so the VM link comes back. '
           'Re-tap the leg after fixing.',
         );
       });
