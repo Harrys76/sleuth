@@ -1105,12 +1105,36 @@ void main() {
       await _tapCrosshair(tester, painters);
       expect(find.bySemanticsLabel('Showing CustomPaint'), findsOneWidget);
       expect(_next, findsNothing);
-      // Back to issues keeps its second row, so a later Next does not
-      // move it.
-      expect(
-        tester.getRect(_back).top,
-        greaterThan(tester.getRect(find.byIcon(Icons.close).last).top),
+      // One row, as for an issue that names its widget.
+      final close = find.descendant(
+        of: _bar,
+        matching: find.bySemanticsLabel('Close Sleuth'),
       );
+      expect(tester.getCenter(_back).dy, tester.getCenter(close).dy);
+      expect(tester.getSize(_bar).height, lessThan(96));
+    });
+
+    testWidgets('Back to issues keeps its focus when Next arrives', (
+      tester,
+    ) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0]);
+      await _tapCrosshair(tester, painters);
+      final backNode = Focus.of(
+        tester.element(
+          find.descendant(of: _back, matching: find.text('Back to issues')),
+        ),
+      );
+      backNode.requestFocus();
+      await tester.pump();
+      final semanticsId = tester.getSemantics(_back).id;
+
+      // A second painter scrolls in; Next appears and the bar grows a row.
+      controller.publishHighlightsForTest([_painterAt(0), _painterAt(1)]);
+      await tester.pump();
+      expect(_next, findsOneWidget);
+      expect(backNode.hasPrimaryFocus, isTrue);
+      expect(tester.getSemantics(_back).id, semanticsId);
     });
 
     testWidgets('a widget that leaves keeps its place: the bar reads off '

@@ -71,8 +71,8 @@ class HighlightOverlay extends StatelessWidget {
           builder: (_, step, _) => ValueListenableBuilder<bool?>(
             valueListenable: barAtTop ?? _noEdge,
             builder: (_, atTop, _) {
-              // A list card's bar has its second row whatever the count.
-              final barSteps = step != null;
+              // The bar has its second row when it shows Next.
+              final barSteps = (step?.count ?? 0) > 1;
               return ValueListenableBuilder<
                 ({int generation, List<WidgetHighlight> items})
               >(

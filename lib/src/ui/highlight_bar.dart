@@ -22,10 +22,11 @@ double highlightBarHeight(double chromeScale, {bool steps = false}) =>
 /// "Showing X", or "X is off screen" once the widget scrolls away or
 /// detaches, with Back to issues and close.
 ///
-/// For an issue that lists widgets ([step] set), Back to issues sits on a
-/// second row, and with two or more widgets the first row shows the
-/// outlined widget's position ("1 of 3") and a Next button. The rows stay
-/// when the count changes, so Back to issues keeps its focus.
+/// For an issue that lists widgets ([step] set) with another widget to go
+/// to, the first row also shows the outlined widget's position ("1 of 3")
+/// and a Next button, and Back to issues moves to a second row. [backKey]
+/// keeps Back to issues the same element across that move, so it keeps
+/// its focus.
 ///
 /// The label is a live region, so a screen reader hears the switch to
 /// off screen.
@@ -42,6 +43,7 @@ class SleuthHighlightBar extends StatelessWidget {
     this.onNext,
     this.nextFocusNode,
     this.showNext = false,
+    this.backKey,
   });
 
   final IssueSeverity severity;
@@ -74,17 +76,17 @@ class SleuthHighlightBar extends StatelessWidget {
   /// opens.
   final FocusNode? backFocusNode;
 
+  /// Global key for Back to issues, held by the owner across rebuilds.
+  final GlobalKey? backKey;
+
   /// Side of the close button and the least size of the text buttons.
   static const double _hit = 48;
 
-  /// Whether the bar has its second row, for an issue that lists widgets.
-  bool get _twoRows => step != null;
+  /// Whether the bar shows Next, on a first row above Back to issues.
+  bool get _next => step != null && showNext && onNext != null;
 
   /// Whether the bar shows the position: two or more widgets.
-  bool get _position => _twoRows && step!.count > 1;
-
-  /// Whether the bar shows Next.
-  bool get _next => _twoRows && showNext && onNext != null;
+  bool get _position => _next && step!.count > 1;
 
   @override
   Widget build(BuildContext context) {
@@ -160,7 +162,7 @@ class SleuthHighlightBar extends StatelessWidget {
         borderRadius: radius,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            minHeight: highlightBarHeight(chromeScale, steps: _twoRows),
+            minHeight: highlightBarHeight(chromeScale, steps: _next),
           ),
           child: Padding(
             padding: EdgeInsets.only(left: theme.spacingLg),
@@ -169,6 +171,7 @@ class SleuthHighlightBar extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final back = ConstrainedBox(
+                  key: backKey,
                   constraints: BoxConstraints(
                     maxWidth: constraints.maxWidth / 2,
                   ),
@@ -180,7 +183,7 @@ class SleuthHighlightBar extends StatelessWidget {
                     focusNode: backFocusNode,
                   ),
                 );
-                if (!_twoRows) {
+                if (!_next) {
                   return Row(
                     children: [
                       icon,
@@ -203,15 +206,14 @@ class SleuthHighlightBar extends StatelessWidget {
                           icon,
                           SizedBox(width: theme.spacingMd),
                           labelText,
-                          if (_next)
-                            _textButton(
-                              theme,
-                              buttonRadius,
-                              text: 'Next',
-                              semanticsLabel: 'Next widget',
-                              onTap: onNext!,
-                              focusNode: nextFocusNode,
-                            ),
+                          _textButton(
+                            theme,
+                            buttonRadius,
+                            text: 'Next',
+                            semanticsLabel: 'Next widget',
+                            onTap: onNext!,
+                            focusNode: nextFocusNode,
+                          ),
                           close,
                         ],
                       ),
