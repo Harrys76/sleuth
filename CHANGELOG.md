@@ -237,9 +237,10 @@
 - Toasts use the theme's text and card colours swapped, regular 12 px
   text and a bold action label in the accent at 4.5:1, and span the
   screen up to 480 px.
-- The outline's label sizes to its text, up to two lines, follows the
-  text scale up to the chrome limit, and draws its text in the colour
-  that reads on its severity fill. It stays below the highlight bar when
+- The outline's label sizes to its text, up to 350 px wide and two
+  lines whatever the width of the widget it names, follows the text scale
+  up to the chrome limit, and draws its text in the colour that reads on
+  its severity fill. It stays below the highlight bar when
   the bar sits at the top.
 - The effort colours, `aboutBackground`, `fixHintText`,
   `highlightLabelText` and the three `aiShimmer` colours are unused by the

@@ -695,6 +695,26 @@ void main() {
       detail: 'owns about 88% of the tree below the route and rebuilds it',
     );
 
+    testWidgets('on a narrow widget keeps to one line while it fits', (
+      tester,
+    ) async {
+      final oneLine = (await labelRects(tester, 1.0, short)).single;
+      // 18 characters, wider than the widget plus 100 px.
+      final tag = (await labelRects(
+        tester,
+        1.0,
+        const WidgetHighlight(
+          rect: Rect.fromLTWH(300, 200, 56, 24),
+          widgetName: 'PriceTag',
+          severity: IssueSeverity.warning,
+          detectorName: 'Rebuilds',
+        ),
+      )).single;
+      expect(tag.height, oneLine.height);
+      expect(tag.width, greaterThan(56 + 100));
+      expect(tag.right, lessThanOrEqualTo(400 - 4));
+    });
+
     testWidgets('grows with the text up to the chrome limit', (tester) async {
       final at1 = (await labelRects(tester, 1.0, short)).single;
       final at13 = (await labelRects(tester, 1.3, short)).single;

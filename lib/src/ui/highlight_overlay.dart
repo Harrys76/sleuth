@@ -108,6 +108,10 @@ class _HighlightPainter extends CustomPainter {
 
   static const _markerSize = 8.0;
 
+  /// Widest the outline label's text runs before it wraps, whatever the
+  /// width of the widget it names.
+  static const _labelMaxWidth = 350.0;
+
   Color _colorFor(IssueSeverity severity) => switch (severity) {
     IssueSeverity.critical => theme.severityCritical,
     IssueSeverity.warning => theme.severityWarning,
@@ -204,10 +208,7 @@ class _HighlightPainter extends CustomPainter {
         )..layout(
           maxWidth: math.max(
             0.0,
-            math.min(
-              clampDouble(h.rect.width + 100, 120, 350),
-              size.width - 2 * margin - 2 * padX,
-            ),
+            math.min(_labelMaxWidth, size.width - 2 * margin - 2 * padX),
           ),
         );
 
