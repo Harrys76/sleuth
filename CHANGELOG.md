@@ -145,11 +145,12 @@
   overlay and kept for custom themes.
 - The expanded card shows its details below a divider, at the full card
   width. An issue with a measurement opens with a Measured row: the value
-  and what it is ("10.0 ms in one build on the UI thread"), a gauge with
+  and what it is ("10.0 ms in one build on the UI thread", with the
+  measurement's window where it has one), a gauge with
   the warning and critical lines, and a line when the severity is held
   above the value or judged on another reading. Other issues show their
-  detail there. The issues notifier fires when the Measured row's text
-  changes, and not for a change it rounds away.
+  detail there. The issues notifier fires when the Measured row's text or
+  a gauge line changes, and not for a change the row rounds away.
 - Labelled rows follow: Where (the widget, and its `file:line` with Copy
   when the run tracks widget creation), Route, When ("Last seen 2 s ago ·
   in 5 of the last 8 scans", with the interaction), Evidence (the
@@ -183,8 +184,8 @@
   denylist and an app's own uses count.
 - In a debug run with `enableDebugCallbacks`, rebuild and setState cards
   show Why it rebuilds: the rebuilds of the widget's own making and those
-  its parent forced, naming that parent. Without the callbacks the row
-  says how to turn them on.
+  its parents forced, naming the parent that forced the most and its
+  share. Without the callbacks the row says how to turn them on.
 - The effort colours, `aboutBackground`, `fixHintText` and the three
   `aiShimmer` colours are unused by the overlay and kept for custom
   themes. The guide describes the new expanded card and Not useful.

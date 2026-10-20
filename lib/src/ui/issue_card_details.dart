@@ -15,10 +15,18 @@ import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
-/// What the Why it rebuilds row shows for a widget type: rebuilds of its
-/// own making and those its parents forced, over [seconds], with the
-/// parent that forced the most.
-typedef RebuildCause = ({int own, int forced, String? parent, int seconds});
+/// What the Why it rebuilds row shows for a widget type over `seconds`:
+/// rebuilds of its own making (`own`), those its parents forced
+/// (`forced`, from `parents` parent types), and the parent that forced
+/// the most with its share (`parent`, `parentForced`).
+typedef RebuildCause = ({
+  int own,
+  int forced,
+  int parents,
+  String? parent,
+  int parentForced,
+  int seconds,
+});
 
 /// How a Caused by or Effects row opens the related card.
 enum RelatedLink {
@@ -118,9 +126,13 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
   static (String, int?) _idOf(PerformanceIssue i) =>
       (i.stableId ?? i.title, i.occurrenceId);
 
-  /// Related issues this card has shown, by stable id, so one that stops
-  /// being reported stays as a plain row instead of vanishing.
+  /// Related issues this card has shown, by stable id, and the ids each
+  /// section showed, so one that stops being reported stays as a plain
+  /// row instead of vanishing. The causal graph drops a gone effect from
+  /// its root's ids, so the card keeps its own list.
   final Map<String, PerformanceIssue> _seenRelated = {};
+  final Set<String> _shownParentIds = {};
+  final Set<String> _shownEffectIds = {};
 
   @override
   void initState() {
@@ -138,30 +150,40 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
     }
   }
 
-  /// [live] plus the issues of [ids] this card showed before that are no
-  /// longer reported.
+  /// [live] plus the issues this section showed before that are no longer
+  /// reported, which [shownIds] remembers.
   List<PerformanceIssue> _withGone(
     List<PerformanceIssue>? live,
-    List<String>? ids,
+    Set<String> shownIds,
   ) {
     final current = live ?? const <PerformanceIssue>[];
+    final present = <String>{};
     for (final i in current) {
-      _seenRelated[i.stableId ?? i.title] = i;
+      final id = i.stableId ?? i.title;
+      _seenRelated[id] = i;
+      present.add(id);
     }
-    final present = {for (final i in current) i.stableId ?? i.title};
-    return [
-      ...current,
-      for (final id in ids ?? const <String>[])
-        if (!present.contains(id)) ?_seenRelated[id],
+    final gone = [
+      for (final id in shownIds)
+        if (!present.contains(id))
+          if (_seenRelated[id] case final issue?)
+            if ((widget.relatedLinkOf?.call(issue) ?? RelatedLink.plain) ==
+                RelatedLink.plain)
+              issue,
     ];
+    shownIds
+      ..clear()
+      ..addAll(present)
+      ..addAll([for (final i in gone) i.stableId ?? i.title]);
+    return [...current, ...gone];
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     final issue = widget.issue;
-    final parents = _withGone(widget.parentIssues, issue.rootCauseIds);
-    final effects = _withGone(widget.downstreamIssues, issue.downstreamIds);
+    final parents = _withGone(widget.parentIssues, _shownParentIds);
+    final effects = _withGone(widget.downstreamIssues, _shownEffectIds);
     // A parent no longer reported was counted among those not shown.
     final suppressed = math.max(
       0,
@@ -410,15 +432,22 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
               TextSpan(text: '${cause.forced}', style: bold),
               if (parent == null)
                 const TextSpan(text: ' forced by its parents')
-              else ...[
+              else if (cause.parents == 1) ...[
                 const TextSpan(text: ' forced by its parent '),
+                TextSpan(text: parent, style: bold),
+              ] else ...[
+                TextSpan(text: ' forced by ${cause.parents} parents, '),
+                TextSpan(text: '${cause.parentForced}', style: bold),
+                const TextSpan(text: ' of them by '),
                 TextSpan(text: parent, style: bold),
               ],
             ],
           ),
           style: style,
         );
-        if (parent != null && cause.forced > cause.own) {
+        // Named only when that one parent forced more rebuilds than the
+        // widget's own setState.
+        if (parent != null && cause.parentForced > cause.own) {
           hint =
               'The setState to fix is in $parent, not '
               '${issue.widgetName ?? 'this widget'}.';
