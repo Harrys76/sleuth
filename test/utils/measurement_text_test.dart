@@ -149,6 +149,67 @@ void main() {
       );
     });
 
+    test('a window names its length; without one the phrase names none', () {
+      expect(
+        measuredLine(
+          _issue(
+            'jank_detected',
+            const IssueMeasurement(
+              value: 18,
+              unit: MeasurementUnit.percent,
+              window: Duration(milliseconds: 4200),
+            ),
+          ),
+        ),
+        ('', '18%', ' of frames missed their deadline in the last 4.2 s'),
+      );
+      expect(
+        measuredLine(
+          _issue(
+            'raster_dominance',
+            const IssueMeasurement(value: 4, unit: MeasurementUnit.frames),
+          ),
+        ),
+        ('', '4 frames', ' missed the deadline on the raster thread'),
+      );
+      expect(
+        measuredLine(
+          _issue(
+            'high_frequency_same_path:abc',
+            const IssueMeasurement(
+              value: 5,
+              unit: MeasurementUnit.count,
+              window: Duration(milliseconds: 500),
+            ),
+          ),
+        ),
+        ('', '5', ' requests to one path within 500 ms'),
+      );
+    });
+
+    test('formatWindow', () {
+      expect(formatWindow(const Duration(milliseconds: 500)), '500 ms');
+      expect(formatWindow(const Duration(milliseconds: 4200)), '4.2 s');
+      expect(formatWindow(const Duration(seconds: 5)), '5 s');
+      expect(formatWindow(const Duration(seconds: 10)), '10 s');
+    });
+
+    test('the fingerprint text changes with a line, not with rounding', () {
+      String? text(double value, double critical) => measuredText(
+        _issue(
+          'heavy_compute',
+          IssueMeasurement(
+            value: value,
+            unit: MeasurementUnit.milliseconds,
+            warningAt: 8,
+            criticalAt: critical,
+          ),
+        ),
+      );
+      expect(text(10.01, 16), text(10.04, 16));
+      expect(text(10, 16), isNot(text(10, 20)));
+    });
+
     test('a non-finite value has no line', () {
       expect(
         measuredLine(

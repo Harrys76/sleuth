@@ -1354,6 +1354,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             _keepExpansionsOnFilter = true;
             _ui.toggleSeverity(report.severity);
           }
+          // A target also hidden needs both turned off to show.
+          for (final key in hideKeysOf(report)) {
+            _ui.unhide(key);
+          }
           _revealAfterFrame(report);
         },
       );
@@ -1423,6 +1427,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     });
   }
 
+  /// The list shows no cards: nothing for a related row or a Hide to
+  /// point at.
+  void _clearShown() {
+    _shownIssues = const [];
+    _shownKeys = const [];
+  }
+
   void _endReveal() {
     _revealKey = null;
     _revealInline = null;
@@ -1433,23 +1444,23 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   RebuildCause? _rebuildCause(String type) {
     final snapshot = widget.controller.lastDebugSnapshot;
     if (snapshot == null) return null;
+    final by = snapshot.forcedRebuildsOf[type] ?? const <String, int>{};
     var forced = 0;
     var top = 0;
     String? parent;
-    (snapshot.forcedRebuildsOf[type] ?? const <String, int>{}).forEach((
-      by,
-      count,
-    ) {
+    by.forEach((name, count) {
       forced += count;
       if (count > top) {
         top = count;
-        parent = by;
+        parent = name;
       }
     });
     return (
       own: snapshot.rebuildCounts[type] ?? 0,
       forced: forced,
+      parents: by.length,
       parent: parent,
+      parentForced: top,
       seconds: math.max(1, snapshot.elapsed.inSeconds),
     );
   }
@@ -2938,6 +2949,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // until it is collapsed.
         final expanded = _frozen != null;
         if (issues.isEmpty && !expanded) {
+          _clearShown();
           // The next list starts at the top.
           _listScroll.dropKeptOffset();
           return Center(
@@ -2956,6 +2968,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         final visibleIssues = model.visible;
 
         if (visibleIssues.isEmpty && !expanded) {
+          _clearShown();
           // The next list starts at the top.
           _listAtTop = true;
           _listScroll.dropKeptOffset();

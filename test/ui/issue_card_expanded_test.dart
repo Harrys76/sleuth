@@ -212,7 +212,14 @@ void main() {
     ) async {
       await pumpWhy(
         tester,
-        () => (own: 0, forced: 5, parent: 'CombinedChatDemo', seconds: 10),
+        () => (
+          own: 0,
+          forced: 5,
+          parents: 1,
+          parent: 'CombinedChatDemo',
+          parentForced: 5,
+          seconds: 10,
+        ),
       );
       expect(find.text('WHY IT REBUILDS · LAST 10 S'), findsOneWidget);
       expect(
@@ -230,10 +237,43 @@ void main() {
       );
     });
 
+    testWidgets('with several parents gives the busiest one its own share', (
+      tester,
+    ) async {
+      await pumpWhy(
+        tester,
+        () => (
+          own: 4,
+          forced: 6,
+          parents: 3,
+          parent: 'FeedList',
+          parentForced: 3,
+          seconds: 10,
+        ),
+      );
+      expect(
+        find.text(
+          '4 from its own setState · 6 forced by 3 parents, 3 of them by '
+          'FeedList',
+          findRichText: true,
+        ),
+        findsOneWidget,
+      );
+      // FeedList alone forced fewer than the widget's own setState.
+      expect(find.textContaining('The setState to fix'), findsNothing);
+    });
+
     testWidgets('says when the window had no rebuilds', (tester) async {
       await pumpWhy(
         tester,
-        () => (own: 0, forced: 0, parent: null, seconds: 2),
+        () => (
+          own: 0,
+          forced: 0,
+          parents: 0,
+          parent: null,
+          parentForced: 0,
+          seconds: 2,
+        ),
       );
       expect(find.text('No rebuilds in the last 2 s'), findsOneWidget);
     });
@@ -317,7 +357,16 @@ void main() {
       );
       await pump([effect]);
       expect(find.byIcon(Icons.chevron_right), findsOneWidget);
-      await pump(const []);
+      // The causal graph regenerates the root without the gone effect.
+      await _pump(
+        tester,
+        IssueCard(
+          issue: _issue(),
+          initiallyExpanded: true,
+          relatedLinkOf: (_) => RelatedLink.plain,
+          onOpenRelated: (_) {},
+        ),
+      );
       expect(find.text('EFFECTS (1)'), findsOneWidget);
       expect(find.text('Heap Growing'), findsOneWidget);
       expect(find.byIcon(Icons.chevron_right), findsNothing);

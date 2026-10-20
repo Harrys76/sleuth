@@ -60,12 +60,14 @@ String measurementFamilyOf(String stableId) {
 
 /// What the measured value is, per family. `{v}` is the value, `{w}` the
 /// issue's widget and `{n}` the name after the `:` of a parametric id.
+/// Text in `[...]` shows only when the measurement has a window, with
+/// `{t}` the window's length.
 ///
 /// Every family whose detector stamps a measurement has an entry; a test
 /// walks them.
 const Map<String, String> measuredPhrases = {
-  'sustained_jank': '{v} ran more than twice over budget in the last 10 s',
-  'jank_detected': '{v} of frames missed their deadline in the last 10 s',
+  'sustained_jank': '{v} ran more than twice over budget[ in the last {t}]',
+  'jank_detected': '{v} of frames missed their deadline[ in the last {t}]',
   'raster_cache_thrashing':
       '{v} in a row changed the raster cache by more than 20%',
   'raster_cache_growing': '{v} in a row grew the raster cache',
@@ -93,12 +95,12 @@ const Map<String, String> measuredPhrases = {
   'excessive_keep_alive': '{v} keep-alive items in one scrollable',
   'tracked_resource_concurrent': '{v} live "{n}" instances',
   'tracked_resource_long_lived': 'One "{n}" instance alive for {v}',
-  'raster_dominance': '{v} missed the deadline on the raster thread in 1 s',
+  'raster_dominance': '{v} missed the deadline on the raster thread[ in {t}]',
   'slow_request': '{v} for the slowest request',
   'large_response': '{v} in the largest response',
-  'request_frequency': '{v} requests in 5 s at the peak',
-  'http_error_spike': '{v} failed requests in 5 s',
-  'high_frequency_same_path': '{v} requests to one path within 500 ms',
+  'request_frequency': '{v} requests[ in {t}] at the peak',
+  'http_error_spike': '{v} failed requests[ in {t}]',
+  'high_frequency_same_path': '{v} requests to one path[ within {t}]',
   'shader_compilation': '{v} to build one shader pipeline',
   'setstate_scope': '{v} of the widget tree sits under {w}',
   'gc_pressure': 'Young-generation garbage collections at {v}',
@@ -126,20 +128,48 @@ const Map<String, String> measuredPhrases = {
   final colon = id?.indexOf(':') ?? -1;
   final template = id == null ? null : measuredPhrases[measurementFamilyOf(id)];
   if (template == null) return ('', value, '');
+  final window = m.window;
   final filled = template
       .replaceAll('{w}', issue.widgetName ?? 'the widget')
-      .replaceAll('{n}', colon >= 0 ? id!.substring(colon + 1) : '');
+      .replaceAll('{n}', colon >= 0 ? id!.substring(colon + 1) : '')
+      .replaceAllMapped(
+        _windowPart,
+        (match) => window == null
+            ? ''
+            : match.group(1)!.replaceAll('{t}', formatWindow(window)),
+      );
   final at = filled.indexOf('{v}');
   return (filled.substring(0, at), value, filled.substring(at + 3));
 }
 
-/// The Measured row's text, as one string: the issues fingerprint takes
-/// it, so a card refreshes when what it shows changes and not otherwise.
+final RegExp _windowPart = RegExp(r'\[([^\]]*)\]');
+
+/// [window] as the value line names it: "500 ms", "4.2 s", "10 s".
+String formatWindow(Duration window) {
+  final ms = window.inMicroseconds / Duration.microsecondsPerMillisecond;
+  if (ms < 1000) return '${ms.round()} ms';
+  final s = ms / 1000;
+  return s < 10 && (s * 10).round() % 10 != 0
+      ? '${s.toStringAsFixed(1)} s'
+      : '${s.round()} s';
+}
+
+/// The Measured row's text, as one string, the gauge's line labels
+/// included: the issues fingerprint takes it, so a card refreshes when
+/// what it shows changes and not otherwise.
 String? measuredText(PerformanceIssue issue) {
   final line = measuredLine(issue);
   if (line == null) return null;
+  final m = issue.measurement!;
   final note = measuredSeverityNote(issue);
-  return '${line.$1}${line.$2}${line.$3}${note == null ? '' : '\n$note'}';
+  return [
+    '${line.$1}${line.$2}${line.$3}',
+    if (m.warningAt != null)
+      'warn ${formatMeasurementValue(m.warningAt!, m.unit)}',
+    if (m.criticalAt != null)
+      'critical ${formatMeasurementValue(m.criticalAt!, m.unit)}',
+    ?note,
+  ].join('\n');
 }
 
 /// Whether [m]'s value reaches [line]: at or above it, or above it when

@@ -183,6 +183,27 @@ void main() {
       await tester.pump(const Duration(seconds: 15));
     });
 
+    testWidgets('Show on a target both filtered and hidden turns both off', (
+      tester,
+    ) async {
+      rootWithVisibleEffect();
+      controller.overlayUiState
+        ..toggleSeverity(IssueSeverity.critical)
+        ..hide(hideKeyFor(controller.issuesNotifier.value.first));
+      await pumpCard(tester);
+      await tester.tap(find.text('Title root'));
+      await tester.pump();
+      await tapVisible(tester, find.bySemanticsLabel('Critical: Title effect'));
+      await tester.pump();
+      await tester.tap(find.text('Show'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(controller.overlayUiState.hiddenKeys, isEmpty);
+      expect(expanded(tester, 'effect'), isTrue);
+      await tester.pump(const Duration(seconds: 15));
+    });
+
     testWidgets('Show leaves a severity on that the user turned on '
         'meanwhile', (tester) async {
       rootWithVisibleEffect();
@@ -344,6 +365,42 @@ void main() {
     expect(focused, isNotNull);
     final card = focused!.findAncestorWidgetOfExactType<IssueCard>();
     expect(card?.issue.stableId, 'b');
+    await tester.pump(const Duration(seconds: 15));
+  });
+
+  testWidgets('hiding the last card moves the screen reader to the header', (
+    tester,
+  ) async {
+    controller.issuesNotifier.value = [_issue('a')];
+    await pumpCard(tester);
+    await tester.tap(find.text('Title a'));
+    await tester.pump();
+    final events = <Object?>[];
+    tester.binding.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
+      SystemChannels.accessibility,
+      (message) async {
+        if (message is Map && message['type'] == 'focus') events.add(message);
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<Object?>(
+            SystemChannels.accessibility,
+            null,
+          ),
+    );
+    await tapVisible(tester, find.bySemanticsLabel('Hide'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(events, isNotEmpty);
+    expect(
+      FocusManager.instance.primaryFocus?.context
+          ?.findAncestorWidgetOfExactType<IssueCard>(),
+      isNull,
+    );
     await tester.pump(const Duration(seconds: 15));
   });
 

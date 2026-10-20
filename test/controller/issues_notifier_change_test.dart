@@ -131,10 +131,20 @@ void main() {
       controller.scanTreeFullPathForTest(root);
       expect(notifications, 2);
 
+      // A gauge line moves.
+      detector.measurement = IssueMeasurement(
+        value: 46,
+        unit: MeasurementUnit.perSecond,
+        warningAt: 10,
+        criticalAt: 40,
+      );
+      controller.scanTreeFullPathForTest(root);
+      expect(notifications, 3);
+
       // The row goes away.
       detector.measurement = null;
       controller.scanTreeFullPathForTest(root);
-      expect(notifications, 3);
+      expect(notifications, 4);
     },
   );
 
