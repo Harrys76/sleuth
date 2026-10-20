@@ -143,3 +143,46 @@ jobs:
           set -o pipefail
           dart doc --dry-run 2>&1 | tee "$RUNNER_TEMP/dartdoc.log"
           grep -Fqx "Found 0 warnings and 0 errors." "$RUNNER_TEMP/dartdoc.log"
+
+  api-diff:
+    name: Public API diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up pinned Flutter
+        uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: 3.47.6
+          cache: true
+
+      # Compares against the newest stable 1.x or later release on pub.dev.
+      # Before 1.0.0 is published there is nothing to compare, and the
+      # remaining steps are skipped.
+      - name: Find the latest published release
+        id: base
+        shell: bash
+        run: |
+          set -o pipefail
+          latest=$(curl -fsS https://pub.dev/api/packages/sleuth \
+            | jq -r '.versions[].version' \
+            | grep -E '^[1-9][0-9]*\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -n 1 || true)
+          echo "version=$latest" >> "$GITHUB_OUTPUT"
+
+      - name: Install dart_apitool
+        if: steps.base.outputs.version != ''
+        run: dart pub global activate dart_apitool 0.23.2
+
+      # dart_apitool rates an added enum value as a minor change, which
+      # matches the policy in README "API stability". It fails on a
+      # breaking change without a major version bump.
+      - name: Diff against the published release
+        if: steps.base.outputs.version != ''
+        run: >-
+          dart pub global run dart_apitool:main diff
+          --old pub://sleuth/${{ steps.base.outputs.version }}
+          --new .
+          --version-check-mode fully
