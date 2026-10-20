@@ -211,8 +211,9 @@
 - The trigger shows its count in debug runs too; the warning badge is
   gone.
 - While the card is open, a toast says when the VM link drops, unless an
-  action toast holds the slot or a screen reader is on (the status line
-  announces it).
+  action toast holds the slot, or a screen reader is on and the status
+  line can announce it (no page, menu or highlight bar covers it and the
+  card is not minimized).
 - While an issue's widget is outlined, the card shrinks to a bar at the
   screen edge away from the widget: "Showing <widget>", or "<widget> is
   off screen" once it scrolls away, detaches or sits behind the keyboard,

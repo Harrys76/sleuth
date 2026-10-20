@@ -184,6 +184,19 @@ void main() {
       await tester.pump(const Duration(seconds: 15));
     }, semanticsEnabled: false);
 
+    testWidgets('under a screen reader a lost link still toasts while the '
+        'bar is up', (tester) async {
+      final controller = await _openWith(tester, [_lay]);
+      _seedHighlight(controller, _top);
+      await _tapCrosshair(tester);
+      controller.vmConnectedNotifier.value = true;
+      await tester.pump();
+      controller.vmConnectedNotifier.value = false;
+      await tester.pump();
+      expect(find.textContaining('VM link lost'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 15));
+    });
+
     testWidgets('leaving restores a maximized card and its list offset, '
         'returns the markers toggle and writes no overlay state', (
       tester,

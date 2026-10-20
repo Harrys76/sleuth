@@ -324,6 +324,18 @@ void main() {
       expect(find.textContaining('VM link lost. Checks'), findsNothing);
     });
 
+    testWidgets('under a screen reader the toast still comes when the '
+        'status line is out of reach', (tester) async {
+      controller.vmConnectedNotifier.value = true;
+      await pumpCard(tester);
+      await tester.tap(find.bySemanticsLabel('Minimize'));
+      await tester.pump();
+      controller.vmConnectedNotifier.value = false;
+      await tester.pump();
+      expect(find.textContaining('VM link lost. Checks'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 15));
+    });
+
     testWidgets('Copy command copies the run command and confirms', (
       tester,
     ) async {
