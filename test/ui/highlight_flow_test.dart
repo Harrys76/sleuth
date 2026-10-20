@@ -121,6 +121,14 @@ void main() {
       expect(find.text('Showing Lay'), findsOneWidget);
       expect(find.text('Title lay'), findsNothing);
       expect(focused.last, tester.getSemantics(_back).id);
+      // Close sits at the bar's end; Back to issues takes at most half.
+      final bar = tester.getRect(_bar);
+      final close = find.descendant(
+        of: _bar,
+        matching: find.bySemanticsLabel('Close Sleuth'),
+      );
+      expect(tester.getRect(close).right, bar.right);
+      expect(tester.getRect(_back).width, lessThanOrEqualTo(bar.width / 2));
 
       await tester.tap(_back);
       await tester.pump();
@@ -542,6 +550,7 @@ void main() {
       WidgetHighlight selected, {
       double topInset = 0,
     }) async {
+      _phone(tester);
       final highlights =
           ValueNotifier<({int generation, List<WidgetHighlight> items})>((
             generation: 0,
@@ -631,6 +640,23 @@ void main() {
         topInset: 47,
       )).single;
       expect(rect.top, greaterThanOrEqualTo(47 + 4));
+    });
+
+    testWidgets('stays below the highlight bar at the top', (tester) async {
+      // A body under an app bar: its centre is in the lower half, so the
+      // bar sits at the top, over the space above the body.
+      final rect = (await labelRects(
+        tester,
+        1.0,
+        const WidgetHighlight(
+          rect: Rect.fromLTWH(0, 103, 400, 697),
+          widgetName: 'Body',
+          severity: IssueSeverity.warning,
+          detectorName: 'Layout',
+        ),
+        topInset: 47,
+      )).single;
+      expect(rect.top, greaterThanOrEqualTo(47 + 8 + 48));
     });
 
     testWidgets('wraps a long label to two lines and no more', (tester) async {

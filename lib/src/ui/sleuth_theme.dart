@@ -690,6 +690,9 @@ class SleuthThemeData {
   final Color triggerBadgeBg;
   final Color guideStepAccent;
   final Color guideTipIcon;
+
+  /// Kept for custom themes; the outline label takes the text colour that
+  /// reads on its severity fill.
   final Color highlightLabelText;
   final Color highlightDot;
   final Color triggerIconColor;

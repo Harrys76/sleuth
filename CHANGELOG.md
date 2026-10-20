@@ -230,10 +230,11 @@
   at the next scan.
 - The outline's label sizes to its text, up to two lines, follows the
   text scale up to the chrome limit, and draws its text in the colour
-  that reads on its severity fill.
-- The effort colours, `aboutBackground`, `fixHintText` and the three
-  `aiShimmer` colours are unused by the overlay and kept for custom
-  themes. The guide describes the new expanded card and Not useful.
+  that reads on its severity fill. It stays below the highlight bar when
+  the bar sits at the top.
+- The effort colours, `aboutBackground`, `fixHintText`,
+  `highlightLabelText` and the three `aiShimmer` colours are unused by the
+  overlay and kept for custom themes. The guide describes the new expanded card and Not useful.
 
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase: the issues of the phase's category, `event_loop_stall`
