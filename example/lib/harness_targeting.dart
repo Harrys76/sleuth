@@ -66,6 +66,16 @@ Element? findSemanticsLabel(String label) {
       findForeground((e) => of(e.widget)?.startsWith(label) ?? false);
 }
 
+/// The foreground [Semantics] button labelled exactly [label]. A panel
+/// that carries the same label, such as the overlay's More menu next to
+/// its More button, is not a button and is skipped.
+Element? findSemanticsButton(String label) => findForeground((e) {
+  final w = e.widget;
+  return w is Semantics &&
+      w.properties.button == true &&
+      w.properties.label == label;
+});
+
 /// The field `type` writes to: the focused [EditableText] when it is in
 /// the foreground, else the last foreground one a tap at its centre would
 /// reach (a field behind an open overlay page is skipped).
