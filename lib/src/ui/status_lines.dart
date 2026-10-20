@@ -206,8 +206,10 @@ class _SleuthStatusBoxState extends State<SleuthStatusBox> {
         body = '$trying. Checks that need the VM are paused until it is back.';
         tone = (theme.bannerWarningBg, theme.bannerWarningText);
       case SleuthStatusKind.stoppedRetrying:
-        state = 'VM link lost';
-        numbers = 'Stopped retrying';
+        // Its own label: a live region announces a label change, and the
+        // user now has to reconnect by hand.
+        state = 'VM link lost, stopped retrying';
+        numbers = null;
         title = 'VM link lost.';
         body =
             'Sleuth stopped retrying. Checks that need the VM are paused '
