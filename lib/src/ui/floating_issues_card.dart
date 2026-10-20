@@ -1462,6 +1462,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       parent: parent,
       parentForced: top,
       seconds: math.max(1, snapshot.elapsed.inSeconds),
+      capped: snapshot.rebuildTypesCapped || snapshot.forcedTypesCapped,
     );
   }
 

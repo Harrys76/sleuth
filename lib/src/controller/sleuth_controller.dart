@@ -3074,6 +3074,9 @@ class SleuthController {
         );
       }
       selectedHighlightNotifier.value = null;
+      // The counts the cards' Why it rebuilds row read belong to the page
+      // being left.
+      _lastDebugSnapshot = null;
       for (final d in _detectors) {
         if (d is SetStateScopeDetector) d.clearSnapshots();
         // The drained counts are dropped with this scan; the per-widget
@@ -3207,6 +3210,8 @@ class SleuthController {
     _isIteratingDetectors = true;
     try {
       // Pass debug snapshot to detectors
+      // A new page, tab or hot reload drops the previous page's counts.
+      if (evidenceChanged) _lastDebugSnapshot = null;
       if (debugSnapshot != null && !evidenceChanged) {
         _lastDebugSnapshot = debugSnapshot;
         for (final d in _detectors) {
