@@ -167,8 +167,8 @@
   shows a toast with Show, which keeps the open cards expanded; an effect
   folded under a card opens its detail and fix under its row. A related
   issue no longer reported stays as plain text. Rebuild and setState
-  cards link to Rebuild stats once the screen has counted rebuilds, and
-  the slow startup card links to Startup metrics.
+  cards from the current screen link to its Rebuild stats once it has
+  counted rebuilds, and the slow startup card links to Startup metrics.
 - A tap on an expanded card's details no longer collapses it; the header
   does. Hide moves focus to the card that takes its place, scrolled into
   view, and hiding a card whose issue is gone offers no Undo.
