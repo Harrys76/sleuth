@@ -21,7 +21,8 @@ import '../helpers/overlay_harness.dart'
         expandedIssueCards,
         moreMenuRow,
         openFromMoreMenu,
-        openMoreMenu;
+        openMoreMenu,
+        tapVisible;
 
 PerformanceIssue _issue(
   String id, {
@@ -59,7 +60,9 @@ void main() {
   /// Card in a tall view so several rows are tappable, with the platform
   /// channel recorded.
   Future<void> pumpCard(WidgetTester tester, {SleuthThemeData? theme}) async {
-    tester.view.physicalSize = const Size(800, 1600);
+    // Tall enough that an expanded card's details leave room to build the
+    // cards below it.
+    tester.view.physicalSize = const Size(800, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -166,7 +169,7 @@ void main() {
 
       await expand(tester, 'root');
       expect(find.text('Title child'), findsOneWidget); // related effects
-      await tester.tap(find.bySemanticsLabel('Hide this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Hide'));
       await tester.pump();
 
       expect(find.text('Title root'), findsNothing);
@@ -192,7 +195,7 @@ void main() {
       await expand(tester, 'c');
       expect(expandedIssueCards(), findsNWidgets(2));
 
-      await tester.tap(find.bySemanticsLabel('Hide this issue').first);
+      await tapVisible(tester, find.bySemanticsLabel('Hide').first);
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(find.text('Title a'), findsNothing);
@@ -230,7 +233,7 @@ void main() {
       expect(controller.pendingIssueSelection, isNotNull);
 
       await expand(tester, 'lay');
-      await tester.tap(find.bySemanticsLabel('Hide this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Hide'));
       await tester.pump();
       expect(controller.pendingIssueSelection, isNull);
       expect(controller.selectedHighlightNotifier.value, isNull);
@@ -363,7 +366,7 @@ void main() {
       await expand(tester, 'x');
 
       // Hide x (the first expanded card's action row).
-      await tester.tap(find.bySemanticsLabel('Hide this issue').first);
+      await tapVisible(tester, find.bySemanticsLabel('Hide').first);
       await tester.pump();
       expect(rowOrder(tester, ['x', 'a', 'y']), ['a', 'y']);
 
@@ -702,7 +705,7 @@ void main() {
       controller.issuesNotifier.value = [_issue('jank', widgetName: 'Feed')];
       await pumpCard(tester);
       await expand(tester, 'jank');
-      await tester.tap(find.bySemanticsLabel('Hide this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Hide'));
       await tester.pump();
       expect(find.text('Title jank'), findsNothing);
 
@@ -726,7 +729,7 @@ void main() {
       controller.issuesNotifier.value = [critical];
       await pumpCard(tester);
       await expand(tester, 'jank');
-      await tester.tap(find.bySemanticsLabel('Hide this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Hide'));
       await tester.pump();
       expect(find.text('Title jank'), findsNothing);
 
@@ -1197,7 +1200,7 @@ void main() {
       controller.issuesNotifier.value = [issue];
       await pumpCard(tester);
       await expand(tester, 'a');
-      await tester.tap(find.bySemanticsLabel('Copy issue details'));
+      await tapVisible(tester, find.bySemanticsLabel('Copy details'));
       await tester.pump();
 
       final setData = platformCalls.where(
@@ -1222,7 +1225,7 @@ void main() {
       controller.issuesNotifier.value = [_issue('a')];
       await pumpCard(tester);
       await expand(tester, 'a');
-      await tester.tap(find.bySemanticsLabel('Copy issue details'));
+      await tapVisible(tester, find.bySemanticsLabel('Copy details'));
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(find.text("Couldn't copy"), findsOneWidget);
@@ -1553,16 +1556,13 @@ void main() {
           ),
         ),
       );
-      for (final label in [
-        'Learn more about this issue',
-        'Ask AI about this issue',
-      ]) {
+      for (final label in ['Learn more', 'Ask AI']) {
         final size = tester.getSize(find.bySemanticsLabel(label));
         expect(size.height, greaterThanOrEqualTo(48), reason: label);
         expect(size.width, greaterThanOrEqualTo(48), reason: label);
       }
-      await tester.tap(find.bySemanticsLabel('Learn more about this issue'));
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Learn more'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       expect((learnMore, askAi), (1, 1));
     });
 
@@ -1571,7 +1571,7 @@ void main() {
       controller.overlayUiState.hide('x');
       await pumpCard(tester);
       await expand(tester, 'a');
-      for (final label in ['Copy issue details', 'Hide this issue']) {
+      for (final label in ['Copy details', 'Hide']) {
         final size = tester.getSize(find.bySemanticsLabel(label));
         expect(size.height, greaterThanOrEqualTo(48), reason: label);
         expect(size.width, greaterThanOrEqualTo(48), reason: label);

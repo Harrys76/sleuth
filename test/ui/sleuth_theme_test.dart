@@ -5,6 +5,7 @@ import 'package:flutter/material.dart'
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/measurement_gauge.dart';
 import 'package:sleuth/src/ui/severity_icon.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
@@ -232,6 +233,23 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
       fill,
       3,
     );
+  }
+  // Expanded card: the gauge fill on the Measured box, and a toggled
+  // button (Show on screen, Not useful) on the card fills.
+  for (final severity in IssueSeverity.values) {
+    add(
+      '${severity.name} gauge fill on sectionBackground',
+      gaugeFillColor(t, severity),
+      t.sectionBackground,
+      3,
+    );
+  }
+  for (final s in ['cardDefault', 'cardHighlighted']) {
+    final on = composite(
+      t.checkboxActive.withValues(alpha: 0.22),
+      surfaces[s]!,
+    );
+    add('toggled button label and icon on $s', t.textPrimary, on);
   }
   add('trigger icon on critical', t.triggerIconColor, t.severityCritical, 3);
   add(

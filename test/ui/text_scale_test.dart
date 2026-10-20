@@ -114,8 +114,8 @@ void main() {
         final controller = await _pumpSmall(tester, scale);
         expect(tester.takeException(), isNull, reason: 'open');
 
-        // Expand each card on its own (the list builds lazily), with its
-        // "About this detection" section open.
+        // Expand each card on its own (the list builds lazily) and scroll
+        // to its buttons, the bottom of the details.
         final issues = mixedOverlayIssues();
         for (final issue in issues) {
           if (issue.rootCauseIds != null) continue;
@@ -128,8 +128,8 @@ void main() {
           await _settle(tester, 'show ${issue.stableId}');
           await tester.tap(find.text(issue.title));
           await _settle(tester, 'expand ${issue.stableId}');
-          await _tapFinder(tester, find.text('About this detection'));
-          await _settle(tester, 'about ${issue.stableId}');
+          await _reveal(tester, find.bySemanticsLabel('Copy details'));
+          await _settle(tester, 'details ${issue.stableId}');
           // An expanded card outlives its issue; collapse it first.
           await _tapFinder(tester, find.text(issue.title));
           await _settle(tester, 'collapse ${issue.stableId}');
@@ -146,19 +146,13 @@ void main() {
         await _settle(tester, 'back from More menu');
 
         // Learn more -> encyclopedia, Ask AI -> chat.
-        await _tapFinder(
-          tester,
-          find.bySemanticsLabel('Learn more about this issue'),
-        );
+        await _tapFinder(tester, find.bySemanticsLabel('Learn more'));
         await _settle(tester, 'encyclopedia from learn more');
         expect(find.text('Issue Encyclopedia'), findsOneWidget);
         await systemBack(tester);
         await _settle(tester, 'back from encyclopedia');
 
-        await _tapFinder(
-          tester,
-          find.bySemanticsLabel('Ask AI about this issue'),
-        );
+        await _tapFinder(tester, find.bySemanticsLabel('Ask AI'));
         await _settle(tester, 'AI chat');
         await tester.tap(find.text('Ask AI').first);
         await _settle(tester, 'AI chat tapped');
@@ -257,10 +251,7 @@ void main() {
       await _settle(tester, 'root only');
       await tester.tap(find.text(root.title));
       await _settle(tester, 'expand root');
-      await _tapFinder(
-        tester,
-        find.bySemanticsLabel('Ask AI about this issue'),
-      );
+      await _tapFinder(tester, find.bySemanticsLabel('Ask AI'));
       await _settle(tester, 'AI chat');
       expect(find.byType(AiChatPage), findsOneWidget);
     }

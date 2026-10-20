@@ -53,10 +53,15 @@ void main() {
       expect(pageText, isNot(contains('Emoji')));
       expect(pageText, isNot(contains('checkbox')));
 
-      // Effort badges
-      expect(find.text('QUICK FIX'), findsOneWidget);
-      expect(find.text('MEDIUM FIX'), findsOneWidget);
-      expect(find.text('INVOLVED FIX'), findsOneWidget);
+      // Fix effort
+      expect(find.text('Fix effort'), findsOneWidget);
+      for (final term in ['Quick', 'Medium effort', 'Involved']) {
+        expect(
+          find.textContaining(RegExp('^$term  '), findRichText: true),
+          findsOneWidget,
+          reason: term,
+        );
+      }
 
       // Card colours
       expect(find.text('Highlighted'), findsOneWidget);

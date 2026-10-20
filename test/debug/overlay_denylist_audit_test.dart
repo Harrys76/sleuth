@@ -40,7 +40,6 @@ import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 /// a widget.
 const _nonWidgetTypes = <String>{
   'ActivateIntent',
-  'Alignment',
   'AlwaysStoppedAnimation',
   'AnimationController',
   'Border',
@@ -62,7 +61,6 @@ const _nonWidgetTypes = <String>{
   'HttpException',
   'InputDecoration',
   'Interval',
-  'LinearGradient',
   'LinkedHashSet',
   'Locale',
   'ObjectKey',

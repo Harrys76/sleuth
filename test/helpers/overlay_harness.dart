@@ -201,15 +201,22 @@ Finder expandedIssueCards() => find.descendant(
 );
 
 /// The crosshair of the card titled [title], or every crosshair.
-Finder crosshair([String? title]) => title == null
-    ? find.byIcon(Icons.my_location)
-    : find.descendant(
-        of: find.ancestor(
-          of: find.text(title),
-          matching: find.byType(IssueCard),
-        ),
-        matching: find.byIcon(Icons.my_location),
-      );
+Finder crosshair([String? title]) {
+  // The crosshair's glyph is 18 px; the expanded card's Show on screen
+  // button draws the same icon at 14.
+  final glyph = find.byWidgetPredicate(
+    (w) => w is Icon && w.icon == Icons.my_location && w.size == 18,
+  );
+  return title == null
+      ? glyph
+      : find.descendant(
+          of: find.ancestor(
+            of: find.text(title),
+            matching: find.byType(IssueCard),
+          ),
+          matching: glyph,
+        );
+}
 
 /// Whether the crosshair [finder] finds is on: its widget is outlined.
 bool crosshairOn(WidgetTester tester, Finder finder) =>
@@ -229,3 +236,11 @@ bool crosshairOn(WidgetTester tester, Finder finder) =>
         .properties
         .toggled ??
     false;
+
+/// Scrolls [finder] into view, then taps it: an expanded card's buttons
+/// sit below its details, often past the bottom of the list.
+Future<void> tapVisible(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pump();
+  await tester.tap(finder);
+}

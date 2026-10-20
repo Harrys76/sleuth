@@ -94,6 +94,16 @@ String hideKeyFor(PerformanceIssue issue) {
       : key;
 }
 
+/// The hide keys that hide [issue]: its critical key, and its plain key
+/// below critical. Removing both shows it again.
+List<String> hideKeysOf(PerformanceIssue issue) {
+  final key = listKeyFor(issue);
+  return [
+    '$key$_criticalHideSuffix',
+    if (issue.severity != IssueSeverity.critical) key,
+  ];
+}
+
 /// Whether [hideKey] was taken from a critical card.
 bool isCriticalHideKey(String hideKey) => hideKey.endsWith(_criticalHideSuffix);
 

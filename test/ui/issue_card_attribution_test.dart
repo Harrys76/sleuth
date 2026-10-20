@@ -66,75 +66,65 @@ void main() {
     });
   });
 
-  group('IssueCard ancestor chain display', () {
-    testWidgets('expanded card with ancestorChain shows Ancestors: line', (
+  group('IssueCard Where row', () {
+    testWidgets('shows the widget and the location of the leaf element', (
+      tester,
+    ) async {
+      final copies = <(String, String)>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: IssueCard(
+                issue: _testIssue(
+                  widgetName: 'FeedTile',
+                  ancestorChain:
+                      'MyPage > FeedList > FeedTile (feed_tile.dart:42)',
+                ),
+                initiallyExpanded: true,
+                onCopyText: (text, confirmation) =>
+                    copies.add((text, confirmation)),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Where'), findsOneWidget);
+      expect(find.text('FeedTile'), findsOneWidget);
+      expect(find.text('feed_tile.dart:42'), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('Copy location'));
+      expect(copies, [('feed_tile.dart:42', 'Location copied')]);
+    });
+
+    testWidgets('shows the widget alone when the run tracks no locations', (
       tester,
     ) async {
       await tester.pumpWidget(
         _buildCard(
-          _testIssue(ancestorChain: 'MyPage > Column > Image'),
+          _testIssue(
+            widgetName: 'FeedTile',
+            ancestorChain: 'MyPage > FeedTile',
+          ),
           initiallyExpanded: true,
         ),
       );
-
-      expect(find.text('Ancestors: MyPage > Column > Image'), findsOneWidget);
+      expect(find.text('Where'), findsOneWidget);
+      expect(find.bySemanticsLabel('Copy location'), findsNothing);
     });
 
-    testWidgets(
-      'expanded card with null chain but widgetName not in title shows Widget: fallback',
-      (tester) async {
-        await tester.pumpWidget(
-          _buildCard(
-            _testIssue(widgetName: 'MyCustomWidget', title: 'Some Other Issue'),
-            initiallyExpanded: true,
-          ),
-        );
-
-        expect(find.text('Widget: MyCustomWidget'), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'expanded card with null chain and widgetName in title does not show duplicate',
-      (tester) async {
-        await tester.pumpWidget(
-          _buildCard(
-            _testIssue(
-              widgetName: 'MyWidget',
-              title: 'Excessive Rebuilds: MyWidget (15/sec)',
-            ),
-            initiallyExpanded: true,
-          ),
-        );
-
-        expect(find.textContaining('Widget: MyWidget'), findsNothing);
-      },
-    );
-
-    testWidgets('collapsed card does not show Ancestors: line', (tester) async {
+    testWidgets('is left out without a widget or a location', (tester) async {
       await tester.pumpWidget(
-        _buildCard(_testIssue(ancestorChain: 'MyPage > Column > Image')),
+        _buildCard(_testIssue(), initiallyExpanded: true),
       );
-
-      // Card is collapsed by default
-      expect(find.text('Test detail'), findsNothing);
-      expect(find.text('Ancestors: MyPage > Column > Image'), findsNothing);
+      expect(find.text('Where'), findsNothing);
+      expect(find.text('Evidence'), findsOneWidget);
     });
 
-    testWidgets('ancestor chain text has correct style', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(
-          _testIssue(ancestorChain: 'MyPage > Column > Image'),
-          initiallyExpanded: true,
-        ),
-      );
-
-      final textWidget = tester.widget<Text>(
-        find.text('Ancestors: MyPage > Column > Image'),
-      );
-      expect(textWidget.style?.fontSize, 10);
-      expect(textWidget.style?.fontStyle, FontStyle.italic);
-      expect(textWidget.style?.color, const SleuthThemeData().textTertiary);
+    testWidgets('a collapsed card shows no detail rows', (tester) async {
+      await tester.pumpWidget(_buildCard(_testIssue(widgetName: 'FeedTile')));
+      expect(find.text('Where'), findsNothing);
+      expect(find.text('Evidence'), findsNothing);
     });
   });
 

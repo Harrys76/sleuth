@@ -7,7 +7,7 @@ import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 
 import '../helpers/overlay_harness.dart'
-    show crosshairOn, expandedIssueCards, openMoreMenu;
+    show crosshair, crosshairOn, expandedIssueCards, openMoreMenu, tapVisible;
 
 /// An issue with detector id [id] reported on [widget]; the title names
 /// the widget so the two cards can be told apart.
@@ -38,7 +38,7 @@ void main() {
   tearDown(() => controller.dispose());
 
   Future<void> pumpCard(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.physicalSize = const Size(800, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
@@ -70,19 +70,18 @@ void main() {
     matching: find.byType(IssueCard),
   );
 
-  Finder checkboxOf(String name) => find.descendant(
-    of: cardOf(name),
-    matching: find.byIcon(Icons.my_location),
-  );
+  Finder checkboxOf(String name) =>
+      find.descendant(of: cardOf(name), matching: crosshair());
 
   bool? checked(WidgetTester tester, String name) =>
       crosshairOn(tester, checkboxOf(name));
 
   Future<void> hideVia(WidgetTester tester, String name) async {
-    await tester.tap(
+    await tapVisible(
+      tester,
       find.descendant(
         of: cardOf(name),
-        matching: find.bySemanticsLabel('Hide this issue'),
+        matching: find.bySemanticsLabel('Hide'),
       ),
     );
     await tester.pump();
