@@ -634,5 +634,8 @@ class DetectorMetadata {
 mixin DetectorMetadataProvider {
   /// Metadata for this detector. Must be non-null on shipping detectors —
   /// the audit test gates this.
+  ///
+  /// This getter belongs to `package:sleuth/validation.dart` and is outside
+  /// Sleuth's semver promise, also on main-API detectors that override it.
   DetectorMetadata get validationMetadata;
 }

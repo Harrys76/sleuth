@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/startup/startup_tracker.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import 'helpers/benchmark_helpers.dart';
@@ -156,7 +157,7 @@ void main() {
 
   group('Sleuth.track auto-init', () {
     // The documented quick-start `runApp(Sleuth.track(child: MyApp()))` must
-    // populate `Sleuth.dartEntryMonotonicUs` so detectors that compare
+    // populate `StartupTracker.dartEntryMonotonicUs` so detectors that compare
     // timeline timestamps against app-start (e.g. ShaderJankDetector
     // cold_start branch) reach a non-null clock. Without `track()` invoking
     // `init()`, that integration silently no-ops.
@@ -168,7 +169,7 @@ void main() {
       // Without this, a Stage-2 non-null assertion is vacuous when prior
       // tests left the static populated.
       expect(
-        Sleuth.dartEntryMonotonicUs,
+        StartupTracker.dartEntryMonotonicUs,
         isNull,
         reason:
             'reset hook left dartEntryMonotonicUs populated; '
@@ -184,13 +185,13 @@ void main() {
       await tester.pumpWidget(Sleuth.track(child: const SizedBox()));
 
       expect(
-        Sleuth.dartEntryMonotonicUs,
+        StartupTracker.dartEntryMonotonicUs,
         isNotNull,
         reason:
             'Sleuth.track() must call Sleuth.init() so '
             'dartEntryMonotonicUs is populated for downstream detectors.',
       );
-      expect(Sleuth.dartEntryMonotonicUs, greaterThan(0));
+      expect(StartupTracker.dartEntryMonotonicUs, greaterThan(0));
     });
   });
 
@@ -199,7 +200,7 @@ void main() {
     // and audit-gate replay, but reproducer tests pin classification via
     // the `appStartMonotonicUsForTest` ctor override. This integration
     // test covers the production code path: `Sleuth.track()` populates
-    // `Sleuth.dartEntryMonotonicUs`, a detector constructed WITHOUT the
+    // `StartupTracker.dartEntryMonotonicUs`, a detector constructed WITHOUT the
     // override reads the same static, and the resulting emission stamps
     // `lifecyclePhase: 'startup'`.
     //
@@ -226,12 +227,12 @@ void main() {
         );
 
     testWidgets(
-      'jank_detected stamps lifecyclePhase via Sleuth.dartEntryMonotonicUs '
+      'jank_detected stamps lifecyclePhase via StartupTracker.dartEntryMonotonicUs '
       '(no test override)',
       (tester) async {
         await tester.pumpWidget(Sleuth.track(child: const SizedBox()));
         expect(
-          Sleuth.dartEntryMonotonicUs,
+          StartupTracker.dartEntryMonotonicUs,
           isNotNull,
           reason: 'Sleuth.track() must populate the production anchor.',
         );
@@ -257,7 +258,7 @@ void main() {
           'startup',
           reason:
               'lifecyclePhase must populate via the production '
-              'Sleuth.dartEntryMonotonicUs anchor without an explicit '
+              'StartupTracker.dartEntryMonotonicUs anchor without an explicit '
               'appStartMonotonicUsForTest override. A missing or null '
               'value indicates a wire-up regression in controller '
               'construction or Sleuth static-state setup.',

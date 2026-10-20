@@ -10,6 +10,9 @@ import 'widget_highlight.dart';
 ///
 /// Each value corresponds to one of the 21 performance detectors.
 /// Pass a subset to [SleuthConfig] to enable only specific detectors.
+///
+/// A minor release can add values, so a `switch` over it needs a default
+/// branch.
 enum DetectorType {
   frameTiming,
   shaderJank,

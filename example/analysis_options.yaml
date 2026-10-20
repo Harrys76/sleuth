@@ -15,6 +15,10 @@ analyzer:
     - web/**
     - windows/**
     - linux/**
+  errors:
+    # The capture screens drive Sleuth's capture tooling, whose statics are
+    # marked @experimental (outside the semver promise).
+    experimental_member_use: ignore
 include: package:flutter_lints/flutter.yaml
 
 linter:

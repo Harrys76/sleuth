@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
 
 /// Lifecycle of the most recent capture leg.
 enum CaptureLegState { idle, running, done, failed }

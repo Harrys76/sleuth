@@ -3,7 +3,6 @@ import 'dart:developer' show Timeline;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
-import '../../sleuth.dart' show Sleuth;
 import '../models/base_detector.dart';
 import '../models/frame_stats.dart';
 import '../validation/detector_metadata.dart';
@@ -17,6 +16,7 @@ import '../utils/framework_painters.dart';
 import '../utils/framework_types.dart' show cupertinoBlurOwner;
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
+import '../startup/startup_tracker.dart';
 
 /// Detects GPU pressure from expensive rendering operations.
 ///
@@ -96,7 +96,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   final int criticalRasterDominantFrames;
 
   /// Frames arriving within this many seconds of
-  /// [Sleuth.dartEntryMonotonicUs] do not count toward the frame leg. Same
+  /// [StartupTracker.dartEntryMonotonicUs] do not count toward the frame leg. Same
   /// clock and window as `FrameTimingDetector`'s `lifecyclePhase`; the
   /// controller wires it from
   /// `DetectorThresholds.startupPhaseWindowSeconds`.
@@ -320,10 +320,11 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// True while the frame arrives within [startupPhaseWindowSeconds] of
   /// Dart entry, measured like `FrameTimingDetector`'s lifecycle phase
-  /// (`Timeline.now` against [Sleuth.dartEntryMonotonicUs]). Without an
+  /// (`Timeline.now` against [StartupTracker.dartEntryMonotonicUs]). Without an
   /// anchor (no `Sleuth.init`) frames count.
   bool _insideStartupWindow() {
-    final appStart = _appStartForTest?.call() ?? Sleuth.dartEntryMonotonicUs;
+    final appStart =
+        _appStartForTest?.call() ?? StartupTracker.dartEntryMonotonicUs;
     if (appStart == null) return false;
     final delta = Timeline.now - appStart;
     if (delta < 0) return false;

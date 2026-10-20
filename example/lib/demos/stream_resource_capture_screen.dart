@@ -22,6 +22,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
 
 import 'capture_driver.dart';
 

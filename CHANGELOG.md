@@ -1,5 +1,43 @@
 ## Unreleased
 
+### Breaking
+
+- `package:sleuth/sleuth.dart` exports only the names listed in
+  `doc/api_1_0_0.md`, each through a `show` list.
+- Capture and validation tooling moved to the new
+  `package:sleuth/validation.dart`, which is outside the semver promise:
+  `EvidenceTier`, `DetectorMetadata`, `DetectorMetadataProvider`,
+  `BracketSpec`, `ComponentMetadata`, `ComponentMetadataProvider`,
+  `ProfileCaptureSchema`, `kSleuthPackageVersion`, `PollTimings`,
+  `StreamResourcePollResult`, and the detector types `RepaintDetector`,
+  `MemoryPressureDetector`, `StartupDetector`, `TrackedResourceDetector`,
+  `ImageMemoryDetector`, `GpuPressureDetector` and `FrameTimingDetector`.
+- No longer exported: `ServiceExtensionRegistry`, `FixHintBuilder`,
+  `SessionMarkdownExporter`, `JankCaptureBuffer`, `FrameBudget`,
+  `FrameRateSource`, `resolveFrameBudget`, `RecurrenceTrend`,
+  `RecurrenceEntry`, `TrendDirection`, `buildWidgetHeatMap`,
+  `InteractionContextDisplay`, `ObservationSourceDisplay`,
+  `ConnectionMode` and `kMcpEnvelopeSchemaVersion`.
+- `Sleuth.enrichStartupWithVmData`, `Sleuth.dartEntryMonotonicUs` and
+  `Sleuth.notifyControllerDisposed` are gone; only the package called
+  them. `StartupMetrics.dartEntryMonotonicUs` still carries the Dart entry
+  time.
+- The capture statics on `Sleuth` (`markScenarioBegin`, `exportCaptureJson`,
+  `flushTimelineNow` and the others) and the accessors typed with
+  `validation.dart` types are `@experimental`.
+- `RouteSession.endedAt` and `RouteSession.scanCycleCount` are read-only.
+- `SleuthThemeData` drops the tokens the overlay no longer draws: the
+  confidence, effort and source colours with `confidenceColor`,
+  `effortColor` and `sourceAccentColor`, `sourceAccentWidth`, the VM and
+  FRAME badge pairs, the instrumentation banner pair, the three AI shimmer
+  colours, `aboutBackground`, `cardJankFlash`, `effectsBadge`,
+  `fixHintText`, `disclaimerText`, `highlightLabelText`, `fontXxl`,
+  `fontDisplay` and `focusRingWidth`. `fromColorScheme` no longer maps
+  `errorContainer`.
+- A minor release can add values to `DetectorType`, `IssueCategory`,
+  `ObservationSource`, `PipelinePhase`, `InteractionContext` and
+  `FixEffort`; a `switch` over them needs a default branch.
+
 ### Added
 
 - Issues carry the number their detector reports with the detector's
@@ -143,10 +181,7 @@
   denylist and an app's own checkboxes count.
 - The guide's legend describes the new card. The "Jank flash" card
   colour, which the overlay never drew, is gone from it.
-- `badgeDbgBg` and `badgeDbgText` draw the Debug timing tag. The
-  confidence colours, the source accents, `sourceAccentWidth`,
-  `effectsBadge`, `disclaimerText` and `cardJankFlash` are unused by the
-  overlay and kept for custom themes.
+- `badgeDbgBg` and `badgeDbgText` draw the Debug timing tag.
 - The expanded card shows its details below a divider, at the full card
   width. An issue with a measurement opens with a Measured row: the value
   and what it is ("10.0 ms in one build on the UI thread", with the
@@ -242,10 +277,7 @@
   up to the chrome limit, and draws its text in the colour that reads on
   its severity fill. It stays below the highlight bar when
   the bar sits at the top.
-- The effort colours, `aboutBackground`, `fixHintText`,
-  `highlightLabelText` and the three `aiShimmer` colours are unused by the
-  overlay and kept for custom themes. The guide describes the new
-  expanded card and Not useful.
+- The guide describes the new expanded card and Not useful.
 
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase: the issues of the phase's category, `event_loop_stall`

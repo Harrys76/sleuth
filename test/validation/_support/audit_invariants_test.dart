@@ -31,14 +31,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sleuth/sleuth.dart'
-    show
-        BracketSpec,
-        DetectorMetadata,
-        EvidenceTier,
-        NetworkMonitorDetector,
-        RebuildDetector;
-import 'package:sleuth/src/detectors/frame_timing_detector.dart'
-    show FrameTimingDetector;
+    show NetworkMonitorDetector, RebuildDetector;
+import 'package:sleuth/validation.dart';
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart'
     show HeavyComputeDetector;
 

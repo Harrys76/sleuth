@@ -1,6 +1,10 @@
 import 'package:flutter/widgets.dart';
 
 import '../../sleuth.dart';
+import '../startup/startup_tracker.dart';
+import '../utils/fix_hint_builder.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 
 /// Detects slow app startup using metrics captured by [Sleuth.init].
 ///
@@ -67,7 +71,7 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
     // One-shot: only evaluate startup metrics once.
     if (_consumed) return;
 
-    final metrics = Sleuth.startupMetrics;
+    final metrics = StartupTracker.metrics;
     if (metrics == null) {
       return; // init() not called or first frame not yet rendered
     }

@@ -1,115 +1,107 @@
-// Guards that the validation methodology infrastructure
-// (`EvidenceTier`, `DetectorMetadata`, `DetectorMetadataProvider`,
-// `ComponentMetadata`, `ComponentMetadataProvider`,
-// `ProfileCaptureSchema`) is reachable through the public
-// `package:sleuth/sleuth.dart` barrel. Shipping these under `src/`
-// without exporting them makes the methodology contract unusable
-// unless callers reach into `package:sleuth/src/...`.
+// Guards that the validation tooling (`EvidenceTier`, `DetectorMetadata`,
+// `DetectorMetadataProvider`, `ComponentMetadata`,
+// `ComponentMetadataProvider`, `ProfileCaptureSchema`) is reachable through
+// `package:sleuth/validation.dart`. Under `src/` alone, callers would have
+// to reach into `package:sleuth/src/...`.
 //
-// This test imports ONLY the public barrel — adding it back as a
-// direct `src/` import would silently mask a missing export.
+// This test imports ONLY the public library; a direct `src/` import would
+// hide a missing export.
 
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
 
 void main() {
-  group(
-    'Validation public API is exported from package:sleuth/sleuth.dart',
-    () {
-      test('EvidenceTier enum values are reachable', () {
-        expect(EvidenceTier.values, hasLength(4));
-        expect(EvidenceTier.unvalidated.index, 0);
-        expect(EvidenceTier.externallyCited.index, 3);
-      });
+  group('Validation API is exported from package:sleuth/validation.dart', () {
+    test('EvidenceTier enum values are reachable', () {
+      expect(EvidenceTier.values, hasLength(4));
+      expect(EvidenceTier.unvalidated.index, 0);
+      expect(EvidenceTier.externallyCited.index, 3);
+    });
 
-      // Pin the full ordinal + name sequence so any reorder or rename of
-      // the stable-contract enum fails a test instead of shipping
-      // silently.
-      test('EvidenceTier ordering is pinned weakest-to-strongest', () {
-        expect(
-          EvidenceTier.values.map((t) => t.name).toList(),
-          equals([
-            'unvalidated',
-            'reproducerOnly',
-            'runtimeVerified',
-            'externallyCited',
-          ]),
-        );
-        expect(
-          EvidenceTier.values.map((t) => t.index).toList(),
-          equals([0, 1, 2, 3]),
-        );
-      });
-
-      test('DetectorMetadata can be constructed via the public API', () {
-        const metadata = DetectorMetadata(
-          tier: EvidenceTier.externallyCited,
-          rationale: 'Material spec reference',
-          citationUrl: 'https://m3.material.io',
-          reproducerPath: 'test/detectors/example_test.dart',
-        );
-        expect(metadata.tier, EvidenceTier.externallyCited);
-        expect(metadata.rationale, contains('Material'));
-        expect(metadata.citationUrl, isNotNull);
-      });
-
-      test('DetectorMetadataProvider mixin is reachable for implementers', () {
-        final provider = _ExampleDetectorMetadataProvider();
-        expect(provider.validationMetadata.tier, EvidenceTier.reproducerOnly);
-      });
-
-      // v0.16.2 adds the parallel component surface plus the
-      // capture-schema parser. All three must be reachable through the
-      // public barrel so downstream users and forks don't have to import
-      // `package:sleuth/src/...`.
-      test('ComponentMetadata can be constructed via the public API', () {
-        const metadata = ComponentMetadata(
-          componentName: 'ExampleComponent',
-          tier: EvidenceTier.reproducerOnly,
-          rationale: 'Reachable via package:sleuth/sleuth.dart barrel.',
-          reproducerPath: 'test/example_component_test.dart',
-          coveredClaimIds: {'x'},
-        );
-        expect(metadata.componentName, 'ExampleComponent');
-        expect(metadata.tier, EvidenceTier.reproducerOnly);
-        expect(metadata.coveredClaimIds, contains('x'));
-      });
-
-      test('ComponentMetadataProvider mixin is reachable for implementers', () {
-        final provider = _ExampleComponentMetadataProvider();
-        expect(provider.validationMetadata.componentName, 'ExampleComponent');
-        expect(provider.validationMetadata.tier, EvidenceTier.reproducerOnly);
-      });
-
-      test(
-        'ProfileCaptureSchema.parseFile is reachable via the public API',
-        () {
-          final anchor = File(
-            'test/validation/captures/_fixtures/anchor_devtools_export.json',
-          );
-          if (!anchor.existsSync()) {
-            markTestSkipped('anchor fixture not available (non-repo-root CWD)');
-            return;
-          }
-          // The smoke path: it's the public type, callable, and returns
-          // a Map with the canonical metadata keys.
-          final meta = ProfileCaptureSchema.parseFile(anchor);
-          expect(meta, isA<Map<String, Object?>>());
-          expect(meta, containsPair('device', isA<String>()));
-          expect(
-            ProfileCaptureSchema.approvedFlutterMajorMinor,
-            isNotEmpty,
-            reason:
-                'approvedFlutterMajorMinor constant is part of the '
-                'public contract; a fork that pins its own major.minor '
-                'reads this.',
-          );
-        },
+    // Pin the full ordinal + name sequence so any reorder or rename of
+    // the stable-contract enum fails a test instead of shipping
+    // silently.
+    test('EvidenceTier ordering is pinned weakest-to-strongest', () {
+      expect(
+        EvidenceTier.values.map((t) => t.name).toList(),
+        equals([
+          'unvalidated',
+          'reproducerOnly',
+          'runtimeVerified',
+          'externallyCited',
+        ]),
       );
-    },
-  );
+      expect(
+        EvidenceTier.values.map((t) => t.index).toList(),
+        equals([0, 1, 2, 3]),
+      );
+    });
+
+    test('DetectorMetadata can be constructed via the public API', () {
+      const metadata = DetectorMetadata(
+        tier: EvidenceTier.externallyCited,
+        rationale: 'Material spec reference',
+        citationUrl: 'https://m3.material.io',
+        reproducerPath: 'test/detectors/example_test.dart',
+      );
+      expect(metadata.tier, EvidenceTier.externallyCited);
+      expect(metadata.rationale, contains('Material'));
+      expect(metadata.citationUrl, isNotNull);
+    });
+
+    test('DetectorMetadataProvider mixin is reachable for implementers', () {
+      final provider = _ExampleDetectorMetadataProvider();
+      expect(provider.validationMetadata.tier, EvidenceTier.reproducerOnly);
+    });
+
+    // v0.16.2 adds the parallel component surface plus the
+    // capture-schema parser. All three must be reachable through the
+    // public barrel so downstream users and forks don't have to import
+    // `package:sleuth/src/...`.
+    test('ComponentMetadata can be constructed via the public API', () {
+      const metadata = ComponentMetadata(
+        componentName: 'ExampleComponent',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Reachable via package:sleuth/validation.dart.',
+        reproducerPath: 'test/example_component_test.dart',
+        coveredClaimIds: {'x'},
+      );
+      expect(metadata.componentName, 'ExampleComponent');
+      expect(metadata.tier, EvidenceTier.reproducerOnly);
+      expect(metadata.coveredClaimIds, contains('x'));
+    });
+
+    test('ComponentMetadataProvider mixin is reachable for implementers', () {
+      final provider = _ExampleComponentMetadataProvider();
+      expect(provider.validationMetadata.componentName, 'ExampleComponent');
+      expect(provider.validationMetadata.tier, EvidenceTier.reproducerOnly);
+    });
+
+    test('ProfileCaptureSchema.parseFile is reachable via the public API', () {
+      final anchor = File(
+        'test/validation/captures/_fixtures/anchor_devtools_export.json',
+      );
+      if (!anchor.existsSync()) {
+        markTestSkipped('anchor fixture not available (non-repo-root CWD)');
+        return;
+      }
+      // The smoke path: it's the public type, callable, and returns
+      // a Map with the canonical metadata keys.
+      final meta = ProfileCaptureSchema.parseFile(anchor);
+      expect(meta, isA<Map<String, Object?>>());
+      expect(meta, containsPair('device', isA<String>()));
+      expect(
+        ProfileCaptureSchema.approvedFlutterMajorMinor,
+        isNotEmpty,
+        reason:
+            'approvedFlutterMajorMinor constant is part of the '
+            'public contract; a fork that pins its own major.minor '
+            'reads this.',
+      );
+    });
+  });
 }
 
 class _ExampleDetectorMetadataProvider with DetectorMetadataProvider {

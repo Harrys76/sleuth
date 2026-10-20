@@ -6,7 +6,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart'
     show PredictiveBackEvent, SystemNavigator;
 
-import '../../sleuth.dart' show Sleuth;
 import '../controller/sleuth_controller.dart';
 import '../utils/overlay_ownership.dart';
 import 'trigger_button.dart';
@@ -15,6 +14,7 @@ import 'highlight_overlay.dart';
 import 'overlay_ui_state.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
+import '../controller/active_controller.dart';
 
 /// The main overlay widget wrapping the app.
 ///
@@ -644,7 +644,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     widget.controller.themeOverride.removeListener(_onThemeChanged);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     WidgetsBinding.instance.removeObserver(this);
-    Sleuth.notifyControllerDisposed(widget.controller);
+    ActiveController.release(widget.controller);
     widget.controller.dispose();
     super.dispose();
   }

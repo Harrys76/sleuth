@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
-import '../../sleuth.dart' show Sleuth;
 import '../analyzer/jank_relation.dart';
 import '../controller/highlight_lookup.dart';
 import '../controller/sleuth_controller.dart';
@@ -38,6 +37,7 @@ import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
 import 'status_lines.dart';
 import 'text_scale_clamp.dart';
+import '../startup/startup_tracker.dart';
 
 export 'overlay_filters.dart'
     show
@@ -1217,7 +1217,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     setState(() {
       _menuOpen = true;
       _menuValues = (
-        ttffMs: Sleuth.startupMetrics?.ttffMs,
+        ttffMs: StartupTracker.metrics?.ttffMs,
         rebuildTotal: rebuilds > 0 ? rebuilds : null,
         rebuildCounting: widget.controller.countsRouteRebuilds,
         hiddenCount:

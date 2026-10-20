@@ -7,12 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
-// The detector is not exported; the screen reads its bracket, ratio, floor
-// and startup window from the detector's own defaults so they cannot drift
-// from the audit.
-// ignore: implementation_imports
-import 'package:sleuth/src/detectors/gpu_pressure_detector.dart'
-    show GpuPressureDetector;
+import 'package:sleuth/validation.dart';
 
 import 'capture_driver.dart';
 
@@ -213,8 +208,8 @@ class RasterLegCalls {
   /// Whether Sleuth's dashboard card is open over the app.
   bool dashboardOpen() => Sleuth.overlayUiState?.dashboardOpen ?? false;
 
-  /// `Timeline.now` at Dart entry, or null without `Sleuth.init`.
-  int? dartEntryMonotonicUs() => Sleuth.dartEntryMonotonicUs;
+  /// `Timeline.now` at Dart entry, or null before the first frame.
+  int? dartEntryMonotonicUs() => Sleuth.startupMetrics?.dartEntryMonotonicUs;
 
   int timelineNowUs() => developer.Timeline.now;
 

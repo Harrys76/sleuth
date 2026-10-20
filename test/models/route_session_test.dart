@@ -46,7 +46,7 @@ void main() {
         routeName: '/home',
         startedAt: DateTime.now(),
       );
-      session.endedAt = DateTime.now();
+      session.end(DateTime.now());
       expect(session.isActive, isFalse);
       expect(session.endedAt, isNotNull);
     });
@@ -61,7 +61,7 @@ void main() {
       final start = DateTime(2026, 1, 1, 10, 0, 0);
       final end = DateTime(2026, 1, 1, 10, 2, 14);
       final session = RouteSession(routeName: '/home', startedAt: start)
-        ..endedAt = end;
+        ..end(end);
       expect(session.duration, const Duration(minutes: 2, seconds: 14));
     });
 
@@ -319,7 +319,9 @@ void main() {
       test('serialises active session', () {
         final start = DateTime(2026, 4, 11, 10, 0, 0);
         final session = RouteSession(routeName: '/settings', startedAt: start);
-        session.scanCycleCount = 5;
+        for (var i = 0; i < 5; i++) {
+          session.countScanCycle();
+        }
         session.issueSnapshots['rebuild_debug_Foo'] = _issue(
           stableId: 'rebuild_debug_Foo',
           severity: IssueSeverity.warning,
@@ -350,7 +352,7 @@ void main() {
         final start = DateTime(2026, 4, 11, 10, 0, 0);
         final end = DateTime(2026, 4, 11, 10, 2, 0);
         final session = RouteSession(routeName: '/home', startedAt: start)
-          ..endedAt = end;
+          ..end(end);
 
         for (var i = 0; i < 5; i++) {
           session.frameStats.add(
