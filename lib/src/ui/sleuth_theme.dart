@@ -47,8 +47,11 @@ import '../models/performance_issue.dart';
 ///   `confidencePossible`, unused by the overlay
 /// - **Source accents** (4): `sourceVmTimeline`, etc., for the former left
 ///   border of issue cards, unused by the overlay
-/// - **Fix effort** (3): `effortQuick`, `effortMedium`, `effortInvolved`
-/// - **Surfaces** (10): backgrounds, borders, the card divider, card states
+/// - **Fix effort** (3): `effortQuick`, `effortMedium`, `effortInvolved`,
+///   for the former effort badges, unused by the overlay
+/// - **Surfaces** (10): backgrounds, borders, the card divider, card states;
+///   `aboutBackground` filled the former "About this detection" box and is
+///   unused by the overlay
 /// - **Text hierarchy** (5): `textPrimary` through `textSubtle`
 /// - **Badge pairs** (6): bg + text for the former VM/FRAME/DBG badges;
 ///   the DBG pair draws the Debug timing tag, the others are unused
@@ -58,7 +61,9 @@ import '../models/performance_issue.dart';
 /// - **Typography** (9): `fontXxs` (10) through `fontDisplay` (24); 10 px
 ///   is the smallest size the overlay draws
 /// - **Border radius** (7): `radiusSm` (4) through `radiusFull` (20)
-/// - **Special** (12): fix hint text, grip dots, guide accents, etc.
+/// - **Special** (12): grip dots, guide accents, etc.; `fixHintText` and
+///   the three `aiShimmer` colours drew the former fix hint and Ask AI
+///   shimmer and are unused by the overlay
 /// - **Accessibility** (4): `badgeFillAlpha`, `focusRingWidth`,
 ///   `sourceAccentWidth`, `triggerIconOnLightFill`
 ///

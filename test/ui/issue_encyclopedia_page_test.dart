@@ -4,6 +4,7 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/issue_encyclopedia_page.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
+import '../helpers/overlay_harness.dart';
 
 void main() {
   Widget wrap(Widget child) {
@@ -446,10 +447,7 @@ void main() {
         ),
       );
 
-      expect(
-        find.bySemanticsLabel('Learn more about this issue'),
-        findsOneWidget,
-      );
+      expect(find.bySemanticsLabel('Learn more'), findsOneWidget);
     });
 
     testWidgets('Learn more link hidden when onLearnMore is null', (
@@ -466,10 +464,7 @@ void main() {
         ),
       );
 
-      expect(
-        find.bySemanticsLabel('Learn more about this issue'),
-        findsNothing,
-      );
+      expect(find.bySemanticsLabel('Learn more'), findsNothing);
     });
 
     testWidgets('tapping Learn more calls callback', (tester) async {
@@ -486,7 +481,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.bySemanticsLabel('Learn more about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Learn more'));
       expect(tapped, isTrue);
     });
   });

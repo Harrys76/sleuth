@@ -267,10 +267,11 @@ void main() {
       await tapTitle(tester, 'b');
       expect(expandedIssueCards(), findsNWidgets(2));
 
-      await tester.tap(
+      await tapVisible(
+        tester,
         find.descendant(
           of: cardOf('b'),
-          matching: find.bySemanticsLabel('Hide this issue'),
+          matching: find.bySemanticsLabel('Hide'),
         ),
       );
       await tester.pump();
@@ -412,10 +413,7 @@ void main() {
       ];
       await tester.pump();
 
-      final target = find.descendant(
-        of: cardOf('b'),
-        matching: find.byIcon(Icons.my_location),
-      );
+      final target = find.descendant(of: cardOf('b'), matching: crosshair());
       await tester.tap(target);
       await tester.pump();
       controller.selectedHighlightNotifier.value = const WidgetHighlight(
@@ -453,10 +451,11 @@ void main() {
       await tester.pump();
       expect(tester.widget<IssueCard>(cardOf('a')).stale, isTrue);
 
-      await tester.tap(
+      await tapVisible(
+        tester,
         find.descendant(
           of: cardOf('b'),
-          matching: find.bySemanticsLabel('Hide this issue'),
+          matching: find.bySemanticsLabel('Hide'),
         ),
       );
       await tester.pump();
@@ -554,10 +553,8 @@ void main() {
         ),
       ];
       await pumpCard(tester);
-      Finder checkboxOf(String name) => find.descendant(
-        of: cardOf(name),
-        matching: find.byIcon(Icons.my_location),
-      );
+      Finder checkboxOf(String name) =>
+          find.descendant(of: cardOf(name), matching: crosshair());
       await tester.tap(checkboxOf('a'));
       await tester.pump();
       controller.selectedHighlightNotifier.value = const WidgetHighlight(
@@ -582,7 +579,7 @@ void main() {
       await tapTitle(tester, 'grid');
       final askAi = find.descendant(
         of: cardOf('grid'),
-        matching: find.bySemanticsLabel('Ask AI about this issue'),
+        matching: find.bySemanticsLabel('Ask AI'),
       );
       await tester.ensureVisible(askAi);
       await tester.pump();

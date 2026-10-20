@@ -143,6 +143,51 @@
   confidence colours, the source accents, `sourceAccentWidth`,
   `effectsBadge`, `disclaimerText` and `cardJankFlash` are unused by the
   overlay and kept for custom themes.
+- The expanded card shows its details below a divider, at the full card
+  width. An issue with a measurement opens with a Measured row: the value
+  and what it is ("10.0 ms in one build on the UI thread"), a gauge with
+  the warning and critical lines, and a line when the severity is held
+  above the value or judged on another reading. Other issues show their
+  detail there. The issues notifier fires when the Measured row's text
+  changes, and not for a change it rounds away.
+- Labelled rows follow: Where (the widget, and its `file:line` with Copy
+  when the run tracks widget creation), Route, When ("Last seen 2 s ago ·
+  in 5 of the last 8 scans", with the interaction), Evidence (the
+  detector's reason and the confidence) and Check in (the DevTools view).
+  The labels stack above their values when large text makes the label
+  column wider than a third of the card. "About this detection" is gone,
+  with its profile-mode line that said timing "matches production", and
+  so are the Ancestors, Widget, During and Source lines and the debug
+  fidelity tags.
+- Caused by and Effects rows open the related card: a card in the list
+  expands, scrolls into view and takes focus; a hidden or filtered-out one
+  shows a toast with Show, which keeps the open cards expanded; an effect
+  folded under a card opens its detail and fix under its row. A related
+  issue no longer reported stays as plain text. Rebuild and setState
+  cards link to Rebuild stats once the screen has counted rebuilds, and
+  the slow startup card links to Startup metrics.
+- A tap on an expanded card's details no longer collapses it; the header
+  does. Hide moves focus to the card that takes its place, and hiding a
+  card whose issue is gone offers no Undo.
+- The fix opens with "Fix" and its effort ("Fix · medium effort"). Code
+  lines after a line ending in a colon sit in a monospace block with Copy
+  code; a code run is lines with brackets, `;` or `=>`, commands, comments
+  and the indented lines of a call, and a bullet or a sentence ending in a
+  full stop is prose. The effort badges, and the keyword guess for an
+  issue without `fixEffort`, are gone.
+- Labelled buttons replace the links and icons: Show on screen, Learn
+  more, Ask AI, Copy details, Hide and Not useful, each a 48 px target.
+  Not useful marks the issue for the session's exports and MCP output and
+  says so; a second tap removes the mark. Ask AI's icon no longer
+  shimmers, so `ShaderMask` and `AnimatedBuilder` are off the framework
+  denylist and an app's own uses count.
+- In a debug run with `enableDebugCallbacks`, rebuild and setState cards
+  show Why it rebuilds: the rebuilds of the widget's own making and those
+  its parent forced, naming that parent. Without the callbacks the row
+  says how to turn them on.
+- The effort colours, `aboutBackground`, `fixHintText` and the three
+  `aiShimmer` colours are unused by the overlay and kept for custom
+  themes. The guide describes the new expanded card and Not useful.
 
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase: the issues of the phase's category, `event_loop_stall`

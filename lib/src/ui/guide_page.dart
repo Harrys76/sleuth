@@ -5,7 +5,6 @@ import '../models/performance_issue.dart';
 import 'motion.dart';
 import 'severity_icon.dart';
 import 'sleuth_theme.dart';
-import 'text_scale_clamp.dart';
 
 /// Full-screen guide page with staggered entrance animations and expandable
 /// sections. Opened from the floating card's [?] button.
@@ -346,7 +345,9 @@ class _GuidePageState extends State<GuidePage>
           step: '4',
           title: 'Review issues',
           detail:
-              'Tap an issue to see its detail, fix hint and confidence level.',
+              'Tap an issue to see what was measured against its warning and '
+              'critical lines, where and when it was seen, the evidence and '
+              'the fix.',
         ),
         _GuideStep(
           step: '5',
@@ -418,11 +419,20 @@ class _GuidePageState extends State<GuidePage>
           theme,
           '\u{1F4DD}',
           'Copy and hide',
-          'Expand an issue to copy its details as plain text, or long-press '
-              'the title to copy them. You can also hide the card, with Undo. '
+          'Expand an issue and tap Copy details to copy it as plain text, '
+              'or long-press the title. Hide removes the card, with Undo. '
               'Hidden issues in the More menu counts them and opens the list '
               'where you restore them. Hiding affects only the overlay. '
               'Exports, snapshots and MCP still include the issue.',
+        ),
+        _infoTile(
+          theme,
+          '\u{1F44E}',
+          'Not useful',
+          'Mark an issue Not useful when Sleuth got it wrong. The mark lasts '
+              'for the session and goes into exports, snapshots and MCP '
+              'output, so a detector\'s false positives can be counted. Tap '
+              'it again to remove the mark.',
         ),
         _infoTile(
           theme,
@@ -663,29 +673,26 @@ class _GuidePageState extends State<GuidePage>
           'Time to the first frame after launch',
         ),
 
-        // ── Effort Badges ─────────────────────────────────────────────
+        // ── Fix effort ────────────────────────────────────────────────
         _legendDivider(theme),
-        _legendHeading(theme, 'Effort badges'),
+        _legendHeading(theme, 'Fix effort'),
         _legendSubtext(
           theme,
-          'Shown in the fix hint box when an issue is expanded.',
+          'The Fix label in an expanded issue says how much work the fix takes.',
         ),
-        _badgeLegendRow(
+        _termLegendRow(
           theme,
-          'QUICK FIX',
-          theme.effortQuick,
+          'Quick',
           'A simple change, such as adding const, swapping a widget or tweaking a parameter',
         ),
-        _badgeLegendRow(
+        _termLegendRow(
           theme,
-          'MEDIUM FIX',
-          theme.effortMedium,
+          'Medium effort',
           'Some refactoring, such as restructuring the widget tree or adding caching',
         ),
-        _badgeLegendRow(
+        _termLegendRow(
           theme,
-          'INVOLVED FIX',
-          theme.effortInvolved,
+          'Involved',
           'An architecture change, such as moving work to an isolate or redesigning data flow',
         ),
 
@@ -835,53 +842,6 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _badgeLegendRow(
-    SleuthThemeData theme,
-    String label,
-    Color color,
-    String description,
-  ) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: theme.spacingXs),
-      child: Row(
-        children: [
-          SleuthTextScaleClamp(
-            maxScaleFactor: kChromeMaxTextScale,
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: 5,
-                vertical: theme.spacingXxs,
-              ),
-              decoration: BoxDecoration(
-                color: theme.badgeFill(color),
-                borderRadius: BorderRadius.circular(theme.radiusSm),
-                border: Border.all(color: color),
-              ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: theme.badgeTextOn(color),
-                  fontSize: theme.fontXxs,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-          SizedBox(width: theme.spacingMd),
-          Expanded(
-            child: Text(
-              description,
-              style: TextStyle(
-                color: theme.textTertiary,
-                fontSize: theme.fontSm,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   static Widget _cardStateLegendRow(
     SleuthThemeData theme,
     Color color,
@@ -958,7 +918,7 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.info_outline,
-          '"About this detection" inside each issue explains how Sleuth found it and how to verify it.',
+          'Evidence in an expanded issue says how Sleuth found it; Check in names the DevTools view to confirm it.',
         ),
         _tipRow(
           theme,

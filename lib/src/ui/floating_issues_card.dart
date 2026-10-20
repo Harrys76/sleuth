@@ -16,6 +16,7 @@ import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
 import '../models/widget_highlight.dart';
 import 'issue_card.dart';
+import 'issue_card_details.dart' show RebuildCause, RelatedLink;
 import 'ai_chat_page.dart';
 import 'issue_encyclopedia_page.dart';
 import 'focus_ink_well.dart';
@@ -404,6 +405,28 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// change); [IssueCard] collapses without calling back.
   int _collapseEpoch = 0;
 
+  /// The card a related row opens, until it has scrolled into view, and
+  /// the epoch that asks it to. [_revealInline] is the folded issue it
+  /// opens inline, if any.
+  String? _revealKey;
+  PerformanceIssue? _revealInline;
+  int _revealEpoch = 0;
+
+  /// The card that takes focus after a Hide, and the epoch that asks it to.
+  String? _focusKey;
+  int _focusEpoch = 0;
+
+  /// Set while a toast's Show turns a severity on, so that change keeps
+  /// the expanded cards.
+  bool _keepExpansionsOnFilter = false;
+
+  /// The toast marking an issue not useful, which unmarking takes back.
+  OverlayToastModel? _notUsefulToast;
+
+  /// The cards and keys the list last built.
+  List<PerformanceIssue> _shownIssues = const [];
+  List<String> _shownKeys = const [];
+
   /// Severity filter seen by the last [_onUiStateChanged].
   Set<IssueSeverity> _lastSeverityFilter = const {};
 
@@ -677,7 +700,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (!setEquals(filter, _lastSeverityFilter)) {
       _lastSeverityFilter = {...filter};
       _releaseHeldOrder();
-      if (_frozen != null) {
+      if (_keepExpansionsOnFilter) {
+        _keepExpansionsOnFilter = false;
+      } else if (_frozen != null) {
         _frozen = null;
         _collapseEpoch++;
       }
@@ -1210,14 +1235,35 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Hides [issue]'s card from the overlay and offers Undo. The card has
   /// already collapsed through `onExpandedChanged(false)`; the prune that
   /// the hide triggers drops its highlight.
-  void _hideIssue(PerformanceIssue issue) {
+  /// Hides [issue]'s card, shown at [index], and moves focus to the card
+  /// that takes its place. A card no longer reported cannot come back, so
+  /// its toast offers no Undo.
+  void _hideIssue(PerformanceIssue issue, {int? index, bool stale = false}) {
     final key = hideKeyFor(issue);
     _ui.hide(key);
-    _toast.show(
-      'Issue hidden',
-      actionLabel: 'Undo',
-      onAction: () => _ui.unhide(key),
-    );
+    if (stale) {
+      _toast.show('Issue hidden');
+    } else {
+      _toast.show(
+        'Issue hidden',
+        actionLabel: 'Undo',
+        onAction: () => _ui.unhide(key),
+      );
+    }
+    if (index != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final keys = _shownKeys;
+        if (keys.isEmpty) {
+          _focusSemantics(_headerKey);
+          return;
+        }
+        setState(() {
+          _focusKey = keys[math.min(index, keys.length - 1)];
+          _focusEpoch++;
+        });
+      });
+    }
   }
 
   /// Shows every hidden card again and offers Undo, which hides the same
@@ -1237,9 +1283,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     );
   }
 
-  Future<void> _copyIssue(PerformanceIssue issue) async {
+  Future<void> _copyIssue(PerformanceIssue issue) =>
+      _copyText(issue.toClipboardText(), 'Copied');
+
+  /// Copies [text] and confirms with [confirmation], or says it failed.
+  Future<void> _copyText(String text, String confirmation) async {
     try {
-      await Clipboard.setData(ClipboardData(text: issue.toClipboardText()));
+      await Clipboard.setData(ClipboardData(text: text));
     } catch (e) {
       debugPrint('Sleuth: copy failed: $e');
       if (mounted) {
@@ -1248,7 +1298,175 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       return;
     }
     unawaited(HapticFeedback.selectionClick().catchError((Object _) {}));
-    if (mounted) _toast.show('Copied');
+    if (mounted) _toast.show(confirmation);
+  }
+
+  /// Marks [issue] not useful, which exports and MCP output carry, or
+  /// removes the mark without a toast.
+  void _setNotUseful(PerformanceIssue issue, bool marked) {
+    final controller = widget.controller;
+    if (marked) {
+      controller.markNotUseful(issue);
+      _toast.show(
+        'Marked not useful. Exports and MCP output include the mark.',
+      );
+      _notUsefulToast = _toast.value;
+    } else {
+      controller.clearNotUseful(listKeyFor(issue));
+      // Unmarking makes no toast, and takes back the one marking made.
+      final shown = _notUsefulToast;
+      if (shown != null) _toast.dismissIfCurrent(shown);
+    }
+    setState(() {});
+  }
+
+  /// How a Caused by or Effects row opens [related]: a reported issue
+  /// shown in the list, hidden or filtered out opens through the host; one
+  /// collapsed into a card opens inline; one no longer reported is text.
+  RelatedLink _relatedLinkOf(PerformanceIssue related) {
+    final issues = widget.controller.issuesNotifier.value;
+    final report = _reportOf(related, issues);
+    if (report == null) return RelatedLink.plain;
+    if (!_ui.severityFilter.contains(report.severity) ||
+        _ui.isHidden(report) ||
+        _reportOf(report, _shownIssues) != null) {
+      return RelatedLink.open;
+    }
+    return RelatedLink.inline;
+  }
+
+  /// Opens [related]'s card, or says why it cannot be shown and offers to
+  /// show it.
+  void _openRelated(PerformanceIssue related) {
+    final report =
+        _reportOf(related, widget.controller.issuesNotifier.value) ?? related;
+    if (!_ui.severityFilter.contains(report.severity)) {
+      _toast.show(
+        '"${report.title}" is filtered out',
+        actionLabel: 'Show',
+        onAction: () {
+          if (!_ui.severityFilter.contains(report.severity)) {
+            // This filter change keeps the expanded cards, the one the
+            // user tapped from included.
+            _keepExpansionsOnFilter = true;
+            _ui.toggleSeverity(report.severity);
+          }
+          _revealAfterFrame(report);
+        },
+      );
+      return;
+    }
+    if (_ui.isHidden(report)) {
+      _toast.show(
+        '"${report.title}" is hidden',
+        actionLabel: 'Show',
+        onAction: () {
+          for (final key in hideKeysOf(report)) {
+            _ui.unhide(key);
+          }
+          _revealAfterFrame(report);
+        },
+      );
+      return;
+    }
+    _reveal(report);
+  }
+
+  void _revealAfterFrame(PerformanceIssue target) =>
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _reveal(target);
+      });
+
+  /// Expands [target]'s card in the list the user sees, as a tap on it
+  /// would, and asks the card to scroll into view and take focus. A target
+  /// folded under another card opens inline in that card.
+  void _reveal(PerformanceIssue target) {
+    final shown = _shownIssues;
+    var index = shown.indexWhere((i) => identical(i, target));
+    if (index < 0) {
+      final report = _reportOf(target, shown);
+      if (report != null) index = shown.indexWhere((i) => identical(i, report));
+    }
+    PerformanceIssue? inline;
+    if (index < 0) {
+      final id = target.stableId ?? target.title;
+      index = shown.indexWhere((i) => i.downstreamIds?.contains(id) ?? false);
+      inline = target;
+    }
+    if (index < 0) {
+      _toast.show('"${target.title}" is not in the list');
+      return;
+    }
+    final keys = _shownKeys;
+    final key = keys[index];
+    setState(() {
+      final inZone = _frozen?.any((card) => card.key == key && card.expanded);
+      if (!(inZone ?? false)) {
+        _frozen = _expandInZone(key, index, shown[index], shown, keys);
+      }
+      _revealKey = key;
+      _revealInline = inline;
+      _revealEpoch++;
+    });
+    // The list builds every card while a reveal is pending, so an
+    // off-screen card can reveal itself in the next frame; one that did
+    // not by then is not coming.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      scheduleMicrotask(() {
+        if (!mounted || _revealKey != key) return;
+        setState(_endReveal);
+        _toast.show('"${target.title}" could not be shown');
+      });
+    });
+  }
+
+  void _endReveal() {
+    _revealKey = null;
+    _revealInline = null;
+  }
+
+  /// The Why it rebuilds split for widget type [type] from the latest
+  /// debug snapshot.
+  RebuildCause? _rebuildCause(String type) {
+    final snapshot = widget.controller.lastDebugSnapshot;
+    if (snapshot == null) return null;
+    var forced = 0;
+    var top = 0;
+    String? parent;
+    (snapshot.forcedRebuildsOf[type] ?? const <String, int>{}).forEach((
+      by,
+      count,
+    ) {
+      forced += count;
+      if (count > top) {
+        top = count;
+        parent = by;
+      }
+    });
+    return (
+      own: snapshot.rebuildCounts[type] ?? 0,
+      forced: forced,
+      parent: parent,
+      seconds: math.max(1, snapshot.elapsed.inSeconds),
+    );
+  }
+
+  /// The widget type a rebuild or setState card is about, for Why it
+  /// rebuilds.
+  static String? _rebuildTypeOf(PerformanceIssue issue) {
+    final id = issue.stableId;
+    if (id == 'setstate_scope') return issue.widgetName;
+    if (id != null && id.startsWith('rebuild_debug_')) {
+      return issue.widgetName ?? id.substring('rebuild_debug_'.length);
+    }
+    return null;
+  }
+
+  static bool _showsRebuildStats(PerformanceIssue issue) {
+    final id = issue.stableId;
+    return id == 'rebuild_activity' ||
+        id == 'setstate_scope' ||
+        (id != null && id.startsWith('rebuild_debug_'));
   }
 
   void _toggleSeverity(IssueSeverity severity) {
@@ -2790,6 +3008,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // child and the expansion; the held order, the new-card accent
         // and hiding use the shared key.
         final listKeys = order.keys;
+        // What a related row's reveal and link state read.
+        _shownIssues = orderedIssues;
+        _shownKeys = listKeys;
+        final rebuildTotal = widget
+            .controller
+            .activeRouteSession
+            ?.rebuildCountsByType
+            .values
+            .fold<int>(0, (a, b) => a + b);
         final orderedIndexByKey = <String, int>{
           for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
@@ -2821,6 +3048,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   48,
                 ),
                 itemCount: orderedIssues.length,
+                // While a related row reveals a card, every card builds so
+                // an off-screen one can scroll itself into view. Its
+                // replacement, scrollCacheExtent, is not in Flutter 3.32.
+                // ignore: deprecated_member_use
+                cacheExtent: _revealKey != null ? 1e6 : null,
                 // Keyed-reorder remount fix: without a
                 // `findChildIndexCallback`, `SliverChildBuilderDelegate`
                 // cannot locate a keyed child whose index has shifted
@@ -2846,6 +3078,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                 itemBuilder: (_, index) {
                   final issue = orderedIssues[index];
                   final issueKey = listKeys[index];
+                  final rebuildType = _rebuildTypeOf(issue);
                   final frozenCard = index < frozenCards.length
                       ? frozenCards[index]
                       : null;
@@ -2907,8 +3140,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                         widget.controller.recurrenceTrends[issue.stableId ??
                             issue.title],
                     scanTick: widget.controller.scanTickNotifier,
-                    deepInstrumentationActive:
-                        widget.controller.isDeepInstrumentationActive,
                     initiallyExpanded: frozenCard?.expanded ?? false,
                     collapseEpoch: _collapseEpoch,
                     onExpandedChanged: (expanded) {
@@ -2981,8 +3212,45 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                           })
                         : null,
                     onCopy: () => _copyIssue(issue),
-                    onHide: () => _hideIssue(issue),
+                    onHide: () =>
+                        _hideIssue(issue, index: capturedIndex, stale: stale),
                     isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
+                    lastSeenOf: () => widget.controller.lastSeenAt(
+                      issue.stableId ?? issue.title,
+                    ),
+                    relatedLinkOf: _relatedLinkOf,
+                    onOpenRelated: _openRelated,
+                    onSeeRebuildStats:
+                        _showsRebuildStats(issue) && (rebuildTotal ?? 0) > 0
+                        ? () {
+                            _onSeeAllRebuildsTap();
+                            if (_showRebuildStats) _layerOpener = issueKey;
+                          }
+                        : null,
+                    rebuildStatsTotal: rebuildTotal,
+                    onSeeStartup: issue.stableId == 'slow_startup_ttff'
+                        ? () => setState(() {
+                            _showStartupDetail = true;
+                            _layerOpener = issueKey;
+                          })
+                        : null,
+                    whyItRebuilds: kDebugMode && rebuildType != null,
+                    rebuildCauseOf:
+                        rebuildType != null &&
+                            widget.controller.config.enableDebugCallbacks
+                        ? () => _rebuildCause(rebuildType)
+                        : null,
+                    onCopyText: _copyText,
+                    notUseful: widget.controller.isNotUseful(issue),
+                    onNotUsefulChanged: (marked) =>
+                        _setNotUseful(issue, marked),
+                    revealEpoch: issueKey == _revealKey ? _revealEpoch : 0,
+                    revealInline: issueKey == _revealKey ? _revealInline : null,
+                    onRevealed: () {
+                      if (mounted && _revealKey != null) setState(_endReveal);
+                    },
+                    focusEpoch: issueKey == _focusKey ? _focusEpoch : 0,
+                    onFocused: () => _focusKey = null,
                   );
                 },
               ),

@@ -217,11 +217,8 @@ void main() {
         expect(_routeNodes(tester), 0, reason: 'after $name');
       }
 
-      await page(
-        find.bySemanticsLabel('Learn more about this issue'),
-        'encyclopedia',
-      );
-      await page(find.bySemanticsLabel('Ask AI about this issue'), 'AI chat');
+      await page(find.bySemanticsLabel('Learn more'), 'encyclopedia');
+      await page(find.bySemanticsLabel('Ask AI'), 'AI chat');
       await openMoreMenu(tester);
       await page(moreMenuRow('Guide'), 'guide');
       controller.overlayUiState.hide('slow_request');

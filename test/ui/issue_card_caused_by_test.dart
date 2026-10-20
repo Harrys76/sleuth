@@ -32,7 +32,7 @@ void main() {
     rootCauseIds: rootCauseIds,
   );
 
-  group('IssueCard _causedBySection (multi-parent)', () {
+  group('IssueCard Caused by section (multi-parent)', () {
     testWidgets('renders "Caused by (N):" header + each parent title when '
         'parentIssues set', (tester) async {
       final a = parent('uncached_images');
@@ -48,7 +48,7 @@ void main() {
           ),
         ),
       );
-      expect(find.text('Caused by (2):'), findsOneWidget);
+      expect(find.text('CAUSED BY (2)'), findsOneWidget);
       expect(find.text('uncached_images'), findsOneWidget);
       expect(find.text('stream_resource_growth'), findsOneWidget);
     });
@@ -66,7 +66,7 @@ void main() {
           ),
         ),
       );
-      expect(find.text('Caused by (7):'), findsOneWidget);
+      expect(find.text('CAUSED BY (7)'), findsOneWidget);
       expect(find.text('parent_0'), findsOneWidget);
       expect(find.text('parent_4'), findsOneWidget);
       expect(
@@ -74,7 +74,7 @@ void main() {
         findsNothing,
         reason: 'over-cap entries collapse into the more-row',
       );
-      expect(find.text('and 2 more...'), findsOneWidget);
+      expect(find.text('and 2 more'), findsOneWidget);
     });
 
     testWidgets(
@@ -94,9 +94,9 @@ void main() {
           ),
         );
         // Header counts ALL parents (resolved + suppressed).
-        expect(find.text('Caused by (3):'), findsOneWidget);
+        expect(find.text('CAUSED BY (3)'), findsOneWidget);
         expect(find.text('uncached_images'), findsOneWidget);
-        expect(find.text('(2 more not shown)'), findsOneWidget);
+        expect(find.text('2 more not shown'), findsOneWidget);
       },
     );
 
@@ -110,7 +110,7 @@ void main() {
           ),
         ),
       );
-      expect(find.textContaining('Caused by'), findsNothing);
+      expect(find.textContaining('CAUSED BY'), findsNothing);
     });
 
     testWidgets('all-suppressed orphan: section still renders with only the '
@@ -125,8 +125,8 @@ void main() {
           ),
         ),
       );
-      expect(find.text('Caused by (2):'), findsOneWidget);
-      expect(find.text('(2 more not shown)'), findsOneWidget);
+      expect(find.text('CAUSED BY (2)'), findsOneWidget);
+      expect(find.text('2 more not shown'), findsOneWidget);
     });
   });
 }
