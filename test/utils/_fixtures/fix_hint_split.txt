@@ -1,0 +1,410 @@
+## animatedBuilderNoChild
+[prose]
+Pass static widgets via the child parameter in Spinner (MyApp > HomePage > FeedList (feed_list.dart:42)):
+[code]
+AnimatedBuilder(
+  animation: _controller,
+  child: const ExpensiveWidget(), // built once
+  builder: (context, child) => Transform.rotate(
+    angle: _controller.value,
+    child: child, // reused, not rebuilt
+  ),
+)
+
+## alwaysRepaintPainter
+[prose]
+In ChartPainter (MyApp > HomePage > FeedList (feed_list.dart:42)): Override shouldRepaint() to compare relevant fields:
+[code]
+bool shouldRepaint(MyPainter old) => old.color != color;
+
+## frequentRepaintPainter
+[prose]
+In ChartPainter (MyApp > HomePage > FeedList (feed_list.dart:42)): Override shouldRepaint() to compare only fields that affect painting:
+[code]
+bool shouldRepaint(MyPainter old) => old.color != color;
+
+## multipleCustomFonts
+[prose]
+The app uses 4 custom font families (Inter, Lora, Mono). Keep custom fonts to 2 or 3 families. Preload them with FontLoader, or bundle them in pubspec.yaml.
+
+## runtimeFontLoading
+[prose]
+2 fonts loaded at runtime (Inter, Lora). Fonts loaded at runtime, for example by google_fonts, send HTTP requests during the first render, and the text flickers.
+Download them ahead of time with GoogleFonts.pendingFonts() in main(), or bundle the fonts as assets in pubspec.yaml.
+
+## sustainedJank
+[prose]
+Look for heavy computation in build(), setState() calls with a wide scope, and offscreen painting. Run in profile mode:
+[code]
+flutter run --profile
+[prose]
+Then open DevTools > Performance to find the expensive frames.
+
+## jankDetected
+[prose]
+Some frames show minor jank. Use const constructors for static widgets:
+[code]
+const MyWidget({super.key});
+[prose]
+Add a RepaintBoundary around expensive subtrees, or make the widget tree shallower.
+
+## excessiveGlobalKeys
+[prose]
+30 GlobalKey instances in scrollable children. Replace with ValueKey where possible:
+[code]
+// Before: key: GlobalKey()
+// After:  key: ValueKey(item.id)
+[prose]
+Use GlobalKey only when you need widget state from another part of the tree.
+
+## globalKeyRecreation
+[prose]
+12 GlobalKeys recreated between scans.
+Fixes:
+  • Store GlobalKeys in State fields, not in build()
+  • Use late final or initialize in initState()
+  • Use ValueKey(item.id) if you need identity but not state access
+
+## rasterDominance
+[prose]
+Reduce GPU work per frame:
+- Prefer ClipRRect with Clip.hardEdge over ClipPath (a BoxDecoration borderRadius does not clip children)
+- Avoid overlapping semi-transparent layers
+- Add RepaintBoundary around animated subtrees
+- Simplify shadows and gradients
+
+## expensiveGpuNodes
+[prose]
+In BackdropFilter (MyApp > HomePage > FeedList (feed_list.dart:42)): Wrap expensive subtrees in RepaintBoundary:
+[code]
+RepaintBoundary(child: BackdropFilter(...))
+[prose]
+Simplify visual effects (shadows, clips, opacity layers).
+
+## expensiveGpuNodes(blur chrome)
+[prose]
+In BackdropFilter (MyApp > HomePage > FeedList (feed_list.dart:42)): Wrap expensive subtrees in RepaintBoundary:
+[code]
+RepaintBoundary(child: BackdropFilter(...))
+[prose]
+Simplify visual effects (shadows, clips, opacity layers).
+CupertinoNavigationBar blurs the content behind it while its background is translucent. Give it an opaque backgroundColor; a navigation bar also accepts enableBackgroundFilterBlur: false.
+CupertinoActionSheet blurs the page only while it is shown; the cost ends when it closes.
+
+## expensiveGpuNodes(only chrome)
+[prose]
+In BackdropFilter: CupertinoTabBar blurs the content behind it while its background is translucent. Give it an opaque backgroundColor; a navigation bar also accepts enableBackgroundFilterBlur: false.
+
+## rasterCacheThrashing
+[prose]
+The raster cache keeps allocating and evicting entries. Use const constructors for stable widgets:
+[code]
+const MyWidget({super.key});
+[prose]
+Do not rebuild CustomPainter canvases every frame. Put a RepaintBoundary around complex static subtrees.
+
+## rasterCacheGrowing
+[prose]
+Raster cache bytes are growing without bound. Look for dynamically created widgets with unique paint output, or for animations that create new cache entries every frame. Limit the cache scope:
+[code]
+RepaintBoundary(child: DynamicContent(...))
+[prose]
+Use const constructors for static portions of the tree.
+
+## eventLoopStall
+[prose]
+Find the synchronous work that held the UI isolate (240ms): a long loop, JSON decoding, file or database reads, or image processing in a widget build or a callback (a tap handler, a timer, a stream listener). A slow build also shows as heavy_compute. Move the work off the UI isolate:
+[code]
+final result = await Isolate.run(() => parseJson(data));
+[prose]
+or split it into smaller pieces that yield between them.
+
+## heavyCompute
+[prose]
+The heavy build involved FeedList, FeedTile (18.4ms). Split the widget so changes rebuild a smaller subtree, mark static subtrees const, and defer below-the-fold work. Move non-UI work (JSON parsing, image processing, complex calculations) off the UI thread with Isolate.run() or compute():
+[code]
+final result = await Isolate.run(() => parseJson(data));
+
+## uncachedImages
+[prose]
+3 oversized images in Image (via MyApp > HomePage > FeedList (feed_list.dart:42)). Decode them at display size with cacheWidth, cacheHeight or both, set to the displayed size times the device pixel ratio:
+[code]
+Image.asset("photo.jpg", cacheWidth: (56 * MediaQuery.devicePixelRatioOf(context)).round())
+
+## excessiveKeepAlive
+[prose]
+12 keep-alive widgets in MyApp > HomePage > FeedList (feed_list.dart:42). Remove AutomaticKeepAliveClientMixin from most items:
+[code]
+// Remove: with AutomaticKeepAliveClientMixin
+// Remove: bool get wantKeepAlive => true;
+[prose]
+Keep alive only the items whose state is expensive to recreate.
+
+## layoutBottleneck
+[prose]
+The ancestor chain of IntrinsicHeight (MyApp > HomePage > FeedList (feed_list.dart:42)) has an IntrinsicHeight or IntrinsicWidth. Replace it with explicit sizing:
+[code]
+// Before: IntrinsicHeight(child: Row(...))
+// After:  Row(crossAxisAlignment: CrossAxisAlignment.stretch, ...)
+[prose]
+Stretch needs a bounded cross axis, such as a fixed-height parent. Or use SizedBox or Expanded with known dimensions.
+
+## wrapBottleneck
+[prose]
+This Wrap lays out all 80 children with no virtualization (MyApp > HomePage > FeedList (feed_list.dart:42)). For large item counts, split the items into rows yourself or use GridView.builder.
+
+## nonLazyList
+[prose]
+120 children are built eagerly in ListView (MyApp > HomePage > FeedList (feed_list.dart:42)). Use ListView.builder() or ListView.separated() so only the visible items are built.
+
+## sliverToBoxAdapterLarge
+[prose]
+Replace the SliverToBoxAdapter that holds a Column (60 children) with SliverList.builder so the items load lazily at MyApp > HomePage > FeedList (feed_list.dart:42).
+
+## sliverFillRemainingScrollable
+[prose]
+Use SliverFillRemaining(hasScrollBody: true) when the child is a scrollable at MyApp > HomePage > FeedList (feed_list.dart:42). With hasScrollBody: false the child gets unconstrained height, so the scrollable child has to shrinkWrap and builds all its children eagerly.
+
+## sliverToBoxAdapterShrinkWrap
+[prose]
+Replace the SliverToBoxAdapter that holds ListView(shrinkWrap: true) with SliverList.builder or SliverGrid.builder at MyApp > HomePage > FeedList (feed_list.dart:42). shrinkWrap measures every child up front, so nothing loads lazily.
+
+## nonLazyShrinkWrap
+[prose]
+ListView(shrinkWrap: true) inside a Column builds every child up front at MyApp > HomePage > FeedList (feed_list.dart:42). Make the Column a sliver list: a CustomScrollView with a SliverToBoxAdapter header and a SliverList.builder, or put the header as item 0 of one ListView.builder.
+
+## nonLazySliver
+[prose]
+90 children are built eagerly in SliverList (MyApp > HomePage > FeedList (feed_list.dart:42)). Use SliverList.builder() with SliverChildBuilderDelegate so only the visible items are built.
+
+## gcPressure
+[prose]
+Reduce object allocations in hot paths:
+[code]
+// Before: padding: EdgeInsets.all(8), a new object every build
+// After:  padding: const EdgeInsets.all(8)
+[prose]
+Use const constructors, and cache objects that build() recreates.
+
+## heapGrowing
+[prose]
+Memory keeps growing. Check for undisposed controllers:
+[code]
+void dispose() {
+  _controller.dispose();
+  _subscription.cancel();
+  super.dispose();
+}
+[prose]
+Also look for growing caches and images decoded at full resolution. Use the DevTools Memory view to inspect individual objects.
+
+## heapNearCapacity
+[prose]
+Process memory is near the configured budget and still growing. Find the growth in the DevTools Memory view, then release image caches:
+[code]
+PaintingBinding.instance.imageCache.clear();
+[prose]
+Decode images at display size (cacheWidth/cacheHeight), dispose unused controllers and paginate large data sets.
+
+## streamResourceGrowth
+[prose]
+Async resources are accumulating: StreamSubscription, StreamController (top class +64 instances). Audit the dispose and cancel paths in recently visited routes:
+  • Call cancel() on the StreamSubscription from Stream.listen()
+  • Call close() on a StreamController in dispose()
+  • Call sink.close() on a WebSocketChannel
+  • Call close() on an rxdart Subject when ownership ends
+  • Close a Cubit or Bloc in State.dispose()
+If the app keeps these objects on purpose, check heap_growing and native_memory_growing for other causes of memory pressure, such as cache bloat, image decodes or GPU textures.
+
+## nativeMemoryGrowth
+[prose]
+Process memory outside the Dart heap is growing. Decode images at display size:
+[code]
+Image.asset("photo.jpg", cacheWidth: 300, cacheHeight: 300)
+[prose]
+Check for undisposed GPU textures, platform channel buffers and native plugin allocations. Compare RSS with the Dart heap in the DevTools Memory view.
+
+## nestedScrollChildren
+[prose]
+40 children inside nested scroll in ListView (MyApp > HomePage > FeedList (feed_list.dart:42)). Use CustomScrollView with slivers, or NestedScrollView, to coordinate scrolling.
+
+## nestedScrollGeneric
+[prose]
+In ListView (MyApp > HomePage > FeedList (feed_list.dart:42)): Use CustomScrollView with slivers, or set physics: NeverScrollableScrollPhysics() on the inner scroll.
+
+## slowRequest
+[prose]
+Slow response from https://api.example.com/feed. Avoid repeat requests by caching responses locally:
+[code]
+final cached = _cache[url];
+if (cached != null) return cached;
+[prose]
+Or paginate, make the request at app startup, or show a loading indicator while it runs.
+
+## largeResponse
+[prose]
+Large response from https://api.example.com/feed. Request only needed fields:
+GET /api/users?fields=id,name,email
+Paginate large collections and enable response compression (gzip).
+
+## httpErrorSpike
+[prose]
+6 HTTP errors detected in a 5-second window.
+Common causes:
+  1. Retry storms, where failed requests trigger exponential retries
+  2. A backend outage, with the server returning 5xx errors
+  3. The device losing its network connection
+2 transport failures point to network or DNS problems.
+Fixes:
+  • Add exponential backoff with jitter to retry logic
+  • Use a circuit breaker for repeated failures
+  • Cache successful responses to reduce retry impact
+
+## requestFrequency
+[prose]
+Batch or debounce repeated requests:
+[code]
+_debounce?.cancel();
+_debounce = Timer(Duration(milliseconds: 300), () => fetch(q));
+[prose]
+Cache responses, or use a single stream subscription instead of polling.
+
+## highFrequencySamePath
+[prose]
+5 requests went to the same endpoint (query strings ignored) in under 500ms.
+Fixes:
+  • Debounce user-driven fetches (typeahead search, pagination)
+  • Cache responses so later callers get the cached result
+  • Share one Future across widgets, for example with FutureProvider
+  • Deduplicate at the repository layer with an in-flight map
+  • Check whether several widgets fetch the same data on their own
+
+## opacityZero
+[prose]
+In Opacity (MyApp > HomePage > FeedList (feed_list.dart:42)): Replace Opacity(opacity: 0) with Visibility:
+[code]
+Visibility(
+  visible: false,
+  maintainSize: true,    // keep layout space
+  maintainAnimation: true,
+  maintainState: true,   // keep State alive
+  child: MyWidget(),
+)
+[prose]
+Or remove the widget from the tree with an if condition.
+
+## platformChannelTraffic
+[prose]
+Heavy traffic on getBattery. Batch platform channel calls:
+[code]
+// Before: 10 separate invokeMethod() calls
+// After:  1 batched call with a list of IDs
+final results = await channel.invokeMethod("batchGet", ids);
+[prose]
+Use Pigeon for type-safe channel calls.
+
+## rebuildDebug
+[prose]
+FeedTile rebuilds 45 times per second during scrolling (MyApp > HomePage > FeedList (feed_list.dart:42)). Extract child widgets and use const constructors:
+[code]
+const ChildWidget({super.key});
+[prose]
+Or scope rebuilds with Selector or Consumer instead of a full BlocBuilder or Provider.of.
+
+## rebuildActivity
+[prose]
+Rebuilding widgets took 22.5% of UI-thread time during scrolling (FeedList, FeedTile). Shrink what rebuilds each frame. Use const constructors for static widgets:
+[code]
+const MyWidget({super.key});
+[prose]
+Extract child widgets, or scope rebuilds with Selector or Consumer instead of BlocBuilder or Provider.of.
+
+## statefulDensity
+[prose]
+The most common one is FeedTile. Extract child widgets and use const constructors:
+[code]
+const ChildWidget({super.key});
+[prose]
+Scope rebuilds with Selector or Consumer instead of BlocBuilder or Provider.of. Run in profile mode with the VM connected for exact counts.
+
+## excessiveRepaintVm
+[prose]
+Painting took 31.8% of UI-thread time. Wrap subtrees that repaint often in a RepaintBoundary so Flutter does not re-record the rest of the layer:
+[code]
+RepaintBoundary(child: AnimatedWidget(...))
+[prose]
+Check for animations that trigger needless repaints in parent widgets. Cache expensive drawing in a Picture or an image.
+
+## repaintDebugType
+[prose]
+ChartPainter is the likely origin of repaints in its layer at 60/sec (MyApp > HomePage > FeedList (feed_list.dart:42)). Isolate the part that changes. Wrap ChartPainter itself, or the smallest subtree around it, in a RepaintBoundary so the rest of the layer stops repainting with it:
+[code]
+RepaintBoundary(
+  child: ChartPainter(...),
+)
+[prose]
+Wrapping a sibling does not help. You can also move the animation or listenable that changes it lower in the tree. A boundary makes each repaint cheaper, but repaints happen just as often. To repaint less often, check what marks ChartPainter as needing paint (setState, a repaint listenable, shouldRepaint).
+
+## excessiveRepaintDebug
+[prose]
+Wrap subtrees that repaint often in a RepaintBoundary:
+[code]
+RepaintBoundary(child: FrequentlyUpdatedWidget(...))
+[prose]
+Check for animations that trigger needless repaints in parent widgets.
+
+## setStateScope
+[prose]
+DemoScaffold owns about 88% of the tree (MyApp > HomePage > FeedList (feed_list.dart:42)). Scope rebuilds with ValueListenableBuilder:
+[code]
+ValueListenableBuilder<int>(
+  valueListenable: _counter,
+  builder: (_, value, child) => Text("$value"),
+)
+[prose]
+Move stateful logic into the lowest subtree that needs it.
+
+## shaderCompilation
+[prose]
+Trigger the first use of heavy effects (BackdropFilter, ShaderMask, custom FragmentProgram) during a warm-up or splash frame so the pipeline build does not land on a user interaction. Avoid introducing new effect types mid-animation. On devices still on Skia, prefer Impeller.
+
+## shallowRebuildRisk
+[prose]
+FeedTile is high in the widget tree. Use specific inherited widget accessors:
+[code]
+// Before: MediaQuery.of(context) rebuilds on any change
+// After:  MediaQuery.sizeOf(context) rebuilds only on size changes
+[prose]
+Move state-dependent logic to leaf widgets.
+
+## excessiveRepaintBoundary
+[prose]
+70 RepaintBoundary widgets in a single scrollable (MyApp > HomePage > FeedList (feed_list.dart:42)). Each boundary is a separate layer with its own compositing cost. A boundary pays off only when its subtree repaints on its own. Remove the extra boundaries. ListView and GridView already add a RepaintBoundary around each child by default.
+
+## missingRepaintBoundary
+[prose]
+In AnimatedChart (MyApp > HomePage > FeedList (feed_list.dart:42)): Wrap the expensive subtree in a RepaintBoundary to isolate its repaints from parent layers:
+[code]
+RepaintBoundary(
+  child: AnimatedChart(...),
+)
+[prose]
+Then a repaint in the subtree no longer spreads up the render tree.
+
+## slowStartupTtff
+[prose]
+Time to first frame is 2177 ms. Users perceive anything above 1.5 s as slow.
+Fixes by dominant phase:
+  • Defer heavy widget construction (use FutureBuilder or
+    lazy initialization for below-fold content)
+  • Reduce initial route widget tree depth
+  • Move expensive init logic to isolates
+
+## trackedResourceConcurrent
+[prose]
+8 live "socket" instances are reachable from app code. The tracker holds only WeakReferences, so something outside Sleuth retains each one. Audit the dispose and cancel paths for "socket" in recently visited routes. If "socket" is a pool (connection pool, worker pool) and 8 is expected, raise the threshold for every name with `SleuthConfig.thresholds.trackedResourceMaxConcurrent`, raise it for this name with `Sleuth.setResourceThreshold("socket", maxConcurrent: N)`, or untrack the pooled instances.
+
+## trackedResourceLongLived
+[prose]
+Instance of "socket" has been alive for 420 seconds. Its WeakReference and Finalizer show that the GC has not reclaimed it, so something outside the tracker still holds it. If it is meant to live for the whole session (a DI singleton or an app-scope service), stop tracking "socket", raise the threshold for every name with `SleuthConfig.thresholds.trackedResourceLongLivedSeconds`, or raise it for this name with `Sleuth.setResourceThreshold("socket", longLivedSeconds: N)`.
+
