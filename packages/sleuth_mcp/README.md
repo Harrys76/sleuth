@@ -28,7 +28,7 @@ sleuth_mcp install        # adds mcpServers.sleuth to ~/.claude.json
 
 You can run `install` again. It takes a lock, writes the config through
 an atomic rename and keeps a `.bak` copy. For a project-local install, add
-`sleuth_mcp: ^0.9.0` to `dev_dependencies` instead. The server also sends
+`sleuth_mcp: ^0.10.0` to `dev_dependencies` instead. The server also sends
 this workflow to the client in the `instructions` field of its
 `initialize` result.
 
@@ -61,12 +61,14 @@ child or `iproxy` tunnel it started.
 
 ## Version compatibility
 
-sleuth_mcp 0.9.0 is built against sleuth 0.38.0. When it connects, it
-reads the app's `packageVersion` from `ext.sleuth.diagnose`. Another 0.38
-version connects with `warning: version_skew_minor`, and a 0.37 app with
-`warning: version_skew_prior_lineage`. The sidecar refuses any other
-lineage (`version_skew_major`) and a version that is not
-`major.minor.patch` (`version_skew_unknown`), and disconnects.
+sleuth_mcp 0.10.0 is built against sleuth 1.0.0. When it connects, it
+reads the app's `packageVersion` from `ext.sleuth.diagnose`. Sleuth follows
+semver from 1.0.0, so the sidecar compares major versions from there on.
+Any other 1.x version connects with `warning: version_skew_minor`, and a
+0.38 app with `warning: version_skew_prior_lineage`. The sidecar refuses
+any other version line (`version_skew_major`, including 0.37 and 2.x) and a
+version that is not `major.minor.patch` (`version_skew_unknown`), and
+disconnects.
 
 ## Tools
 

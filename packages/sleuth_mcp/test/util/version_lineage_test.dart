@@ -13,16 +13,21 @@ Map<String, Object?> _diagnose(Object? packageVersion) => {
 
 void main() {
   group('versionLineage', () {
-    test('returns major.minor for a semver version', () {
+    test('returns major.minor below 1.0.0 and the major from 1.0.0', () {
       expect(versionLineage('0.37.0'), '0.37');
       expect(versionLineage('0.36.12'), '0.36');
-      expect(versionLineage('1.0.0'), '1.0');
+      expect(versionLineage('1.0.0'), '1');
+      expect(versionLineage('1.4.2'), '1');
+      expect(versionLineage('2.0.0'), '2');
+      expect(versionLineage('10.3.1'), '10');
     });
 
     test('classifies a prerelease or build by its major.minor', () {
       expect(versionLineage('0.37.0-dev.1'), '0.37');
       expect(versionLineage('0.36.0+build'), '0.36');
       expect(versionLineage('0.37.1-rc.2+sha.5114f85'), '0.37');
+      expect(versionLineage('1.0.0-dev.1'), '1');
+      expect(versionLineage('1.2.0+build'), '1');
     });
 
     test('returns null for anything that is not semver major.minor.patch', () {
@@ -56,24 +61,34 @@ void main() {
   });
 
   group('defaultVersionSkewValidator', () {
-    test('accepts the pin, its patches and prereleases, and 0.37', () async {
-      for (final ok in [
-        sleuthPackageVersionPin,
-        '0.38.4',
-        '0.38.0-dev.1',
-        '0.37.0',
-        '0.37.0+build',
-      ]) {
-        expect(
-          await defaultVersionSkewValidator(_diagnose(ok)),
-          isNull,
-          reason: '$ok must connect',
-        );
-      }
-    });
+    test(
+      'accepts the pin, its 1.x releases and prereleases, and 0.38',
+      () async {
+        for (final ok in [
+          sleuthPackageVersionPin,
+          '1.0.4',
+          '1.3.0',
+          '1.0.0-dev.1',
+          '0.38.0',
+          '0.38.1+build',
+        ]) {
+          expect(
+            await defaultVersionSkewValidator(_diagnose(ok)),
+            isNull,
+            reason: '$ok must connect',
+          );
+        }
+      },
+    );
 
-    test('refuses 0.36 and 0.39 lineages as version_skew_major', () async {
-      for (final refused in ['0.36.0', '0.36.9', '0.39.0', '0.39.0-dev.1']) {
+    test('refuses 0.37, 0.39 and 2.x as version_skew_major', () async {
+      for (final refused in [
+        '0.37.0',
+        '0.37.9',
+        '0.39.0',
+        '0.39.0-dev.1',
+        '2.0.0',
+      ]) {
         expect(
           await defaultVersionSkewValidator(_diagnose(refused)),
           startsWith('version_skew_major:'),
@@ -104,8 +119,9 @@ void main() {
 
   group('connect warning by lineage', () {
     for (final (version, warning) in <(String, String)>[
-      ('0.38.0-dev.1', 'version_skew_minor'),
-      ('0.37.0+build', 'version_skew_prior_lineage'),
+      ('1.0.0-dev.1', 'version_skew_minor'),
+      ('1.2.0', 'version_skew_minor'),
+      ('0.38.0+build', 'version_skew_prior_lineage'),
     ]) {
       test('$version connects with $warning', () async {
         final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')
