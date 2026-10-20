@@ -104,35 +104,39 @@ void main() {
     expect(notifications, 2);
   });
 
-  testWidgets('a change to the measurement alone does not notify', (
-    tester,
-  ) async {
-    // No overlay widget renders the measurement, so a value that moves
-    // while the title and detail stay the same must not rebuild the card.
-    final root = await pumpApp(tester);
-    IssueMeasurement rate(double value) => IssueMeasurement(
-      value: value,
-      unit: MeasurementUnit.perSecond,
-      warningAt: 10,
-      criticalAt: 30,
-    );
+  testWidgets(
+    'a measurement change notifies only when the card reads it differently',
+    (tester) async {
+      // The card's Measured row shows the value rounded, so a value that
+      // moves within one reading must not rebuild the card.
+      final root = await pumpApp(tester);
+      IssueMeasurement rate(double value) => IssueMeasurement(
+        value: value,
+        unit: MeasurementUnit.perSecond,
+        warningAt: 10,
+        criticalAt: 30,
+      );
 
-    detector.measurement = rate(44.9);
-    controller.scanTreeFullPathForTest(root);
-    expect(notifications, 1);
+      detector.measurement = rate(44.9);
+      controller.scanTreeFullPathForTest(root);
+      expect(notifications, 1);
 
-    detector.measurement = rate(45.1);
-    controller.scanTreeFullPathForTest(root);
-    detector.measurement = null;
-    controller.scanTreeFullPathForTest(root);
-    expect(notifications, 1);
+      // Both read "45/s".
+      detector.measurement = rate(45.1);
+      controller.scanTreeFullPathForTest(root);
+      expect(notifications, 1);
+      expect(controller.latestIssues.single.measurement, rate(45.1));
 
-    // Readers that do not go through the notifier see the latest value.
-    detector.measurement = rate(46);
-    controller.scanTreeFullPathForTest(root);
-    expect(controller.latestIssues.single.measurement, rate(46));
-    expect(notifications, 1);
-  });
+      detector.measurement = rate(46);
+      controller.scanTreeFullPathForTest(root);
+      expect(notifications, 2);
+
+      // The row goes away.
+      detector.measurement = null;
+      controller.scanTreeFullPathForTest(root);
+      expect(notifications, 3);
+    },
+  );
 
   testWidgets('scan pulse fires once per tick', (tester) async {
     final root = await pumpApp(tester);

@@ -80,6 +80,7 @@ import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
 import '../utils/framework_types.dart' show isScaffoldElement, isTabBarView;
+import '../utils/measurement_text.dart' show measuredText;
 import '../utils/own_work_log.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
@@ -206,6 +207,10 @@ class SleuthController {
   final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
   final IssueRanker _ranker = const IssueRanker();
   final Map<String, RecurrenceTrend> _recurrenceTrends = {};
+
+  /// When each issue key (`stableId ?? title`) was last in a scan's
+  /// results, for the expanded card's When row. Dropped with its trend.
+  final Map<String, DateTime> _lastSeenAt = {};
   int _scanCycleIndex = 0;
 
   // Fix verification baseline
@@ -1693,6 +1698,16 @@ class SleuthController {
   Map<String, RecurrenceTrend> get recurrenceTrends =>
       Map.unmodifiable(_recurrenceTrends);
 
+  /// When [issueKey] (`stableId ?? title`) was last in a scan's results,
+  /// or null when it has not been seen or its trend was dropped.
+  DateTime? lastSeenAt(String issueKey) => _lastSeenAt[issueKey];
+
+  /// The debug counts the latest scan passed to its detectors, for the
+  /// expanded card's Why it rebuilds row. Null before the first such scan
+  /// and in runs without debug instrumentation.
+  DebugSnapshot? get lastDebugSnapshot => _lastDebugSnapshot;
+  DebugSnapshot? _lastDebugSnapshot;
+
   /// Current scan cycle index (for testing).
   @visibleForTesting
   int get scanCycleIndexForTest => _scanCycleIndex;
@@ -3147,6 +3162,7 @@ class SleuthController {
     try {
       // Pass debug snapshot to detectors
       if (debugSnapshot != null && !evidenceChanged) {
+        _lastDebugSnapshot = debugSnapshot;
         for (final d in _detectors) {
           if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
         }
@@ -5184,6 +5200,10 @@ class SleuthController {
         ..write(i.rootCauseIds?.join(','))
         ..write('|')
         ..write(i.downstreamIds?.join(','))
+        ..write('|')
+        // As the card's Measured row shows it, not the raw value: a held
+        // rate moves in its last digits while the row reads the same.
+        ..write(measuredText(i))
         ..write('\n');
     }
     return b.toString();
@@ -5326,10 +5346,12 @@ class SleuthController {
   /// Called only from the scan path to keep rates consistent across lifecycles.
   void _updateRecurrence(List<PerformanceIssue> currentIssues) {
     _scanCycleIndex++;
+    final now = DateTime.now();
     final currentIds = <String>{};
     for (final issue in currentIssues) {
       final id = issue.stableId ?? issue.title;
       currentIds.add(id);
+      _lastSeenAt[id] = now;
       final trend = _recurrenceTrends.putIfAbsent(id, RecurrenceTrend.new);
       trend.recordPresent(
         _scanCycleIndex,
@@ -5344,6 +5366,7 @@ class SleuthController {
     }
     // Evict stale entries (unseen for 120+ cycles)
     _recurrenceTrends.removeWhere((_, trend) => trend.isStale(_scanCycleIndex));
+    _lastSeenAt.removeWhere((id, _) => !_recurrenceTrends.containsKey(id));
 
     // Update fix baseline absence/presence tracking
     final baseline = _fixBaseline;
@@ -5665,6 +5688,8 @@ class SleuthController {
     _lastScanContext = null;
     _appChildContext = null;
     _recurrenceTrends.clear();
+    _lastSeenAt.clear();
+    _lastDebugSnapshot = null;
     _captureBuffer.clear();
     _phaseEventBuffer.clear();
     _gcEventBuffer.clear();
