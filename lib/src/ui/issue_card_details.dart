@@ -209,7 +209,16 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
         issue.detail,
         style: TextStyle(color: theme.textSecondary, fontSize: theme.fontMd),
       ),
-      _KeyValueRows(rows: _rows(theme, issue), width: widget.width),
+      // Rebuilt on every scan: last-seen and recurrence data can arrive
+      // after the card opened, and the When row appears with it.
+      if (widget.scanTick == null)
+        _KeyValueRows(rows: _rows(theme, issue), width: widget.width)
+      else
+        SleuthListenableBuilder(
+          listenable: widget.scanTick!,
+          builder: (_) =>
+              _KeyValueRows(rows: _rows(theme, issue), width: widget.width),
+        ),
       if (widget.whyItRebuilds) _whyItRebuilds(theme, issue),
       if (parents.isNotEmpty || suppressed > 0)
         _related(theme, 'Caused by', parents, suppressed: suppressed),
@@ -361,17 +370,8 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
         ),
       if (issue.routeDisplayName != null)
         ('Route', Text(issue.routeDisplayName!, style: valueStyle)),
-      if (_whenText(issue) != null)
-        (
-          'When',
-          widget.scanTick == null
-              ? Text(_whenText(issue)!, style: valueStyle)
-              : SleuthListenableBuilder(
-                  listenable: widget.scanTick!,
-                  builder: (_) =>
-                      Text(_whenText(issue) ?? '', style: valueStyle),
-                ),
-        ),
+      if (_whenText(issue) case final seen?)
+        ('When', Text(seen, style: valueStyle)),
       (
         'Evidence',
         Text(IssueMetadataBuilder.evidence(issue), style: valueStyle),

@@ -170,6 +170,29 @@ void main() {
     expect(find.text('Last seen 2 s ago · in 5 of the last 8 scans'), findsOne);
   });
 
+  testWidgets('When appears once the scan pulse brings its data', (
+    tester,
+  ) async {
+    final tick = ValueNotifier<int>(0);
+    addTearDown(tick.dispose);
+    DateTime? seen;
+    await _pump(
+      tester,
+      IssueCard(
+        issue: _issue(),
+        initiallyExpanded: true,
+        scanTick: tick,
+        lastSeenOf: () => seen,
+      ),
+    );
+    expect(find.text('When'), findsNothing);
+    seen = DateTime.now();
+    tick.value++;
+    await tester.pump();
+    expect(find.text('When'), findsOneWidget);
+    expect(find.text('Last seen just now'), findsOneWidget);
+  });
+
   testWidgets('labels sit beside their values, and above them at 2.0x', (
     tester,
   ) async {

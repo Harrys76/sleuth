@@ -502,6 +502,82 @@ void main() {
     expect(find.descendant(of: here, matching: link), findsOneWidget);
   });
 
+  testWidgets("a kept card does not link to the next screen's stats", (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigator,
+        home: const Scaffold(body: Text('home')),
+        // The card sits above the app's routes, as the overlay does.
+        builder: (_, child) => Stack(
+          children: [
+            child!,
+            Overlay(
+              initialEntries: [
+                OverlayEntry(
+                  builder: (_) => Material(
+                    type: MaterialType.transparency,
+                    child: FloatingIssuesCard(
+                      controller: controller,
+                      onClose: () {},
+                      isDebugMode: false,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    final root = tester.element(find.byType(MaterialApp));
+    controller.scanTreeFullPathForTest(root);
+    controller.activeRouteSession!.rebuildCountsByType.addAll({'Tile': 12});
+    final screen = controller.currentScreen;
+    controller.issuesNotifier.value = [
+      PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        title: 'Title rebuilds',
+        detail: 'D',
+        fixHint: 'F',
+        stableId: 'rebuild_activity',
+        routeName: screen.route,
+        scaffoldHashKey: screen.scaffoldHash,
+      ),
+    ];
+    await tester.pump();
+    await tester.tap(find.text('Title rebuilds'));
+    await tester.pump();
+    final link = find.bySemanticsLabel(RegExp('See rebuild stats'));
+    expect(link, findsOneWidget);
+
+    // The issue goes; the expanded card stays. Then a screen with no
+    // issues opens, so the issue list does not change again.
+    controller.issuesNotifier.value = [];
+    await tester.pump();
+    navigator.currentState!.push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/other'),
+        builder: (_) => const Scaffold(body: Text('other')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    controller.scanTreeFullPathForTest(root);
+    controller.activeRouteSession!.rebuildCountsByType.addAll({'Row': 5});
+    controller.scanTickNotifier.value++;
+    await tester.pump();
+    expect(controller.currentScreen.route, '/other');
+    expect(find.text('Title rebuilds'), findsOneWidget);
+    expect(link, findsNothing);
+  });
+
   testWidgets('the Rebuild stats link waits for the screen to count '
       'rebuilds', (tester) async {
     controller.issuesNotifier.value = [_issue('rebuild_activity')];
