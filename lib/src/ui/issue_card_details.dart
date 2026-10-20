@@ -20,7 +20,9 @@ import 'text_scale_clamp.dart';
 /// dependency or a listenable), those its parents forced (`forced`, from
 /// `parents` parent types), and the parent that forced the most with its
 /// share (`parent`, `parentForced`). `capped` means the debug counters
-/// left some widget types out, so the counts can be low.
+/// left some widget types out, so the counts can be low. `otherScreen`
+/// means the latest counts are from a screen other than the card's, so
+/// the row shows none.
 typedef RebuildCause = ({
   int own,
   int forced,
@@ -29,6 +31,7 @@ typedef RebuildCause = ({
   int parentForced,
   int seconds,
   bool capped,
+  bool otherScreen,
 });
 
 /// How a Caused by or Effects row opens the related card.
@@ -418,6 +421,11 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
           'rebuilds by cause.',
           style: style.copyWith(color: theme.textSecondary),
         );
+      } else if (cause != null && cause.otherScreen) {
+        content = Text(
+          "Open this issue's screen to count its rebuilds",
+          style: style.copyWith(color: theme.textSecondary),
+        );
       } else if (cause == null || cause.own + cause.forced == 0) {
         content = Text(
           cause == null
@@ -465,7 +473,7 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
         children: [
           _sectionLabel(
             theme,
-            cause == null
+            cause == null || cause.otherScreen
                 ? 'Why it rebuilds'
                 : 'Why it rebuilds · last ${cause.seconds} s',
           ),

@@ -153,7 +153,8 @@
   a gauge line changes, and not for a change the row rounds away.
 - Labelled rows follow: Where (the widget, and its `file:line` with Copy
   when the run tracks widget creation), Route, When ("Last seen 2 s ago ·
-  in 5 of the last 8 scans", with the interaction), Evidence (the
+  in 5 of the last 8 scans", with the interaction; the time is the
+  card's own when cards share a stable id), Evidence (the
   detector's reason and the confidence) and Check in (the DevTools view).
   The labels stack above their values when large text makes the label
   column wider than a third of the card. "About this detection" is gone,
@@ -186,9 +187,9 @@
   show Why it rebuilds: the rebuilds the widget started itself (a
   setState, a changed dependency or a listenable) and those its parents
   forced, naming the parent that forced the most and its share. The row
-  reads the current page's counts only, says when the debug counters
-  left widget types out, and without the callbacks says how to turn them
-  on.
+  reads only counts from the card's own screen (a card kept from another
+  screen asks to open it), says when the debug counters left widget
+  types out, and without the callbacks says how to turn them on.
 - The effort colours, `aboutBackground`, `fixHintText` and the three
   `aiShimmer` colours are unused by the overlay and kept for custom
   themes. The guide describes the new expanded card and Not useful.

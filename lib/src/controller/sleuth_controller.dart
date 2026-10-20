@@ -208,9 +208,11 @@ class SleuthController {
   final IssueRanker _ranker = const IssueRanker();
   final Map<String, RecurrenceTrend> _recurrenceTrends = {};
 
-  /// When each issue key (`stableId ?? title`) was last in a scan's
-  /// results, for the expanded card's When row. Dropped with its trend.
-  final Map<String, DateTime> _lastSeenAt = {};
+  /// When each card ([listKeyFor] and occurrence id) was last in a scan's
+  /// results, with its trend's key, for the expanded card's When row. Two
+  /// occurrences under one stable id keep their own times. Dropped with
+  /// the trend.
+  final Map<(String, int?), ({String trendKey, DateTime at})> _lastSeenAt = {};
   int _scanCycleIndex = 0;
 
   // Fix verification baseline
@@ -1698,15 +1700,23 @@ class SleuthController {
   Map<String, RecurrenceTrend> get recurrenceTrends =>
       Map.unmodifiable(_recurrenceTrends);
 
-  /// When [issueKey] (`stableId ?? title`) was last in a scan's results,
-  /// or null when it has not been seen or its trend was dropped.
-  DateTime? lastSeenAt(String issueKey) => _lastSeenAt[issueKey];
+  /// When [issue]'s card, by [listKeyFor] and occurrence id, was last in a
+  /// scan's results, or null when it has not been seen or its trend was
+  /// dropped.
+  DateTime? lastSeenAt(PerformanceIssue issue) =>
+      _lastSeenAt[(listKeyFor(issue), issue.occurrenceId)]?.at;
 
   /// The debug counts the latest scan passed to its detectors, for the
   /// expanded card's Why it rebuilds row. Null before the first such scan
   /// and in runs without debug instrumentation.
   DebugSnapshot? get lastDebugSnapshot => _lastDebugSnapshot;
   DebugSnapshot? _lastDebugSnapshot;
+
+  /// The screen [lastDebugSnapshot] counted: the route name and scaffold
+  /// hash that issues reported there carry.
+  ({String? route, int? scaffoldHash})? get lastDebugSnapshotScreen =>
+      _lastDebugSnapshot == null ? null : _lastDebugSnapshotScreen;
+  ({String? route, int? scaffoldHash})? _lastDebugSnapshotScreen;
 
   /// Current scan cycle index (for testing).
   @visibleForTesting
@@ -3168,6 +3178,10 @@ class SleuthController {
       if (evidenceChanged) _lastDebugSnapshot = null;
       if (debugSnapshot != null && !evidenceChanged) {
         _lastDebugSnapshot = debugSnapshot;
+        _lastDebugSnapshotScreen = (
+          route: currentName,
+          scaffoldHash: currentHashKey,
+        );
         for (final d in _detectors) {
           if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
         }
@@ -5356,7 +5370,10 @@ class SleuthController {
     for (final issue in currentIssues) {
       final id = issue.stableId ?? issue.title;
       currentIds.add(id);
-      _lastSeenAt[id] = now;
+      _lastSeenAt[(listKeyFor(issue), issue.occurrenceId)] = (
+        trendKey: id,
+        at: now,
+      );
       final trend = _recurrenceTrends.putIfAbsent(id, RecurrenceTrend.new);
       trend.recordPresent(
         _scanCycleIndex,
@@ -5371,7 +5388,9 @@ class SleuthController {
     }
     // Evict stale entries (unseen for 120+ cycles)
     _recurrenceTrends.removeWhere((_, trend) => trend.isStale(_scanCycleIndex));
-    _lastSeenAt.removeWhere((id, _) => !_recurrenceTrends.containsKey(id));
+    _lastSeenAt.removeWhere(
+      (_, seen) => !_recurrenceTrends.containsKey(seen.trendKey),
+    );
 
     // Update fix baseline absence/presence tracking
     final baseline = _fixBaseline;
