@@ -1482,7 +1482,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       parents: by.length,
       parent: parent,
       parentForced: top,
-      seconds: math.max(1, snapshot.elapsed.inSeconds),
+      window: snapshot.elapsed,
       capped: snapshot.rebuildTypesCapped || snapshot.forcedTypesCapped,
       otherScreen: otherScreen,
     );

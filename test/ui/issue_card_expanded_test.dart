@@ -241,7 +241,7 @@ void main() {
           parents: 1,
           parent: 'CombinedChatDemo',
           parentForced: 5,
-          seconds: 10,
+          window: Duration(seconds: 10),
           capped: false,
           otherScreen: false,
         ),
@@ -275,7 +275,7 @@ void main() {
           parents: 3,
           parent: 'FeedList',
           parentForced: 3,
-          seconds: 10,
+          window: Duration(seconds: 10),
           capped: false,
           otherScreen: false,
         ),
@@ -303,7 +303,7 @@ void main() {
           parents: 1,
           parent: 'CombinedChatDemo',
           parentForced: 5,
-          seconds: 10,
+          window: Duration(seconds: 10),
           capped: true,
           otherScreen: false,
         ),
@@ -326,7 +326,7 @@ void main() {
           parents: 0,
           parent: null,
           parentForced: 0,
-          seconds: 2,
+          window: Duration(seconds: 2),
           capped: true,
           otherScreen: false,
         ),
@@ -352,7 +352,7 @@ void main() {
           parents: 1,
           parent: 'OtherScreen',
           parentForced: 2,
-          seconds: 2,
+          window: Duration(seconds: 2),
           capped: false,
           otherScreen: true,
         ),
@@ -365,6 +365,25 @@ void main() {
       expect(find.text('WHY IT REBUILDS'), findsOneWidget);
     });
 
+    testWidgets('names a window shorter than a second as it was', (
+      tester,
+    ) async {
+      await pumpWhy(
+        tester,
+        () => (
+          own: 20,
+          forced: 0,
+          parents: 0,
+          parent: null,
+          parentForced: 0,
+          window: const Duration(milliseconds: 500),
+          capped: false,
+          otherScreen: false,
+        ),
+      );
+      expect(find.text('WHY IT REBUILDS · LAST 500 MS'), findsOneWidget);
+    });
+
     testWidgets('says when the window had no rebuilds', (tester) async {
       await pumpWhy(
         tester,
@@ -374,7 +393,7 @@ void main() {
           parents: 0,
           parent: null,
           parentForced: 0,
-          seconds: 2,
+          window: Duration(seconds: 2),
           capped: false,
           otherScreen: false,
         ),
