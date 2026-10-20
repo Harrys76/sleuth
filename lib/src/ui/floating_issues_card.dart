@@ -391,6 +391,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// this false, the lookup is pending (Finding).
   bool _barOpen = false;
 
+  /// Name of the widget a stepping outline last showed, kept for the bar
+  /// while that widget is off screen.
+  String? _barWidgetName;
+
   /// The bar sat at the top of the screen when its widget was last on
   /// screen; while the widget is off screen it stays there.
   bool _barAtTop = false;
@@ -398,6 +402,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   final FocusNode _barBackFocus = FocusNode(
     debugLabel: 'Sleuth Back to issues',
   );
+
+  final FocusNode _barNextFocus = FocusNode(debugLabel: 'Sleuth Next widget');
+
+  /// Whether the bar showed Next, so focus can move to Back to issues
+  /// when Next leaves.
+  bool _barHadNext = false;
+
+  final GlobalKey _barKey = GlobalKey(debugLabel: 'Sleuth highlight bar');
 
   /// Where the card was when the bar replaced it, held for a double tap's
   /// span so the second tap of a double tap on the crosshair does not
@@ -666,6 +678,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     widget.controller.verdictNotifier.addListener(_onVerdictChanged);
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
     widget.controller.selectedHighlightNotifier.addListener(_onBarTarget);
+    widget.controller.highlightStepNotifier.addListener(_onBarTarget);
     _ui.addListener(_onUiStateChanged);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
     SemanticsBinding.instance.addSemanticsEnabledListener(_syncToastTiming);
@@ -790,10 +803,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       oldWidget.controller.selectedHighlightNotifier.removeListener(
         _onBarTarget,
       );
+      oldWidget.controller.highlightStepNotifier.removeListener(_onBarTarget);
       oldWidget.controller.overlayUiState.removeListener(_onUiStateChanged);
       widget.controller.verdictNotifier.addListener(_onVerdictChanged);
       widget.controller.issuesNotifier.addListener(_onIssuesChanged);
       widget.controller.selectedHighlightNotifier.addListener(_onBarTarget);
+      widget.controller.highlightStepNotifier.addListener(_onBarTarget);
       widget.controller.overlayUiState.addListener(_onUiStateChanged);
       _readGeometry();
       _lastSeverityFilter = {..._ui.severityFilter};
@@ -904,12 +919,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _menuScope.dispose();
     _moreFocus.dispose();
     _barBackFocus.dispose();
+    _barNextFocus.dispose();
     _barShieldTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     SemanticsBinding.instance.removeSemanticsEnabledListener(_syncToastTiming);
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
     widget.controller.selectedHighlightNotifier.removeListener(_onBarTarget);
+    widget.controller.highlightStepNotifier.removeListener(_onBarTarget);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     _toast.dispose();
     _listScroll.dispose();
@@ -1917,7 +1934,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _endHighlight(refocusHeader: true);
       if (gone) {
         _toast.show(
-          'The issue on ${selectedIssue.widgetName} is no longer reported.',
+          selectedIssue.widgetName == null
+              ? 'This issue is no longer reported.'
+              : 'The issue on ${selectedIssue.widgetName} is no longer '
+                    'reported.',
         );
       }
     }
@@ -2044,22 +2064,41 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final card = _cardKey.currentContext?.findRenderObject();
     _barShieldTimer?.cancel();
     _barShieldTimer = null;
-    _barShield = card is RenderBox && card.hasSize
-        ? card.localToGlobal(Offset.zero) & card.size
-        : null;
-    if (_barShield != null) {
-      _barShieldTimer = Timer(kDoubleTapTimeout, () {
-        if (mounted) setState(() => _barShield = null);
-      });
+    _barShield = null;
+    if (card is RenderBox && card.hasSize) {
+      _shieldBar(card.localToGlobal(Offset.zero) & card.size);
     }
+    _barHadNext = _barHasNext;
     setState(() => _barOpen = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_barOpen) return;
-      if (_crosshairKeyboardFocus) _barBackFocus.requestFocus();
-      _barBackFocus.context?.findRenderObject()?.sendSemanticsEvent(
-        const FocusSemanticEvent(),
-      );
+      // Next is the action a bar that steps is opened for.
+      _focusBarControl(_barHasNext ? _barNextFocus : _barBackFocus);
     });
+  }
+
+  /// Covers [rect] for a double tap's span, so the second tap of a double
+  /// tap does not reach the app below.
+  void _shieldBar(Rect rect) {
+    _barShieldTimer?.cancel();
+    _barShield = rect;
+    _barShieldTimer = Timer(kDoubleTapTimeout, () {
+      if (mounted) setState(() => _barShield = null);
+    });
+  }
+
+  /// Whether the bar shows Next: the outlined issue has two or more
+  /// widgets.
+  bool get _barHasNext =>
+      (widget.controller.highlightStepNotifier.value?.count ?? 0) > 1;
+
+  /// Moves the screen reader to the bar control of [node], and keyboard
+  /// focus when the crosshair was reached by keyboard.
+  void _focusBarControl(FocusNode node) {
+    if (_crosshairKeyboardFocus) node.requestFocus();
+    node.context?.findRenderObject()?.sendSemanticsEvent(
+      const FocusSemanticEvent(),
+    );
   }
 
   /// Back to issues: the card returns as it was and the crosshair takes
@@ -2092,6 +2131,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     setState(() {
       _barOpen = false;
       _barShield = null;
+      _barWidgetName = null;
+      _barHadNext = false;
       _clearSelection();
       if (focusCrosshair && selected != null) {
         _crosshairFocusIssue = selected;
@@ -2126,10 +2167,26 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _crosshairFocusStarted = false;
   }
 
-  /// Rebuilds the bar when the outlined widget moves, leaves the screen or
-  /// comes back.
+  /// Rebuilds the bar when the outlined widget moves, leaves the screen,
+  /// comes back or changes to the issue's next widget. When Next leaves
+  /// the bar (no other widget is left), focus moves to Back to issues.
   void _onBarTarget() {
-    if (mounted && _barOpen) setState(() {});
+    final name = widget.controller.selectedHighlightNotifier.value?.widgetName;
+    if (name != null) _barWidgetName = name;
+    final hasNext = _barHasNext;
+    final lostNext = _barHadNext && !hasNext;
+    _barHadNext = hasNext;
+    if (!mounted || !_barOpen) return;
+    setState(() {});
+    if (!lostNext) return;
+    final keyboard = _barNextFocus.hasFocus;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_barOpen) return;
+      if (keyboard) _barBackFocus.requestFocus();
+      _barBackFocus.context?.findRenderObject()?.sendSemanticsEvent(
+        const FocusSemanticEvent(),
+      );
+    });
   }
 
   /// The highlight bar at the safe-area edge away from the outlined
@@ -2149,7 +2206,29 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       math.max(0.0, screenSize.height - keyboardHeight),
     );
     final onScreen = rect != null && !rect.isEmpty && rect.overlaps(visible);
-    if (onScreen) _barAtTop = highlightBarAtTop(rect, visible);
+    final step = widget.controller.highlightStepNotifier.value;
+    if (onScreen && highlightBarAtTop(rect, visible) != _barAtTop) {
+      final bar = _barKey.currentContext?.findRenderObject();
+      final barRect = bar is RenderBox && bar.hasSize
+          ? bar.localToGlobal(Offset.zero) & bar.size
+          : null;
+      // While stepping, the bar stays where Next was tapped unless the new
+      // outline runs under it. When it moves, its old place is shielded
+      // for a double tap's span, so a quick second tap on Next does not
+      // reach the app.
+      if (step == null || barRect == null || rect.overlaps(barRect)) {
+        _barAtTop = !_barAtTop;
+        if (step != null && barRect != null) _shieldBar(barRect);
+      }
+    }
+    if (widget.controller.highlightBarAtTopNotifier.value != _barAtTop) {
+      final atTop = _barAtTop;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _barOpen) {
+          widget.controller.highlightBarAtTopNotifier.value = atTop;
+        }
+      });
+    }
     final margin = SleuthTheme.of(context).spacingMd;
     return Positioned(
       key: const ValueKey<String>('Sleuth highlight bar'),
@@ -2162,12 +2241,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
           child: SleuthHighlightBar(
+            key: _barKey,
             severity: issue.severity,
-            widgetName: issue.widgetName ?? issue.title,
+            widgetName: issue.widgetName ?? _barWidgetName ?? issue.title,
             offScreen: !onScreen,
             onBack: _leaveBar,
             onClose: _closeFromBar,
             backFocusNode: _barBackFocus,
+            step: step,
+            onNext: widget.controller.nextHighlightStep,
+            nextFocusNode: _barNextFocus,
           ),
         ),
       ),
@@ -2188,18 +2271,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   void _onHighlightNotFound(PerformanceIssue issue) {
     _endHighlight();
     _toast.show(
-      "Couldn't find ${issue.widgetName} on screen. It may be scrolled "
-      'away or not built yet.',
+      issue.widgetName == null
+          ? "Couldn't find these widgets on screen. They may be scrolled "
+                'away or not built yet.'
+          : "Couldn't find ${issue.widgetName} on screen. It may be "
+                'scrolled away or not built yet.',
       tone: OverlayToastTone.warning,
       duration: const Duration(seconds: 3),
     );
   }
 
-  /// Whether an issue can be visually located on screen.
-  /// A card can outline its widget only when the issue names one: the
-  /// highlight lookup matches the reported element or the widget name.
+  /// Whether an issue can be visually located on screen: it names its
+  /// widget, which the lookup matches by element or name, or it lists
+  /// widgets the outline steps through.
   static bool _isLocatableIssue(PerformanceIssue issue) =>
-      issue.widgetName != null;
+      issue.widgetName != null || SleuthController.listsWidgets(issue);
 
   @override
   Widget build(BuildContext context) {
@@ -2281,6 +2367,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       widget.onLayersChanged?.call();
     }
 
+    // Built first: placing the bar can shield the place it left.
+    final bar = layerDepth == 0 && _barOpen
+        ? _highlightBar(screenSize, safe, keyboardHeight)
+        : null;
     return Stack(
       children: [
         if (layerDepth == 0 && _barOpen && _barShield != null)
@@ -2291,8 +2381,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             rect: _barShield!,
             child: Listener(behavior: HitTestBehavior.opaque),
           ),
-        if (layerDepth == 0 && _barOpen)
-          _highlightBar(screenSize, safe, keyboardHeight),
+        ?bar,
         if (layerDepth == 0 && !_barOpen)
           Positioned(
             left: clamped.dx,

@@ -106,7 +106,9 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   final List<UncachedImageInfo> _uncachedImages = [];
-  final List<({Rect rect, RenderObject renderObject, String detail})>
+  final List<
+    ({Rect rect, RenderObject renderObject, int occurrenceId, String detail})
+  >
   _pendingHighlights = [];
 
   /// Pairs measured in the current scan, grouped by decode at its end.
@@ -264,6 +266,7 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
         _pendingHighlights.add((
           rect: rect,
           renderObject: use.renderBox,
+          occurrenceId: identityHashCode(use.imageElement),
           detail:
               '${_providerTypeName(use.provider)}: $sourceName\n'
               'Decoded ${decodedW}x$decodedH px for '
@@ -375,6 +378,8 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
         WidgetHighlight(
           rect: h.rect,
           renderObject: h.renderObject,
+          occurrenceId: h.occurrenceId,
+          stableId: 'uncached_images',
           widgetName: 'Image',
           severity: severity,
           detectorName: 'Image',

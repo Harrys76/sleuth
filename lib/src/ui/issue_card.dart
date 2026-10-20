@@ -427,11 +427,10 @@ class _IssueCardState extends State<IssueCard> {
   /// the card's 10 px padding, which the box reaches into.
   static const double _crosshairReserve = 38;
 
-  /// The crosshair shows for an issue that names a widget.
+  /// The crosshair shows for an issue the host can locate: one that names
+  /// its widget or lists widgets to step through.
   bool get _showsCrosshair =>
-      widget.locatable &&
-      widget.issue.widgetName != null &&
-      widget.onHighlightChanged != null;
+      widget.locatable && widget.onHighlightChanged != null;
 
   /// Title lines while collapsed: 2, or 3 once the text is large enough
   /// that two lines hold only a few words. An expanded card shows it all.
@@ -679,7 +678,9 @@ class _IssueCardState extends State<IssueCard> {
       key: _crosshairKey,
       container: true,
       button: true,
-      label: 'Show ${widget.issue.widgetName} on screen',
+      label: widget.issue.widgetName == null
+          ? "Show this issue's widgets on screen"
+          : 'Show ${widget.issue.widgetName} on screen',
       value: on ? 'Finding' : null,
       onTap: toggle,
       excludeSemantics: true,

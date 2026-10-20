@@ -566,6 +566,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             renderObject: ro,
+            occurrenceId: identityHashCode(element),
+            stableId: 'expensive_gpu_nodes',
             widgetName: typeName, // known from type check — no toString()
             severity: highlightSeverity,
             detectorName: 'GPU',

@@ -486,6 +486,8 @@ class _SleuthOverlayState extends State<SleuthOverlay>
                 markersEnabled: widget.controller.highlightEnabledNotifier,
                 outlineSeverity: () =>
                     widget.controller.highlightTargetSeverity,
+                highlightStep: widget.controller.highlightStepNotifier,
+                barAtTop: widget.controller.highlightBarAtTopNotifier,
               ),
             ),
 

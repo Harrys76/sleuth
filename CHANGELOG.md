@@ -163,11 +163,25 @@
   type), so their cards keep the crosshair. Their overlay keys now
   include the name, so such a card hidden under an older release shows
   again.
-- A crosshair replaces the highlight checkbox and shows only for an issue
-  that names a widget, labelled "Show <widget> on screen". Before the
-  first scan it reads "Finding" until the scan looks the widget up, and a
-  second tap cancels. Layout and paint cards without a widget name no
-  longer offer a highlight that could not find anything. The card body
+- A crosshair replaces the highlight checkbox, labelled "Show <widget> on
+  screen". Before the first scan it reads "Finding" until the scan looks
+  the widget up, and a second tap cancels. It shows for an issue that
+  names a widget, and for the issues that list several:
+  `always_repaint_painter`, `missing_repaint_boundary`,
+  `layout_bottleneck`, `uncached_images` and `expensive_gpu_nodes`
+  ("Show this issue's widgets on screen"). Other cards without a widget name no
+  longer offer a highlight that could not find anything.
+- On a card that lists several widgets the crosshair outlines the first
+  one on screen, and the bar shows its place ("1 of 3") with Next, which
+  moves the outline to the next widget and wraps after the last. The
+  shown place changes with Next, not with each scan, so a screen reader
+  does not read the bar again after every scroll. A bar that steps opens
+  with focus on Next, keeps its edge unless the new outline runs under
+  it, and shields its old place for a double tap's span when it moves.
+  When the outlined widget leaves the screen, Next goes to the widget
+  that followed it. The detectors tie those highlights to their issue
+  with the new `WidgetHighlight.stableId` and an element identity in
+  `WidgetHighlight.occurrenceId`. The card body
   and the crosshair draw the focus outline in keyboard mode.
 - An expanded card no longer draws the pin icon. Its semantics hint
   reads "Pinned while expanded".
