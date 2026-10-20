@@ -434,8 +434,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   Rect? _barShield;
   Timer? _barShieldTimer;
 
-  /// The card whose crosshair takes focus once the bar closes, the epoch
-  /// that asks it to, and whether keyboard focus goes with it.
+  /// The card whose crosshair takes focus once the bar closes, found as
+  /// [_isCardOf] finds it (its key can change while the bar is up), the
+  /// epoch that asks it to, and whether keyboard focus goes with it.
+  PerformanceIssue? _crosshairFocusIssue;
   String? _crosshairFocusKey;
   int _crosshairFocusEpoch = 0;
   bool _crosshairKeyboardFocus = false;
@@ -1846,12 +1848,22 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Whether the card [issue], rendered under [key], is the one whose
   /// crosshair is on: the same occurrence when the issue has an
   /// occurrence id, else the same key.
-  bool _isSelectedCard(PerformanceIssue issue, String key) {
-    final selected = _selectedIssue;
-    if (selected == null) return false;
-    if (selected.occurrenceId == null) return key == _selectedIssueId;
-    return issue.occurrenceId == selected.occurrenceId &&
-        listKeyFor(issue) == listKeyFor(selected);
+  bool _isSelectedCard(PerformanceIssue issue, String key) =>
+      _isCardOf(_selectedIssue, _selectedIssueId, issue, key);
+
+  /// Whether the card [issue], rendered under [key], is [target]'s card,
+  /// which rendered under [targetKey]: the same occurrence when [target]
+  /// has an occurrence id, else the same key.
+  static bool _isCardOf(
+    PerformanceIssue? target,
+    String? targetKey,
+    PerformanceIssue issue,
+    String key,
+  ) {
+    if (target == null) return false;
+    if (target.occurrenceId == null) return key == targetKey;
+    return issue.occurrenceId == target.occurrenceId &&
+        listKeyFor(issue) == listKeyFor(target);
   }
 
   /// Clears pin/selection/chat state when referenced issues are no longer
@@ -2093,6 +2105,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }) {
     if (_selectedIssue == null && !_barOpen) return;
     final key = _selectedIssueId;
+    final selected = _selectedIssue;
     final wasOpen = _barOpen;
     // Keyboard focus on the bar goes to the header with the screen reader.
     final keyboardToHeader = refocusHeader && _focusInCard();
@@ -2102,7 +2115,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _barOpen = false;
       _barShield = null;
       _clearSelection();
-      if (focusCrosshair && key != null) {
+      if (focusCrosshair && selected != null) {
+        _crosshairFocusIssue = selected;
         _crosshairFocusKey = key;
         _crosshairFocusEpoch++;
       }
@@ -2117,7 +2131,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       // The list builds every card for this frame only.
-      setState(() => _crosshairFocusKey = null);
+      setState(() {
+        _crosshairFocusIssue = null;
+        _crosshairFocusKey = null;
+      });
       if (!refocusHeader) return;
       if (keyboardToHeader) _moreFocus.requestFocus();
       _focusSemantics(_headerKey);
@@ -2694,8 +2711,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                                       onDismiss: _dismissDebugBanner,
                                     ),
                                   // With cards listed, only a lost link
-                                  // takes room above them.
-                                  if (issues.isNotEmpty)
+                                  // takes room above them, also above an
+                                  // expanded card whose issue is gone.
+                                  if (issues.isNotEmpty || _frozen != null)
                                     _statusLine(emptyList: false),
                                 ],
                               ),
@@ -3485,7 +3503,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               cacheExtent:
                   _revealKey != null ||
                       _focusKey != null ||
-                      _crosshairFocusKey != null
+                      _crosshairFocusIssue != null
                   ? 1e6
                   : null,
               // Keyed-reorder remount fix: without a
@@ -3619,7 +3637,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   locatable: locatable,
                   stale: stale,
                   finding: finding,
-                  crosshairFocusEpoch: issueKey == _crosshairFocusKey
+                  crosshairFocusEpoch:
+                      _isCardOf(
+                        _crosshairFocusIssue,
+                        _crosshairFocusKey,
+                        issue,
+                        issueKey,
+                      )
                       ? _crosshairFocusEpoch
                       : 0,
                   crosshairKeyboardFocus: _crosshairKeyboardFocus,

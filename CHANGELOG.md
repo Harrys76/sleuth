@@ -201,9 +201,9 @@
   from the session's coverage, a copyable `flutter run --profile --no-dds`
   and a Guide link; No issues found, with the checks on and the opt-in
   checks off; VM link lost, with the reconnect attempt; and stopped
-  retrying, with Reconnect. With cards listed, only a lost link takes a
-  line above them, and the status row names the state when it counts no
-  card. Each line is a live region: its label names the state and its
+  retrying, with Reconnect. With cards listed, an expanded card whose
+  issue is gone included, only a lost link takes a line above them, and
+  the status row names the state when it counts no card. Each line is a live region: its label names the state and its
   value holds the numbers, so the warm-up countdown does not repeat it.
 - One debug banner replaces the debug-mode and instrumentation banners.
   Its text stops growing at the chrome limit, dismissing it lasts for the

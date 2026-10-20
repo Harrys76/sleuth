@@ -281,6 +281,30 @@ void main() {
       expect(find.text('Title a'), findsOneWidget);
     });
 
+    testWidgets('a lost link shows above an expanded card whose issue is '
+        'gone', (tester) async {
+      controller.issuesNotifier.value = [issue('a')];
+      controller.runStateNotifier.value = const SleuthRunState(
+        phase: SleuthRunPhase.running,
+        vmConnected: true,
+        everConnected: true,
+      );
+      await pumpCard(tester);
+      await tester.tap(find.text('Title a'));
+      await tester.pump();
+      controller.issuesNotifier.value = const [];
+      await tester.pump();
+      expect(find.text('Not detected right now'), findsOneWidget);
+      controller.runStateNotifier.value = const SleuthRunState(
+        phase: SleuthRunPhase.running,
+        everConnected: true,
+        stoppedRetrying: true,
+      );
+      await tester.pump();
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
+      expect(find.bySemanticsLabel('Reconnect'), findsOneWidget);
+    });
+
     testWidgets('a lost link toasts while no action toast holds the slot', (
       tester,
     ) async {
