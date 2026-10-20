@@ -16,7 +16,9 @@ import 'text_scale_clamp.dart';
 /// - Green: no issues / FPS ≥ 83% of target
 /// - Amber: warnings only / FPS 50–83% of target
 /// - Red: critical issues / FPS < 50% of target
-/// - ⚠️ badge: debug mode
+///
+/// The count shows in debug runs too; the card's debug banner says that
+/// debug timings run slow.
 ///
 /// The FPS number sits on an opaque [SleuthThemeData.triggerBadgeBg] pill
 /// in the severity text colour, with the FPS colour on the pill's border.
@@ -35,7 +37,6 @@ class TriggerButton extends StatefulWidget {
     required this.issuesNotifier,
     required this.vmConnectedNotifier,
     required this.frameStatsNotifier,
-    required this.isDebugMode,
     required this.onTap,
     this.uiState,
     this.fpsTarget = 60,
@@ -46,7 +47,6 @@ class TriggerButton extends StatefulWidget {
   final ValueNotifier<List<PerformanceIssue>> issuesNotifier;
   final ValueNotifier<bool> vmConnectedNotifier;
   final ValueNotifier<FrameStatsBuffer> frameStatsNotifier;
-  final bool isDebugMode;
   final VoidCallback onTap;
 
   /// Shared overlay state holding the anchor, hidden keys and severity
@@ -341,7 +341,7 @@ class _TriggerButtonState extends State<TriggerButton> {
                     : theme.triggerIconOnLightFill,
                 size: 28,
               ),
-              if (issues.isNotEmpty && !widget.isDebugMode)
+              if (issues.isNotEmpty)
                 Positioned(
                   top: 2,
                   right: 2,
@@ -359,19 +359,6 @@ class _TriggerButtonState extends State<TriggerButton> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
-                ),
-              if (widget.isDebugMode)
-                Positioned(
-                  top: 0,
-                  right: 0,
-                  child: Container(
-                    padding: EdgeInsets.all(theme.spacingXxs),
-                    decoration: BoxDecoration(
-                      color: theme.severityWarning,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Text('⚠️', style: TextStyle(fontSize: theme.fontSm)),
                   ),
                 ),
             ],

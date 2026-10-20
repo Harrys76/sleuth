@@ -24,6 +24,7 @@ import 'package:sleuth/src/persistence/sleuth_state_store.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/rebuild_stats_page.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
+import 'package:sleuth/src/ui/status_lines.dart';
 
 import '../helpers/overlay_harness.dart';
 
@@ -142,21 +143,21 @@ void main() {
 
   // Use specific text to distinguish our banner from the existing
   // debug-mode disclaimer in _WarningBanners.
-  const bannerText = 'timings are';
+  const bannerText = 'Timings run slower';
 
   group('Minimize/maximize/restore', () {
     testWidgets('minimize hides body, shows only header', (tester) async {
       await tester.pumpWidget(pumpCard());
 
       // Body content should be present initially
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
 
       // Tap minimize
       await tester.tap(find.byIcon(Icons.minimize));
       await tester.pump();
 
       // Body content should be gone
-      expect(find.textContaining('No issues detected'), findsNothing);
+      expect(find.byType(SleuthStatusBox), findsNothing);
       // The header stays: its paw and run label.
       expect(find.byIcon(Icons.pets), findsOneWidget);
       // Restore button should appear (replaces minimize/maximize)
@@ -173,7 +174,7 @@ void main() {
       await tester.pump();
 
       // Body content should still be present
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
       // Restore button should appear
       expect(find.byIcon(Icons.filter_none), findsOneWidget);
       expect(find.byIcon(Icons.minimize), findsNothing);
@@ -185,14 +186,14 @@ void main() {
       // Minimize
       await tester.tap(find.byIcon(Icons.minimize));
       await tester.pump();
-      expect(find.textContaining('No issues detected'), findsNothing);
+      expect(find.byType(SleuthStatusBox), findsNothing);
 
       // Restore
       await tester.tap(find.byIcon(Icons.filter_none));
       await tester.pump();
 
       // Body should be back
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
       // Minimize/maximize buttons should be back
       expect(find.byIcon(Icons.minimize), findsOneWidget);
       expect(find.byIcon(Icons.crop_square), findsOneWidget);
@@ -223,17 +224,17 @@ void main() {
       // Minimize
       await tester.tap(find.byIcon(Icons.minimize));
       await tester.pump();
-      expect(find.textContaining('No issues detected'), findsNothing);
+      expect(find.byType(SleuthStatusBox), findsNothing);
 
       // Restore to normal
       await tester.tap(find.byIcon(Icons.filter_none));
       await tester.pump();
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
 
       // Maximize
       await tester.tap(find.byIcon(Icons.crop_square));
       await tester.pump();
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
 
       // Restore to normal again
       await tester.tap(find.byIcon(Icons.filter_none));
@@ -276,14 +277,20 @@ void main() {
     ) async {
       await tester.pumpWidget(pumpCard(isDebugMode: true));
 
-      expect(find.textContaining(bannerText), findsOneWidget);
+      expect(
+        find.textContaining(bannerText, findRichText: true),
+        findsOneWidget,
+      );
       expect(find.byIcon(Icons.warning_amber), findsOneWidget);
     });
 
     testWidgets('tap dismiss hides banner', (tester) async {
       await tester.pumpWidget(pumpCard(isDebugMode: true));
 
-      expect(find.textContaining(bannerText), findsOneWidget);
+      expect(
+        find.textContaining(bannerText, findRichText: true),
+        findsOneWidget,
+      );
 
       // Tap the close icon on the banner (last, since header also has close)
       // The banners scroll when the card is short.
@@ -292,7 +299,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.close).last);
       await tester.pump();
 
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
     });
 
     testWidgets('showDebugModeBanner:false hides banner', (tester) async {
@@ -303,13 +310,13 @@ void main() {
         ),
       );
 
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
     });
 
     testWidgets('isDebugMode:false hides banner', (tester) async {
       await tester.pumpWidget(pumpCard(isDebugMode: false));
 
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
     });
 
     testWidgets('a dismissal lasts for the controller\'s session', (
@@ -323,20 +330,23 @@ void main() {
       await tester.pump();
       await tester.tap(find.byIcon(Icons.close).last);
       await tester.pump();
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
 
       // Closing and reopening the dashboard keeps it dismissed: the
       // controller holds the dismissal for the session.
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       await tester.pumpWidget(pumpCard(isDebugMode: true));
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
 
       // A new session shows it again.
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       await tester.pumpWidget(
         pumpCard(isDebugMode: true, config: const SleuthConfig()),
       );
-      expect(find.textContaining(bannerText), findsOneWidget);
+      expect(
+        find.textContaining(bannerText, findRichText: true),
+        findsOneWidget,
+      );
     });
   });
 
