@@ -148,6 +148,41 @@ void main() {
     },
   );
 
+  testWidgets('a tab of the same route with the same issue notifies', (
+    tester,
+  ) async {
+    final tab = ValueNotifier<int>(0);
+    addTearDown(tab.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ValueListenableBuilder<int>(
+          valueListenable: tab,
+          builder: (_, index, _) => IndexedStack(
+            index: index,
+            children: const [
+              Scaffold(body: Text('one')),
+              Scaffold(body: Text('two')),
+            ],
+          ),
+        ),
+      ),
+    );
+    final root = tester.element(find.byType(MaterialApp));
+    controller.scanTreeFullPathForTest(root);
+    expect(notifications, 1);
+    final first = controller.issuesNotifier.value.single.scaffoldHashKey;
+
+    // Both tabs are first visits, so only the scaffold tells them apart.
+    tab.value = 1;
+    await tester.pump();
+    controller.scanTreeFullPathForTest(root);
+    expect(notifications, 2);
+    expect(
+      controller.issuesNotifier.value.single.scaffoldHashKey,
+      isNot(first),
+    );
+  });
+
   testWidgets('scan pulse fires once per tick', (tester) async {
     final root = await pumpApp(tester);
     var pulses = 0;

@@ -58,10 +58,11 @@ class IssueCard extends StatefulWidget {
     this.relatedLinkOf,
     this.onOpenRelated,
     this.onSeeRebuildStats,
-    this.rebuildStatsTotal,
+    this.rebuildStatsTotalOf,
     this.onSeeStartup,
     this.whyItRebuilds = false,
     this.rebuildCauseOf,
+    this.rebuildCauseUnavailable,
     this.onCopyText,
     this.notUseful = false,
     this.onNotUsefulChanged,
@@ -170,8 +171,9 @@ class IssueCard extends StatefulWidget {
   /// Opens Rebuild stats; null leaves out the link.
   final VoidCallback? onSeeRebuildStats;
 
-  /// The screen's rebuild count shown in the Rebuild stats link.
-  final int? rebuildStatsTotal;
+  /// The screen's rebuild count for the Rebuild stats link, read on every
+  /// scan; the link shows while it is above zero.
+  final int? Function()? rebuildStatsTotalOf;
 
   /// Opens Startup metrics; null leaves out the link.
   final VoidCallback? onSeeStartup;
@@ -180,9 +182,10 @@ class IssueCard extends StatefulWidget {
   /// cards).
   final bool whyItRebuilds;
 
-  /// The latest rebuild split for the row; null when debug callbacks are
-  /// off.
+  /// The latest rebuild split for the row; null when rebuilds are not
+  /// counted, with [rebuildCauseUnavailable] saying why.
   final RebuildCause? Function()? rebuildCauseOf;
+  final String? rebuildCauseUnavailable;
 
   /// Copies text from the card (a location, a code block) and confirms.
   final void Function(String text, String confirmation)? onCopyText;
@@ -520,10 +523,11 @@ class _IssueCardState extends State<IssueCard> {
             relatedLinkOf: widget.relatedLinkOf,
             onOpenRelated: widget.onOpenRelated,
             onSeeRebuildStats: widget.onSeeRebuildStats,
-            rebuildStatsTotal: widget.rebuildStatsTotal,
+            rebuildStatsTotalOf: widget.rebuildStatsTotalOf,
             onSeeStartup: widget.onSeeStartup,
             whyItRebuilds: widget.whyItRebuilds,
             rebuildCauseOf: widget.rebuildCauseOf,
+            rebuildCauseUnavailable: widget.rebuildCauseUnavailable,
             onCopyText: widget.onCopyText,
             highlighted: widget.highlighted,
             onShowOnScreen: _showsCrosshair ? widget.onHighlightChanged : null,

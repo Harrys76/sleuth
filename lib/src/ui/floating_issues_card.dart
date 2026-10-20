@@ -1499,6 +1499,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     return null;
   }
 
+  /// The active route session's rebuild count, for the Rebuild stats link.
+  int _rebuildTotal() =>
+      widget.controller.activeRouteSession?.rebuildCountsByType.values
+          .fold<int>(0, (a, b) => a + b) ??
+      0;
+
   /// Whether [issue] was reported on the screen the active route session
   /// counts: a card kept from another screen must not link to this one's
   /// stats.
@@ -3059,12 +3065,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // What a related row's reveal and link state read.
         _shownIssues = orderedIssues;
         _shownKeys = listKeys;
-        final rebuildTotal = widget
-            .controller
-            .activeRouteSession
-            ?.rebuildCountsByType
-            .values
-            .fold<int>(0, (a, b) => a + b);
         final orderedIndexByKey = <String, int>{
           for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
@@ -3270,15 +3270,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     relatedLinkOf: _relatedLinkOf,
                     onOpenRelated: _openRelated,
                     onSeeRebuildStats:
-                        _showsRebuildStats(issue) &&
-                            (rebuildTotal ?? 0) > 0 &&
-                            _onCurrentScreen(issue)
+                        _showsRebuildStats(issue) && _onCurrentScreen(issue)
                         ? () {
                             _onSeeAllRebuildsTap();
                             if (_showRebuildStats) _layerOpener = issueKey;
                           }
                         : null,
-                    rebuildStatsTotal: rebuildTotal,
+                    rebuildStatsTotalOf: _rebuildTotal,
                     onSeeStartup: issue.stableId == 'slow_startup_ttff'
                         ? () => setState(() {
                             _showStartupDetail = true;
@@ -3288,8 +3286,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     whyItRebuilds: kDebugMode && rebuildType != null,
                     rebuildCauseOf:
                         rebuildType != null &&
-                            widget.controller.config.enableDebugCallbacks
+                            widget.controller.isRebuildHookInstalled
                         ? () => _rebuildCause(rebuildType, issue)
+                        : null,
+                    rebuildCauseUnavailable:
+                        widget.controller.config.enableDebugCallbacks
+                        ? 'Rebuilds are not counted: '
+                              'advanced.rebuildAttribution is off, or '
+                              'DevTools holds the rebuild callback.'
                         : null,
                     onCopyText: _copyText,
                     notUseful: widget.controller.isNotUseful(issue),

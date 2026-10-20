@@ -1727,6 +1727,12 @@ class SleuthController {
   /// the active route session's scaffold hash, which is null on a route
   /// the config ignores. An issue's `routeName` and `scaffoldHashKey`
   /// compare against it.
+  /// Whether Sleuth holds the framework's rebuild callback: debug
+  /// callbacks are on, `advanced.rebuildAttribution` is not off, and
+  /// nothing else (DevTools) held the slot first.
+  bool get isRebuildHookInstalled =>
+      _debugCoordinator?.isRebuildInstalled ?? false;
+
   ({String? route, int? scaffoldHash}) get currentScreen => (
     route: _currentRouteName(),
     scaffoldHash: _activeRouteSession?.scaffoldHashKey,
@@ -5216,6 +5222,10 @@ class SleuthController {
         ..write(i.routeName)
         ..write('|')
         ..write(i.tabVisitIndex)
+        ..write('|')
+        // Two first visits of tabs on one route differ only here, and the
+        // card compares it with the current screen.
+        ..write(i.scaffoldHashKey)
         ..write('|')
         ..write(i.observationSource?.name)
         ..write('|')
