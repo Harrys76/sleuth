@@ -24,6 +24,7 @@ import '../vm/vm_service_client.dart';
 /// or caught exception), `'reset_during_poll'` (capture state cleared
 /// mid-poll, result discarded).
 @immutable
+@experimental
 class StreamResourcePollResult {
   const StreamResourcePollResult({
     required this.succeeded,
@@ -904,6 +905,7 @@ class StreamResourceDetector extends BaseDetector
   }
 
   @override
+  @experimental
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:

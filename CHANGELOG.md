@@ -5,7 +5,8 @@
 - `package:sleuth/sleuth.dart` exports only the names listed in
   `doc/api_1_0_0.md`, each through a `show` list.
 - Capture and validation tooling moved to the new
-  `package:sleuth/validation.dart`, which is outside the semver promise:
+  `package:sleuth/validation.dart`, which is outside the semver promise
+  and whose declarations are `@experimental`:
   `EvidenceTier`, `DetectorMetadata`, `DetectorMetadataProvider`,
   `BracketSpec`, `ComponentMetadata`, `ComponentMetadataProvider`,
   `ProfileCaptureSchema`, `kSleuthPackageVersion`, `PollTimings`,
@@ -179,7 +180,7 @@
   with focus on Next, keeps its edge unless the new outline runs under
   it, and shields its old place for a double tap's span when it moves.
   When the outlined widget leaves the screen, Next goes to the widget
-  that followed it. The detectors tie those highlights to their issue
+  that followed it, and shows while any other widget remains. The detectors tie those highlights to their issue
   with the new `WidgetHighlight.stableId` and an element identity in
   `WidgetHighlight.occurrenceId`. The card body
   and the crosshair draw the focus outline in keyboard mode.

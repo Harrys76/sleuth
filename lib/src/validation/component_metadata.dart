@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart' show experimental;
+
 import 'evidence_tier.dart';
 
 /// Metadata describing how a non-detector component's reliability claim
@@ -24,6 +26,7 @@ import 'evidence_tier.dart';
 /// Prefer constructing instances as `const` so components can expose them
 /// from a `static const` field and register once at program start without
 /// per-scan allocation.
+@experimental
 class ComponentMetadata {
   const ComponentMetadata({
     required this.componentName,
@@ -192,6 +195,7 @@ class ComponentMetadata {
 /// `const ComponentMetadata(...)` directly to
 /// `ValidatedComponentRegistry.instance.register` from a
 /// `static void registerMetadata()` entry point.
+@experimental
 mixin ComponentMetadataProvider {
   /// Metadata for this component. Must be non-null on shipping components
   /// that register themselves.

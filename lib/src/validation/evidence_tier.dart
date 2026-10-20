@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart' show experimental;
+
 /// Evidence tier for a detector's threshold or heuristic.
 ///
 /// Each detector and feature in Sleuth ships with a claimed tier documenting
@@ -11,6 +13,7 @@
 /// The enum is **frozen** — new tiers require a semver major bump because
 /// downstream consumers (docs, validation tooling, external dashboards) key
 /// presentation and gating logic off the four values.
+@experimental
 enum EvidenceTier {
   /// No validation beyond the author's intuition or a passing unit test.
   /// Surface this transparently in docs so users know to calibrate.

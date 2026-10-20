@@ -28,6 +28,7 @@ import 'heap_floor_tracker.dart';
 /// cross + 10 s sustained = ~14-15 s of scenario allocation before the
 /// first `heap_growing` issue can fire. Capture procedures should
 /// allocate ≥30 s for comfortable margin.
+@experimental
 class MemoryPressureDetector extends BaseDetector
     with DetectorMetadataProvider {
   MemoryPressureDetector({

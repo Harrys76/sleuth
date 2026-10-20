@@ -2,6 +2,7 @@ import 'dart:developer' show Timeline;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'package:meta/meta.dart' show experimental;
 
 import '../models/base_detector.dart';
 import '../models/frame_stats.dart';
@@ -48,6 +49,7 @@ import '../startup/startup_tracker.dart';
 ///   [criticalRasterDominantFrames].
 /// * **Structural leg.** Opacity, ClipPath, BackdropFilter, ShaderMask and
 ///   ColorFiltered over deep subtrees (`expensive_gpu_nodes`).
+@experimental
 class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   GpuPressureDetector({
     this.rasterMultiplierThreshold = 2.0,

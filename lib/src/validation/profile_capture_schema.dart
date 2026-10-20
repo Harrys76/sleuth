@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:meta/meta.dart' show experimental;
 
 import 'capture_event_constants.dart';
 import 'detector_metadata.dart' show BracketSpec;
@@ -32,6 +33,7 @@ import 'detector_metadata.dart' show BracketSpec;
 ///
 /// Both entry points throw [FormatException] with a precise message on any
 /// violation so the audit gate can surface actionable failures.
+@experimental
 class ProfileCaptureSchema {
   ProfileCaptureSchema._();
 

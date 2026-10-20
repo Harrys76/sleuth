@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'package:meta/meta.dart' show experimental;
 
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
@@ -80,6 +81,7 @@ typedef _MeasuredUse = ({
 /// image cache entry, so `ui.Image.isCloneOf`) count it once, against
 /// the largest size any of them needs. The `ui.Image` handles are held
 /// only for the scan that reads them.
+@experimental
 class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   ImageMemoryDetector({
     this.oversizeRatio = 1.5,
