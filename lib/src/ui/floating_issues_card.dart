@@ -2189,7 +2189,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final lostNext = _barHadNext && !hasNext;
     _barHadNext = hasNext;
     if (!mounted || !_barOpen) return;
-    setState(() {});
+    // Without Next the bar loses its second row, so a quick second tap on
+    // Next could land outside it: its old place is shielded.
+    final bar = lostNext ? _barKey.currentContext?.findRenderObject() : null;
+    setState(() {
+      if (bar is RenderBox && bar.hasSize) {
+        _shieldBar(bar.localToGlobal(Offset.zero) & bar.size);
+      }
+    });
     if (!lostNext) return;
     final keyboard = _barNextFocus.hasFocus;
     WidgetsBinding.instance.addPostFrameCallback((_) {
