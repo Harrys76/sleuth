@@ -462,6 +462,46 @@ void main() {
     await tester.pump(const Duration(seconds: 15));
   });
 
+  testWidgets('the Rebuild stats link shows only on the card of the screen '
+      'it counts', (tester) async {
+    await pumpCard(tester);
+    controller.scanTreeFullPathForTest(
+      tester.element(find.byType(MaterialApp)),
+    );
+    controller.activeRouteSession!.rebuildCountsByType.addAll({'Tile': 12});
+    final screen = controller.currentScreen;
+    PerformanceIssue onScreen(String id, String? route) => PerformanceIssue(
+      severity: IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.likely,
+      title: 'Title $id',
+      detail: 'Detail $id',
+      fixHint: 'F',
+      stableId: 'rebuild_activity',
+      widgetName: id,
+      routeName: route,
+      scaffoldHashKey: screen.scaffoldHash,
+    );
+    controller.issuesNotifier.value = [
+      onScreen('here', screen.route),
+      onScreen('elsewhere', '/elsewhere'),
+    ];
+    await tester.pump();
+    await tester.tap(find.text('Title here'));
+    await tester.pump();
+    await tester.tap(find.text('Title elsewhere'));
+    await tester.pump();
+    expect(
+      find.bySemanticsLabel('See rebuild stats for this screen · 12 rebuilds'),
+      findsOneWidget,
+    );
+    final link = find.bySemanticsLabel(RegExp('See rebuild stats'));
+    final here = find.byWidgetPredicate(
+      (w) => w is IssueCard && w.issue.widgetName == 'here',
+    );
+    expect(find.descendant(of: here, matching: link), findsOneWidget);
+  });
+
   testWidgets('the Rebuild stats link waits for the screen to count '
       'rebuilds', (tester) async {
     controller.issuesNotifier.value = [_issue('rebuild_activity')];

@@ -1502,6 +1502,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     return null;
   }
 
+  /// Whether [issue] was reported on the screen the active route session
+  /// counts: a card kept from another screen must not link to this one's
+  /// stats.
+  bool _onCurrentScreen(PerformanceIssue issue) {
+    final screen = widget.controller.currentScreen;
+    return screen.route == issue.routeName &&
+        screen.scaffoldHash == issue.scaffoldHashKey;
+  }
+
   static bool _showsRebuildStats(PerformanceIssue issue) {
     final id = issue.stableId;
     return id == 'rebuild_activity' ||
@@ -3272,7 +3281,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     relatedLinkOf: _relatedLinkOf,
                     onOpenRelated: _openRelated,
                     onSeeRebuildStats:
-                        _showsRebuildStats(issue) && (rebuildTotal ?? 0) > 0
+                        _showsRebuildStats(issue) &&
+                            (rebuildTotal ?? 0) > 0 &&
+                            _onCurrentScreen(issue)
                         ? () {
                             _onSeeAllRebuildsTap();
                             if (_showRebuildStats) _layerOpener = issueKey;

@@ -1763,11 +1763,19 @@ class SleuthController {
   DebugSnapshot? get lastDebugSnapshot => _lastDebugSnapshot;
   DebugSnapshot? _lastDebugSnapshot;
 
-  /// The screen [lastDebugSnapshot] counted: the route name and scaffold
-  /// hash that issues reported there carry.
+  /// The screen [lastDebugSnapshot] counted, as [currentScreen] read then.
   ({String? route, int? scaffoldHash})? get lastDebugSnapshotScreen =>
       _lastDebugSnapshot == null ? null : _lastDebugSnapshotScreen;
   ({String? route, int? scaffoldHash})? _lastDebugSnapshotScreen;
+
+  /// The screen issues reported now are stamped with: the route name and
+  /// the active route session's scaffold hash, which is null on a route
+  /// the config ignores. An issue's `routeName` and `scaffoldHashKey`
+  /// compare against it.
+  ({String? route, int? scaffoldHash}) get currentScreen => (
+    route: _currentRouteName(),
+    scaffoldHash: _activeRouteSession?.scaffoldHashKey,
+  );
 
   /// Current scan cycle index (for testing).
   @visibleForTesting
@@ -3230,10 +3238,7 @@ class SleuthController {
       if (evidenceChanged) _lastDebugSnapshot = null;
       if (debugSnapshot != null && !evidenceChanged) {
         _lastDebugSnapshot = debugSnapshot;
-        _lastDebugSnapshotScreen = (
-          route: currentName,
-          scaffoldHash: currentHashKey,
-        );
+        _lastDebugSnapshotScreen = currentScreen;
         for (final d in _detectors) {
           if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
         }
