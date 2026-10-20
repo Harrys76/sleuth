@@ -32,6 +32,7 @@ import '../vm/connection_mode.dart';
 import 'hidden_issues_page.dart';
 import 'overlay_filters.dart';
 import 'highlight_bar.dart';
+import 'issue_list_scroll_controller.dart';
 import 'overlay_toast.dart';
 import 'overlay_ui_state.dart';
 import 'sleuth_listenable_builder.dart';
@@ -357,31 +358,6 @@ typedef _ChatKey = ({String listKey, int? occurrence});
 _ChatKey _chatKeyFor(PerformanceIssue issue) =>
     (listKey: listKeyFor(issue), occurrence: issue.occurrenceId);
 
-/// Scroll controller of the issue list. [keepOffset] records the attached
-/// list's offset before the list unmounts; the next list attached starts
-/// there, once.
-class _IssueListScrollController extends ScrollController {
-  double? _kept;
-
-  /// The recorded offset, or 0.
-  double get keptOffset => _kept ?? 0;
-
-  void keepOffset() {
-    _kept = hasClients && position.hasPixels ? position.pixels : null;
-  }
-
-  void dropKeptOffset() => _kept = null;
-
-  @override
-  double get initialScrollOffset => _kept ?? super.initialScrollOffset;
-
-  @override
-  void attach(ScrollPosition position) {
-    super.attach(position);
-    _kept = null;
-  }
-}
-
 class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     implements OverlayLayerHost {
   OverlayUiState get _ui => widget.controller.overlayUiState;
@@ -562,7 +538,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   /// Scroll position of the issue list, kept while a page covers the card
   /// (the list unmounts under it).
-  final _IssueListScrollController _listScroll = _IssueListScrollController();
+  final IssueListScrollController _listScroll = IssueListScrollController();
 
   /// Accessible navigation as of the last build; with
   /// [SemanticsBinding.semanticsEnabled] it sets the toast timing.
@@ -1375,14 +1351,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// line; a failure says so.
   Future<void> _reconnect() async {
     if (_reconnecting) return;
+    final keyboard = _focusInCard();
     setState(() => _reconnecting = true);
     final ok = await widget.controller.reconnect();
     if (!mounted) return;
     setState(() => _reconnecting = false);
     if (ok) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _focusSemantics(_statusKey),
-      );
+      // Reconnect is gone; with cards listed the whole line is, and the
+      // header takes the screen reader instead.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (keyboard) _moreFocus.requestFocus();
+        _focusSemantics(
+          _statusKey.currentContext == null ? _headerKey : _statusKey,
+        );
+      });
     } else {
       _toast.show(
         "Couldn't reconnect. Restart the app with $sleuthRunCommand.",
@@ -1412,12 +1395,48 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final screenReader =
         (MediaQuery.maybeAccessibleNavigationOf(context) ?? false) ||
         SemanticsBinding.instance.semanticsEnabled;
-    if (screenReader && _statusLineReachable) return;
+    if (!screenReader || !_statusLineReachable) {
+      _showVmLostToast();
+      return;
+    }
+    // The line announces it if the next frame shows it; a keyboard can
+    // squeeze its area to nothing.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.controller.vmConnectedNotifier.value) return;
+      if (!_statusLineReachable || !_statusLineShown()) _showVmLostToast();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _showVmLostToast() {
     if (_toast.value?.actionLabel != null) return;
     _toast.show(
       'VM link lost. Checks that need it are paused until it is back.',
       tone: OverlayToastTone.warning,
     );
+  }
+
+  /// Whether some of the status line lies inside the area that scrolls
+  /// it, as laid out in the last frame.
+  bool _statusLineShown() {
+    final statusContext = _statusKey.currentContext;
+    final box = statusContext?.findRenderObject();
+    if (statusContext == null ||
+        box is! RenderBox ||
+        !box.attached ||
+        !box.hasSize ||
+        box.size.isEmpty) {
+      return false;
+    }
+    final viewport = Scrollable.maybeOf(
+      statusContext,
+    )?.context.findRenderObject();
+    if (viewport is! RenderBox || !viewport.hasSize) return true;
+    final rect = MatrixUtils.transformRect(
+      box.getTransformTo(viewport),
+      Offset.zero & box.size,
+    );
+    return rect.bottom > 0 && rect.top < viewport.size.height;
   }
 
   bool _vmWasConnected = false;

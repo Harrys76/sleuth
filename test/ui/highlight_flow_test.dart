@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/controller/run_state.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
@@ -9,6 +10,7 @@ import 'package:sleuth/src/ui/highlight_bar.dart';
 import 'package:sleuth/src/ui/highlight_overlay.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
+import 'package:sleuth/src/ui/status_lines.dart';
 
 import '../helpers/overlay_harness.dart';
 
@@ -196,6 +198,54 @@ void main() {
       await tester.pump();
       expect(find.textContaining('VM link lost'), findsOneWidget);
       await tester.pump(const Duration(seconds: 15));
+    });
+
+    group('a lost link under a screen reader', () {
+      Future<SleuthController> lose(
+        WidgetTester tester, {
+        required double keyboard,
+      }) async {
+        _phone(tester);
+        final controller = await pumpOverlay(
+          tester,
+          config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+          host: (overlay) => MediaQuery(
+            data: MediaQueryData.fromView(
+              tester.view,
+            ).copyWith(viewInsets: EdgeInsets.only(bottom: keyboard)),
+            child: overlay,
+          ),
+        );
+        controller.issuesNotifier.value = [_lay, _other('a')];
+        controller.vmConnectedNotifier.value = true;
+        await openDashboard(tester, controller);
+        await tester.tap(find.bySemanticsLabel('Maximize'));
+        await tester.pump();
+        controller.runStateNotifier.value = const SleuthRunState(
+          phase: SleuthRunPhase.running,
+          everConnected: true,
+          reconnectAttempt: 1,
+          maxReconnectAttempts: 7,
+        );
+        controller.vmConnectedNotifier.value = false;
+        await tester.pump();
+        await tester.pump();
+        return controller;
+      }
+
+      testWidgets('is left to the status line it can read', (tester) async {
+        await lose(tester, keyboard: 0);
+        expect(find.byType(SleuthStatusBox), findsOneWidget);
+        expect(find.textContaining('VM link lost. Checks'), findsNothing);
+      });
+
+      testWidgets('toasts when the keyboard squeezes the line away', (
+        tester,
+      ) async {
+        await lose(tester, keyboard: 700);
+        expect(find.textContaining('VM link lost. Checks'), findsOneWidget);
+        await tester.pump(const Duration(seconds: 15));
+      });
     });
 
     testWidgets('leaving restores a maximized card and its list offset, '

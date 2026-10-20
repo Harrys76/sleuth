@@ -35,6 +35,40 @@ CoverageReport _coverage({
   return CoverageReport(map);
 }
 
+/// A controller whose Reconnect succeeds at once.
+class _ReconnectingController extends SleuthController {
+  @override
+  Future<bool> reconnect() async {
+    vmConnectedNotifier.value = true;
+    runStateNotifier.value = const SleuthRunState(
+      phase: SleuthRunPhase.running,
+      vmConnected: true,
+      everConnected: true,
+    );
+    return true;
+  }
+}
+
+/// Node ids of the focus semantics events sent to the platform.
+List<int> _recordScreenReaderFocus(WidgetTester tester) {
+  final ids = <int>[];
+  final messenger = tester.binding.defaultBinaryMessenger;
+  messenger.setMockDecodedMessageHandler<Object?>(
+    SystemChannels.accessibility,
+    (message) async {
+      if (message case {'type': 'focus', 'nodeId': final int id}) ids.add(id);
+      return null;
+    },
+  );
+  addTearDown(
+    () => messenger.setMockDecodedMessageHandler<Object?>(
+      SystemChannels.accessibility,
+      null,
+    ),
+  );
+  return ids;
+}
+
 Future<void> _pumpBox(WidgetTester tester, SleuthStatusBox box) =>
     tester.pumpWidget(
       MaterialApp(
@@ -203,7 +237,10 @@ void main() {
   group('in the card', () {
     late SleuthController controller;
 
-    setUp(() => controller = SleuthController()..initializeDetectorsForTest());
+    setUp(
+      () =>
+          controller = _ReconnectingController()..initializeDetectorsForTest(),
+    );
     tearDown(() => controller.dispose());
 
     Future<void> pumpCard(WidgetTester tester) async {
@@ -303,6 +340,27 @@ void main() {
       await tester.pump();
       expect(find.byType(SleuthStatusBox), findsOneWidget);
       expect(find.bySemanticsLabel('Reconnect'), findsOneWidget);
+    });
+
+    testWidgets('a reconnect with cards listed moves the screen reader to '
+        'the header', (tester) async {
+      controller.issuesNotifier.value = [issue('a')];
+      controller.runStateNotifier.value = const SleuthRunState(
+        phase: SleuthRunPhase.running,
+        everConnected: true,
+        stoppedRetrying: true,
+      );
+      await pumpCard(tester);
+      final focused = _recordScreenReaderFocus(tester);
+      await tester.tap(find.bySemanticsLabel('Reconnect'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(SleuthStatusBox), findsNothing);
+      expect(focused, isNotEmpty);
+      expect(
+        focused.last,
+        tester.getSemantics(find.bySemanticsLabel(RegExp('^Sleuth'))).id,
+      );
     });
 
     testWidgets('a lost link toasts while no action toast holds the slot', (
