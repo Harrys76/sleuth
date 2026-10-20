@@ -1441,9 +1441,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   /// The Why it rebuilds split for widget type [type] from the latest
   /// debug snapshot.
-  RebuildCause? _rebuildCause(String type) {
+  RebuildCause? _rebuildCause(String type, PerformanceIssue issue) {
     final snapshot = widget.controller.lastDebugSnapshot;
     if (snapshot == null) return null;
+    // The counts are the latest scan's screen; a card kept from another
+    // screen must not read them as its own.
+    final screen = widget.controller.lastDebugSnapshotScreen;
+    final otherScreen =
+        screen != null &&
+        (screen.route != issue.routeName ||
+            screen.scaffoldHash != issue.scaffoldHashKey);
     final by = snapshot.forcedRebuildsOf[type] ?? const <String, int>{};
     var forced = 0;
     var top = 0;
@@ -1463,6 +1470,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       parentForced: top,
       seconds: math.max(1, snapshot.elapsed.inSeconds),
       capped: snapshot.rebuildTypesCapped || snapshot.forcedTypesCapped,
+      otherScreen: otherScreen,
     );
   }
 
@@ -3240,9 +3248,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     onHide: () =>
                         _hideIssue(issue, index: capturedIndex, stale: stale),
                     isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
-                    lastSeenOf: () => widget.controller.lastSeenAt(
-                      issue.stableId ?? issue.title,
-                    ),
+                    lastSeenOf: () => widget.controller.lastSeenAt(issue),
                     relatedLinkOf: _relatedLinkOf,
                     onOpenRelated: _openRelated,
                     onSeeRebuildStats:
@@ -3263,7 +3269,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     rebuildCauseOf:
                         rebuildType != null &&
                             widget.controller.config.enableDebugCallbacks
-                        ? () => _rebuildCause(rebuildType)
+                        ? () => _rebuildCause(rebuildType, issue)
                         : null,
                     onCopyText: _copyText,
                     notUseful: widget.controller.isNotUseful(issue),

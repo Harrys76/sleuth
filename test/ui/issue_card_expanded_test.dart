@@ -220,6 +220,7 @@ void main() {
           parentForced: 5,
           seconds: 10,
           capped: false,
+          otherScreen: false,
         ),
       );
       expect(find.text('WHY IT REBUILDS · LAST 10 S'), findsOneWidget);
@@ -253,6 +254,7 @@ void main() {
           parentForced: 3,
           seconds: 10,
           capped: false,
+          otherScreen: false,
         ),
       );
       expect(
@@ -280,6 +282,7 @@ void main() {
           parentForced: 5,
           seconds: 10,
           capped: true,
+          otherScreen: false,
         ),
       );
       expect(
@@ -302,6 +305,7 @@ void main() {
           parentForced: 0,
           seconds: 2,
           capped: true,
+          otherScreen: false,
         ),
       );
       expect(find.text('No rebuilds in the last 2 s'), findsNothing);
@@ -312,6 +316,30 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('counts from another screen are not shown as this card\'s', (
+      tester,
+    ) async {
+      await pumpWhy(
+        tester,
+        () => (
+          own: 7,
+          forced: 2,
+          parents: 1,
+          parent: 'OtherScreen',
+          parentForced: 2,
+          seconds: 2,
+          capped: false,
+          otherScreen: true,
+        ),
+      );
+      expect(
+        find.text("Open this issue's screen to count its rebuilds"),
+        findsOneWidget,
+      );
+      expect(find.textContaining('OtherScreen'), findsNothing);
+      expect(find.text('WHY IT REBUILDS'), findsOneWidget);
     });
 
     testWidgets('says when the window had no rebuilds', (tester) async {
@@ -325,6 +353,7 @@ void main() {
           parentForced: 0,
           seconds: 2,
           capped: false,
+          otherScreen: false,
         ),
       );
       expect(find.text('No rebuilds in the last 2 s'), findsOneWidget);
