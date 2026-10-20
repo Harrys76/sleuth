@@ -292,4 +292,34 @@ void main() {
     expect(result.error, 'reveal_timeout');
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('a button finder skips a panel with the same label', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Column(
+          children: [
+            Semantics(
+              key: const ValueKey('button'),
+              button: true,
+              label: 'More',
+              onTap: () {},
+              child: const SizedBox(width: 48, height: 48),
+            ),
+            // The open menu, after the button in the tree.
+            Semantics(
+              key: const ValueKey('panel'),
+              container: true,
+              label: 'More',
+              child: const SizedBox(width: 200, height: 200),
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(findSemanticsLabel('More')?.widget.key, const ValueKey('panel'));
+    expect(findSemanticsButton('More')?.widget.key, const ValueKey('button'));
+    expect(findSemanticsButton('Less'), isNull);
+  });
 }

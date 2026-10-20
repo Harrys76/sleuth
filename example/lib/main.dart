@@ -1160,7 +1160,7 @@ void _registerDemoExtensions() {
           });
         }
         await waitForFrame();
-        final button = findSemanticsLabel('Not useful')?.widget;
+        final button = findSemanticsButton('Not useful')?.widget;
         result['notUseful'] = button is Semantics
             ? button.properties.toggled
             : null;
@@ -1625,10 +1625,11 @@ class _MetricsObserver with WidgetsBindingObserver {
 
 int _syntheticPointer = 900;
 
-/// Taps the foreground control whose semantics label is [label]. Returns
-/// an error code, or null after the tap.
+/// Taps the foreground button whose semantics label is [label]; a panel
+/// that carries the same label, such as the More menu, is skipped.
+/// Returns an error code, or null after the tap.
 Future<String?> _tapLabel(String label) async {
-  final element = findSemanticsLabel(label);
+  final element = findSemanticsButton(label);
   if (element == null) return 'not_found';
   final target = await prepareTap(element);
   final position = target.position;
