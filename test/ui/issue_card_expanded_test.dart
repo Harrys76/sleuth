@@ -219,19 +219,22 @@ void main() {
           parent: 'CombinedChatDemo',
           parentForced: 5,
           seconds: 10,
+          capped: false,
         ),
       );
       expect(find.text('WHY IT REBUILDS · LAST 10 S'), findsOneWidget);
       expect(
         find.text(
-          '0 from its own setState · 5 forced by its parent CombinedChatDemo',
+          '0 started by the widget itself · 5 forced by its parent '
+          'CombinedChatDemo',
           findRichText: true,
         ),
         findsOneWidget,
       );
       expect(
         find.text(
-          'The setState to fix is in CombinedChatDemo, not DemoScaffold.',
+          'Most of these rebuilds come from CombinedChatDemo, so start '
+          'there.',
         ),
         findsOneWidget,
       );
@@ -249,18 +252,66 @@ void main() {
           parent: 'FeedList',
           parentForced: 3,
           seconds: 10,
+          capped: false,
         ),
       );
       expect(
         find.text(
-          '4 from its own setState · 6 forced by 3 parents, 3 of them by '
-          'FeedList',
+          '4 started by the widget itself · 6 forced by 3 parents, 3 of '
+          'them by FeedList',
           findRichText: true,
         ),
         findsOneWidget,
       );
-      // FeedList alone forced fewer than the widget's own setState.
-      expect(find.textContaining('The setState to fix'), findsNothing);
+      // FeedList alone forced fewer than the widget started itself.
+      expect(find.textContaining('so start there'), findsNothing);
+    });
+
+    testWidgets('capped counters qualify the counts and drop the advice', (
+      tester,
+    ) async {
+      await pumpWhy(
+        tester,
+        () => (
+          own: 0,
+          forced: 5,
+          parents: 1,
+          parent: 'CombinedChatDemo',
+          parentForced: 5,
+          seconds: 10,
+          capped: true,
+        ),
+      );
+      expect(
+        find.text(
+          'Some widget types went untracked, so these counts can be low.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('so start there'), findsNothing);
+    });
+
+    testWidgets('capped counters do not claim no rebuilds', (tester) async {
+      await pumpWhy(
+        tester,
+        () => (
+          own: 0,
+          forced: 0,
+          parents: 0,
+          parent: null,
+          parentForced: 0,
+          seconds: 2,
+          capped: true,
+        ),
+      );
+      expect(find.text('No rebuilds in the last 2 s'), findsNothing);
+      expect(
+        find.text(
+          'No rebuilds counted in the last 2 s; some widget types went '
+          'untracked',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('says when the window had no rebuilds', (tester) async {
@@ -273,6 +324,7 @@ void main() {
           parent: null,
           parentForced: 0,
           seconds: 2,
+          capped: false,
         ),
       );
       expect(find.text('No rebuilds in the last 2 s'), findsOneWidget);

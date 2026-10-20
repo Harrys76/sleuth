@@ -16,9 +16,11 @@ import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
 /// What the Why it rebuilds row shows for a widget type over `seconds`:
-/// rebuilds of its own making (`own`), those its parents forced
-/// (`forced`, from `parents` parent types), and the parent that forced
-/// the most with its share (`parent`, `parentForced`).
+/// rebuilds the widget started itself (`own`: a setState, a changed
+/// dependency or a listenable), those its parents forced (`forced`, from
+/// `parents` parent types), and the parent that forced the most with its
+/// share (`parent`, `parentForced`). `capped` means the debug counters
+/// left some widget types out, so the counts can be low.
 typedef RebuildCause = ({
   int own,
   int forced,
@@ -26,6 +28,7 @@ typedef RebuildCause = ({
   String? parent,
   int parentForced,
   int seconds,
+  bool capped,
 });
 
 /// How a Caused by or Effects row opens the related card.
@@ -419,6 +422,9 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
         content = Text(
           cause == null
               ? 'No rebuild counts yet'
+              : cause.capped
+              ? 'No rebuilds counted in the last ${cause.seconds} s; some '
+                    'widget types went untracked'
               : 'No rebuilds in the last ${cause.seconds} s',
           style: style.copyWith(color: theme.textSecondary),
         );
@@ -428,7 +434,7 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
           TextSpan(
             children: [
               TextSpan(text: '${cause.own}', style: bold),
-              const TextSpan(text: ' from its own setState · '),
+              const TextSpan(text: ' started by the widget itself · '),
               TextSpan(text: '${cause.forced}', style: bold),
               if (parent == null)
                 const TextSpan(text: ' forced by its parents')
@@ -445,12 +451,13 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
           ),
           style: style,
         );
-        // Named only when that one parent forced more rebuilds than the
-        // widget's own setState.
-        if (parent != null && cause.parentForced > cause.own) {
+        if (cause.capped) {
+          // Missing types make the counts low and the comparison unsafe.
           hint =
-              'The setState to fix is in $parent, not '
-              '${issue.widgetName ?? 'this widget'}.';
+              'Some widget types went untracked, so these counts can be '
+              'low.';
+        } else if (parent != null && cause.parentForced > cause.own) {
+          hint = 'Most of these rebuilds come from $parent, so start there.';
         }
       }
       return Column(
