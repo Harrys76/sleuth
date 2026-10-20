@@ -21,6 +21,7 @@ class SleuthRunState {
     this.reconnectAttempt,
     this.maxReconnectAttempts = 0,
     this.stoppedRetrying = false,
+    this.everConnected = false,
   });
 
   final SleuthRunPhase phase;
@@ -39,6 +40,10 @@ class SleuthRunState {
   /// A manual reconnect can still succeed.
   final bool stoppedRetrying;
 
+  /// The VM link was up at some point this session, so a link that is
+  /// down now was lost rather than never made.
+  final bool everConnected;
+
   @override
   bool operator ==(Object other) =>
       other is SleuthRunState &&
@@ -46,7 +51,8 @@ class SleuthRunState {
       other.vmConnected == vmConnected &&
       other.reconnectAttempt == reconnectAttempt &&
       other.maxReconnectAttempts == maxReconnectAttempts &&
-      other.stoppedRetrying == stoppedRetrying;
+      other.stoppedRetrying == stoppedRetrying &&
+      other.everConnected == everConnected;
 
   @override
   int get hashCode => Object.hash(
@@ -55,11 +61,12 @@ class SleuthRunState {
     reconnectAttempt,
     maxReconnectAttempts,
     stoppedRetrying,
+    everConnected,
   );
 
   @override
   String toString() =>
       'SleuthRunState(${phase.name}, vm: $vmConnected, '
       'attempt: $reconnectAttempt/$maxReconnectAttempts, '
-      'stopped: $stoppedRetrying)';
+      'stopped: $stoppedRetrying, ever: $everConnected)';
 }

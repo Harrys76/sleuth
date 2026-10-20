@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/ui/status_lines.dart';
 
 PerformanceIssue _testIssue({
   IssueSeverity severity = IssueSeverity.warning,
@@ -45,7 +46,7 @@ void main() {
     testWidgets('no issues: no severity chips', (tester) async {
       await tester.pumpWidget(buildCard());
 
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
       expect(find.textContaining('critical'), findsNothing);
       expect(find.textContaining('warning'), findsNothing);
     });

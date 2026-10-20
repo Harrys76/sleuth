@@ -195,6 +195,23 @@
   types out, and says when rebuilds are not counted: the callbacks are
   off, `advanced.rebuildAttribution` is off, or DevTools holds the
   rebuild callback.
+- Status lines replace "No issues detected". Starting; Warming up, with
+  a progress bar; No VM link, with the checks off and partly off counted
+  from the session's coverage, a copyable `flutter run --profile --no-dds`
+  and a Guide link; No issues found, with the checks on and the opt-in
+  checks off; VM link lost, with the reconnect attempt; and stopped
+  retrying, with Reconnect. With cards listed, only a lost link takes a
+  line above them, and the status row names the state when it counts no
+  card. Each line is a live region: its label names the state and its
+  value holds the numbers, so the warm-up countdown does not repeat it.
+- One debug banner replaces the debug-mode and instrumentation banners.
+  Its text stops growing at the chrome limit, dismissing it lasts for the
+  session, and focus then moves to the severity chips.
+- The trigger shows its count in debug runs too; the warning badge is
+  gone.
+- While the card is open, a toast says when the VM link drops, unless an
+  action toast holds the slot or a screen reader is on (the status line
+  announces it).
 - The effort colours, `aboutBackground`, `fixHintText` and the three
   `aiShimmer` colours are unused by the overlay and kept for custom
   themes. The guide describes the new expanded card and Not useful.

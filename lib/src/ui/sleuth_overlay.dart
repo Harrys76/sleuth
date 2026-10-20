@@ -555,7 +555,6 @@ class _SleuthOverlayState extends State<SleuthOverlay>
                                     widget.controller.vmConnectedNotifier,
                                 frameStatsNotifier:
                                     widget.controller.frameStatsNotifier,
-                                isDebugMode: widget.controller.isDebugMode,
                                 fpsTarget: widget.controller.config.fpsTarget,
                                 uiState: widget.controller.overlayUiState,
                                 initialAlignment: widget

@@ -36,6 +36,7 @@ import 'overlay_toast.dart';
 import 'overlay_ui_state.dart';
 import 'sleuth_listenable_builder.dart';
 import 'sleuth_theme.dart';
+import 'status_lines.dart';
 import 'text_scale_clamp.dart';
 
 export 'overlay_filters.dart'
@@ -616,6 +617,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     super.initState();
     widget.controller.verdictNotifier.addListener(_onVerdictChanged);
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
+    _vmWasConnected = widget.controller.vmConnectedNotifier.value;
+    widget.controller.vmConnectedNotifier.addListener(_onVmLinkChanged);
     _ui.addListener(_onUiStateChanged);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
     SemanticsBinding.instance.addSemanticsEnabledListener(_syncToastTiming);
@@ -734,9 +737,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.verdictNotifier.removeListener(_onVerdictChanged);
       oldWidget.controller.issuesNotifier.removeListener(_onIssuesChanged);
+      oldWidget.controller.vmConnectedNotifier.removeListener(_onVmLinkChanged);
       oldWidget.controller.overlayUiState.removeListener(_onUiStateChanged);
       widget.controller.verdictNotifier.addListener(_onVerdictChanged);
       widget.controller.issuesNotifier.addListener(_onIssuesChanged);
+      _vmWasConnected = widget.controller.vmConnectedNotifier.value;
+      widget.controller.vmConnectedNotifier.addListener(_onVmLinkChanged);
       widget.controller.overlayUiState.addListener(_onUiStateChanged);
       _readGeometry();
       _lastSeverityFilter = {..._ui.severityFilter};
@@ -838,6 +844,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     SemanticsBinding.instance.removeSemanticsEnabledListener(_syncToastTiming);
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
+    widget.controller.vmConnectedNotifier.removeListener(_onVmLinkChanged);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     _toast.dispose();
     _listScroll.dispose();
@@ -1241,6 +1248,122 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Hides [issue]'s card from the overlay and offers Undo. The card has
   /// already collapsed through `onExpandedChanged(false)`; the prune that
   /// the hide triggers drops its highlight.
+  Listenable? _statusSources;
+  SleuthController? _statusSourcesController;
+
+  /// Run state and coverage of the current controller, merged once.
+  Listenable _statusListenable() {
+    final c = widget.controller;
+    if (_statusSources == null || !identical(c, _statusSourcesController)) {
+      _statusSources = Listenable.merge([
+        c.runStateNotifier,
+        c.coverageNotifier,
+      ]);
+      _statusSourcesController = c;
+    }
+    return _statusSources!;
+  }
+
+  /// A manual reconnect from the status line is running.
+  bool _reconnecting = false;
+
+  /// The status line: in place of an empty list for every state, above
+  /// the cards only while the VM link is lost.
+  Widget _statusLine({required bool emptyList}) => SleuthListenableBuilder(
+    listenable: _statusListenable(),
+    builder: (context) {
+      final controller = widget.controller;
+      final run = controller.runStateNotifier.value;
+      final kind = statusKindOf(run);
+      final lost =
+          kind == SleuthStatusKind.vmLost ||
+          kind == SleuthStatusKind.stoppedRetrying;
+      if (!emptyList && !lost) return const SizedBox.shrink();
+      final box = SleuthStatusBox(
+        key: _statusKey,
+        kind: kind,
+        run: run,
+        coverage: controller.coverageNotifier.value,
+        initializedAt: controller.initializedAt,
+        warmupDuration: controller.config.frameTimingWarmupDuration,
+        onCopyCommand: () => _copyText(sleuthRunCommand, 'Command copied'),
+        onReconnect: run.stoppedRetrying && !run.vmConnected
+            ? _reconnect
+            : null,
+        reconnecting: _reconnecting,
+      );
+      final guide =
+          emptyList &&
+          (kind == SleuthStatusKind.warmingUp || kind == SleuthStatusKind.noVm);
+      if (!guide) return box;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          box,
+          SleuthGuideLink(
+            onOpen: () => setState(() {
+              _showGuide = true;
+              _layerOpener = null;
+            }),
+          ),
+        ],
+      );
+    },
+  );
+
+  /// Reconnects by hand. Success moves the screen reader to the status
+  /// line; a failure says so.
+  Future<void> _reconnect() async {
+    if (_reconnecting) return;
+    setState(() => _reconnecting = true);
+    final ok = await widget.controller.reconnect();
+    if (!mounted) return;
+    setState(() => _reconnecting = false);
+    if (ok) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _focusSemantics(_statusKey),
+      );
+    } else {
+      _toast.show(
+        "Couldn't reconnect. Restart the app with $sleuthRunCommand.",
+        tone: OverlayToastTone.warning,
+      );
+    }
+  }
+
+  /// Dismisses the debug banner for the session; focus moves to the
+  /// chips.
+  void _dismissDebugBanner() {
+    setState(() => widget.controller.debugBannerDismissed = true);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _focusSemantics(_firstChipKey),
+    );
+  }
+
+  /// Says the VM link dropped while the card is open. A screen reader
+  /// hears it from the status line, and an action toast keeps the slot.
+  void _onVmLinkChanged() {
+    final connected = widget.controller.vmConnectedNotifier.value;
+    final was = _vmWasConnected;
+    _vmWasConnected = connected;
+    if (!was || connected || !mounted) return;
+    // Read now: the list updates its own copy only when it lists cards.
+    final screenReader =
+        (MediaQuery.maybeAccessibleNavigationOf(context) ?? false) ||
+        SemanticsBinding.instance.semanticsEnabled;
+    if (screenReader) return;
+    if (_toast.value?.actionLabel != null) return;
+    _toast.show(
+      'VM link lost. Checks that need it are paused until it is back.',
+      tone: OverlayToastTone.warning,
+    );
+  }
+
+  bool _vmWasConnected = false;
+
+  final GlobalKey _statusKey = GlobalKey(debugLabel: 'status line');
+
   /// Hides [issue]'s card, shown at [index], and moves focus to the card
   /// that takes its place. A card no longer reported cannot come back, so
   /// its toast offers no Undo.
@@ -2302,26 +2425,22 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  _WarningBanners(
-                                    isDeepInstrumentationActive: widget
-                                        .controller
-                                        .isDeepInstrumentationActive,
-                                  ),
                                   if (widget.isDebugMode &&
                                       widget
                                           .controller
                                           .config
                                           .showDebugModeBanner &&
                                       !widget.controller.debugBannerDismissed)
-                                    _DebugModeBanner(
-                                      onDismiss: () => setState(
-                                        () =>
-                                            widget
-                                                    .controller
-                                                    .debugBannerDismissed =
-                                                true,
-                                      ),
+                                    SleuthDebugBanner(
+                                      instrumentationActive: widget
+                                          .controller
+                                          .isDeepInstrumentationActive,
+                                      onDismiss: _dismissDebugBanner,
                                     ),
+                                  // With cards listed, only a lost link
+                                  // takes room above them.
+                                  if (issues.isNotEmpty)
+                                    _statusLine(emptyList: false),
                                 ],
                               ),
                             ),
@@ -2983,14 +3102,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           _clearShown();
           // The next list starts at the top.
           _listScroll.dropKeptOffset();
-          return Center(
-            child: Text(
-              '✅ No issues detected',
-              style: TextStyle(
-                color: theme.severityOkText,
-                fontSize: theme.fontMd,
-              ),
-            ),
+          // Fills the card's body as the list would, so the card keeps
+          // its height.
+          return Align(
+            alignment: Alignment.topCenter,
+            child: SingleChildScrollView(child: _statusLine(emptyList: true)),
           );
         }
 
@@ -3466,24 +3582,46 @@ class _StatusRow extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final (i, severity) in shown.indexed)
-                        Padding(
-                          padding: EdgeInsets.only(right: theme.spacingXxs),
-                          child: _SeverityChip(
-                            key: i == 0 ? firstChipKey : null,
-                            severity: severity,
-                            count: severityCounts[severity] ?? 0,
-                            selected: enabledSeverities.contains(severity),
-                            onTap: () => onToggleSeverity(severity),
+                child: shown.isEmpty
+                    // No card is counted: the row names the state the
+                    // status line explains.
+                    ? SleuthListenableBuilder(
+                        listenable: controller.runStateNotifier,
+                        builder: (_) => Text(
+                          statusRowLabel(
+                            statusKindOf(controller.runStateNotifier.value),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: theme.textSecondary,
+                            fontSize: theme.fontLg,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                    ],
-                  ),
-                ),
+                      )
+                    : SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final (i, severity) in shown.indexed)
+                              Padding(
+                                padding: EdgeInsets.only(
+                                  right: theme.spacingXxs,
+                                ),
+                                child: _SeverityChip(
+                                  key: i == 0 ? firstChipKey : null,
+                                  severity: severity,
+                                  count: severityCounts[severity] ?? 0,
+                                  selected: enabledSeverities.contains(
+                                    severity,
+                                  ),
+                                  onTap: () => onToggleSeverity(severity),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
               ),
               SizedBox(width: theme.spacingSm),
               _FpsText(controller: controller),
@@ -3701,144 +3839,6 @@ class _ShowingRow extends StatelessWidget {
 }
 
 // ─── Debug Mode Banner ──────────────────────────────────────────────────
-
-class _DebugModeBanner extends StatelessWidget {
-  const _DebugModeBanner({required this.onDismiss});
-
-  final VoidCallback onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = SleuthTheme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(color: theme.bannerWarningBg),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: theme.spacingSm,
-          vertical: theme.spacingXs,
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.warning_amber, size: 14, color: theme.bannerWarningText),
-            SizedBox(width: theme.spacingXs),
-            Expanded(
-              child: Text(
-                'Debug mode timings are about 10 times slower than production. '
-                'Run with flutter run --profile for accurate measurements.',
-                style: TextStyle(
-                  color: theme.bannerWarningText,
-                  fontSize: theme.fontSm,
-                ),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Semantics(
-              label: 'Dismiss debug mode banner',
-              button: true,
-              child: GestureDetector(
-                onTap: onDismiss,
-                behavior: HitTestBehavior.opaque,
-                child: SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Center(
-                    child: Icon(
-                      Icons.close,
-                      size: 14,
-                      color: theme.bannerWarningText,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Warning Banners ────────────────────────────────────────────────────
-
-class _WarningBanners extends StatelessWidget {
-  const _WarningBanners({required this.isDeepInstrumentationActive});
-
-  final bool isDeepInstrumentationActive;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = SleuthTheme.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (kDebugMode)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            padding: EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: theme.spacingSm,
-            ),
-            decoration: BoxDecoration(
-              color: theme.bannerDebugBg,
-              borderRadius: BorderRadius.circular(theme.radiusLg),
-            ),
-            child: Row(
-              children: [
-                ExcludeSemantics(
-                  child: Text('⚠️', style: TextStyle(fontSize: theme.fontBase)),
-                ),
-                SizedBox(width: theme.spacingSm),
-                Expanded(
-                  child: Text(
-                    'Debug mode data is inaccurate.\nRun: flutter run --profile',
-                    style: TextStyle(
-                      color: theme.bannerDebugText,
-                      fontSize: theme.fontSm,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        if (kDebugMode && isDeepInstrumentationActive)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            padding: EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: theme.spacingSm,
-            ),
-            decoration: BoxDecoration(
-              color: theme.bannerInstrumentationBg,
-              borderRadius: BorderRadius.circular(theme.radiusLg),
-            ),
-            child: Row(
-              children: [
-                ExcludeSemantics(
-                  child: Text('🔬', style: TextStyle(fontSize: theme.fontBase)),
-                ),
-                SizedBox(width: theme.spacingSm),
-                Expanded(
-                  child: Text(
-                    'Instrumentation active. Rebuild and paint counts help with '
-                    'attribution, but timings do not reflect real performance.',
-                    style: TextStyle(
-                      color: theme.bannerInstrumentationText,
-                      fontSize: theme.fontSm,
-                    ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
 
 /// A severity chip in the status row: the count and its word, which
 /// toggles the severity filter. On, it is filled and shows the filled

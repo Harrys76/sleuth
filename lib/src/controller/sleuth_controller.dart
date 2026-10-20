@@ -460,6 +460,9 @@ class SleuthController {
   Timer? _warmupTimer;
   bool _warmupElapsed = false;
 
+  /// The VM link was up at some point this session.
+  bool _everConnected = false;
+
   /// Whether the debug-mode banner was dismissed this session. The
   /// controller keeps it so reopening the dashboard does not show it again.
   bool debugBannerDismissed = false;
@@ -4881,6 +4884,7 @@ class SleuthController {
   }
 
   void _onVmConnectionChanged(bool connected) {
+    if (connected) _everConnected = true;
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
     if (!connected) _cancelDeferredEnrichment();
@@ -4983,6 +4987,7 @@ class SleuthController {
           initAt != null &&
           !_backgroundReconnectActive &&
           _backgroundReconnectAttempt >= attempts,
+      everConnected: _everConnected,
     );
   }
 

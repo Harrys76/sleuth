@@ -29,7 +29,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () {},
           ),
         ),
@@ -54,7 +53,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () => tapped = true,
           ),
         ),
@@ -107,7 +105,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () {},
           ),
         ),
@@ -131,7 +128,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () {},
           ),
         ),
@@ -147,8 +143,17 @@ void main() {
       fps.dispose();
     });
 
-    testWidgets('shows debug warning badge in debug mode', (tester) async {
-      final issues = ValueNotifier<List<PerformanceIssue>>([]);
+    testWidgets('shows the count with no debug warning badge', (tester) async {
+      final issues = ValueNotifier<List<PerformanceIssue>>([
+        const PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+          title: 'T',
+          detail: 'D',
+          fixHint: 'F',
+        ),
+      ]);
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
@@ -158,13 +163,13 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: true,
             onTap: () {},
           ),
         ),
       );
 
-      expect(find.text('\u26A0\uFE0F'), findsOneWidget);
+      expect(find.text('\u26A0\uFE0F'), findsNothing);
+      expect(find.text('1'), findsOneWidget);
 
       issues.dispose();
       vm.dispose();
@@ -182,7 +187,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () {},
           ),
         ),
@@ -209,7 +213,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () {},
           ),
         ),
@@ -249,7 +252,6 @@ void main() {
                 issuesNotifier: issues,
                 vmConnectedNotifier: vm,
                 frameStatsNotifier: fps,
-                isDebugMode: false,
                 onTap: () {},
                 initialAlignment: Alignment.topRight,
                 initialOffset: const Offset(16, 64),
@@ -283,7 +285,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () {},
             initialAlignment: Alignment.bottomLeft,
             initialOffset: const Offset(16, 64),
@@ -315,7 +316,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () {},
             initialAlignment: Alignment.topLeft,
             initialOffset: Offset.zero,
@@ -344,7 +344,6 @@ void main() {
             issuesNotifier: issues,
             vmConnectedNotifier: vm,
             frameStatsNotifier: fps,
-            isDebugMode: false,
             onTap: () {},
           ),
         ),
@@ -400,7 +399,6 @@ void main() {
         issuesNotifier: issues,
         vmConnectedNotifier: vm,
         frameStatsNotifier: fps,
-        isDebugMode: false,
         uiState: state,
         initialAlignment: alignment,
         onTap: () {},
@@ -598,7 +596,6 @@ void main() {
               issuesNotifier: issues,
               vmConnectedNotifier: vm,
               frameStatsNotifier: fps,
-              isDebugMode: false,
               onTap: () {},
             ),
           ),
@@ -653,7 +650,6 @@ void main() {
                 issuesNotifier: issues,
                 vmConnectedNotifier: vm,
                 frameStatsNotifier: fps,
-                isDebugMode: false,
                 onTap: () {},
               ),
             ),

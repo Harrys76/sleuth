@@ -6,7 +6,7 @@ import 'package:sleuth/src/debug/debug_instrumentation_config.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 
 void main() {
-  group('instrumentation warning banner', () {
+  group('debug banner instrumentation sentence', () {
     setUp(() {
       assert(() {
         debugOnRebuildDirtyWidget = null;
@@ -23,55 +23,48 @@ void main() {
       }());
     });
 
-    testWidgets('NOT shown when isDeepInstrumentationActive is false', (
-      tester,
-    ) async {
-      final controller = SleuthController();
-      controller.initializeDetectorsForTest();
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FloatingIssuesCard(
-              controller: controller,
-              onClose: () {},
-              isDebugMode: false,
-            ),
+    Future<void> pump(
+      WidgetTester tester,
+      SleuthController controller, {
+      bool isDebugMode = true,
+    }) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FloatingIssuesCard(
+            controller: controller,
+            onClose: () {},
+            isDebugMode: isDebugMode,
           ),
         ),
-      );
+      ),
+    );
 
-      expect(find.textContaining('Instrumentation active'), findsNothing);
+    Finder banner() =>
+        find.textContaining('Timings run slower', findRichText: true);
+    Finder instrumentation() =>
+        find.textContaining('Instrumentation is on', findRichText: true);
 
+    testWidgets('left out when deep instrumentation is off', (tester) async {
+      final controller = SleuthController()..initializeDetectorsForTest();
+      await pump(tester, controller);
+      expect(banner(), findsOneWidget);
+      expect(instrumentation(), findsNothing);
       controller.dispose();
     });
 
-    testWidgets('shown when isDeepInstrumentationActive is true', (
+    testWidgets('added to the one banner when deep instrumentation is on', (
       tester,
     ) async {
       final controller = SleuthController(
         config: const SleuthConfig(enableDeepDebugInstrumentation: true),
-      );
-      controller.initializeDetectorsForTest();
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FloatingIssuesCard(
-              controller: controller,
-              onClose: () {},
-              isDebugMode: false,
-            ),
-          ),
-        ),
-      );
-
-      expect(find.textContaining('Instrumentation active'), findsOneWidget);
-
+      )..initializeDetectorsForTest();
+      await pump(tester, controller);
+      expect(banner(), findsOneWidget);
+      expect(instrumentation(), findsOneWidget);
       controller.dispose();
     });
 
-    testWidgets('NOT shown when deep=true but all sub-flags off', (
+    testWidgets('left out when every instrumentation flag is off', (
       tester,
     ) async {
       final controller = SleuthController(
@@ -84,49 +77,19 @@ void main() {
             timelineEnrichment: false,
           ),
         ),
-      );
-      controller.initializeDetectorsForTest();
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FloatingIssuesCard(
-              controller: controller,
-              onClose: () {},
-              isDebugMode: false,
-            ),
-          ),
-        ),
-      );
-
-      expect(find.textContaining('Instrumentation active'), findsNothing);
-
+      )..initializeDetectorsForTest();
+      await pump(tester, controller);
+      expect(instrumentation(), findsNothing);
       controller.dispose();
     });
 
-    testWidgets('both warnings visible simultaneously', (tester) async {
+    testWidgets('no banner outside a debug run', (tester) async {
       final controller = SleuthController(
         config: const SleuthConfig(enableDeepDebugInstrumentation: true),
-      );
-      controller.initializeDetectorsForTest();
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FloatingIssuesCard(
-              controller: controller,
-              onClose: () {},
-              isDebugMode: false,
-            ),
-          ),
-        ),
-      );
-
-      // Debug mode warning
-      expect(find.textContaining('Debug mode'), findsOneWidget);
-      // Instrumentation warning
-      expect(find.textContaining('Instrumentation active'), findsOneWidget);
-
+      )..initializeDetectorsForTest();
+      await pump(tester, controller, isDebugMode: false);
+      expect(banner(), findsNothing);
+      expect(instrumentation(), findsNothing);
       controller.dispose();
     });
   });
