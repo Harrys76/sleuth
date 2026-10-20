@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart' show experimental;
 
 /// Cost of one VM timeline poll, split by segment.
 ///
@@ -17,6 +18,7 @@ import 'package:flutter/foundation.dart';
 /// Read through `Sleuth.lastPollTimings` or the `lastPoll*` keys of
 /// `ext.sleuth.diagnose`.
 @immutable
+@experimental
 class PollTimings {
   /// Creates a timings record. Durations and counts are non-negative;
   /// [responseChars] and [decodeMicros] are null when the raw response

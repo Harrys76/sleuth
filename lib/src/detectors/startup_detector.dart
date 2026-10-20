@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:meta/meta.dart' show experimental;
 
 import '../../sleuth.dart';
 import '../startup/startup_tracker.dart';
@@ -21,6 +22,7 @@ import '../validation/evidence_tier.dart';
 /// it persists for the session but is not re-evaluated. This avoids stale
 /// re-detection on hot restart where [Sleuth.init] guards against
 /// double-measurement.
+@experimental
 class StartupDetector extends BaseDetector with DetectorMetadataProvider {
   StartupDetector({this.ttffWarningMs = 1500, this.ttffCriticalMs = 3000})
     : super(

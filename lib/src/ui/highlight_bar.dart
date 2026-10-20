@@ -41,6 +41,7 @@ class SleuthHighlightBar extends StatelessWidget {
     this.step,
     this.onNext,
     this.nextFocusNode,
+    this.showNext = false,
   });
 
   final IssueSeverity severity;
@@ -52,6 +53,10 @@ class SleuthHighlightBar extends StatelessWidget {
 
   /// Outlines the issue's next widget.
   final VoidCallback? onNext;
+
+  /// Whether Next shows: two or more widgets, or the outlined one is gone
+  /// and another remains.
+  final bool showNext;
 
   /// Focus for Next, which takes focus when a bar with Next opens.
   final FocusNode? nextFocusNode;
@@ -75,8 +80,11 @@ class SleuthHighlightBar extends StatelessWidget {
   /// Whether the bar has its second row, for an issue that lists widgets.
   bool get _twoRows => step != null;
 
-  /// Whether the bar shows the position and Next.
-  bool get _steps => _twoRows && step!.count > 1 && onNext != null;
+  /// Whether the bar shows the position: two or more widgets.
+  bool get _position => _twoRows && step!.count > 1;
+
+  /// Whether the bar shows Next.
+  bool get _next => _twoRows && showNext && onNext != null;
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +92,7 @@ class SleuthHighlightBar extends StatelessWidget {
     final state = offScreen
         ? '$widgetName is off screen'
         : 'Showing $widgetName';
-    final position = _steps ? '${step!.index + 1} of ${step!.count}' : null;
+    final position = _position ? '${step!.index + 1} of ${step!.count}' : null;
     final spoken = position == null ? state : '$state, $position';
     final radius = BorderRadius.circular(theme.radiusXxl);
     final buttonRadius = BorderRadius.circular(theme.radiusLg);
@@ -195,7 +203,7 @@ class SleuthHighlightBar extends StatelessWidget {
                           icon,
                           SizedBox(width: theme.spacingMd),
                           labelText,
-                          if (_steps)
+                          if (_next)
                             _textButton(
                               theme,
                               buttonRadius,

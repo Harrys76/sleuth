@@ -3,6 +3,7 @@ import 'dart:ui' show FramePhase;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:meta/meta.dart' show experimental;
 
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
@@ -67,6 +68,7 @@ import '../startup/startup_tracker.dart';
 /// change, so startup frames never count toward jank. The frame buffer
 /// itself is untouched: verdicts, FPS, cache trends and exports keep the
 /// full window.
+@experimental
 class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   FrameTimingDetector({
     int? warningThresholdMs,

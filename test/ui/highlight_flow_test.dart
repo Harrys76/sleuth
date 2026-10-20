@@ -1079,6 +1079,24 @@ void main() {
       expect(shield, findsNothing);
     });
 
+    testWidgets('when the outlined widget goes and one other stays, Next '
+        'reaches it', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1]);
+      await _tapCrosshair(tester, painters);
+      expect(_outlined(controller), 100);
+
+      controller.publishHighlightsForTest([_painterAt(1)]);
+      await tester.pump();
+      expect(_outlined(controller), isNull);
+      expect(_next, findsOneWidget);
+
+      await tester.tap(_next);
+      await tester.pump();
+      expect(_outlined(controller), 101);
+      expect(_next, findsNothing);
+    });
+
     testWidgets('with one widget the bar has no Next and no position', (
       tester,
     ) async {

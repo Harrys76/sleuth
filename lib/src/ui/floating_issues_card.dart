@@ -2098,10 +2098,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     });
   }
 
-  /// Whether the bar shows Next: the outlined issue has two or more
-  /// widgets.
-  bool get _barHasNext =>
-      (widget.controller.highlightStepNotifier.value?.count ?? 0) > 1;
+  /// Whether the bar shows Next ([SleuthController.canStepNext]).
+  bool get _barHasNext => widget.controller.canStepNext;
 
   /// Moves the screen reader to the bar control of [node], and keyboard
   /// focus when the crosshair was reached by keyboard.
@@ -2262,6 +2260,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             step: step,
             onNext: widget.controller.nextHighlightStep,
             nextFocusNode: _barNextFocus,
+            showNext: _barHasNext,
           ),
         ),
       ),

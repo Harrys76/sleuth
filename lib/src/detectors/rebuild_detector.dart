@@ -1,6 +1,7 @@
 import 'dart:developer' show Timeline;
 
 import 'package:flutter/widgets.dart';
+import 'package:meta/meta.dart' show experimental;
 
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
@@ -883,6 +884,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   @override
+  @experimental
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     perStableIdTier: {'rebuild_activity': EvidenceTier.runtimeVerified},

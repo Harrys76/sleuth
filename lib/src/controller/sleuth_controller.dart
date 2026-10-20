@@ -947,6 +947,13 @@ class SleuthController {
     ];
   }
 
+  /// Whether [nextHighlightStep] can outline another widget: the issue
+  /// has two or more, or its outlined widget is gone and another remains.
+  bool get canStepNext {
+    final count = highlightStepNotifier.value?.count ?? 0;
+    return count > 1 || (count == 1 && selectedHighlightNotifier.value == null);
+  }
+
   /// Outlines the next widget of the outlined [listsWidgets] issue, after
   /// the last one wrapping to the first. When the outlined widget is off
   /// screen, the next one is the widget now at its place, the one that
