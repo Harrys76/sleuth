@@ -127,4 +127,51 @@ void main() {
     expect(c.selectedHighlightNotifier.value?.occurrenceId, 11);
     expect(c.highlightStepNotifier.value, (index: 1, count: 2));
   });
+
+  testWidgets('an outline never moves to another issue\'s highlight of the '
+      'same element', (tester) async {
+    final c = SleuthController();
+    addTearDown(c.dispose);
+    c.scanTickNotifier.value = 1;
+    c.publishHighlightsForTest([_h(1), _h(2)]);
+    c.selectHighlightForIssue(_issue('always_repaint_painter'));
+    expect(c.selectedHighlightNotifier.value?.occurrenceId, 1);
+
+    // The painter is fixed but its element still lacks a RepaintBoundary.
+    c.publishHighlightsForTest([
+      _h(1, stableId: 'missing_repaint_boundary'),
+      _h(2),
+    ]);
+    expect(c.selectedHighlightNotifier.value, isNull);
+
+    // A named issue on that element ignores the list issue's highlight.
+    final named = PerformanceIssue(
+      severity: IssueSeverity.warning,
+      category: IssueCategory.layout,
+      confidence: IssueConfidence.possible,
+      title: 'W',
+      detail: 'D',
+      fixHint: 'F',
+      stableId: 'wrap_layout_bottleneck',
+      widgetName: 'Wrap',
+      occurrenceId: 1,
+    );
+    expect(c.selectHighlightForIssue(named), HighlightLookup.notFound);
+  });
+
+  testWidgets('Next appears when others arrive while the outlined widget '
+      'is gone', (tester) async {
+    final c = SleuthController();
+    addTearDown(c.dispose);
+    c.scanTickNotifier.value = 1;
+    c.publishHighlightsForTest([_h(1)]);
+    c.selectHighlightForIssue(_issue('always_repaint_painter'));
+    expect(c.highlightStepNotifier.value, (index: 0, count: 1));
+
+    c.publishHighlightsForTest([_h(2), _h(3)]);
+    expect(c.selectedHighlightNotifier.value, isNull);
+    expect(c.highlightStepNotifier.value?.count, 2);
+    c.nextHighlightStep();
+    expect(c.selectedHighlightNotifier.value?.occurrenceId, 2);
+  });
 }

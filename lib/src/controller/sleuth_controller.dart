@@ -1002,7 +1002,8 @@ class SleuthController {
       // An issue that names its element takes that element's highlight
       // or none: a sibling with the same name belongs to another issue.
       for (final h in highlights) {
-        if (h.occurrenceId == occurrence) return h;
+        // A tagged highlight belongs to a list issue on the same element.
+        if (h.occurrenceId == occurrence && h.stableId == null) return h;
       }
       return null;
     }
@@ -3765,8 +3766,11 @@ class SleuthController {
       final occurrence = selected.occurrenceId;
       WidgetHighlight? refreshed;
       for (final h in items) {
+        // One element can carry highlights of several issues (a
+        // CustomPaint flagged by two detectors); the outline stays with
+        // its own issue's.
         final same = occurrence != null
-            ? h.occurrenceId == occurrence
+            ? h.occurrenceId == occurrence && h.stableId == selected.stableId
             : h.detectorName == selected.detectorName &&
                   h.widgetName == selected.widgetName;
         if (same) {
@@ -3781,17 +3785,22 @@ class SleuthController {
     if (target != null && listsWidgets(target)) {
       final steps = _stepsOf(target, items);
       final index = steps.indexWhere((h) => h.occurrenceId == _stepOccurrence);
+      // The outline comes only from the issue's own widgets.
+      selectedHighlightNotifier.value = index >= 0 ? steps[index] : null;
+      if (index >= 0) _stepPlace = index;
       // The shown position changes with Next and the lookup, not with each
       // scan: a screen reader would read the bar's label again after every
       // scroll. Only a change in whether there is a next widget shows at
-      // once. While its widget is off screen the step keeps its position.
-      if (index >= 0) {
-        _stepPlace = index;
-        selectedHighlightNotifier.value = steps[index];
-        final shown = highlightStepNotifier.value;
-        if (shown == null || (shown.count > 1) != (steps.length > 1)) {
-          highlightStepNotifier.value = (index: index, count: steps.length);
-        }
+      // once, also while the outlined widget is off screen, when the
+      // position stays where it was.
+      final shown = highlightStepNotifier.value;
+      if (shown == null || (shown.count > 1) != (steps.length > 1)) {
+        highlightStepNotifier.value = (
+          index: index >= 0
+              ? index
+              : math.min(shown?.index ?? 0, math.max(0, steps.length - 1)),
+          count: steps.length,
+        );
       }
     } else if (target != null && selectedHighlightNotifier.value == null) {
       selectedHighlightNotifier.value = _ownHighlightOf(target, items);
@@ -3808,7 +3817,7 @@ class SleuthController {
     final occurrence = issue.occurrenceId;
     for (final h in highlights) {
       if (occurrence != null
-          ? h.occurrenceId == occurrence
+          ? h.occurrenceId == occurrence && h.stableId == null
           : h.widgetName == issue.widgetName) {
         return h;
       }
