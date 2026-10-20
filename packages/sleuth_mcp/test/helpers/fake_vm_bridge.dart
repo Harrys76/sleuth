@@ -65,7 +65,7 @@ Map<String, Object?> fakeSnapshotEnvelope({bool isVmConnected = false}) => {
   'data': {
     'schemaVersion': 5,
     'exportedAt': '2026-05-17T00:00:00.000Z',
-    'packageVersion': '0.38.0',
+    'packageVersion': '1.0.0',
     'isVmConnected': isVmConnected,
     'currentIssues': fullFakeIssues(),
     'frameStatsSummary': {'averageFps': 59.5, 'jankFrames': 0},
@@ -77,7 +77,7 @@ Map<String, Object?> fakeSnapshotEnvelope({bool isVmConnected = false}) => {
 Map<String, Object?> fullFakeSnapshotData({bool isVmConnected = true}) => {
   'schemaVersion': 5,
   'exportedAt': '2026-05-17T00:00:00.000Z',
-  'packageVersion': '0.38.0',
+  'packageVersion': '1.0.0',
   'isVmConnected': isVmConnected,
   'isDebugMode': false,
   'frameStatsSummary': {'averageFps': 59.5, 'jankFrames': 0},
@@ -201,7 +201,7 @@ FakeVmBridge defaultFakeBridge() {
     'schemaVersion': 1,
     'sessionUuid': 'fake-uuid',
     'data': {
-      'packageVersion': '0.38.0',
+      'packageVersion': '1.0.0',
       'initializedAtMicros': 0,
       'vmConnected': true,
       'captureMode': false,

@@ -152,4 +152,38 @@ void main() {
     expect(result['error'], 'some_extension_error');
     expect(result.containsKey('data'), isFalse);
   });
+
+  test('compact issues keep the measurement; the Not useful marks pass '
+      'through', () async {
+    final bridge = defaultFakeBridge();
+    await bridge.connect(Uri.parse('ws://localhost/ws'));
+    const measurement = {
+      'value': 42.0,
+      'unit': 'count',
+      'warningAt': 30.0,
+      'criticalAt': 90.0,
+    };
+    const marks = [
+      {'key': 'jank_detected', 'markedAtMicros': 1, 'live': true},
+    ];
+    bridge.setEnvelope('ext.sleuth.issues', {
+      'connectionMode': 'basic',
+      'schemaVersion': 1,
+      'sessionUuid': 'fake-uuid',
+      'data': {
+        'issues': [
+          for (final i in fullFakeIssues()) {...i, 'measurement': measurement},
+        ],
+        'vmConnected': true,
+        'notUsefulMarks': marks,
+      },
+    });
+    final result =
+        await builtInTools['get_issues']!.handler(bridge, {})
+            as Map<String, Object?>;
+    final data = result['data'] as Map<String, Object?>;
+    final issues = (data['issues'] as List).cast<Map<String, Object?>>();
+    expect(issues.first['measurement'], measurement);
+    expect(data['notUsefulMarks'], marks);
+  });
 }
