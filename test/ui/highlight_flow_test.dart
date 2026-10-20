@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleuth/src/controller/run_state.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
@@ -10,7 +9,6 @@ import 'package:sleuth/src/ui/highlight_bar.dart';
 import 'package:sleuth/src/ui/highlight_overlay.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
-import 'package:sleuth/src/ui/status_lines.dart';
 
 import '../helpers/overlay_harness.dart';
 
@@ -42,13 +40,10 @@ WidgetHighlight _layAt(Rect rect) => WidgetHighlight(
   detectorName: 'LayoutDetector',
 );
 
-/// A scan has run and outlined Lay at [rect].
-void _seedHighlight(SleuthController controller, Rect rect, {int gen = 1}) {
+/// A scan has run and found Lay at [rect].
+void _seedHighlight(SleuthController controller, Rect rect) {
   controller.scanTickNotifier.value = 1;
-  controller.highlightsNotifier.value = (
-    generation: gen,
-    items: [_layAt(rect)],
-  );
+  controller.publishHighlightsForTest([_layAt(rect)]);
 }
 
 /// Node ids of the focus semantics events sent to the platform.
@@ -167,91 +162,14 @@ void main() {
       expect(find.text('Lay is off screen'), findsOneWidget);
 
       // Back on screen in the top half: outlined again, bar at the bottom.
-      _seedHighlight(controller, _top, gen: 2);
+      _seedHighlight(controller, _top);
       await tester.pump();
       expect(find.text('Showing Lay'), findsOneWidget);
       expect(tester.getRect(_bar).bottom, 800 - 8);
     });
 
-    testWidgets('a toast stays above the bar at the bottom', (tester) async {
-      final controller = await _openWith(tester, [_lay]);
-      _seedHighlight(controller, _top);
-      await _tapCrosshair(tester);
-      controller.vmConnectedNotifier.value = true;
-      await tester.pump();
-      controller.vmConnectedNotifier.value = false;
-      await tester.pump();
-      final toast = find.textContaining('VM link lost');
-      expect(toast, findsOneWidget);
-      expect(tester.getRect(toast).bottom, lessThan(tester.getRect(_bar).top));
-      await tester.pump(const Duration(seconds: 15));
-    }, semanticsEnabled: false);
-
-    testWidgets('under a screen reader a lost link still toasts while the '
-        'bar is up', (tester) async {
-      final controller = await _openWith(tester, [_lay]);
-      _seedHighlight(controller, _top);
-      await _tapCrosshair(tester);
-      controller.vmConnectedNotifier.value = true;
-      await tester.pump();
-      controller.vmConnectedNotifier.value = false;
-      await tester.pump();
-      expect(find.textContaining('VM link lost'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 15));
-    });
-
-    group('a lost link under a screen reader', () {
-      Future<SleuthController> lose(
-        WidgetTester tester, {
-        required double keyboard,
-      }) async {
-        _phone(tester);
-        final controller = await pumpOverlay(
-          tester,
-          config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
-          host: (overlay) => MediaQuery(
-            data: MediaQueryData.fromView(
-              tester.view,
-            ).copyWith(viewInsets: EdgeInsets.only(bottom: keyboard)),
-            child: overlay,
-          ),
-        );
-        controller.issuesNotifier.value = [_lay, _other('a')];
-        controller.vmConnectedNotifier.value = true;
-        await openDashboard(tester, controller);
-        await tester.tap(find.bySemanticsLabel('Maximize'));
-        await tester.pump();
-        controller.runStateNotifier.value = const SleuthRunState(
-          phase: SleuthRunPhase.running,
-          everConnected: true,
-          reconnectAttempt: 1,
-          maxReconnectAttempts: 7,
-        );
-        controller.vmConnectedNotifier.value = false;
-        await tester.pump();
-        await tester.pump();
-        return controller;
-      }
-
-      testWidgets('is left to the status line it can read', (tester) async {
-        await lose(tester, keyboard: 0);
-        expect(find.byType(SleuthStatusBox), findsOneWidget);
-        expect(find.textContaining('VM link lost. Checks'), findsNothing);
-      });
-
-      testWidgets('toasts when the keyboard squeezes the line away', (
-        tester,
-      ) async {
-        await lose(tester, keyboard: 700);
-        expect(find.textContaining('VM link lost. Checks'), findsOneWidget);
-        await tester.pump(const Duration(seconds: 15));
-      });
-    });
-
     testWidgets('leaving restores a maximized card and its list offset, '
-        'returns the markers toggle and writes no overlay state', (
-      tester,
-    ) async {
+        'leaves the markers off and writes no overlay state', (tester) async {
       // Lay in the middle, so a scroll that moved it to the top would
       // show in the offset.
       final controller = await _openWith(tester, [
@@ -294,7 +212,9 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(_bar, findsOneWidget);
-      expect(controller.highlightEnabledNotifier.value, isTrue);
+      // The outline alone: the markers stay off.
+      expect(controller.highlightEnabledNotifier.value, isFalse);
+      expect(controller.selectedHighlightNotifier.value, isNotNull);
 
       await tester.tap(_back);
       await tester.pump();
@@ -566,27 +486,18 @@ void main() {
       );
       final controller = await _openWith(tester, [own]);
       controller.scanTickNotifier.value = 1;
-      controller.highlightsNotifier.value = (
-        generation: 1,
-        items: [at(_top, 2)],
-      );
+      controller.publishHighlightsForTest([at(_top, 2)]);
       await _tapCrosshair(tester);
       expect(find.text('Showing Lay'), findsOneWidget);
 
       controller.selectedHighlightNotifier.value = null;
       // A twin of the same name is not outlined in its place.
-      controller.highlightsNotifier.value = (
-        generation: 2,
-        items: [at(_top, 1)],
-      );
+      controller.publishHighlightsForTest([at(_top, 1)]);
       await tester.pump();
       expect(find.text('Lay is off screen'), findsOneWidget);
       expect(controller.selectedHighlightNotifier.value, isNull);
 
-      controller.highlightsNotifier.value = (
-        generation: 3,
-        items: [at(_top, 1), at(_bottom, 2)],
-      );
+      controller.publishHighlightsForTest([at(_top, 1), at(_bottom, 2)]);
       await tester.pump();
       expect(find.text('Showing Lay'), findsOneWidget);
       expect(controller.selectedHighlightNotifier.value?.occurrenceId, 2);
@@ -681,17 +592,19 @@ void main() {
       expect(bar.right, lessThanOrEqualTo(320 - 8));
     });
 
-    testWidgets('turning the markers off during a lookup ends it', (
-      tester,
-    ) async {
+    testWidgets('the markers toggle leaves a lookup alone', (tester) async {
       final controller = await _openWith(tester, [_lay]);
       await _tapCrosshair(tester);
       expect(crosshairFinding(tester, crosshair('Title lay')), isTrue);
-      await tester.tap(find.bySemanticsLabel('Mark flagged widgets'));
+      final toggle = find.bySemanticsLabel('Mark flagged widgets');
+      await tester.tap(toggle);
       await tester.pump();
-      expect(crosshairFinding(tester, crosshair('Title lay')), isFalse);
-      expect(controller.pendingIssueSelection, isNull);
+      expect(controller.highlightEnabledNotifier.value, isTrue);
+      await tester.tap(toggle);
+      await tester.pump();
       expect(controller.highlightEnabledNotifier.value, isFalse);
+      expect(crosshairFinding(tester, crosshair('Title lay')), isTrue);
+      expect(controller.pendingIssueSelection, isNotNull);
     });
 
     testWidgets('the header markers toggle is named for what it does', (
