@@ -201,13 +201,15 @@ class IssueCard extends StatefulWidget {
   /// A related issue folded under this card that the reveal opens inline.
   final PerformanceIssue? revealInline;
 
-  /// Tells the host the reveal ran, so a rebuilt card does not repeat it.
-  final VoidCallback? onRevealed;
+  /// Tells the host the reveal started, with the scroll's future: the host
+  /// keeps the list built until it completes, and a rebuilt card does not
+  /// repeat the reveal.
+  final ValueChanged<Future<void>>? onRevealed;
 
   /// Bumped by the host to move focus to this card without expanding it,
   /// as after the card above it was hidden. [onFocused] follows.
   final int focusEpoch;
-  final VoidCallback? onFocused;
+  final ValueChanged<Future<void>>? onFocused;
 
   @override
   State<IssueCard> createState() => _IssueCardState();
@@ -242,31 +244,23 @@ class _IssueCardState extends State<IssueCard> {
     }
   }
 
-  /// After the next frame: focuses the card and moves the screen reader
-  /// to it.
-  void _takeFocus() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _focus.requestFocus();
-      context.findRenderObject()?.sendSemanticsEvent(
-        const FocusSemanticEvent(),
-      );
-      widget.onFocused?.call();
-    });
-  }
-
   @override
   void dispose() {
     _focus.dispose();
     super.dispose();
   }
 
+  void _reveal() => _bringIntoView(widget.onRevealed);
+
+  void _takeFocus() => _bringIntoView(widget.onFocused);
+
   /// After the next frame: scrolls the card into view, focuses it and
-  /// moves the screen reader to it.
-  void _reveal() {
+  /// moves the screen reader to it. [started] gets the scroll's future, so
+  /// the host keeps the list built until the card is in view.
+  void _bringIntoView(ValueChanged<Future<void>>? started) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ensureVisibleWithMotion(
+      final scrolled = ensureVisibleWithMotion(
         context,
         context,
         duration: const Duration(milliseconds: 300),
@@ -276,7 +270,7 @@ class _IssueCardState extends State<IssueCard> {
       context.findRenderObject()?.sendSemanticsEvent(
         const FocusSemanticEvent(),
       );
-      widget.onRevealed?.call();
+      started?.call(scrolled);
     });
   }
 

@@ -284,6 +284,13 @@ void main() {
       final list = tester.getRect(find.byType(ListView));
       expect(list.overlaps(tester.getRect(card)), isTrue);
       expect(find.textContaining('could not be shown'), findsNothing);
+      expect(
+        FocusManager.instance.primaryFocus?.context
+            ?.findAncestorWidgetOfExactType<IssueCard>()
+            ?.issue
+            .stableId,
+        'root',
+      );
     });
 
     testWidgets('a target collapsed into the card opens inline', (
@@ -400,6 +407,40 @@ void main() {
       FocusManager.instance.primaryFocus?.context
           ?.findAncestorWidgetOfExactType<IssueCard>(),
       isNull,
+    );
+    await tester.pump(const Duration(seconds: 15));
+  });
+
+  testWidgets('Hide far down a tall card focuses the next card, built and '
+      'in view', (tester) async {
+    final longFix = [
+      'Move it off the UI isolate:',
+      for (var i = 0; i < 40; i++)
+        'final r$i = await Isolate.run(() => f$i());',
+    ].join('\n');
+    controller.issuesNotifier.value = [
+      _issue('a', fixHint: longFix),
+      _issue('b'),
+      for (var i = 0; i < 30; i++) _issue('filler$i'),
+    ];
+    await pumpCard(tester);
+    await tester.tap(find.text('Title a'));
+    await tester.pump();
+    await tapVisible(tester, find.bySemanticsLabel('Hide'));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    final focused = FocusManager.instance.primaryFocus?.context;
+    expect(
+      focused?.findAncestorWidgetOfExactType<IssueCard>()?.issue.stableId,
+      'b',
+    );
+    final card = find.byWidgetPredicate(
+      (w) => w is IssueCard && w.issue.stableId == 'b',
+    );
+    expect(
+      tester.getRect(find.byType(ListView)).overlaps(tester.getRect(card)),
+      isTrue,
     );
     await tester.pump(const Duration(seconds: 15));
   });

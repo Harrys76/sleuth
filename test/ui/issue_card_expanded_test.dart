@@ -85,10 +85,10 @@ void main() {
         find.text('10.0 ms in one build on the UI thread', findRichText: true),
         findsOneWidget,
       );
-      // The value replaces the detail.
+      // The detail stays: it can hold what the number does not.
       expect(
         find.text('A long-running operation ran on the UI thread.'),
-        findsNothing,
+        findsOneWidget,
       );
       expect(
         find.bySemanticsLabel(

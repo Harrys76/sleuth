@@ -197,13 +197,13 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
           (parents.length - (widget.parentIssues?.length ?? 0)),
     );
     final blocks = <Widget>[
-      if (measuredLine(issue) != null)
-        _measured(theme, issue)
-      else
-        Text(
-          issue.detail,
-          style: TextStyle(color: theme.textSecondary, fontSize: theme.fontMd),
-        ),
+      if (measuredLine(issue) != null) _measured(theme, issue),
+      // The detail stays with a measurement too: it can hold what the
+      // number does not, such as the failing URLs and status codes.
+      Text(
+        issue.detail,
+        style: TextStyle(color: theme.textSecondary, fontSize: theme.fontMd),
+      ),
       _KeyValueRows(rows: _rows(theme, issue), width: widget.width),
       if (widget.whyItRebuilds) _whyItRebuilds(theme, issue),
       if (parents.isNotEmpty || suppressed > 0)
@@ -637,13 +637,16 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
   /// detail) and its fix.
   Widget _inline(SleuthThemeData theme, PerformanceIssue related) {
     final line = measuredLine(related);
+    final quiet = TextStyle(color: theme.textSecondary, fontSize: theme.fontMd);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          line == null ? related.detail : '${line.$1}${line.$2}${line.$3}',
-          style: TextStyle(color: theme.textSecondary, fontSize: theme.fontMd),
-        ),
+        if (line != null)
+          Text(
+            '${line.$1}${line.$2}${line.$3}',
+            style: quiet.copyWith(color: theme.textPrimary),
+          ),
+        Text(related.detail, style: quiet),
         SizedBox(height: theme.spacingSm),
         ..._fixParts(theme, related.fixHint),
       ],

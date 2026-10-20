@@ -412,9 +412,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   PerformanceIssue? _revealInline;
   int _revealEpoch = 0;
 
+  /// The pending card began scrolling into view; the list stays built
+  /// until the scroll ends.
+  bool _revealStarted = false;
+
   /// The card that takes focus after a Hide, and the epoch that asks it to.
   String? _focusKey;
   int _focusEpoch = 0;
+  bool _focusStarted = false;
 
   /// Set while a toast's Show turns a severity on, so that change keeps
   /// the expanded cards.
@@ -1258,9 +1263,20 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           _focusSemantics(_headerKey);
           return;
         }
+        final key = keys[math.min(index, keys.length - 1)];
         setState(() {
-          _focusKey = keys[math.min(index, keys.length - 1)];
+          _focusKey = key;
+          _focusStarted = false;
           _focusEpoch++;
+        });
+        // The list builds every card while focus is pending; a card that
+        // did not take it in the next frame is not coming.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          scheduleMicrotask(() {
+            if (mounted && _focusKey == key && !_focusStarted) {
+              setState(() => _focusKey = null);
+            }
+          });
         });
       });
     }
@@ -1410,6 +1426,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       }
       _revealKey = key;
       _revealInline = inline;
+      _revealStarted = false;
       _revealEpoch++;
     });
     // The list builds every card while a reveal is pending, so an
@@ -1417,7 +1434,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // not by then is not coming.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       scheduleMicrotask(() {
-        if (!mounted || _revealKey != key) return;
+        if (!mounted || _revealKey != key || _revealStarted) return;
         setState(_endReveal);
         _toast.show('"${target.title}" could not be shown');
       });
@@ -3070,11 +3087,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   48,
                 ),
                 itemCount: orderedIssues.length,
-                // While a related row reveals a card, every card builds so
-                // an off-screen one can scroll itself into view. Its
+                // While a related row reveals a card, or a Hide hands focus
+                // on, every card builds so an off-screen one can scroll
+                // itself into view. Its
                 // replacement, scrollCacheExtent, is not in Flutter 3.32.
                 // ignore: deprecated_member_use
-                cacheExtent: _revealKey != null ? 1e6 : null,
+                cacheExtent: _revealKey != null || _focusKey != null
+                    ? 1e6
+                    : null,
                 // Keyed-reorder remount fix: without a
                 // `findChildIndexCallback`, `SliverChildBuilderDelegate`
                 // cannot locate a keyed child whose index has shifted
@@ -3266,11 +3286,23 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                         _setNotUseful(issue, marked),
                     revealEpoch: issueKey == _revealKey ? _revealEpoch : 0,
                     revealInline: issueKey == _revealKey ? _revealInline : null,
-                    onRevealed: () {
-                      if (mounted && _revealKey != null) setState(_endReveal);
+                    onRevealed: (scrolled) {
+                      _revealStarted = true;
+                      scrolled.whenComplete(() {
+                        if (mounted && _revealKey == issueKey) {
+                          setState(_endReveal);
+                        }
+                      });
                     },
                     focusEpoch: issueKey == _focusKey ? _focusEpoch : 0,
-                    onFocused: () => _focusKey = null,
+                    onFocused: (scrolled) {
+                      _focusStarted = true;
+                      scrolled.whenComplete(() {
+                        if (mounted && _focusKey == issueKey) {
+                          setState(() => _focusKey = null);
+                        }
+                      });
+                    },
                   );
                 },
               ),

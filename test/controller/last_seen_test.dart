@@ -81,4 +81,27 @@ void main() {
     expect(controller.lastSeenAt(first), seen);
     expect(controller.lastSeenAt(second)!.isAfter(seen!), isTrue);
   });
+
+  testWidgets('times for occurrences that went expire on their own', (
+    tester,
+  ) async {
+    final detector = _TwinDetector();
+    final controller = SleuthController(
+      config: SleuthConfig(
+        enabledDetectors: const {DetectorType.frameTiming},
+        customDetectors: [detector],
+      ),
+    )..initializeDetectorsForTest();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(const MaterialApp(home: Scaffold()));
+    final root = tester.element(find.byType(MaterialApp));
+
+    // Occurrence 1 stays, keeping the shared trend alive; each scan adds a
+    // new occurrence that never comes back.
+    for (var i = 2; i < 300; i++) {
+      detector.occurrences = [1, i];
+      controller.scanTreeFullPathForTest(root);
+    }
+    expect(controller.lastSeenCountForTest, lessThanOrEqualTo(125));
+  });
 }
