@@ -1091,10 +1091,18 @@ void main() {
       expect(_outlined(controller), isNull);
       expect(_next, findsOneWidget);
 
+      final twoRows = tester.getRect(_bar);
       await tester.tap(_next);
       await tester.pump();
       expect(_outlined(controller), 101);
       expect(_next, findsNothing);
+      // The bar lost its Next row; where it was stays shielded for a
+      // double tap's span.
+      expect(tester.getRect(_bar).height, lessThan(twoRows.height));
+      final shield = find.byKey(const ValueKey<String>('Sleuth bar shield'));
+      expect(tester.getRect(shield), twoRows);
+      await tester.pump(kDoubleTapTimeout);
+      expect(shield, findsNothing);
     });
 
     testWidgets('with one widget the bar has no Next and no position', (
