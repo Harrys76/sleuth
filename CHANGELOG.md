@@ -1,315 +1,69 @@
-## Unreleased
+## 1.0.0
+
+A redesigned overlay, issues that carry the number behind them, and a
+public API that follows semantic versioning from this release. The
+matching sidecar is `sleuth_mcp` 0.10.0. Publish both together, because
+sidecar 0.9.0 refuses 1.0.0 apps. The
+[full release notes](https://github.com/Harrys76/sleuth/blob/main/doc/release_notes/1.0.0.md)
+list every change.
 
 ### Breaking
 
 - `package:sleuth/sleuth.dart` exports only the names listed in
-  `doc/api_1_0_0.md`, each through a `show` list.
+  `doc/api_1_0_0.md`, each through a `show` list, and follows semantic
+  versioning.
 - Capture and validation tooling moved to the new
-  `package:sleuth/validation.dart`, which is outside the semver promise
-  and whose declarations are `@experimental`:
-  `EvidenceTier`, `DetectorMetadata`, `DetectorMetadataProvider`,
-  `BracketSpec`, `ComponentMetadata`, `ComponentMetadataProvider`,
-  `ProfileCaptureSchema`, `kSleuthPackageVersion`, `PollTimings`,
-  `StreamResourcePollResult`, and the detector types `RepaintDetector`,
-  `MemoryPressureDetector`, `StartupDetector`, `TrackedResourceDetector`,
-  `ImageMemoryDetector`, `GpuPressureDetector` and `FrameTimingDetector`.
-- No longer exported: `ServiceExtensionRegistry`, `FixHintBuilder`,
-  `SessionMarkdownExporter`, `JankCaptureBuffer`, `FrameBudget`,
-  `FrameRateSource`, `resolveFrameBudget`, `RecurrenceTrend`,
-  `RecurrenceEntry`, `TrendDirection`, `buildWidgetHeatMap`,
-  `InteractionContextDisplay`, `ObservationSourceDisplay`,
-  `ConnectionMode` and `kMcpEnvelopeSchemaVersion`.
-- `Sleuth.enrichStartupWithVmData`, `Sleuth.dartEntryMonotonicUs` and
-  `Sleuth.notifyControllerDisposed` are gone; only the package called
-  them. `StartupMetrics.dartEntryMonotonicUs` still carries the Dart entry
-  time.
-- The capture statics on `Sleuth` (`markScenarioBegin`, `exportCaptureJson`,
-  `flushTimelineNow` and the others) and the accessors typed with
-  `validation.dart` types are `@experimental`.
-- `RouteSession.endedAt` and `RouteSession.scanCycleCount` are read-only.
-- `SleuthThemeData` drops the tokens the overlay no longer draws: the
-  confidence, effort and source colours with `confidenceColor`,
-  `effortColor` and `sourceAccentColor`, `sourceAccentWidth`, the VM and
-  FRAME badge pairs, the instrumentation banner pair, the three AI shimmer
-  colours, `aboutBackground`, `cardJankFlash`, `effectsBadge`,
-  `fixHintText`, `disclaimerText`, `highlightLabelText`, `fontXxl`,
-  `fontDisplay` and `focusRingWidth`. `fromColorScheme` no longer maps
-  `errorContainer`.
+  `package:sleuth/validation.dart`, which is outside the semver promise.
+  Import it for `DetectorMetadata`, `BracketSpec`, `EvidenceTier`,
+  `ProfileCaptureSchema`, `PollTimings`, `kSleuthPackageVersion` and the
+  detector types the capture screens use, such as `RepaintDetector`.
+- Fifteen internal names are no longer exported, among them
+  `FixHintBuilder`, `SessionMarkdownExporter`, `JankCaptureBuffer`,
+  `FrameBudget` and `ConnectionMode`. `Sleuth.enrichStartupWithVmData`,
+  `Sleuth.dartEntryMonotonicUs` and `Sleuth.notifyControllerDisposed` are
+  gone, and the capture statics on `Sleuth` are `@experimental`.
+- `RouteSession.endedAt` and `scanCycleCount` are read-only, and
+  `SleuthThemeData` drops 29 tokens and 3 helpers the overlay no longer
+  draws.
 - A minor release can add values to `DetectorType`, `IssueCategory`,
   `ObservationSource`, `PipelinePhase`, `InteractionContext` and
-  `FixEffort`; a `switch` over them needs a default branch.
+  `FixEffort`, so a `switch` over them needs a default branch.
+- `FrameVerdict.relatedIssues` lists only the issues that can explain the
+  verdict's phase.
+- Highlighting an issue outlines only its own widget, never another
+  widget of the same category.
 
 ### Added
 
-- Issues carry the number their detector reports with the detector's
-  warning and critical lines: `PerformanceIssue.measurement`, a final
-  class `IssueMeasurement` with `value`, `unit`, `warningAt`, `criticalAt`,
-  `window`, `warningStrict` and `criticalStrict`. A value reaches a line at
-  or above it, or only above it when that line is strict, and every
-  measurement is higher-is-worse. A line that is absent or not finite has
-  no flag. Issue JSON gains an optional `measurement` object; `windowMs`
-  keeps microseconds as a fraction.
-- Built-in detectors set the measurement on 43 issue families. Most titles
-  show the value; `raster_dominance` titles show the raster-to-UI ratio and
-  `heap_near_capacity` titles a percent of the budget instead. Six
-  families report a pattern rather than an amount and leave it null
-  (`always_repaint_painter`, `runtime_font_loading`, `expensive_gpu_nodes`,
-  `layout_bottleneck`, `sliver_fill_remaining_scrollable`,
-  `sliver_to_box_adapter_shrinkwrap`), as do `event_loop_stall` when the
-  VM gave no stall length and `non_lazy_shrinkwrap` when the child count is
-  unknown.
-- The issue's severity is the detector's and can disagree with the
-  severity the value reaches, in either direction. `rebuild_activity`,
-  `excessive_repaint` and the debug rates hold a severity until the value
-  stays low, and `heap_near_capacity` tolerates one sample under its line,
-  so a value can sit below the line of the severity shown. The debug rates
-  go critical only on the latest window while the value averages two, so a
-  warning can also carry a value above the critical line.
-- `jank_detected` and `sustained_jank` measure over the vsync span of the
-  frames they judged. The 240-frame buffer can make it shorter than 10 s,
-  capture mode judges the whole buffer, and frames without vsync times
-  give no window, as in `raster_dominance`. `rebuild_activity` and
-  `excessive_repaint` give the length of the VM window behind the share,
-  1 to 1.5 s.
-- `MeasurementUnit` is a class with constant instances instead of an enum,
-  so a later release can add a unit without breaking a `switch`. Units
-  compare by name, a custom detector can name its own, and a reader keeps
-  a unit it does not know by name instead of dropping the measurement.
-- `SimpleStructuralDetector.report` takes an optional `measurement`.
-- Snapshots and `ext.sleuth.issues` carry `notUsefulMarks`, the issues
-  marked Not useful in the overlay this session (oldest first, at most
-  200), each with the issue's key, title, category, severity, confidence,
-  measurement, route, `markedAt` and whether it is still reported
-  (`live`). Like `suppressedCount` the key is metadata: written only when
-  there is a mark, whatever the projection, and never a `SnapshotSection`.
-  `SessionSnapshot.notUsefulMarks` and `NotUsefulMark` read it back.
-  `doc/mcp_schema.{json,md}` document it and the issue `measurement`
-  shape, and the sidecar lists it in `snapshotMetadataKeys`.
-- `WidgetHighlight.occurrenceId`: the identity of the element a highlight
-  was measured from, equal to the `occurrenceId` of its issue.
-- `DebugSnapshot.forcedRebuildsOf` (debug callbacks): for each widget type
-  a parent's build rebuilt, the types whose builds forced it, framework
-  widgets included, and how often. `forcedTypesCapped` reports its caps.
-- `SleuthThemeData.severityGraphicColor` and the optional
-  `severityCriticalGraphic`, `severityWarningGraphic` and
-  `severityOkGraphic` tokens: the colour of severity borders, icons and
-  dots, which need 3:1 where text needs 4.5:1. The dark default uses the
-  severity fills, brighter than its pale text shades; the light preset
-  sets red-600, amber-600 and emerald-600, so its chips read red and
-  orange instead of two dark browns; the high-contrast presets and
-  `fromColorScheme` fall back to the severity text colours.
-- `SleuthThemeData.cardDivider`, the line under the status row. It
-  defaults to `0xFF4B5563` in dark and `0xFFB4BAC4` in light, `border` in
-  the high-contrast presets and `outlineVariant` in `fromColorScheme`.
+- `PerformanceIssue.measurement` (`IssueMeasurement`, `MeasurementUnit`)
+  holds the number a detector reported, with its warning and critical
+  lines, on 43 issue families. Issue JSON gains an optional
+  `measurement`.
+- The overlay's Not useful button marks an issue for the session, and
+  snapshots and `ext.sleuth.issues` list the marks in `notUsefulMarks`.
+- `DebugSnapshot.forcedRebuildsOf`, `WidgetHighlight.occurrenceId` and
+  `WidgetHighlight.stableId`, `SleuthThemeData.cardDivider` and
+  `SleuthThemeData.severityGraphicColor`.
+- A test that pins the public names, and a CI job that diffs the API
+  against the latest published 1.x release.
 
-### Changed
+### Overlay
 
-- The card header shows a run label, such as "Debug · VM" or "Profile · no
-  VM", in place of the VM+, FRAME and DBG badges. A narrow card drops the
-  "Sleuth" name first, then "· VM", and at last keeps only the dot, which
-  is filled with the VM and a ring without it. A screen reader always
-  hears the full label.
-- A More button replaces the theme button. Its menu holds Startup (TTFF),
-  Rebuild stats (the route's count, opening the drilldown), Hidden issues
-  (with a count, only when there are any), Encyclopedia, Guide, Copy
-  snapshot and Theme (Auto, Light, Dark). It opens as a panel inside the
-  card. Back, Escape, a tap on the scrim or a tap on the app closes it,
-  and while it is open the app and the card body are hidden from screen
-  readers. Opening it moves keyboard focus to the first row that can act
-  and screen reader focus to the panel. More, the rows and the theme
-  segments draw a 2 px `checkboxActive` outline while the keyboard has
-  focus. A failed copy offers Try again.
-- Tab and Shift+Tab move focus, and Enter and Space activate the focused
-  control, inside the card and its pages. The overlay sits above the
-  app's `WidgetsApp`, so the app's default shortcuts never reached it; a
-  focused text field keeps Enter and Space.
-- The footer, the startup banner, the rebuild stats banner, the confidence
-  caption and the frame-rate detail row are gone. Hidden issues, Copy
-  snapshot, startup and rebuild stats moved into the More menu.
-- The severity chips lead the status row ("2 critical"), with a filled
-  icon while on and an outlined one while off. The frame rate sits at the
-  end of the row. "Showing X of Y" appears only while a severity is off,
-  since the More menu counts hidden cards. A screen reader hears the line
-  change, and Show all moves its focus to the first chip.
-- The card is at least 320 px wide, or the screen less 16 px margins on
-  a narrower screen, and stored narrower widths are raised. Its background
-  is opaque.
-- The resize grip works on a maximized card too: the first drag or resize
-  step makes it a normal card at the size and place it has, then resizes
-  that. The list ends with 48 px of padding, so the grip does not cover
-  the last card.
-- The overlay no longer uses `TweenAnimationBuilder`, so it is off the
-  debug instrumentation's framework denylist and an app's own uses count.
-- The collapsed issue card is flat, with no source bar on its left edge.
-  A severity mark replaces the emoji: a disc or triangle filled with the
-  severity colour, with a white or near-black mark inside at 3:1 or more
-  against the fill; the discs carry a white ring. Where neither the fill
-  nor the ring reaches 3:1 on the card (the light presets' warning and OK
-  marks), the shape is outlined in a darker shade of its colour. The
-  title runs to 2 lines (3 above 1.3x text), or in full while the card is
-  expanded.
-- One meta line under the title replaces the badges: category,
-  confidence, "seen X of Y scans, label" and "N effects", led by the Jank
-  and New tags. New shows for 2 seconds in place of the wider accent.
-- A Debug timing tag replaces the confidence on a timing issue in a debug
-  run: a time-based measurement (milliseconds, seconds, percent or
-  frames) from the VM timeline or `FrameTiming`. The per-card "Debug mode
-  result" note is gone.
-- `jank_detected`, `sustained_jank` and `slow_startup_ttff` carry
-  `observationSource: frameTiming`, the source of their times. Startup
-  said `structural` before and the jank issues carried none.
-- `wrap_layout_bottleneck`, `excessive_repaint_boundary` and issues from
-  `SimpleStructuralDetector.report` carry the `widgetName` their highlight
-  carries (`Wrap`, the scrollable's type, the reported widget's runtime
-  type), so their cards keep the crosshair. Their overlay keys now
-  include the name, so such a card hidden under an older release shows
-  again.
-- A crosshair replaces the highlight checkbox, labelled "Show <widget> on
-  screen". Before the first scan it reads "Finding" until the scan looks
-  the widget up, and a second tap cancels. It shows for an issue that
-  names a widget, and for the issues that list several:
-  `always_repaint_painter`, `missing_repaint_boundary`,
-  `layout_bottleneck`, `uncached_images` and `expensive_gpu_nodes`
-  ("Show this issue's widgets on screen"). Other cards without a widget name no
-  longer offer a highlight that could not find anything.
-- On a card that lists several widgets the crosshair outlines the first
-  one on screen, and the bar shows its place ("1 of 3") with Next, which
-  moves the outline to the next widget and wraps after the last. The
-  shown place changes with Next, not with each scan, so a screen reader
-  does not read the bar again after every scroll. A bar that steps opens
-  with focus on Next, keeps its edge unless the new outline runs under
-  it, and shields its old place for a double tap's span when it moves.
-  When the outlined widget leaves the screen, Next goes to the widget
-  that followed it, and shows while any other widget remains. The detectors tie those highlights to their issue
-  with the new `WidgetHighlight.stableId` and an element identity in
-  `WidgetHighlight.occurrenceId`. The card body
-  and the crosshair draw the focus outline in keyboard mode.
-- An expanded card no longer draws the pin icon. Its semantics hint
-  reads "Pinned while expanded".
-- An expanded card stays until it is collapsed, even when its issue stops
-  being reported or folds under another card. A card whose issue is gone
-  leads its meta line with "Not detected right now" and offers no
-  crosshair, and the empty states wait until it is collapsed.
-- A press on a card, a More menu row, a theme segment or the crosshair
-  draws a light tint instead of the fallback theme's 40 % grey ripple.
-- The overlay no longer uses `Checkbox`, so it is off the framework
-  denylist and an app's own checkboxes count.
-- The guide's legend describes the new card. The "Jank flash" card
-  colour, which the overlay never drew, is gone from it.
-- `badgeDbgBg` and `badgeDbgText` draw the Debug timing tag.
-- The expanded card shows its details below a divider, at the full card
-  width. An issue with a measurement opens with a Measured row: the value
-  and what it is ("10.0 ms in one build on the UI thread", with the
-  measurement's window where it has one), a gauge with the warning and
-  critical lines, and a line when the severity is held above the value or
-  judged on another reading. The issue's detail
-  follows, with what the number does not say (failing URLs and status
-  codes, for instance). The issues notifier fires when the Measured row's
-  text, a gauge line or the issue's scaffold changes, and not for a change
-  the row rounds away.
-- Labelled rows follow: Where (the widget, and its `file:line` with Copy
-  when the run tracks widget creation), Route, When ("Last seen 2 s ago ·
-  in 5 of the last 8 scans", with the interaction; the time is the
-  card's own when cards share a stable id), Evidence (the
-  detector's reason and the confidence) and Check in (the DevTools view).
-  The labels stack above their values when large text makes the label
-  column wider than a third of the card. "About this detection" is gone,
-  with its profile-mode line that said timing "matches production", and
-  so are the Ancestors, Widget, During and Source lines and the debug
-  fidelity tags.
-- Caused by and Effects rows open the related card: a card in the list
-  expands, scrolls into view and takes focus; a hidden or filtered-out one
-  shows a toast with Show, which keeps the open cards expanded; an effect
-  folded under a card opens its detail and fix under its row. A related
-  issue no longer reported stays as plain text. Rebuild and setState
-  cards from the current screen link to its Rebuild stats once it has
-  counted rebuilds, with the count kept current on every scan, and the
-  slow startup card links to Startup metrics.
-- A tap on an expanded card's details no longer collapses it; the header
-  does. Hide moves focus to the card that takes its place, scrolled into
-  view, and hiding a card whose issue is gone offers no Undo.
-- The fix opens with "Fix" and its effort ("Fix · medium effort"). Code
-  lines after a line ending in a colon sit in a monospace block with Copy
-  code; a code run is lines with brackets, `;` or `=>`, commands, comments
-  and the indented lines of a call, and a bullet or a sentence ending in a
-  full stop is prose. The effort badges, and the keyword guess for an
-  issue without `fixEffort`, are gone.
-- Labelled buttons replace the links and icons: Show on screen, Learn
-  more, Ask AI, Copy details, Hide and Not useful, each a 48 px target.
-  Not useful marks the issue for the session's exports and MCP output and
-  says so; a second tap removes the mark. Ask AI's icon no longer
-  shimmers, so `ShaderMask` and `AnimatedBuilder` are off the framework
-  denylist and an app's own uses count.
-- In a debug run with `enableDebugCallbacks`, rebuild and setState cards
-  show Why it rebuilds: the rebuilds the widget started itself (a
-  setState, a changed dependency or a listenable) and those its parents
-  forced, naming the parent that forced the most and its share. The row
-  reads only counts from the card's own screen (a card kept from another
-  screen asks to open it), says when the debug counters left widget
-  types out, and says when rebuilds are not counted: the callbacks are
-  off, `advanced.rebuildAttribution` is off, or DevTools holds the
-  rebuild callback.
-- Status lines replace "No issues detected". Starting; Warming up, with
-  a progress bar; No VM link, with the checks off and partly off counted
-  from the session's coverage, a copyable `flutter run --profile --no-dds`
-  and a Guide link; No issues found, with the checks on and the opt-in
-  checks off; VM link lost, with the reconnect attempt; and stopped
-  retrying, with Reconnect. With cards listed, an expanded card whose
-  issue is gone included, only a lost link takes a line above them, and
-  the status row names the state when it counts no card. Each line is a
-  live region: its label names the state (stopped retrying has its own)
-  and its value holds the numbers, so the warm-up countdown does not
-  repeat it.
-- One debug banner replaces the debug-mode and instrumentation banners.
-  Its text stops growing at the chrome limit, dismissing it lasts for the
-  session, and focus then moves to the severity chips.
-- The trigger shows its count in debug runs too; the warning badge is
-  gone.
-- While an issue's widget is outlined, the card shrinks to a bar at the
-  screen edge away from the widget: "Showing <widget>", or "<widget> is
-  off screen" once it scrolls away, detaches or sits behind the keyboard,
-  until a later scan finds that element again. Back to issues, system
-  back and Escape (also while an app text field has focus) bring the
-  card back as it was (window state, size and list offset) with focus on
-  the crosshair. The bar's close ends the outline with the dashboard.
-  When the issue is no longer reported the card comes back and a toast
-  says so. The bar is never stored. Outlines follow a rotation or a
-  keyboard at once instead of at the next scan, and the outline's label
-  stays below the status bar.
-- An outline no longer turns the flagged-widget markers on: while the
-  bar is up only the issue's widget is outlined, unless the markers were
-  already on. Sleuth collects highlights while an outline is shown or
-  looked up, and finds the issue's own element again after it detaches.
-- The header's markers toggle is named "Mark flagged widgets" and read as
-  on or off. It turns the markers alone on and off, never an outline or
-  a lookup, and turning it off hides them at once instead of at the next
-  scan.
-- Toasts use the theme's text and card colours swapped, regular 12 px
-  text and a bold action label in the accent at 4.5:1, and span the
-  screen up to 480 px.
-- The outline's label sizes to its text, up to 350 px wide and two
-  lines whatever the width of the widget it names, follows the text scale
-  up to the chrome limit, and draws its text in the colour that reads on
-  its severity fill. It stays below the highlight bar when
-  the bar sits at the top.
-- The guide describes the new expanded card and Not useful.
-
-- `FrameVerdict.relatedIssues` lists only the issues that can explain the
-  verdict's phase: the issues of the phase's category, `event_loop_stall`
-  for a start delay, and none for a stall or an unknown phase. Jank
-  symptoms are never listed, so exports carry fewer issues, and the
-  reason's `Related:` line names an issue of the phase. The overlay's JANK
-  tag shows only while `jank_detected` or `sustained_jank` is reported.
-- Highlighting an issue outlines only its own widget: the element it was
-  reported for, else the first widget with its name. Another widget of
-  the same category is no longer outlined in its place. When the widget
-  is not on screen a toast says "Couldn't find <widget> on screen. It may
-  be scrolled away or not built yet.", and no outline appears later.
-- Copying the snapshot from the overlay counts as Sleuth's own work, so
-  it is left out of the next frame's start delay. A second tap during a
-  copy is ignored.
-- A dismissed debug-mode banner stays dismissed when the dashboard is
-  closed and reopened.
+- A run label ("Profile · VM") replaces the VM+, FRAME and DBG badges.
+  A More menu holds Startup, Rebuild stats, Hidden issues, Encyclopedia,
+  Guide, Copy snapshot and Theme, and the footer and banners it replaced
+  are gone.
+- The collapsed card has a severity mark, a title of up to two lines and
+  one meta line. The expanded card shows the measured value on a gauge,
+  Where, Route, When, Evidence and Check in rows, the fix with copyable
+  code, Why it rebuilds in debug runs, and labelled buttons including
+  Not useful.
+- Status lines replace "No issues detected": Starting, Warming up, No VM
+  link, No issues found and VM link lost. One debug banner replaces two.
+- The crosshair outlines a card's widget and shrinks the card to a bar.
+  On a card that lists several widgets, Next steps through them.
+- Keyboard navigation inside the card, a 320 px minimum width, toasts in
+  the theme's inverted colours, and outlined light-mode severity marks.
 
 ## 0.38.0
 
