@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/controller/active_controller.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/sleuth.dart';
 
@@ -8,7 +9,7 @@ void main() {
     tearDown(() {
       // Ensure clean state between tests
       // ignore: invalid_use_of_visible_for_testing_member
-      Sleuth.notifyControllerDisposed(
+      ActiveController.release(
         // Call with a dummy to not accidentally clear a real one.
         // The real cleanup happens when the widget is disposed.
         _DummyController(),

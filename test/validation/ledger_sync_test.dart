@@ -30,9 +30,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleuth/sleuth.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/validation/validated_component_registry.dart';
+import 'package:sleuth/validation.dart';
 
 void main() {
   group('validation_ledger.md is in sync with detector metadata', () {

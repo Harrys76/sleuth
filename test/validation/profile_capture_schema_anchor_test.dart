@@ -16,7 +16,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
 
 void main() {
   group('ProfileCaptureSchema anchor fixture', () {

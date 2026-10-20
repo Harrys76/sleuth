@@ -7,6 +7,9 @@ import 'issue_measurement.dart';
 enum IssueSeverity { ok, warning, critical }
 
 /// Categories mapping to Flutter rendering pipeline phases.
+///
+/// A minor release can add values, so a `switch` over it needs a default
+/// branch.
 enum IssueCategory {
   build,
   layout,
@@ -33,10 +36,16 @@ enum IssueConfidence { confirmed, likely, possible }
 ///
 /// Priority ordering for overlapping states (highest wins):
 /// navigating > typing > scrolling > idle > appLifecycle
+///
+/// A minor release can add values, so a `switch` over it needs a default
+/// branch.
 enum InteractionContext { idle, scrolling, navigating, typing, appLifecycle }
 
 /// Identifies the data source that produced a detection, so the UI can show
 /// provenance and users can understand the strength of the evidence.
+///
+/// A minor release can add values, so a `switch` over it needs a default
+/// branch.
 enum ObservationSource {
   /// Structural tree scan (element inspection).
   structural,
@@ -56,8 +65,11 @@ enum ObservationSource {
 
 /// Estimated developer effort to apply the suggested fix.
 ///
-/// Human-classified per detector via [FixHintBuilder]. Used by the UI to show
-/// effort badges and by consumers to prioritize which fixes to attempt first.
+/// Classified by hand per detector when the fix hint is built. Consumers
+/// use it to prioritize which fixes to attempt first.
+///
+/// A minor release can add values, so a `switch` over it needs a default
+/// branch.
 enum FixEffort {
   /// < 5 min: add a parameter, wrap in const, swap a widget.
   quick,

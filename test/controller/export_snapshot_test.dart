@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart'
     show PendingChannelBegins, TimelineParser;
 import 'package:vm_service/vm_service.dart' show TimelineEvent;

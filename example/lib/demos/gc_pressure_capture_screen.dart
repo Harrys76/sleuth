@@ -6,11 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
-// The detector is not exported; the screen reads its bracket from the
-// detector's own metadata so the bands cannot drift from the audit.
-// ignore: implementation_imports
-import 'package:sleuth/src/detectors/memory_pressure_detector.dart'
-    show MemoryPressureDetector;
+import 'package:sleuth/validation.dart';
 import 'package:vm_service/vm_service.dart' show Event, EventStreams, VmService;
 import 'package:vm_service/vm_service_io.dart' show vmServiceConnectUri;
 

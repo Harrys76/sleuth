@@ -40,8 +40,7 @@ import 'package:analyzer/dart/analysis/utilities.dart' as dart_parse;
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:path/path.dart' as p;
-import 'package:sleuth/sleuth.dart'
-    show BracketSpec, DetectorMetadata, EvidenceTier, ProfileCaptureSchema;
+import 'package:sleuth/validation.dart';
 
 // ---------------------------------------------------------------------------
 // Pure helpers

@@ -46,23 +46,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleuth/sleuth.dart'
-    show
-        BracketSpec,
-        DetectorMetadata,
-        DetectorThresholds,
-        DetectorMetadataProvider,
-        EvidenceTier,
-        ProfileCaptureSchema;
+import 'package:sleuth/sleuth.dart' show DetectorThresholds;
+import 'package:sleuth/validation.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
-import 'package:sleuth/src/detectors/frame_timing_detector.dart';
-import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
-import 'package:sleuth/src/detectors/image_memory_detector.dart';
-import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
-import 'package:sleuth/src/detectors/repaint_detector.dart';
-import 'package:sleuth/src/detectors/startup_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 
 import '_support/audit_invariants.dart';

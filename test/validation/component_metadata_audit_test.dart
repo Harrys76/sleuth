@@ -43,10 +43,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleuth/sleuth.dart';
 import 'package:sleuth/src/validation/validated_component_registry.dart';
 
 import '_support/audit_invariants.dart';
+import 'package:sleuth/validation.dart';
 
 /// Components expected to appear in the registry after all
 /// `registerMetadata()` entry points have fired. Grows by one entry per

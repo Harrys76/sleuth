@@ -3,10 +3,7 @@ import 'dart:io' show pid;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-// The detector is not exported; the screen reads its brackets from the
-// detector's own metadata so the thresholds cannot drift from the audit.
-// ignore: implementation_imports
-import 'package:sleuth/src/detectors/startup_detector.dart';
+import 'package:sleuth/validation.dart';
 
 import 'capture_driver.dart';
 import 'startup_leg.dart';

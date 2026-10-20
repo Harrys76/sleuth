@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart';
 import 'package:sleuth/src/detectors/startup_detector.dart';
+import 'package:sleuth/src/startup/startup_tracker.dart';
 
 import '../helpers/measurement_matchers.dart';
 
@@ -571,7 +572,7 @@ void main() {
     test('engine events buffered when metrics not yet available', () {
       // Simulate: VM poll delivers engine events BEFORE first-frame callback.
       // enrichStartupWithVmData should buffer, not drop.
-      Sleuth.enrichStartupWithVmData(
+      StartupTracker.enrichWithVmData(
         engineEnterUs: 22332982085,
         firstFrameRasterizedUs: 22334541649,
       );
@@ -595,7 +596,7 @@ void main() {
       // Re-enrich to simulate what the controller does — the real fix
       // applies the buffer in the first-frame callback, but here we
       // verify the enrichment path works when metrics exist.
-      Sleuth.enrichStartupWithVmData(
+      StartupTracker.enrichWithVmData(
         engineEnterUs: 22332982085,
         firstFrameRasterizedUs: 22334541649,
       );
@@ -613,7 +614,7 @@ void main() {
         ),
       );
 
-      Sleuth.enrichStartupWithVmData(
+      StartupTracker.enrichWithVmData(
         engineEnterUs: 22332982085,
         firstFrameRasterizedUs: 22334541649,
       );
@@ -624,7 +625,7 @@ void main() {
 
     test('deferred buffer stores sub-phases alongside engine timestamps', () {
       // Enrich with all 6 fields while metrics are null (deferred path).
-      Sleuth.enrichStartupWithVmData(
+      StartupTracker.enrichWithVmData(
         engineEnterUs: 22332982085,
         firstFrameRasterizedUs: 22334541649,
         vmFirstBuildScopeMs: 3.0,
@@ -645,7 +646,7 @@ void main() {
         ),
       );
 
-      Sleuth.enrichStartupWithVmData(
+      StartupTracker.enrichWithVmData(
         engineEnterUs: 22332982085,
         firstFrameRasterizedUs: 22334541649,
         vmFirstBuildScopeMs: 3.0,
@@ -673,7 +674,7 @@ void main() {
         ),
       );
 
-      Sleuth.enrichStartupWithVmData(
+      StartupTracker.enrichWithVmData(
         engineEnterUs: 22332982085,
         firstFrameRasterizedUs: 22334541649,
         vmFirstBuildScopeMs: 4.2,

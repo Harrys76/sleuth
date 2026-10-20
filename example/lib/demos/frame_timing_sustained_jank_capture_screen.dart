@@ -6,11 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
-// The detector is not exported; the screen reads its bracket from the
-// detector's own metadata so the bands cannot drift from the audit.
-// ignore: implementation_imports
-import 'package:sleuth/src/detectors/frame_timing_detector.dart'
-    show FrameTimingDetector;
+import 'package:sleuth/validation.dart';
 
 import 'capture_driver.dart';
 

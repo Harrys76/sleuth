@@ -2,7 +2,6 @@ import 'dart:developer' show Timeline;
 
 import 'package:flutter/widgets.dart';
 
-import '../../sleuth.dart' show Sleuth;
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
@@ -17,6 +16,7 @@ import '../utils/rate_hysteresis.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
+import '../startup/startup_tracker.dart';
 
 /// Detects expensive widget rebuilding using VM BUILD scopes + element tree.
 ///
@@ -32,7 +32,7 @@ import '../vm/timeline_parser.dart';
 ///
 /// Each emission stamps `extraTraceArgs.lifecyclePhase: 'startup' |
 /// 'steady'` based on whether the issue EMITTED within
-/// [startupPhaseWindowSeconds] of [Sleuth.dartEntryMonotonicUs]. The
+/// [startupPhaseWindowSeconds] of [StartupTracker.dartEntryMonotonicUs]. The
 /// classification reads `Timeline.now` at emission time — it is
 /// **emission-time semantics**, not event-time. `rebuild_activity`'s
 /// ~1-second window means a window straddling the startup boundary tags
@@ -45,7 +45,7 @@ import '../vm/timeline_parser.dart';
 /// classifies against per-event shader timestamp. The two tags are
 /// related but NOT aligned at the boundary.
 ///
-/// Hot restart resets `Sleuth.dartEntryMonotonicUs` (Dart re-initializes
+/// Hot restart resets `StartupTracker.dartEntryMonotonicUs` (Dart re-initializes
 /// statics; `Sleuth.init()` re-runs and writes a fresh anchor). Emissions
 /// for the configured window after each hot restart tag as `'startup'`
 /// even when the prior session was already past the window.
@@ -111,13 +111,14 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   final bool _captureMode;
 
   /// Returns `'startup'` when emission `Timeline.now` falls within the
-  /// startup window after [Sleuth.dartEntryMonotonicUs], `'steady'`
+  /// startup window after [StartupTracker.dartEntryMonotonicUs], `'steady'`
   /// otherwise, or `null` when no app-start anchor is available
   /// (e.g. `Sleuth.init()` not yet called). A null return omits the
   /// `lifecyclePhase` key from `extraTraceArgs` rather than fabricating
   /// a phase value.
   String? _classifyLifecyclePhase() {
-    final appStart = _appStartForTest?.call() ?? Sleuth.dartEntryMonotonicUs;
+    final appStart =
+        _appStartForTest?.call() ?? StartupTracker.dartEntryMonotonicUs;
     if (appStart == null) return null;
     final delta = Timeline.now - appStart;
     // Defensive: a future-timestamped `_appStartForTest` value would

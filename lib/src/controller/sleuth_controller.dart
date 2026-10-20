@@ -87,6 +87,7 @@ import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart' show getGlobalRect;
 import '../vm/timeline_parser.dart';
+import '../startup/startup_tracker.dart';
 
 /// Central controller aggregating all detectors and the pipeline analyzer.
 class SleuthController {
@@ -2197,7 +2198,7 @@ class SleuthController {
           ? buildWidgetHeatMap(rankedWithScores)
           : null,
       sessionSummary: summary.isNotEmpty ? summary : null,
-      startupMetrics: Sleuth.startupMetrics,
+      startupMetrics: StartupTracker.metrics,
       routeSessions: routeSessions,
       notUsefulMarks: notUsefulMarksForExport(),
     );
@@ -3178,7 +3179,7 @@ class SleuthController {
     }
 
     if (routeChanged) {
-      active?.endedAt = DateTime.now();
+      active?.end(DateTime.now());
       // Jank is judged per route: start a new frame window and drop the
       // previous route's jank issues before this tick aggregates, so they
       // never reach the new session. Raster-dominant frames from a
@@ -3214,7 +3215,7 @@ class SleuthController {
       }
       _consecutiveCleanScans = 0;
     }
-    _activeRouteSession?.scanCycleCount++;
+    _activeRouteSession?.countScanCycle();
 
     // Guard _detectors iteration — enable/disable calls that arrive via
     // notifier listeners during scan/aggregation are deferred.
@@ -4061,7 +4062,7 @@ class SleuthController {
   }
 
   void _onStartupTimelineEvents(StartupTimelineEvents events) {
-    Sleuth.enrichStartupWithVmData(
+    StartupTracker.enrichWithVmData(
       engineEnterUs: events.engineEnterUs,
       firstFrameRasterizedUs: events.firstFrameRasterizedUs,
       vmFirstBuildScopeMs: events.firstBuildScopeDurUs != null
@@ -5125,7 +5126,7 @@ class SleuthController {
   void _reassembleInternal() {
     final active = _activeRouteSession;
     if (active != null && active.endedAt == null) {
-      active.endedAt = DateTime.now();
+      active.end(DateTime.now());
       // Republish history so listeners see the newly-closed session.
       routeHistoryNotifier.value = List<RouteSession>.unmodifiable(
         _routeHistory.toList(),

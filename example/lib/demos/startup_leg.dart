@@ -8,10 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:sleuth/sleuth.dart';
-// The detector is not exported; the leg reads its brackets from the
-// detector's own metadata so the bands cannot drift from the audit.
-// ignore: implementation_imports
-import 'package:sleuth/src/detectors/startup_detector.dart';
+import 'package:sleuth/validation.dart';
 
 import 'capture_driver.dart';
 
