@@ -7,9 +7,9 @@
 > every tap-driven capture screen in the example app, exports each leg
 > from inside the app, so the procedure needs no DevTools step.
 >
-> Sleuth's own `VmServiceClient` must be connected (VM+ mode). By
+> Sleuth's own `VmServiceClient` must be connected (VM mode). By
 > default `flutter run` starts DDS, which takes the VM service as its
-> only client and leaves Sleuth in FRAME mode. Launch with `--no-dds`,
+> only client and leaves Sleuth in no-VM mode. Launch with `--no-dds`,
 > or quit `flutter run` and reopen the app from the home screen:
 >
 > 1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
@@ -20,7 +20,7 @@
 > 2. If you launched without `--no-dds`, quit `flutter run` (`q`). DDS
 >    stops with it.
 > 3. In that case, reopen the app from the iPhone home screen. No DDS
->    attaches, so Sleuth's `VmServiceClient` connects (VM+ mode), and
+>    attaches, so Sleuth's `VmServiceClient` connects (VM mode), and
 >    the real `NetworkMonitorDetector` observes HTTP completions and
 >    emits `sleuth.issue.slow_request.warning` through the
 >    `_recordIssuesForCapture` pipeline.
@@ -43,7 +43,7 @@
 >    to `tool/wrap_capture.dart`, which refuses input that already
 >    carries a `sleuthMetadata` block.
 >
-> A capture recorded in FRAME mode cannot back `runtimeVerified`. The
+> A capture recorded in no-VM mode cannot back `runtimeVerified`. The
 > detector pipeline does not run, the capture has no detector trace
 > record, and the schema audit rejects it with "Missing detector trace
 > record."
@@ -131,7 +131,7 @@ bottom of this file.
 `runtimeVerified` evidence is the trace record that the real detector
 pipeline writes, not a proxy that a screen synthesises. The pipeline
 runs only while `SleuthController`'s `VmServiceClient` is connected
-(VM+ mode, not FRAME mode). Without that connection the `vmOnly` and
+(VM mode, not no-VM mode). Without that connection the `vmOnly` and
 `hybrid` detectors never see their inputs, and
 `Sleuth.exportCaptureJson` cannot read the trace buffer at all. It
 returns null with "VM service client disconnected". A capture made any
@@ -144,7 +144,7 @@ service. Two launch setups allow that:
 
 - **`flutter run --profile --no-dds`.** Without `--no-dds`,
   `flutter run` starts DDS (Dart Development Service), which takes the
-  VM service as its only client. Sleuth then stays in FRAME mode for
+  VM service as its only client. Sleuth then stays in no-VM mode for
   the whole session.
 - **An app started without the flutter tool.** Quit `flutter run` and
   reopen the app from the home screen. No DDS attaches, so Sleuth
@@ -157,7 +157,7 @@ Android has no approved reference device yet (see
 `doc/reference_devices.md`), so Android captures cannot back a tier
 raise.
 
-A FRAME-mode capture cannot back `runtimeVerified`. Earlier versions of
+A no-VM capture cannot back `runtimeVerified`. Earlier versions of
 this procedure had a `Sleuth.markCaptureIssue` fallback that
 synthesised the trace record from a Stopwatch around the workload,
 copying the detector's threshold ladder. The project removed it
@@ -232,7 +232,7 @@ do nothing, the capture lacks both the scenario span and the detector
 trace record, and `validateBracket` rejects it with a precise error.
 `SLEUTH_CAPTURE_DEVICE` names the phone model that exports stamp as
 `device` (see Provenance in the time-share section). `--no-dds` keeps
-Sleuth in VM+ mode, as the VM-service requirement above explains. If
+Sleuth in VM mode, as the VM-service requirement above explains. If
 `flutter run` cannot start the app on the phone, use the build,
 install and attach sequence under Launch in the time-share section.
 
@@ -609,7 +609,7 @@ v0.18.1 or later with the procedure above:
 
 1. Note which leg failed and its observed magnitude.
 2. Kill the app from the iOS app switcher (swipe it away).
-3. Cold-launch it from the home screen icon. No DDS attaches, so VM+
+3. Cold-launch it from the home screen icon. No DDS attaches, so VM
    mode comes back.
 4. Run the legs again in order, starting with the first.
 
@@ -669,7 +669,7 @@ differs from HeavyCompute and NetworkMonitor in these ways:
      --dart-define=SLEUTH_CAPTURE_MODE=true \
      --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"
    ```
-   Without `--no-dds` Sleuth stays in FRAME mode; see the VM-service
+   Without `--no-dds` Sleuth stays in no-VM mode; see the VM-service
    requirement above.
 2. Wait at least 35 s after launch: the floor leg ignores idle
    collections from its first 30 s, and the sample leg needs its 3 s
@@ -788,7 +788,7 @@ HeavyCompute and MemoryPressure in three ways:
      --dart-define=SLEUTH_CAPTURE_MODE=true \
      --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"
    ```
-   Without `--no-dds` Sleuth stays in FRAME mode, as for MemoryPressure.
+   Without `--no-dds` Sleuth stays in no-VM mode, as for MemoryPressure.
 2. Wait at least 3 s after launch so the VM service connection settles.
 3. Open Capture Helpers, then PlatformChannel.
 4. Run each leg (Below, At, Above). The screen has no calibration
@@ -1372,7 +1372,7 @@ cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
   --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"
 ```
 
-Without `--no-dds` Sleuth stays in FRAME mode; see the VM-service
+Without `--no-dds` Sleuth stays in no-VM mode; see the VM-service
 requirement above. Open Capture Helpers, then StreamResource. From a VM
 service client, `ext.sleuthDemo.open` with `demo=streamresource` opens
 the same screen. `ext.sleuthDemo.captureLeg` drives only the rebuild
@@ -1525,7 +1525,7 @@ cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
   --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"
 ```
 
-Without `--no-dds` Sleuth stays in FRAME mode. Open Capture Helpers,
+Without `--no-dds` Sleuth stays in no-VM mode. Open Capture Helpers,
 then TrackedResource (the screen's title is "Tracked resource capture
 helper"). From a VM service client, `ext.sleuthDemo.open` with
 `demo=trackedresource` opens it. As with StreamResource,
@@ -1635,7 +1635,7 @@ again.
 | `[<family>/<leg>] UNMEASURED: ...` or `[<family>/<leg>] OUT-OF-BAND: ... Nothing to export; re-run the leg.` | The peak live count or peak age was never measured, was not positive, or fell outside the leg's band. |
 | `[<leg>] OUT-OF-BAND: <reason>. Nothing copied; re-run the leg.` | At the Export tap the composed capture failed the record check: an in-span record without the arg key, a largest value outside the band or too far from `observed`, or too few in-band records. |
 | `[<leg>] FAILED: <error>` | The leg threw. The screen closes any open span and restores the streams it narrowed. |
-| `[<leg>] Export FAILED. initialized=... captureMode=... vmConnected=... Reason: <reason>` | `exportCaptureJson` refused. `vmConnected=false` means Sleuth has no VM connection (FRAME mode). "Scenario markers not found" usually means the markers left the buffer before the tap. The bracket check refuses a below span that holds a record and an at or above span that holds none. |
+| `[<leg>] Export FAILED. initialized=... captureMode=... vmConnected=... Reason: <reason>` | `exportCaptureJson` refused. `vmConnected=false` means Sleuth has no VM connection (no-VM mode). "Scenario markers not found" usually means the markers left the buffer before the tap. The bracket check refuses a below span that holds a record and an at or above span that holds none. |
 | `[<leg>] Export FAILED: capture provenance: <problem>` | The provenance check failed again at the Export tap. No export runs. |
 | `Export: no completed leg yet. ...` | Export was tapped before a leg finished. |
 
@@ -1675,7 +1675,7 @@ fvm flutter run --profile --no-dds -d <udid> \
 ```
 
 `--no-dds` keeps the VM service open to more than one client, so
-Sleuth's own VM client stays connected (VM+ mode). With DDS the service
+Sleuth's own VM client stays connected (VM mode). With DDS the service
 has a single client and Sleuth drops to Basic. Connect any
 `package:vm_service` client to the printed `ws://.../ws` URI. Leave the
 phone idle for two minutes before the first leg, because build and

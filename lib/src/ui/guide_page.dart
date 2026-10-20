@@ -327,7 +327,10 @@ class _GuidePageState extends State<GuidePage>
         _GuideStep(
           step: '1',
           title: 'Run in profile mode',
-          detail: 'Use flutter run --profile for accurate timing data.',
+          detail:
+              'Use flutter run --profile --no-dds. Profile mode gives '
+              'accurate timings, and --no-dds lets Sleuth reach the VM '
+              'service for the checks that need it.',
         ),
         _GuideStep(
           step: '2',
@@ -379,7 +382,8 @@ class _GuidePageState extends State<GuidePage>
           'The header names the build mode and whether Sleuth reached the '
               'VM service, for example "Debug · VM" or "Profile · no VM". '
               'Without the VM, the checks that need it are off and some run '
-              'in part. The dot is green with the VM and amber without it. '
+              'in part. The dot is filled green with the VM and an amber '
+              'ring without it. '
               'A narrow card shortens the text, down to the dot alone.',
         ),
         _infoTile(
@@ -910,7 +914,7 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.layers_outlined,
-          'The layers icon in the header marks every flagged widget on screen with a corner marker.',
+          'Mark flagged widgets (the layers icon in the header) puts a corner marker on every flagged widget on screen, and hides them again at once.',
         ),
         _tipRow(
           theme,
@@ -951,8 +955,9 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.format_size,
-          'Text follows the system size up to 2 times. The header, counts '
-          'and badges stop at 1.3 times so the issue list keeps its room.',
+          'Text follows the system size up to 2 times. The header, status '
+          'row and summary chips stop at 1.3 times so the issue list keeps '
+          'its room.',
         ),
         _tipRow(
           theme,
@@ -964,8 +969,8 @@ class _GuidePageState extends State<GuidePage>
           theme,
           Icons.keyboard_outlined,
           'Escape first leaves a focused Sleuth text field, then closes '
-          'the open page, then the card. A dialog or text field in your '
-          'app keeps its Escape.',
+          'the open page, the More menu or the highlight bar, then the '
+          'card. A dialog or text field in your app keeps its Escape.',
         ),
       ],
     );

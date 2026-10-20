@@ -1144,6 +1144,26 @@ void _registerDemoExtensions() {
           Sleuth.updateTheme(theme);
         }
         result['preset'] = preset;
+      case 'menu':
+        // Taps More: opens the menu, or closes it when it is open.
+        final error = await _tapLabel('More');
+        if (error != null) return _demoError({'error': error, 'text': 'More'});
+        await waitForFrame();
+        result['menuOpen'] = findSemanticsLabel('Copy snapshot') != null;
+      case 'notUseful':
+        // Taps Not useful on the expanded card on screen, which marks the
+        // issue for the session or removes the mark.
+        final error = await _tapLabel('Not useful');
+        if (error != null) {
+          return _demoError({
+            'error': error == 'not_found' ? 'no_expanded_card' : error,
+          });
+        }
+        await waitForFrame();
+        final button = findSemanticsLabel('Not useful')?.widget;
+        result['notUseful'] = button is Semantics
+            ? button.properties.toggled
+            : null;
       case 'toggleSeverity':
         final severity = IssueSeverity.values
             .where((s) => s.name == params['severity'])
@@ -1163,8 +1183,8 @@ void _registerDemoExtensions() {
       jsonEncode({...result, ..._overlayStateJson(state)}),
     );
   });
-  // Theme mode as the header toggle sets it: `mode` = system | light |
-  // dark. An `updateTheme` override is kept and shows under System.
+  // Theme mode as Theme in the More menu sets it: `mode` = system (Auto) |
+  // light | dark. An `updateTheme` override is kept and shows under Auto.
   developer.registerExtension('ext.sleuthDemo.theme', (method, params) async {
     final state = Sleuth.overlayUiState;
     if (state == null) return _demoError({'error': 'no_controller'});
@@ -1604,6 +1624,18 @@ class _MetricsObserver with WidgetsBindingObserver {
 }
 
 int _syntheticPointer = 900;
+
+/// Taps the foreground control whose semantics label is [label]. Returns
+/// an error code, or null after the tap.
+Future<String?> _tapLabel(String label) async {
+  final element = findSemanticsLabel(label);
+  if (element == null) return 'not_found';
+  final target = await prepareTap(element);
+  final position = target.position;
+  if (position == null) return target.error;
+  await _tapAt(position, viewId: target.viewId);
+  return null;
+}
 
 /// Down, 60 ms, up at [position] in the view [viewId] (0, the implicit
 /// view, for a bare point).

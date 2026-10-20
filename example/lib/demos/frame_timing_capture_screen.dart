@@ -35,7 +35,7 @@ import 'capture_driver.dart';
 ///   1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
 ///         --dart-define=SLEUTH_CAPTURE_MODE=true \
 ///         --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`. The VM
-///      service must be connected (VM+), because the export reads the
+///      service must be connected (run label "· VM"), because the export reads the
 ///      detector's records from the VM timeline.
 ///   2. Check that the pre-flight banner shows 60 Hz, capture mode on and
 ///      the provenance the export stamps.
