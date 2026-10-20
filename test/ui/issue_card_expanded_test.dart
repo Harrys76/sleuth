@@ -485,7 +485,7 @@ void main() {
           issue: _issue(stableId: 'rebuild_activity'),
           initiallyExpanded: true,
           onSeeRebuildStats: () => opened++,
-          rebuildStatsTotal: 2389,
+          rebuildStatsTotalOf: () => 2389,
         ),
       );
       final link = find.bySemanticsLabel(
@@ -493,6 +493,33 @@ void main() {
       );
       await tester.tap(link);
       expect(opened, 1);
+    });
+
+    testWidgets('the Rebuild stats link follows the count on the scan '
+        'pulse', (tester) async {
+      final tick = ValueNotifier<int>(0);
+      addTearDown(tick.dispose);
+      var total = 0;
+      await _pump(
+        tester,
+        IssueCard(
+          issue: _issue(stableId: 'rebuild_activity'),
+          initiallyExpanded: true,
+          scanTick: tick,
+          onSeeRebuildStats: () {},
+          rebuildStatsTotalOf: () => total,
+        ),
+      );
+      expect(find.textContaining('See rebuild stats'), findsNothing);
+      total = 12;
+      tick.value++;
+      await tester.pump();
+      expect(
+        find.bySemanticsLabel(
+          'See rebuild stats for this screen · 12 rebuilds',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('the startup card links to Startup metrics', (tester) async {

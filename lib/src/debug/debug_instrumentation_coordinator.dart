@@ -802,7 +802,7 @@ class DebugInstrumentationCoordinator {
     'TextField',
     'ValueListenableBuilder',
     'Wrap',
-    // --- Sleuth overlay widget classes (47) ---
+    // --- Sleuth overlay widget classes (48) ---
     'FloatingIssuesCard',
     '_StatusRow',
     '_DebugModeBanner',
@@ -814,6 +814,7 @@ class DebugInstrumentationCoordinator {
     'IssueCardDetails',
     '_KeyValueRows',
     '_ActionButton',
+    '_SelfSpaced',
     'SleuthMeasurementGauge',
     'IssueEncyclopediaPage',
     '_SearchBar',

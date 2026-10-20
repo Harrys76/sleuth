@@ -146,12 +146,13 @@
 - The expanded card shows its details below a divider, at the full card
   width. An issue with a measurement opens with a Measured row: the value
   and what it is ("10.0 ms in one build on the UI thread", with the
-  measurement's window where it has one), a gauge with
-  the warning and critical lines, and a line when the severity is held
-  above the value or judged on another reading. The issue's detail
+  measurement's window where it has one), a gauge with the warning and
+  critical lines, and a line when the severity is held above the value or
+  judged on another reading. The issue's detail
   follows, with what the number does not say (failing URLs and status
-  codes, for instance). The issues notifier fires when the Measured row's text or
-  a gauge line changes, and not for a change the row rounds away.
+  codes, for instance). The issues notifier fires when the Measured row's
+  text, a gauge line or the issue's scaffold changes, and not for a change
+  the row rounds away.
 - Labelled rows follow: Where (the widget, and its `file:line` with Copy
   when the run tracks widget creation), Route, When ("Last seen 2 s ago ·
   in 5 of the last 8 scans", with the interaction; the time is the
@@ -168,7 +169,8 @@
   folded under a card opens its detail and fix under its row. A related
   issue no longer reported stays as plain text. Rebuild and setState
   cards from the current screen link to its Rebuild stats once it has
-  counted rebuilds, and the slow startup card links to Startup metrics.
+  counted rebuilds, with the count kept current on every scan, and the
+  slow startup card links to Startup metrics.
 - A tap on an expanded card's details no longer collapses it; the header
   does. Hide moves focus to the card that takes its place, scrolled into
   view, and hiding a card whose issue is gone offers no Undo.
@@ -190,7 +192,9 @@
   forced, naming the parent that forced the most and its share. The row
   reads only counts from the card's own screen (a card kept from another
   screen asks to open it), says when the debug counters left widget
-  types out, and without the callbacks says how to turn them on.
+  types out, and says when rebuilds are not counted: the callbacks are
+  off, `advanced.rebuildAttribution` is off, or DevTools holds the
+  rebuild callback.
 - The effort colours, `aboutBackground`, `fixHintText` and the three
   `aiShimmer` colours are unused by the overlay and kept for custom
   themes. The guide describes the new expanded card and Not useful.

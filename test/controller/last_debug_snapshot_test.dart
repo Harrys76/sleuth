@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/debug/debug_instrumentation_config.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 
@@ -150,6 +151,50 @@ void main() {
       find.text("Open this issue's screen to count its rebuilds"),
       findsNothing,
     );
+    await tester.pumpWidget(const SizedBox());
+    controller.dispose();
+  });
+
+  testWidgets('without the rebuild callback the row says rebuilds are not '
+      'counted', (tester) async {
+    final controller = SleuthController(
+      config: const SleuthConfig(
+        enableDebugCallbacks: true,
+        advanced: DebugInstrumentationConfig(rebuildAttribution: false),
+      ),
+    )..initializeDetectorsForTest();
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    expect(controller.isRebuildHookInstalled, isFalse);
+    controller.issuesNotifier.value = [
+      const PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        title: 'Wide setState Scope',
+        detail: 'D',
+        fixHint: 'F',
+        stableId: 'setstate_scope',
+        widgetName: 'DemoScaffold',
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FloatingIssuesCard(
+            controller: controller,
+            onClose: () {},
+            isDebugMode: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Wide setState Scope'));
+    await tester.pump();
+    expect(find.textContaining('Rebuilds are not counted'), findsOneWidget);
+    expect(find.textContaining('No rebuilds'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     controller.dispose();
   });

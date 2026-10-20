@@ -63,10 +63,11 @@ class IssueCardDetails extends StatefulWidget {
     this.relatedLinkOf,
     this.onOpenRelated,
     this.onSeeRebuildStats,
-    this.rebuildStatsTotal,
+    this.rebuildStatsTotalOf,
     this.onSeeStartup,
     this.whyItRebuilds = false,
     this.rebuildCauseOf,
+    this.rebuildCauseUnavailable,
     this.onCopyText,
     this.highlighted = false,
     this.onShowOnScreen,
@@ -93,17 +94,21 @@ class IssueCardDetails extends StatefulWidget {
   final List<PerformanceIssue>? downstreamIssues;
   final RelatedLink Function(PerformanceIssue)? relatedLinkOf;
   final ValueChanged<PerformanceIssue>? onOpenRelated;
+
+  /// Opens Rebuild stats; the link shows while [rebuildStatsTotalOf],
+  /// read on every scan, is above zero.
   final VoidCallback? onSeeRebuildStats;
-  final int? rebuildStatsTotal;
+  final int? Function()? rebuildStatsTotalOf;
   final VoidCallback? onSeeStartup;
 
   /// Whether the card shows the Why it rebuilds row (debug runs, rebuild
   /// and setState cards).
   final bool whyItRebuilds;
 
-  /// The latest rebuild split, read on every scan. Null when debug
-  /// callbacks are off, which the row says.
+  /// The latest rebuild split, read on every scan. Null when rebuilds are
+  /// not counted; [rebuildCauseUnavailable] then says why.
   final RebuildCause? Function()? rebuildCauseOf;
+  final String? rebuildCauseUnavailable;
 
   /// Copies text and confirms with the given toast.
   final void Function(String text, String confirmation)? onCopyText;
@@ -209,16 +214,7 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
       if (parents.isNotEmpty || suppressed > 0)
         _related(theme, 'Caused by', parents, suppressed: suppressed),
       if (effects.isNotEmpty) _related(theme, 'Effects', effects),
-      if (widget.onSeeRebuildStats != null)
-        _linkRow(
-          theme,
-          icon: Icons.autorenew,
-          label: widget.rebuildStatsTotal == null
-              ? 'See rebuild stats for this screen'
-              : 'See rebuild stats for this screen · '
-                    '${_grouped(widget.rebuildStatsTotal!)} rebuilds',
-          onTap: widget.onSeeRebuildStats!,
-        ),
+      if (widget.onSeeRebuildStats != null) _rebuildStatsLink(theme),
       if (widget.onSeeStartup != null)
         _linkRow(
           theme,
@@ -239,12 +235,15 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final (i, block) in blocks.indexed)
-            Padding(
-              padding: EdgeInsets.only(top: i == 0 ? theme.spacingMd : 10),
-              // Each block is its own node, so a screen reader does not read
-              // the whole body as one utterance.
-              child: Semantics(container: true, child: block),
-            ),
+            if (block is _SelfSpaced)
+              block
+            else
+              Padding(
+                padding: EdgeInsets.only(top: i == 0 ? theme.spacingMd : 10),
+                // Each block is its own node, so a screen reader does not
+                // read the whole body as one utterance.
+                child: Semantics(container: true, child: block),
+              ),
         ],
       ),
     );
@@ -417,8 +416,9 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
       String? hint;
       if (read == null) {
         content = Text(
-          'Turn on SleuthConfig.enableDebugCallbacks to split these '
-          'rebuilds by cause.',
+          widget.rebuildCauseUnavailable ??
+              'Turn on SleuthConfig.enableDebugCallbacks to split these '
+                  'rebuilds by cause.',
           style: style.copyWith(color: theme.textSecondary),
         );
       } else if (cause != null && cause.otherScreen) {
@@ -650,6 +650,39 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
         SizedBox(height: theme.spacingSm),
         ..._fixParts(theme, related.fixHint),
       ],
+    );
+  }
+
+  /// The Rebuild stats link, refreshed on every scan: counts grow
+  /// without the issue list changing, and a screen with none yet gets no
+  /// link.
+  Widget _rebuildStatsLink(SleuthThemeData theme) {
+    Widget link() {
+      final total = widget.rebuildStatsTotalOf?.call() ?? 0;
+      if (total <= 0) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Semantics(
+          container: true,
+          child: _linkRow(
+            theme,
+            icon: Icons.autorenew,
+            label:
+                'See rebuild stats for this screen · ${_grouped(total)} '
+                'rebuilds',
+            onTap: widget.onSeeRebuildStats!,
+          ),
+        ),
+      );
+    }
+
+    return _SelfSpaced(
+      child: widget.scanTick == null
+          ? link()
+          : SleuthListenableBuilder(
+              listenable: widget.scanTick!,
+              builder: (_) => link(),
+            ),
     );
   }
 
@@ -1160,4 +1193,14 @@ class _ActionButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A details block that sets its own top gap, and may draw nothing.
+class _SelfSpaced extends StatelessWidget {
+  const _SelfSpaced({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
 }
