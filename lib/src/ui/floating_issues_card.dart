@@ -795,14 +795,17 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// afterwards, so Escape is left to the app when its focus is in a text
   /// field or in a dismissible route (a dialog or sheet closes on Escape
   /// through `DismissIntent`). With a page or the Hidden list open the
-  /// app holds no focus, and Escape always closes the layer.
+  /// app holds no focus, and Escape always closes the layer; the menu and
+  /// the highlight bar also take it, as system back does.
   bool _onKeyEvent(KeyEvent event) {
     if (!mounted || event is KeyUpEvent) return false;
     if (event.logicalKey != LogicalKeyboardKey.escape) {
       return _moveOrActivate(event);
     }
     if (event is! KeyDownEvent) return false;
-    if (openLayerDepth == 0 && !_menuOpen && _appTakesEscape()) return false;
+    if (openLayerDepth == 0 && !_menuOpen && !_barOpen && _appTakesEscape()) {
+      return false;
+    }
     if (!closeInnermostLayer()) widget.onClose();
     return true;
   }
@@ -2220,6 +2223,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (onScreen) _barAtTop = highlightBarAtTop(rect, visible);
     final margin = SleuthTheme.of(context).spacingMd;
     return Positioned(
+      key: const ValueKey<String>('Sleuth highlight bar'),
       left: safe.left + margin,
       right: safe.right + margin,
       top: _barAtTop ? safe.top + margin : null,
@@ -2351,7 +2355,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     return Stack(
       children: [
         if (layerDepth == 0 && _barOpen && _barShield != null)
+          // Keyed, with the bar, so the shield going does not remount
+          // the bar in its slot.
           Positioned.fromRect(
+            key: const ValueKey<String>('Sleuth bar shield'),
             rect: _barShield!,
             child: Listener(behavior: HitTestBehavior.opaque),
           ),

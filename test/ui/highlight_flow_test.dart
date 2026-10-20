@@ -360,6 +360,47 @@ void main() {
       expect(controller.overlayUiState.dashboardOpen, isFalse);
     });
 
+    testWidgets('Escape closes the bar while an app text field has focus', (
+      tester,
+    ) async {
+      final field = FocusNode(debugLabel: 'app field');
+      addTearDown(field.dispose);
+      final controller = await _openWith(
+        tester,
+        [_lay],
+        app: MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(width: 100, child: TextField(focusNode: field)),
+            ),
+          ),
+        ),
+      );
+      field.requestFocus();
+      await tester.pump();
+      _seedHighlight(controller, _top);
+      await _tapCrosshair(tester);
+      expect(_bar, findsOneWidget);
+      expect(field.hasFocus, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(_bar, findsNothing);
+    });
+
+    testWidgets('the bar keeps its controls when the shield goes', (
+      tester,
+    ) async {
+      final controller = await _openWith(tester, [_lay]);
+      _seedHighlight(controller, _top);
+      await _tapCrosshair(tester);
+      final before = tester.element(_bar);
+      final backNode = tester.getSemantics(_back).id;
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(identical(tester.element(_bar), before), isTrue);
+      expect(tester.getSemantics(_back).id, backNode);
+    });
+
     testWidgets('the bar\'s close ends the highlight with the dashboard', (
       tester,
     ) async {

@@ -218,8 +218,9 @@
   screen edge away from the widget: "Showing <widget>", or "<widget> is
   off screen" once it scrolls away, detaches or sits behind the keyboard,
   until a later scan finds that element again. Back to issues, system
-  back and Escape bring the card back as it was (window state, size and
-  list offset) with focus on the crosshair. The bar's close ends the
+  back and Escape (also while an app text field has focus) bring the
+  card back as it was (window state, size and list offset) with focus on
+  the crosshair. The bar's close ends the
   outline with the dashboard. When the issue is no longer reported the
   card comes back and a toast says so. The bar is never stored, and the
   flagged-widget markers return to their state from before the tap
