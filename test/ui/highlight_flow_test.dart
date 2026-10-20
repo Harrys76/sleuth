@@ -7,6 +7,7 @@ import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/highlight_bar.dart';
 import 'package:sleuth/src/ui/highlight_overlay.dart';
+import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 import '../helpers/overlay_harness.dart';
@@ -359,6 +360,45 @@ void main() {
       );
       expect(FocusManager.instance.primaryFocus?.debugLabel, 'Sleuth More');
       await tester.pump(const Duration(seconds: 15));
+    });
+
+    testWidgets('focus returns to the selected twin after the one above it '
+        'goes', (tester) async {
+      PerformanceIssue twin(String name, int occurrence) => PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.layout,
+        confidence: IssueConfidence.likely,
+        title: 'Title $name',
+        detail: 'D',
+        fixHint: 'F',
+        stableId: 'lay',
+        widgetName: 'Lay',
+        occurrenceId: occurrence,
+      );
+      final a = twin('A', 1);
+      final b = twin('B', 2);
+      final c = twin('C', 3);
+      final controller = await _openWith(tester, [a, b, c]);
+      _seedHighlight(controller, _top);
+      final focused = _recordScreenReaderFocus(tester);
+      await _tapCrosshair(tester, 'Title B');
+      expect(_bar, findsOneWidget);
+
+      // B keeps its report; A going renumbers the cards' keys.
+      controller.issuesNotifier.value = [b, c];
+      await tester.pump();
+      expect(_bar, findsOneWidget);
+      await tester.tap(_back);
+      await tester.pump();
+      await tester.pump();
+      final crosshairOf = find.descendant(
+        of: find.ancestor(
+          of: find.text('Title B'),
+          matching: find.byType(IssueCard),
+        ),
+        matching: find.bySemanticsLabel('Show Lay on screen'),
+      );
+      expect(focused.last, tester.getSemantics(crosshairOf).id);
     });
 
     testWidgets('a second tap of a double tap does not reach the app', (
