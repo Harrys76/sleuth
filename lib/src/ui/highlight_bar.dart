@@ -6,6 +6,16 @@ import 'severity_icon.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
+/// Whether the highlight bar sits at the top edge: when the centre of the
+/// outlined [rect] is in the lower half of [visible], the part of the
+/// screen the keyboard leaves. The outline label reads the same rule to
+/// stay clear of the bar.
+bool highlightBarAtTop(Rect rect, Rect visible) =>
+    rect.center.dy > visible.center.dy;
+
+/// Height of the highlight bar at chrome text scale [chromeScale].
+double highlightBarHeight(double chromeScale) => 48 * chromeScale;
+
 /// The bar the card shrinks to while it outlines an issue's widget:
 /// "Showing X", or "X is off screen" once the widget scrolls away or
 /// detaches, with Back to issues and close.
@@ -53,109 +63,112 @@ class SleuthHighlightBar extends StatelessWidget {
         color: theme.cardBackground,
         borderRadius: radius,
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: 48 * chromeScaleOf(context)),
+          constraints: BoxConstraints(
+            minHeight: highlightBarHeight(chromeScaleOf(context)),
+          ),
           child: Padding(
             padding: EdgeInsets.only(left: theme.spacingLg),
-            child: Row(
-              children: [
-                ExcludeSemantics(
-                  child: SleuthSeverityIcon(severity: severity, size: 16),
-                ),
-                SizedBox(width: theme.spacingMd),
-                Expanded(
-                  child: Semantics(
-                    container: true,
-                    liveRegion: true,
-                    label: label,
-                    excludeSemantics: true,
-                    child: Text(
-                      label,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: theme.fontBase,
-                        fontWeight: FontWeight.w600,
+            // Back to issues keeps its width up to half the row and wraps
+            // past it; the label takes the rest, so close stays at the end.
+            child: LayoutBuilder(
+              builder: (context, constraints) => Row(
+                children: [
+                  ExcludeSemantics(
+                    child: SleuthSeverityIcon(severity: severity, size: 16),
+                  ),
+                  SizedBox(width: theme.spacingMd),
+                  Expanded(
+                    child: Semantics(
+                      container: true,
+                      liveRegion: true,
+                      label: label,
+                      excludeSemantics: true,
+                      child: Text(
+                        label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: theme.fontBase,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                // Wraps rather than overflows on a narrow screen at the
-                // chrome text limit.
-                Flexible(
-                  child: Semantics(
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth / 2,
+                    ),
+                    child: _backButton(theme, buttonRadius),
+                  ),
+                  Semantics(
                     container: true,
                     button: true,
-                    label: 'Back to issues',
-                    onTap: onBack,
+                    label: 'Close Sleuth',
+                    onTap: onClose,
                     excludeSemantics: true,
                     child: SleuthFocusInkWell(
-                      onTap: onBack,
-                      focusNode: backFocusNode,
+                      onTap: onClose,
                       excludeFromSemantics: true,
                       borderRadius: buttonRadius,
-                      builder: (context, showFocus) => ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          minWidth: 48,
-                          minHeight: 48,
-                        ),
-                        child: Center(
-                          widthFactor: 1,
-                          child: SleuthFocusOutline(
-                            show: showFocus,
-                            color: theme.checkboxActive,
-                            borderRadius: buttonRadius,
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: theme.spacingSm,
-                              ),
-                              child: Text(
-                                'Back to issues',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: theme.checkboxActive,
-                                  fontSize: theme.fontBase,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
+                      builder: (context, showFocus) => SleuthFocusOutline(
+                        show: showFocus,
+                        color: theme.checkboxActive,
+                        borderRadius: buttonRadius,
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Icon(
+                            Icons.close,
+                            size: 16,
+                            color: theme.textTertiary,
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                Semantics(
-                  container: true,
-                  button: true,
-                  label: 'Close Sleuth',
-                  onTap: onClose,
-                  excludeSemantics: true,
-                  child: SleuthFocusInkWell(
-                    onTap: onClose,
-                    excludeFromSemantics: true,
-                    borderRadius: buttonRadius,
-                    builder: (context, showFocus) => SleuthFocusOutline(
-                      show: showFocus,
-                      color: theme.checkboxActive,
-                      borderRadius: buttonRadius,
-                      child: SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Icon(
-                          Icons.close,
-                          size: 18,
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+
+  Widget _backButton(SleuthThemeData theme, BorderRadius radius) => Semantics(
+    container: true,
+    button: true,
+    label: 'Back to issues',
+    onTap: onBack,
+    excludeSemantics: true,
+    child: SleuthFocusInkWell(
+      onTap: onBack,
+      focusNode: backFocusNode,
+      excludeFromSemantics: true,
+      borderRadius: radius,
+      builder: (context, showFocus) => ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        child: Center(
+          widthFactor: 1,
+          child: SleuthFocusOutline(
+            show: showFocus,
+            color: theme.checkboxActive,
+            borderRadius: radius,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
+              child: Text(
+                'Back to issues',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: theme.checkboxActive,
+                  fontSize: theme.fontBase,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }

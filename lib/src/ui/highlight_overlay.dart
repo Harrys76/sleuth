@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import 'highlight_bar.dart';
 import 'sleuth_theme.dart';
 import 'text_scale_clamp.dart';
 
@@ -40,8 +41,10 @@ class HighlightOverlay extends StatelessWidget {
       min: kOverlayMinTextScale,
       max: kChromeMaxTextScale,
     );
-    // The label stays below a notch or status bar.
+    // The label stays below a notch or status bar, and below the
+    // highlight bar when the bar sits at the top.
     final topInset = MediaQuery.maybeViewPaddingOf(context)?.top ?? 0;
+    final keyboardHeight = MediaQuery.maybeViewInsetsOf(context)?.bottom ?? 0;
     // Painted labels are a visual aid; screen readers reach the issue
     // through its card.
     return ExcludeSemantics(
@@ -71,6 +74,7 @@ class HighlightOverlay extends StatelessWidget {
                             theme: theme,
                             textScaler: textScaler,
                             topInset: topInset,
+                            keyboardHeight: keyboardHeight,
                           ),
                           size: Size.infinite,
                         );
@@ -91,6 +95,7 @@ class _HighlightPainter extends CustomPainter {
     required this.theme,
     required this.textScaler,
     required this.topInset,
+    required this.keyboardHeight,
   });
 
   final List<WidgetHighlight> highlights;
@@ -99,11 +104,9 @@ class _HighlightPainter extends CustomPainter {
   final SleuthThemeData theme;
   final TextScaler textScaler;
   final double topInset;
+  final double keyboardHeight;
 
   static const _markerSize = 8.0;
-  static const _labelMargin = 4.0;
-  static const _labelPadX = 5.0;
-  static const _labelPadY = 2.0;
 
   Color _colorFor(IssueSeverity severity) => switch (severity) {
     IssueSeverity.critical => theme.severityCritical,
@@ -178,6 +181,9 @@ class _HighlightPainter extends CustomPainter {
 
     // Label: sized to its text, up to two lines, in the severity colour
     // with the text colour that reads on it.
+    final margin = theme.spacingXs;
+    final padX = theme.spacingMd;
+    final padY = theme.spacingXxs;
     final label =
         '${h.detectorName}: ${h.widgetName}'
         '${h.detail != null ? ', ${h.detail}' : ''}';
@@ -187,8 +193,7 @@ class _HighlightPainter extends CustomPainter {
             text: label,
             style: TextStyle(
               color: SleuthThemeData.onColor(color),
-              fontSize: theme.fontSm,
-              fontWeight: FontWeight.bold,
+              fontSize: theme.fontMd,
               height: 1.2,
             ),
           ),
@@ -201,34 +206,52 @@ class _HighlightPainter extends CustomPainter {
             0.0,
             math.min(
               clampDouble(h.rect.width + 100, 120, 350),
-              size.width - 2 * _labelMargin - 2 * _labelPadX,
+              size.width - 2 * margin - 2 * padX,
             ),
           ),
         );
 
-    final labelWidth = textPainter.width + 2 * _labelPadX;
-    final labelHeight = textPainter.height + 2 * _labelPadY;
+    final labelWidth = textPainter.width + 2 * padX;
+    final labelHeight = textPainter.height + 2 * padY;
     final labelLeft = clampDouble(
       h.rect.left,
-      _labelMargin,
-      math.max(_labelMargin, size.width - labelWidth - _labelMargin),
+      margin,
+      math.max(margin, size.width - labelWidth - margin),
     );
-    final minTop = topInset + _labelMargin;
+    // Below the status bar, and below the highlight bar when it sits at
+    // the top (the card places it by the same rule).
+    final visible = Rect.fromLTRB(
+      0,
+      0,
+      size.width,
+      math.max(0.0, size.height - keyboardHeight),
+    );
+    final chromeScale = clampDouble(
+      textScaler.scale(14) / 14,
+      1,
+      kChromeMaxTextScale,
+    );
+    final minTop =
+        topInset +
+        margin +
+        (highlightBarAtTop(h.rect, visible)
+            ? theme.spacingMd + highlightBarHeight(chromeScale)
+            : 0);
     final labelTop = clampDouble(
-      h.rect.top - labelHeight - 4,
+      h.rect.top - labelHeight - margin,
       minTop,
-      math.max(minTop, size.height - labelHeight - _labelMargin),
+      math.max(minTop, size.height - labelHeight - margin),
     );
 
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(labelLeft, labelTop, labelWidth, labelHeight),
-        const Radius.circular(4),
+        Radius.circular(theme.radiusMd),
       ),
       Paint()..color = color,
     );
     textPainter
-      ..paint(canvas, Offset(labelLeft + _labelPadX, labelTop + _labelPadY))
+      ..paint(canvas, Offset(labelLeft + padX, labelTop + padY))
       ..dispose();
   }
 
@@ -239,5 +262,6 @@ class _HighlightPainter extends CustomPainter {
       !identical(old.theme, theme) ||
       old.textScaler != textScaler ||
       old.topInset != topInset ||
+      old.keyboardHeight != keyboardHeight ||
       !identical(old.highlights, highlights);
 }

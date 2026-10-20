@@ -427,9 +427,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     debugLabel: 'Sleuth Back to issues',
   );
 
-  /// Space between the bar and the safe-area edges.
-  static const double _barMargin = 8;
-
   /// Where the card was when the bar replaced it, held for a double tap's
   /// span so the second tap of a double tap on the crosshair does not
   /// reach the app below.
@@ -2173,14 +2170,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       math.max(0.0, screenSize.height - keyboardHeight),
     );
     final onScreen = rect != null && !rect.isEmpty && rect.overlaps(visible);
-    if (onScreen) _barAtTop = rect.center.dy > visible.center.dy;
+    if (onScreen) _barAtTop = highlightBarAtTop(rect, visible);
+    final margin = SleuthTheme.of(context).spacingMd;
     return Positioned(
-      left: safe.left + _barMargin,
-      right: safe.right + _barMargin,
-      top: _barAtTop ? safe.top + _barMargin : null,
-      bottom: _barAtTop
-          ? null
-          : math.max(safe.bottom, keyboardHeight) + _barMargin,
+      left: safe.left + margin,
+      right: safe.right + margin,
+      top: _barAtTop ? safe.top + margin : null,
+      bottom: _barAtTop ? null : math.max(safe.bottom, keyboardHeight) + margin,
       child: Center(
         heightFactor: 1,
         child: ConstrainedBox(
@@ -2400,7 +2396,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         OverlayToast(
           controller: _toast,
           bottomClearance: layerDepth == 0 && _barOpen && !_barAtTop
-              ? _controlRowHeight * chromeScale + _barMargin
+              ? highlightBarHeight(chromeScale) + theme.spacingMd
               : 0,
         ),
       ],
