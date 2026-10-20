@@ -17,7 +17,7 @@ import '../helpers/contrast_helpers.dart';
 import '../helpers/overlay_harness.dart'
     show
         crosshair,
-        crosshairOn,
+        crosshairFinding,
         expandedIssueCards,
         moreMenuRow,
         openFromMoreMenu,
@@ -253,10 +253,13 @@ void main() {
       await tester.pump();
 
       expect(
-        find.textContaining('Widget not currently visible'),
+        find.text(
+          "Couldn't find Lay on screen. It may be scrolled away or not "
+          'built yet.',
+        ),
         findsOneWidget,
       );
-      expect(crosshairOn(tester, crosshair()), isFalse);
+      expect(crosshairFinding(tester, crosshair()), isFalse);
       expect(controller.pendingIssueSelection, isNull);
       expect(controller.selectedHighlightNotifier.value, isNull);
       await drainToasts(tester);
@@ -1250,7 +1253,7 @@ void main() {
 
       // Shown again, the card is no longer ticked.
       await tapChip(tester, 'warning');
-      expect(crosshairOn(tester, crosshair()), isFalse);
+      expect(crosshairFinding(tester, crosshair()), isFalse);
       await drainToasts(tester);
     });
 

@@ -41,14 +41,14 @@ FrameVerdict _testVerdict({List<PerformanceIssue> relatedIssues = const []}) {
 Widget _buildCard(
   PerformanceIssue issue, {
   bool jankCorrelated = false,
-  bool highlighted = false,
+  bool finding = false,
 }) {
   return MaterialApp(
     home: Scaffold(
       body: IssueCard(
         issue: issue,
         jankCorrelated: jankCorrelated,
-        highlighted: highlighted,
+        finding: finding,
       ),
     ),
   );

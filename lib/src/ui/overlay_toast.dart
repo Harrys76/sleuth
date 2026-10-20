@@ -157,9 +157,16 @@ class OverlayToastController extends ValueNotifier<OverlayToastModel?> {
 /// live region. A held toast ([OverlayToastModel.held]) adds a Dismiss
 /// button and a dismiss semantics action.
 class OverlayToast extends StatelessWidget {
-  const OverlayToast({super.key, required this.controller});
+  const OverlayToast({
+    super.key,
+    required this.controller,
+    this.bottomClearance = 0,
+  });
 
   final OverlayToastController controller;
+
+  /// Extra space kept free below the toast, for chrome at the bottom edge.
+  final double bottomClearance;
 
   static const Duration _fade = Duration(milliseconds: 200);
 
@@ -173,7 +180,7 @@ class OverlayToast extends StatelessWidget {
     return Positioned(
       left: theme.spacingXl,
       right: theme.spacingXl,
-      bottom: theme.spacingXl + bottomInset,
+      bottom: theme.spacingXl + bottomInset + bottomClearance,
       child: ValueListenableBuilder<OverlayToastModel?>(
         valueListenable: controller,
         builder: (context, model, _) => _ToastFade(
