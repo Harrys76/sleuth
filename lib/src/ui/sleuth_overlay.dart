@@ -132,6 +132,11 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     final mode = ui.themeMode;
     if (open == _dashboardOpen && mode == _themeMode) return;
     final layersChanged = open != _dashboardOpen;
+    // The card's highlight ends with the dashboard, however it closed.
+    if (!open && _dashboardOpen) {
+      final Object? host = _cardKey.currentState;
+      if (host is OverlayLayerHost) host.endHighlight();
+    }
     setState(() {
       _dashboardOpen = open;
       _themeMode = mode;
@@ -406,6 +411,8 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   void didChangeMetrics() {
     if (!mounted) return;
     _attachDisplayRefreshRate();
+    // A rotation, resize or keyboard moves the outlined widgets.
+    widget.controller.refreshHighlightRects();
     final view = View.of(context);
     final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
     if (bottomInset > 0 && _lastBottomInset == 0) {
@@ -476,6 +483,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
               child: HighlightOverlay(
                 highlights: widget.controller.highlightsNotifier,
                 selectedHighlight: widget.controller.selectedHighlightNotifier,
+                markersEnabled: widget.controller.highlightEnabledNotifier,
               ),
             ),
 

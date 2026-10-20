@@ -123,10 +123,11 @@
   include the name, so such a card hidden under an older release shows
   again.
 - A crosshair replaces the highlight checkbox and shows only for an issue
-  that names a widget, labelled "Show <widget> on screen" and read as on
-  or off. Layout and paint cards without a widget name no longer offer a
-  highlight that could not find anything. The card body and the
-  crosshair draw the focus outline in keyboard mode.
+  that names a widget, labelled "Show <widget> on screen". Before the
+  first scan it reads "Finding" until the scan looks the widget up, and a
+  second tap cancels. Layout and paint cards without a widget name no
+  longer offer a highlight that could not find anything. The card body
+  and the crosshair draw the focus outline in keyboard mode.
 - An expanded card no longer draws the pin icon. Its semantics hint
   reads "Pinned while expanded".
 - An expanded card stays until it is collapsed, even when its issue stops
@@ -212,6 +213,24 @@
 - While the card is open, a toast says when the VM link drops, unless an
   action toast holds the slot or a screen reader is on (the status line
   announces it).
+- While an issue's widget is outlined, the card shrinks to a bar at the
+  screen edge away from the widget: "Showing <widget>", or "<widget> is
+  off screen" once it scrolls away, detaches or sits behind the keyboard,
+  until a later scan finds that element again. Back to issues, system
+  back and Escape bring the card back as it was (window state, size and
+  list offset) with focus on the crosshair. The bar's close ends the
+  outline with the dashboard. When the issue is no longer reported the
+  card comes back and a toast says so. The bar is never stored, and the
+  flagged-widget markers return to their state from before the tap
+  however the outline ends. Outlines follow a rotation or a keyboard at
+  once instead of at the next scan, and the outline's label stays below
+  the status bar.
+- The header's markers toggle is named "Mark flagged widgets" and read as
+  on or off. Turning it off hides the corner markers at once instead of
+  at the next scan.
+- The outline's label sizes to its text, up to two lines, follows the
+  text scale up to the chrome limit, and draws its text in the colour
+  that reads on its severity fill.
 - The effort colours, `aboutBackground`, `fixHintText` and the three
   `aiShimmer` colours are unused by the overlay and kept for custom
   themes. The guide describes the new expanded card and Not useful.
@@ -225,7 +244,8 @@
 - Highlighting an issue outlines only its own widget: the element it was
   reported for, else the first widget with its name. Another widget of
   the same category is no longer outlined in its place. When the widget
-  is not on screen the card unticks, and no outline appears later.
+  is not on screen a toast says "Couldn't find <widget> on screen. It may
+  be scrolled away or not built yet.", and no outline appears later.
 - Copying the snapshot from the overlay counts as Sleuth's own work, so
   it is left out of the next frame's start delay. A second tap during a
   copy is ignored.

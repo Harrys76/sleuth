@@ -24,8 +24,7 @@ class SleuthTapTargetGuideline extends MinimumTapTargetGuideline {
 
   /// Labels of the 36 x 48 header controls.
   static const compactHeaderLabels = {
-    'Show overlay',
-    'Hide overlay',
+    'Mark flagged widgets',
     'More',
     'Minimize',
     'Maximize',

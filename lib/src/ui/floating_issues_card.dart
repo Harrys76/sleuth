@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart' show GestureBinding;
+import 'package:flutter/gestures.dart' show GestureBinding, kDoubleTapTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -13,7 +13,6 @@ import '../controller/highlight_lookup.dart';
 import '../controller/sleuth_controller.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
-import '../models/widget_highlight.dart';
 import 'issue_card.dart';
 import 'issue_card_details.dart' show RebuildCause, RelatedLink;
 import 'ai_chat_page.dart';
@@ -31,6 +30,7 @@ import '../utils/own_work_log.dart';
 import '../vm/connection_mode.dart';
 import 'hidden_issues_page.dart';
 import 'overlay_filters.dart';
+import 'highlight_bar.dart';
 import 'overlay_toast.dart';
 import 'overlay_ui_state.dart';
 import 'sleuth_listenable_builder.dart';
@@ -326,7 +326,8 @@ class FloatingIssuesCard extends StatefulWidget {
 abstract interface class OverlayLayerHost {
   /// Closes the innermost open layer: unfocuses a focused text field,
   /// else closes the open full-screen page, else the Hidden list, else
-  /// the More menu. Returns false when none of these is open.
+  /// the More menu, else the highlight bar. Returns false when none of
+  /// these is open.
   bool closeInnermostLayer();
 
   /// Number of full-screen layers (pages and the Hidden list) open above
@@ -336,6 +337,11 @@ abstract interface class OverlayLayerHost {
   /// Whether the More menu is open inside the card. Read from
   /// [FloatingIssuesCard.onLayersChanged].
   bool get menuOpen;
+
+  /// Ends the card's highlight (the bar, or a lookup still running) when
+  /// the dashboard closes. The outline goes, and the markers toggle
+  /// returns to its value from before the tap.
+  void endHighlight();
 }
 
 /// A full-screen layer over the card.
@@ -401,6 +407,40 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// occurrence id is found by it ([_isSelectedCard]), as a twin ahead of
   /// it going renumbers the flow's keys.
   PerformanceIssue? _selectedIssue;
+
+  /// The selected issue's widget is outlined, and the card has shrunk to
+  /// [SleuthHighlightBar] until Back to issues, close, or the issue goes.
+  /// The window state, size and list offset stay as they were, and none
+  /// of it is written to [OverlayUiState]. With [_selectedIssue] set and
+  /// this false, the lookup is pending (Finding).
+  bool _barOpen = false;
+
+  /// The flagged-widget markers toggle before the crosshair tap; the
+  /// toggle returns to it when the highlight ends.
+  bool _markersBefore = false;
+
+  /// The bar sat at the top of the screen when its widget was last on
+  /// screen; while the widget is off screen it stays there.
+  bool _barAtTop = false;
+
+  final FocusNode _barBackFocus = FocusNode(
+    debugLabel: 'Sleuth Back to issues',
+  );
+
+  /// Space between the bar and the safe-area edges.
+  static const double _barMargin = 8;
+
+  /// Where the card was when the bar replaced it, held for a double tap's
+  /// span so the second tap of a double tap on the crosshair does not
+  /// reach the app below.
+  Rect? _barShield;
+  Timer? _barShieldTimer;
+
+  /// The card whose crosshair takes focus once the bar closes, the epoch
+  /// that asks it to, and whether keyboard focus goes with it.
+  String? _crosshairFocusKey;
+  int _crosshairFocusEpoch = 0;
+  bool _crosshairKeyboardFocus = false;
 
   /// Bumped when the host clears every expansion at once (severity filter
   /// change); [IssueCard] collapses without calling back.
@@ -621,6 +661,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
     _vmWasConnected = widget.controller.vmConnectedNotifier.value;
     widget.controller.vmConnectedNotifier.addListener(_onVmLinkChanged);
+    widget.controller.highlightsNotifier.addListener(_onHighlightsChanged);
+    widget.controller.selectedHighlightNotifier.addListener(_onBarTarget);
     _ui.addListener(_onUiStateChanged);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
     SemanticsBinding.instance.addSemanticsEnabledListener(_syncToastTiming);
@@ -740,11 +782,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       oldWidget.controller.verdictNotifier.removeListener(_onVerdictChanged);
       oldWidget.controller.issuesNotifier.removeListener(_onIssuesChanged);
       oldWidget.controller.vmConnectedNotifier.removeListener(_onVmLinkChanged);
+      oldWidget.controller.highlightsNotifier.removeListener(
+        _onHighlightsChanged,
+      );
+      oldWidget.controller.selectedHighlightNotifier.removeListener(
+        _onBarTarget,
+      );
       oldWidget.controller.overlayUiState.removeListener(_onUiStateChanged);
       widget.controller.verdictNotifier.addListener(_onVerdictChanged);
       widget.controller.issuesNotifier.addListener(_onIssuesChanged);
       _vmWasConnected = widget.controller.vmConnectedNotifier.value;
       widget.controller.vmConnectedNotifier.addListener(_onVmLinkChanged);
+      widget.controller.highlightsNotifier.addListener(_onHighlightsChanged);
+      widget.controller.selectedHighlightNotifier.addListener(_onBarTarget);
       widget.controller.overlayUiState.addListener(_onUiStateChanged);
       _readGeometry();
       _lastSeverityFilter = {..._ui.severityFilter};
@@ -753,6 +803,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _frozen = null;
       _selectedIssueId = null;
       _selectedIssue = null;
+      _barOpen = false;
       _showAiChat = false;
       _chatIssueKey = null;
       _chatIssue = null;
@@ -842,11 +893,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
     _menuScope.dispose();
     _moreFocus.dispose();
+    _barBackFocus.dispose();
+    _barShieldTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     SemanticsBinding.instance.removeSemanticsEnabledListener(_syncToastTiming);
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
     widget.controller.vmConnectedNotifier.removeListener(_onVmLinkChanged);
+    widget.controller.highlightsNotifier.removeListener(_onHighlightsChanged);
+    widget.controller.selectedHighlightNotifier.removeListener(_onBarTarget);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     _toast.dispose();
     _listScroll.dispose();
@@ -1122,11 +1177,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       setState(() => _showHidden = false);
     } else if (_menuOpen) {
       _closeMenu();
+    } else if (_barOpen) {
+      _leaveBar();
     } else {
       return false;
     }
     return true;
   }
+
+  @override
+  void endHighlight() => _endHighlight();
 
   // ─── More menu ─────────────────────────────────────────────────────
 
@@ -1817,8 +1877,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// downstream ones reachable via Ask AI), and narrowing them here would
   /// hide entries the user can still reach through the expanded parent's
   /// downstream list. `_selectedIssueId` is dropped, together with the
-  /// controller's highlight selection, when its card leaves the visible
-  /// list (the issue is gone, hidden, or filtered out by severity).
+  /// controller's highlight selection and the highlight bar, when its card
+  /// leaves the visible list (the issue is gone, hidden, or filtered out
+  /// by severity).
   void _pruneStaleState() {
     final issues = widget.controller.issuesNotifier.value;
     final visible = _ui.visibleIssues(issues);
@@ -1855,12 +1916,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _frozen = next;
     }
 
+    // When the issue leaves the list, the highlight ends and the card comes
+    // back. A toast says why when the bar was up and the issue is no
+    // longer reported.
     final selectedIssue = _selectedIssue;
     if (selectedIssue != null && _reportOf(selectedIssue, visible) == null) {
-      _selectedIssueId = null;
-      _selectedIssue = null;
-      widget.controller.clearSelectedHighlight();
-      changed = true;
+      final gone = _barOpen && _reportOf(selectedIssue, issues) == null;
+      _endHighlight(refocusHeader: true);
+      if (gone) {
+        _toast.show(
+          'The issue on ${selectedIssue.widgetName} is no longer reported.',
+        );
+      }
     }
     // An open chat outlives its issue (the page holds the last reported
     // instance); only closed chats lose their history with the issue.
@@ -1937,29 +2004,45 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
   }
 
+  /// Handles a tap on the crosshair or Show on screen. [checked] starts a
+  /// lookup, and false cancels one still running. If the widget is found,
+  /// the card shrinks to the highlight bar; if not, a toast says so and
+  /// the card stays.
   void _onHighlightChanged(
     bool checked,
     String issueKey,
     PerformanceIssue issue,
   ) {
-    if (checked) {
-      setState(() {
-        _selectedIssueId = issueKey;
-        _selectedIssue = issue;
-      });
-      widget.controller.highlightEnabledNotifier.value = true;
-      final result = widget.controller.selectHighlightForIssue(
-        issue,
-        onResolved: (result) {
-          if (!mounted || _selectedIssueId != issueKey) return;
-          if (result == HighlightLookup.notFound) _onHighlightNotFound();
-        },
-      );
-      if (result == HighlightLookup.notFound) _onHighlightNotFound();
-    } else {
-      setState(_clearSelection);
-      widget.controller.clearSelectedHighlight();
+    if (!checked) {
+      _endHighlight();
+      return;
     }
+    final controller = widget.controller;
+    // A second card tapped while a lookup runs keeps the first's value.
+    if (_selectedIssue == null) {
+      _markersBefore = controller.highlightEnabledNotifier.value;
+    }
+    _crosshairKeyboardFocus = _focusInCard();
+    setState(() {
+      _selectedIssueId = issueKey;
+      _selectedIssue = issue;
+    });
+    // Highlights are collected only while this is on.
+    controller.highlightEnabledNotifier.value = true;
+    void resolved(HighlightLookup result) {
+      if (!mounted || _barOpen || _selectedIssueId != issueKey) return;
+      if (result == HighlightLookup.found) {
+        _enterBar();
+      } else {
+        _onHighlightNotFound(issue);
+      }
+    }
+
+    final result = controller.selectHighlightForIssue(
+      issue,
+      onResolved: resolved,
+    );
+    if (result != HighlightLookup.pending) resolved(result);
   }
 
   void _clearSelection() {
@@ -1967,14 +2050,170 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _selectedIssue = null;
   }
 
-  /// Unticks the card, so it does not claim an outline that never comes,
-  /// and says why.
-  void _onHighlightNotFound() {
-    setState(_clearSelection);
-    widget.controller.clearSelectedHighlight();
+  /// The card shrinks to the bar. The list unmounts and comes back at its
+  /// offset; Back to issues takes focus.
+  void _enterBar() {
+    _listScroll.keepOffset();
+    _closeMenu(refocus: false);
+    final card = _cardKey.currentContext?.findRenderObject();
+    _barShieldTimer?.cancel();
+    _barShieldTimer = null;
+    _barShield = card is RenderBox && card.hasSize
+        ? card.localToGlobal(Offset.zero) & card.size
+        : null;
+    if (_barShield != null) {
+      _barShieldTimer = Timer(kDoubleTapTimeout, () {
+        if (mounted) setState(() => _barShield = null);
+      });
+    }
+    setState(() => _barOpen = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_barOpen) return;
+      if (_crosshairKeyboardFocus) _barBackFocus.requestFocus();
+      _barBackFocus.context?.findRenderObject()?.sendSemanticsEvent(
+        const FocusSemanticEvent(),
+      );
+    });
+  }
+
+  /// Back to issues: the card returns as it was and the crosshair takes
+  /// focus.
+  void _leaveBar() {
+    _crosshairKeyboardFocus = _focusInCard();
+    _endHighlight(focusCrosshair: true);
+  }
+
+  /// The bar's close: the highlight ends with the dashboard.
+  void _closeFromBar() {
+    _endHighlight();
+    widget.onClose();
+  }
+
+  /// Ends a lookup or the bar. The outline goes, and the markers toggle
+  /// returns to its value from before the tap. [focusCrosshair] moves
+  /// focus to the card's crosshair, [refocusHeader] to the header.
+  void _endHighlight({
+    bool focusCrosshair = false,
+    bool refocusHeader = false,
+  }) {
+    if (_selectedIssue == null && !_barOpen) return;
+    final key = _selectedIssueId;
+    final wasOpen = _barOpen;
+    // Keyboard focus on the bar goes to the header with the screen reader.
+    final keyboardToHeader = refocusHeader && _focusInCard();
+    _barShieldTimer?.cancel();
+    _barShieldTimer = null;
+    setState(() {
+      _barOpen = false;
+      _barShield = null;
+      _clearSelection();
+      if (focusCrosshair && key != null) {
+        _crosshairFocusKey = key;
+        _crosshairFocusEpoch++;
+      }
+    });
+    final controller = widget.controller;
+    controller.clearSelectedHighlight();
+    controller.highlightEnabledNotifier.value = _markersBefore;
+    if (!wasOpen) return;
+    _listAtTop = _listScroll.keptOffset <= 0;
+    // Registered before the list builds, so this runs before the card's
+    // own post-frame focus and a card rebuilt later does not repeat it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // The list builds every card for this frame only.
+      setState(() => _crosshairFocusKey = null);
+      if (!refocusHeader) return;
+      if (keyboardToHeader) _moreFocus.requestFocus();
+      _focusSemantics(_headerKey);
+    });
+  }
+
+  /// While the bar is up and its widget has left the screen, a later
+  /// scan that finds it again outlines it again.
+  void _onHighlightsChanged() {
+    final issue = _selectedIssue;
+    if (!_barOpen || issue == null) return;
+    final controller = widget.controller;
+    if (controller.selectedHighlightNotifier.value != null) return;
+    // An empty list would make the lookup collect, and publish, again.
+    final items = controller.highlightsNotifier.value.items;
+    if (items.isEmpty) return;
+    // Only the issue's own element counts. Another widget of the same name
+    // would be outlined under its label.
+    final occurrence = issue.occurrenceId;
+    if (occurrence != null && !items.any((h) => h.occurrenceId == occurrence)) {
+      return;
+    }
+    controller.selectHighlightForIssue(
+      _reportOf(issue, controller.issuesNotifier.value) ?? issue,
+    );
+  }
+
+  /// Rebuilds the bar when the outlined widget moves, leaves the screen or
+  /// comes back.
+  void _onBarTarget() {
+    if (mounted && _barOpen) setState(() {});
+  }
+
+  /// The highlight bar at the safe-area edge away from the outlined
+  /// widget, at most 480 px wide.
+  Widget _highlightBar(
+    Size screenSize,
+    EdgeInsets safe,
+    double keyboardHeight,
+  ) {
+    final issue = _selectedIssue!;
+    final rect = widget.controller.selectedHighlightNotifier.value?.rect;
+    // The keyboard covers the bottom of the screen.
+    final visible = Rect.fromLTRB(
+      0,
+      0,
+      screenSize.width,
+      math.max(0.0, screenSize.height - keyboardHeight),
+    );
+    final onScreen = rect != null && !rect.isEmpty && rect.overlaps(visible);
+    if (onScreen) _barAtTop = rect.center.dy > visible.center.dy;
+    return Positioned(
+      left: safe.left + _barMargin,
+      right: safe.right + _barMargin,
+      top: _barAtTop ? safe.top + _barMargin : null,
+      bottom: _barAtTop
+          ? null
+          : math.max(safe.bottom, keyboardHeight) + _barMargin,
+      child: Center(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: SleuthHighlightBar(
+            severity: issue.severity,
+            widgetName: issue.widgetName ?? issue.title,
+            offScreen: !onScreen,
+            onBack: _leaveBar,
+            onClose: _closeFromBar,
+            backFocusNode: _barBackFocus,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Whether keyboard focus is on a control of the card or the bar.
+  bool _focusInCard() {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    return focusContext != null &&
+        focusContext.mounted &&
+        focusContext.findAncestorStateOfType<_FloatingIssuesCardState>() ==
+            this;
+  }
+
+  /// Ends the lookup, so the card does not claim an outline that never
+  /// comes, and says why.
+  void _onHighlightNotFound(PerformanceIssue issue) {
+    _endHighlight();
     _toast.show(
-      'Widget not currently visible. Navigate to the screen where this '
-      'issue occurs.',
+      "Couldn't find ${issue.widgetName} on screen. It may be scrolled "
+      'away or not built yet.',
       tone: OverlayToastTone.warning,
       duration: const Duration(seconds: 3),
     );
@@ -2068,7 +2307,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
     return Stack(
       children: [
-        if (layerDepth == 0)
+        if (layerDepth == 0 && _barOpen && _barShield != null)
+          Positioned.fromRect(
+            rect: _barShield!,
+            child: Listener(behavior: HitTestBehavior.opaque),
+          ),
+        if (layerDepth == 0 && _barOpen)
+          _highlightBar(screenSize, safe, keyboardHeight),
+        if (layerDepth == 0 && !_barOpen)
           Positioned(
             left: clamped.dx,
             top: clamped.dy,
@@ -2150,8 +2396,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             ),
           ),
         // Single toast slot for every confirmation and notice; above the
-        // card and any full-screen page.
-        OverlayToast(controller: _toast),
+        // card and any full-screen page, and above the bar at the bottom.
+        OverlayToast(
+          controller: _toast,
+          bottomClearance: layerDepth == 0 && _barOpen && !_barAtTop
+              ? _controlRowHeight * chromeScale + _barMargin
+              : 0,
+        ),
       ],
     );
   }
@@ -2797,7 +3048,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                         theme,
                       ),
                     ),
-                  // Highlight overlay toggle (hidden when minimized)
+                  // Flagged-widget markers toggle (hidden when minimized)
                   if (!isMinimized)
                     ValueListenableBuilder<bool>(
                       valueListenable:
@@ -2810,13 +3061,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                         onTap: () {
                           _closeMenu(refocus: false);
                           final newValue = !enabled;
+                          // Off during a lookup ends it; the markers stay
+                          // off afterwards.
+                          if (!newValue && _selectedIssue != null) {
+                            _markersBefore = false;
+                            _endHighlight();
+                            return;
+                          }
                           widget.controller.highlightEnabledNotifier.value =
                               newValue;
                           if (!newValue) {
                             widget.controller.clearSelectedHighlight();
                           }
                         },
-                        tooltip: enabled ? 'Hide overlay' : 'Show overlay',
+                        tooltip: 'Mark flagged widgets',
+                        toggled: enabled,
                       ),
                     ),
                   if (!isMinimized) _moreButton(theme),
@@ -3078,10 +3337,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     required Color color,
     String? tooltip,
     String? value,
+    bool? toggled,
   }) {
     return Semantics(
       label: tooltip,
       value: value,
+      toggled: toggled,
       button: true,
       child: GestureDetector(
         onTap: onTap,
@@ -3197,262 +3458,265 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
 
-        final list = ValueListenableBuilder<WidgetHighlight?>(
-          valueListenable: widget.controller.selectedHighlightNotifier,
-          builder: (_, selectedHighlight, _) => Listener(
-            // Touches on the list hold back a pending reorder.
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: _onListPointerDown,
-            onPointerMove: (_) => _onListActivity(),
-            onPointerUp: _onListPointerUp,
-            onPointerCancel: _onListPointerUp,
-            onPointerSignal: (_) => _onListActivity(),
-            onPointerPanZoomStart: (_) => _onListActivity(),
-            onPointerPanZoomUpdate: (_) => _onListActivity(),
-            // Scrolls that reach no Listener (a screen reader's scroll
-            // action) also hold it back, and report the offset.
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _onListScroll,
-              child: ListView.builder(
-                controller: _listScroll,
-                // The grip sits over the bottom-right corner; the last
-                // card scrolls clear of it.
-                padding: EdgeInsets.fromLTRB(
-                  theme.spacingSm,
-                  theme.spacingSm,
-                  theme.spacingSm,
-                  48,
-                ),
-                itemCount: orderedIssues.length,
-                // While a related row reveals a card, or a Hide hands focus
-                // on, every card builds so an off-screen one can scroll
-                // itself into view. Its
-                // replacement, scrollCacheExtent, is not in Flutter 3.32.
-                // ignore: deprecated_member_use
-                cacheExtent: _revealKey != null || _focusKey != null
-                    ? 1e6
-                    : null,
-                // Keyed-reorder remount fix: without a
-                // `findChildIndexCallback`, `SliverChildBuilderDelegate`
-                // cannot locate a keyed child whose index has shifted
-                // between builds, so Flutter destroys the Element and
-                // builds a fresh one — which resets `_IssueCardState`
-                // (loses expansion, scroll, and all local UI state).
-                // This hits any issue whose rank position moves when
-                // the ranker reorders the list. Cards are already
-                // `ValueKey`-stamped with `listKeyFor`; this callback
-                // just tells the sliver where each key landed.
-                //
-                // Looks up `orderedIndexByKey` (the POST-pin map) so
-                // the sliver locates keyed children at their rendered
-                // positions. Using the pre-pin list here would remount
-                // every pinned card on the first render after pin
-                // application, which resets `_IssueCardState` — the
-                // very bug the `ValueKey` + findChildIndexCallback
-                // pair exists to prevent.
-                findChildIndexCallback: (Key key) {
-                  if (key is! ValueKey<String>) return null;
-                  return orderedIndexByKey[key.value];
-                },
-                itemBuilder: (_, index) {
-                  final issue = orderedIssues[index];
-                  final issueKey = listKeys[index];
-                  final rebuildType = _rebuildTypeOf(issue);
-                  final frozenCard = index < frozenCards.length
-                      ? frozenCards[index]
-                      : null;
-                  final stale = !(frozenCard?.reported ?? true);
-                  final locatable = !stale && _isLocatableIssue(issue);
-                  final isHighlighted =
-                      selectedHighlight != null &&
-                      locatable &&
-                      _isSelectedCard(issue, issueKey);
-
-                  // Look up downstream issue objects for root issues.
-                  // Uses the precomputed stableId→issue map (O(1) per
-                  // lookup) so this resolution does not blow up to
-                  // O(n²) on tall overlays.
-                  List<PerformanceIssue>? downstream;
-                  if (issue.downstreamIds != null &&
-                      issue.downstreamIds!.isNotEmpty) {
-                    downstream = <PerformanceIssue>[];
-                    for (final downId in issue.downstreamIds!) {
-                      final found = stableIdToIssue[downId];
-                      if (found != null) downstream.add(found);
-                    }
-                  }
-
-                  // Resolve parent issues for the multi-parent "Caused
-                  // by" badge. parentIssues is null when no annotation
-                  // exists or when every parent is suppressed by the
-                  // ranker. Suppressed-but-annotated parents surface
-                  // as a count for the IssueCard's "(+N not shown)"
-                  // annotation so a partial parent list does not look
-                  // complete.
-                  List<PerformanceIssue>? parents;
-                  var suppressedParentCount = 0;
-                  final parentIds = issue.rootCauseIds;
-                  if (parentIds != null && parentIds.isNotEmpty) {
-                    parents = <PerformanceIssue>[];
-                    for (final parentId in parentIds) {
-                      final found = stableIdToIssue[parentId];
-                      if (found != null) {
-                        parents.add(found);
-                      } else {
-                        suppressedParentCount++;
-                      }
-                    }
-                    if (parents.isEmpty) parents = null;
-                  }
-
-                  // The build's index, rows and keys: a tap that arrives
-                  // after a newer issue list was published still freezes
-                  // the rows the user saw.
-                  final capturedIndex = index;
-                  final capturedOrdered = orderedIssues;
-                  final capturedKeys = listKeys;
-
-                  return IssueCard(
-                    key: ValueKey(listKeys[index]),
-                    issue: issue,
-                    recurrenceTrendOf: () =>
-                        widget.controller.recurrenceTrends[issue.stableId ??
-                            issue.title],
-                    scanTick: widget.controller.scanTickNotifier,
-                    initiallyExpanded: frozenCard?.expanded ?? false,
-                    collapseEpoch: _collapseEpoch,
-                    onExpandedChanged: (expanded) {
-                      setState(() {
-                        if (expanded) {
-                          _frozen = _expandInZone(
-                            issueKey,
-                            capturedIndex,
-                            issue,
-                            capturedOrdered,
-                            capturedKeys,
-                          );
-                          return;
-                        }
-                        final frozen = _frozen;
-                        if (frozen == null) return;
-                        final next = [
-                          for (final card in frozen)
-                            card.key == issueKey
-                                ? (
-                                    key: card.key,
-                                    issue: card.issue,
-                                    expanded: false,
-                                    reported: card.reported,
-                                  )
-                                : card,
-                        ];
-                        if (next.any((card) => card.expanded)) {
-                          _frozen = next;
-                          return;
-                        }
-                        // 1→0: release the zone so the next expand captures
-                        // a fresh one. The order on screen becomes the held
-                        // order, so nothing moves under the finger; a
-                        // pending change waits for the next quiet period.
-                        _frozen = null;
-                        _heldKeys = [
-                          ...{for (final i in capturedOrdered) listKeyFor(i)},
-                        ];
-                      });
-                    },
-                    locatable: locatable,
-                    stale: stale,
-                    highlighted: isHighlighted,
-                    onHighlightChanged: locatable
-                        ? (checked) =>
-                              _onHighlightChanged(checked, issueKey, issue)
-                        : null,
-                    jankCorrelated: _cachedJankKeys.contains(
-                      issue.stableId ?? issue.title,
-                    ),
-                    downstreamIssues: downstream,
-                    parentIssues: parents,
-                    suppressedParentCount: suppressedParentCount,
-                    onLearnMore:
-                        IssueExplanationBuilder.explain(issue.stableId) != null
-                        ? () => setState(() {
-                            _detailStableId = issue.stableId;
-                            _detailContextIssue = issue;
-                            _showDetail = true;
-                            _layerOpener = issueKey;
-                          })
-                        : null,
-                    onAskAi: widget.controller.config.aiChat != null
-                        ? () => setState(() {
-                            _chatIssueKey = _chatKeyFor(issue);
-                            _chatIssue = issue;
-                            _showAiChat = true;
-                            _layerOpener = issueKey;
-                          })
-                        : null,
-                    onCopy: () => _copyIssue(issue),
-                    onHide: () =>
-                        _hideIssue(issue, index: capturedIndex, stale: stale),
-                    isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
-                    lastSeenOf: () => widget.controller.lastSeenAt(issue),
-                    relatedLinkOf: _relatedLinkOf,
-                    onOpenRelated: _openRelated,
-                    // The screen can change without the issue list
-                    // changing (a kept card, a screen with no issues), so
-                    // the count and the tap check it each time.
-                    onSeeRebuildStats: _showsRebuildStats(issue)
-                        ? () {
-                            if (!_onCurrentScreen(issue)) return;
-                            _onSeeAllRebuildsTap();
-                            if (_showRebuildStats) _layerOpener = issueKey;
-                          }
-                        : null,
-                    rebuildStatsTotalOf: () =>
-                        _onCurrentScreen(issue) ? _rebuildTotal() : 0,
-                    onSeeStartup: issue.stableId == 'slow_startup_ttff'
-                        ? () => setState(() {
-                            _showStartupDetail = true;
-                            _layerOpener = issueKey;
-                          })
-                        : null,
-                    whyItRebuilds: kDebugMode && rebuildType != null,
-                    rebuildCauseOf:
-                        rebuildType != null &&
-                            widget.controller.isRebuildHookInstalled
-                        ? () => _rebuildCause(rebuildType, issue)
-                        : null,
-                    rebuildCauseUnavailable:
-                        widget.controller.config.enableDebugCallbacks
-                        ? 'Rebuilds are not counted: '
-                              'advanced.rebuildAttribution is off, or '
-                              'DevTools holds the rebuild callback.'
-                        : null,
-                    onCopyText: _copyText,
-                    notUseful: widget.controller.isNotUseful(issue),
-                    onNotUsefulChanged: (marked) =>
-                        _setNotUseful(issue, marked),
-                    revealEpoch: issueKey == _revealKey ? _revealEpoch : 0,
-                    revealInline: issueKey == _revealKey ? _revealInline : null,
-                    onRevealed: (scrolled) {
-                      _revealStarted = true;
-                      scrolled.whenComplete(() {
-                        if (mounted && _revealKey == issueKey) {
-                          setState(_endReveal);
-                        }
-                      });
-                    },
-                    focusEpoch: issueKey == _focusKey ? _focusEpoch : 0,
-                    onFocused: (scrolled) {
-                      _focusStarted = true;
-                      scrolled.whenComplete(() {
-                        if (mounted && _focusKey == issueKey) {
-                          setState(() => _focusKey = null);
-                        }
-                      });
-                    },
-                  );
-                },
+        final list = Listener(
+          // Touches on the list hold back a pending reorder.
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: _onListPointerDown,
+          onPointerMove: (_) => _onListActivity(),
+          onPointerUp: _onListPointerUp,
+          onPointerCancel: _onListPointerUp,
+          onPointerSignal: (_) => _onListActivity(),
+          onPointerPanZoomStart: (_) => _onListActivity(),
+          onPointerPanZoomUpdate: (_) => _onListActivity(),
+          // Scrolls that reach no Listener (a screen reader's scroll
+          // action) also hold it back, and report the offset.
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onListScroll,
+            child: ListView.builder(
+              controller: _listScroll,
+              // The grip sits over the bottom-right corner; the last
+              // card scrolls clear of it.
+              padding: EdgeInsets.fromLTRB(
+                theme.spacingSm,
+                theme.spacingSm,
+                theme.spacingSm,
+                48,
               ),
+              itemCount: orderedIssues.length,
+              // While a related row reveals a card, a Hide hands focus on,
+              // or the bar hands focus back to a crosshair, every card
+              // builds so an off-screen one can scroll itself into view.
+              // Its replacement, scrollCacheExtent, is not in Flutter 3.32.
+              // ignore: deprecated_member_use
+              cacheExtent:
+                  _revealKey != null ||
+                      _focusKey != null ||
+                      _crosshairFocusKey != null
+                  ? 1e6
+                  : null,
+              // Keyed-reorder remount fix: without a
+              // `findChildIndexCallback`, `SliverChildBuilderDelegate`
+              // cannot locate a keyed child whose index has shifted
+              // between builds, so Flutter destroys the Element and
+              // builds a fresh one — which resets `_IssueCardState`
+              // (loses expansion, scroll, and all local UI state).
+              // This hits any issue whose rank position moves when
+              // the ranker reorders the list. Cards are already
+              // `ValueKey`-stamped with `listKeyFor`; this callback
+              // just tells the sliver where each key landed.
+              //
+              // Looks up `orderedIndexByKey` (the POST-pin map) so
+              // the sliver locates keyed children at their rendered
+              // positions. Using the pre-pin list here would remount
+              // every pinned card on the first render after pin
+              // application, which resets `_IssueCardState` — the
+              // very bug the `ValueKey` + findChildIndexCallback
+              // pair exists to prevent.
+              findChildIndexCallback: (Key key) {
+                if (key is! ValueKey<String>) return null;
+                return orderedIndexByKey[key.value];
+              },
+              itemBuilder: (_, index) {
+                final issue = orderedIssues[index];
+                final issueKey = listKeys[index];
+                final rebuildType = _rebuildTypeOf(issue);
+                final frozenCard = index < frozenCards.length
+                    ? frozenCards[index]
+                    : null;
+                final stale = !(frozenCard?.reported ?? true);
+                final locatable = !stale && _isLocatableIssue(issue);
+                // The bar replaces the card once the lookup finds the
+                // widget, so a selected card is one still finding it.
+                final finding =
+                    locatable && !_barOpen && _isSelectedCard(issue, issueKey);
+
+                // Look up downstream issue objects for root issues.
+                // Uses the precomputed stableId→issue map (O(1) per
+                // lookup) so this resolution does not blow up to
+                // O(n²) on tall overlays.
+                List<PerformanceIssue>? downstream;
+                if (issue.downstreamIds != null &&
+                    issue.downstreamIds!.isNotEmpty) {
+                  downstream = <PerformanceIssue>[];
+                  for (final downId in issue.downstreamIds!) {
+                    final found = stableIdToIssue[downId];
+                    if (found != null) downstream.add(found);
+                  }
+                }
+
+                // Resolve parent issues for the multi-parent "Caused
+                // by" badge. parentIssues is null when no annotation
+                // exists or when every parent is suppressed by the
+                // ranker. Suppressed-but-annotated parents surface
+                // as a count for the IssueCard's "(+N not shown)"
+                // annotation so a partial parent list does not look
+                // complete.
+                List<PerformanceIssue>? parents;
+                var suppressedParentCount = 0;
+                final parentIds = issue.rootCauseIds;
+                if (parentIds != null && parentIds.isNotEmpty) {
+                  parents = <PerformanceIssue>[];
+                  for (final parentId in parentIds) {
+                    final found = stableIdToIssue[parentId];
+                    if (found != null) {
+                      parents.add(found);
+                    } else {
+                      suppressedParentCount++;
+                    }
+                  }
+                  if (parents.isEmpty) parents = null;
+                }
+
+                // The build's index, rows and keys: a tap that arrives
+                // after a newer issue list was published still freezes
+                // the rows the user saw.
+                final capturedIndex = index;
+                final capturedOrdered = orderedIssues;
+                final capturedKeys = listKeys;
+
+                return IssueCard(
+                  key: ValueKey(listKeys[index]),
+                  issue: issue,
+                  recurrenceTrendOf: () =>
+                      widget.controller.recurrenceTrends[issue.stableId ??
+                          issue.title],
+                  scanTick: widget.controller.scanTickNotifier,
+                  initiallyExpanded: frozenCard?.expanded ?? false,
+                  collapseEpoch: _collapseEpoch,
+                  onExpandedChanged: (expanded) {
+                    setState(() {
+                      if (expanded) {
+                        _frozen = _expandInZone(
+                          issueKey,
+                          capturedIndex,
+                          issue,
+                          capturedOrdered,
+                          capturedKeys,
+                        );
+                        return;
+                      }
+                      final frozen = _frozen;
+                      if (frozen == null) return;
+                      final next = [
+                        for (final card in frozen)
+                          card.key == issueKey
+                              ? (
+                                  key: card.key,
+                                  issue: card.issue,
+                                  expanded: false,
+                                  reported: card.reported,
+                                )
+                              : card,
+                      ];
+                      if (next.any((card) => card.expanded)) {
+                        _frozen = next;
+                        return;
+                      }
+                      // 1→0: release the zone so the next expand captures
+                      // a fresh one. The order on screen becomes the held
+                      // order, so nothing moves under the finger; a
+                      // pending change waits for the next quiet period.
+                      _frozen = null;
+                      _heldKeys = [
+                        ...{for (final i in capturedOrdered) listKeyFor(i)},
+                      ];
+                    });
+                  },
+                  locatable: locatable,
+                  stale: stale,
+                  finding: finding,
+                  crosshairFocusEpoch: issueKey == _crosshairFocusKey
+                      ? _crosshairFocusEpoch
+                      : 0,
+                  crosshairKeyboardFocus: _crosshairKeyboardFocus,
+                  onHighlightChanged: locatable
+                      ? (checked) =>
+                            _onHighlightChanged(checked, issueKey, issue)
+                      : null,
+                  jankCorrelated: _cachedJankKeys.contains(
+                    issue.stableId ?? issue.title,
+                  ),
+                  downstreamIssues: downstream,
+                  parentIssues: parents,
+                  suppressedParentCount: suppressedParentCount,
+                  onLearnMore:
+                      IssueExplanationBuilder.explain(issue.stableId) != null
+                      ? () => setState(() {
+                          _detailStableId = issue.stableId;
+                          _detailContextIssue = issue;
+                          _showDetail = true;
+                          _layerOpener = issueKey;
+                        })
+                      : null,
+                  onAskAi: widget.controller.config.aiChat != null
+                      ? () => setState(() {
+                          _chatIssueKey = _chatKeyFor(issue);
+                          _chatIssue = issue;
+                          _showAiChat = true;
+                          _layerOpener = issueKey;
+                        })
+                      : null,
+                  onCopy: () => _copyIssue(issue),
+                  onHide: () =>
+                      _hideIssue(issue, index: capturedIndex, stale: stale),
+                  isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
+                  lastSeenOf: () => widget.controller.lastSeenAt(issue),
+                  relatedLinkOf: _relatedLinkOf,
+                  onOpenRelated: _openRelated,
+                  // The screen can change without the issue list
+                  // changing (a kept card, a screen with no issues), so
+                  // the count and the tap check it each time.
+                  onSeeRebuildStats: _showsRebuildStats(issue)
+                      ? () {
+                          if (!_onCurrentScreen(issue)) return;
+                          _onSeeAllRebuildsTap();
+                          if (_showRebuildStats) _layerOpener = issueKey;
+                        }
+                      : null,
+                  rebuildStatsTotalOf: () =>
+                      _onCurrentScreen(issue) ? _rebuildTotal() : 0,
+                  onSeeStartup: issue.stableId == 'slow_startup_ttff'
+                      ? () => setState(() {
+                          _showStartupDetail = true;
+                          _layerOpener = issueKey;
+                        })
+                      : null,
+                  whyItRebuilds: kDebugMode && rebuildType != null,
+                  rebuildCauseOf:
+                      rebuildType != null &&
+                          widget.controller.isRebuildHookInstalled
+                      ? () => _rebuildCause(rebuildType, issue)
+                      : null,
+                  rebuildCauseUnavailable:
+                      widget.controller.config.enableDebugCallbacks
+                      ? 'Rebuilds are not counted: '
+                            'advanced.rebuildAttribution is off, or '
+                            'DevTools holds the rebuild callback.'
+                      : null,
+                  onCopyText: _copyText,
+                  notUseful: widget.controller.isNotUseful(issue),
+                  onNotUsefulChanged: (marked) => _setNotUseful(issue, marked),
+                  revealEpoch: issueKey == _revealKey ? _revealEpoch : 0,
+                  revealInline: issueKey == _revealKey ? _revealInline : null,
+                  onRevealed: (scrolled) {
+                    _revealStarted = true;
+                    scrolled.whenComplete(() {
+                      if (mounted && _revealKey == issueKey) {
+                        setState(_endReveal);
+                      }
+                    });
+                  },
+                  focusEpoch: issueKey == _focusKey ? _focusEpoch : 0,
+                  onFocused: (scrolled) {
+                    _focusStarted = true;
+                    scrolled.whenComplete(() {
+                      if (mounted && _focusKey == issueKey) {
+                        setState(() => _focusKey = null);
+                      }
+                    });
+                  },
+                );
+              },
             ),
           ),
         );

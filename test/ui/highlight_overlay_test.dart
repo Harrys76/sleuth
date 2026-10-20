@@ -17,10 +17,16 @@ void main() {
             items: [],
           ));
       final selected = ValueNotifier<WidgetHighlight?>(null);
+      final markers = ValueNotifier<bool>(true);
+      addTearDown(markers.dispose);
 
       await tester.pumpWidget(
         wrap(
-          HighlightOverlay(highlights: highlights, selectedHighlight: selected),
+          HighlightOverlay(
+            highlights: highlights,
+            selectedHighlight: selected,
+            markersEnabled: markers,
+          ),
         ),
       );
 
@@ -51,10 +57,16 @@ void main() {
             ],
           ));
       final selected = ValueNotifier<WidgetHighlight?>(null);
+      final markers = ValueNotifier<bool>(true);
+      addTearDown(markers.dispose);
 
       await tester.pumpWidget(
         wrap(
-          HighlightOverlay(highlights: highlights, selectedHighlight: selected),
+          HighlightOverlay(
+            highlights: highlights,
+            selectedHighlight: selected,
+            markersEnabled: markers,
+          ),
         ),
       );
 
@@ -84,10 +96,16 @@ void main() {
         detail: 'GPU pressure detected',
       );
       final selected = ValueNotifier<WidgetHighlight?>(highlight);
+      final markers = ValueNotifier<bool>(true);
+      addTearDown(markers.dispose);
 
       await tester.pumpWidget(
         wrap(
-          HighlightOverlay(highlights: highlights, selectedHighlight: selected),
+          HighlightOverlay(
+            highlights: highlights,
+            selectedHighlight: selected,
+            markersEnabled: markers,
+          ),
         ),
       );
 
@@ -110,10 +128,16 @@ void main() {
             items: [],
           ));
       final selected = ValueNotifier<WidgetHighlight?>(null);
+      final markers = ValueNotifier<bool>(true);
+      addTearDown(markers.dispose);
 
       await tester.pumpWidget(
         wrap(
-          HighlightOverlay(highlights: highlights, selectedHighlight: selected),
+          HighlightOverlay(
+            highlights: highlights,
+            selectedHighlight: selected,
+            markersEnabled: markers,
+          ),
         ),
       );
 

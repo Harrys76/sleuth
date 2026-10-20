@@ -409,7 +409,7 @@ void main() {
   group('Crosshair', () {
     Widget card(
       PerformanceIssue issue, {
-      bool highlighted = false,
+      bool finding = false,
       ValueChanged<bool>? onChanged,
       SleuthThemeData theme = const SleuthThemeData(),
       double width = 320,
@@ -423,7 +423,7 @@ void main() {
               child: IssueCard(
                 issue: issue,
                 locatable: true,
-                highlighted: highlighted,
+                finding: finding,
                 onHighlightChanged: onChanged ?? (_) {},
               ),
             ),
@@ -442,9 +442,8 @@ void main() {
       expect(find.bySemanticsLabel('Show PriceTag on screen'), findsOneWidget);
     });
 
-    testWidgets('is a 48 px target in the card corner that toggles', (
-      tester,
-    ) async {
+    testWidgets('is a 48 px button in the card corner; while finding it '
+        'reads Finding and a second tap cancels', (tester) async {
       final changes = <bool>[];
       await tester.pumpWidget(
         card(_testIssue(widgetName: 'PriceTag'), onChanged: changes.add),
@@ -454,12 +453,10 @@ void main() {
       final cardRect = tester.getRect(find.byType(Card));
       expect(box.size, const Size(48, 48));
       expect(box.topRight, cardRect.topRight);
-      // Off is read as off, not left unstated.
-      final off = tester.getSemantics(target).getSemanticsData();
-      // ignore: deprecated_member_use
-      expect(off.hasFlag(SemanticsFlag.hasToggledState), isTrue);
-      // ignore: deprecated_member_use
-      expect(off.hasFlag(SemanticsFlag.isToggled), isFalse);
+      // An action, not a toggle: the card shrinks to the bar once found.
+      final idle = tester.widget<Semantics>(target).properties;
+      expect(idle.toggled, isNull);
+      expect(idle.value, isNull);
 
       // A tap at the edge of the hit box, outside the 18 px glyph.
       await tester.tapAt(box.topLeft + const Offset(3, 3));
@@ -468,16 +465,11 @@ void main() {
       await tester.pumpWidget(
         card(
           _testIssue(widgetName: 'PriceTag'),
-          highlighted: true,
+          finding: true,
           onChanged: changes.add,
         ),
       );
-      final data = tester.getSemantics(target).getSemanticsData();
-      // `flagsCollection` is not available on the 3.32 floor.
-      // ignore: deprecated_member_use
-      expect(data.hasFlag(SemanticsFlag.hasToggledState), isTrue);
-      // ignore: deprecated_member_use
-      expect(data.hasFlag(SemanticsFlag.isToggled), isTrue);
+      expect(tester.widget<Semantics>(target).properties.value, 'Finding');
       await tester.tap(target);
       expect(changes, [true, false]);
     });
@@ -526,7 +518,7 @@ void main() {
           await tester.pumpWidget(
             card(
               _testIssue(widgetName: 'PriceTag'),
-              highlighted: on,
+              finding: on,
               theme: theme,
             ),
           );
