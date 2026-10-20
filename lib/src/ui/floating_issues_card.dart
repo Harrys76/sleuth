@@ -411,6 +411,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   final GlobalKey _barKey = GlobalKey(debugLabel: 'Sleuth highlight bar');
 
+  /// Keeps Back to issues one element when Next comes or goes.
+  final GlobalKey _barBackKey = GlobalKey(debugLabel: 'Sleuth Back to issues');
+
   /// Where the card was when the bar replaced it, held for a double tap's
   /// span so the second tap of a double tap on the crosshair does not
   /// reach the app below.
@@ -2250,6 +2253,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             onNext: widget.controller.nextHighlightStep,
             nextFocusNode: _barNextFocus,
             showNext: _barHasNext,
+            backKey: _barBackKey,
           ),
         ),
       ),
