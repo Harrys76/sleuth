@@ -947,6 +947,9 @@ class SleuthController {
     ];
   }
 
+  /// 0 for no widget, 1 for one, 2 for several.
+  static int _countBand(int count) => math.min(count, 2);
+
   /// Whether [nextHighlightStep] can outline another widget: the issue
   /// has two or more, or its outlined widget is gone and another remains.
   bool get canStepNext {
@@ -3843,11 +3846,12 @@ class SleuthController {
       if (index >= 0) _stepPlace = index;
       // The shown position changes with Next and the lookup, not with each
       // scan: a screen reader would read the bar's label again after every
-      // scroll. Only a change in whether there is a next widget shows at
-      // once, also while the outlined widget is off screen, when the
-      // position stays where it was.
+      // scroll. A move between no widget, one and several shows at once,
+      // since it decides whether Next shows; while the outlined widget is
+      // off screen the position stays where it was.
       final shown = highlightStepNotifier.value;
-      if (shown == null || (shown.count > 1) != (steps.length > 1)) {
+      if (shown == null ||
+          _countBand(shown.count) != _countBand(steps.length)) {
         highlightStepNotifier.value = (
           index: index >= 0
               ? index
