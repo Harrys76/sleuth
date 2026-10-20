@@ -148,8 +148,9 @@
   and what it is ("10.0 ms in one build on the UI thread", with the
   measurement's window where it has one), a gauge with
   the warning and critical lines, and a line when the severity is held
-  above the value or judged on another reading. Other issues show their
-  detail there. The issues notifier fires when the Measured row's text or
+  above the value or judged on another reading. The issue's detail
+  follows, with what the number does not say (failing URLs and status
+  codes, for instance). The issues notifier fires when the Measured row's text or
   a gauge line changes, and not for a change the row rounds away.
 - Labelled rows follow: Where (the widget, and its `file:line` with Copy
   when the run tracks widget creation), Route, When ("Last seen 2 s ago ·
@@ -169,8 +170,8 @@
   cards link to Rebuild stats once the screen has counted rebuilds, and
   the slow startup card links to Startup metrics.
 - A tap on an expanded card's details no longer collapses it; the header
-  does. Hide moves focus to the card that takes its place, and hiding a
-  card whose issue is gone offers no Undo.
+  does. Hide moves focus to the card that takes its place, scrolled into
+  view, and hiding a card whose issue is gone offers no Undo.
 - The fix opens with "Fix" and its effort ("Fix · medium effort"). Code
   lines after a line ending in a colon sit in a monospace block with Copy
   code; a code run is lines with brackets, `;` or `=>`, commands, comments

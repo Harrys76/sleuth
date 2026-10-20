@@ -213,10 +213,12 @@ class SleuthController {
   final Map<String, RecurrenceTrend> _recurrenceTrends = {};
 
   /// When each card ([listKeyFor] and occurrence id) was last in a scan's
-  /// results, with its trend's key, for the expanded card's When row. Two
-  /// occurrences under one stable id keep their own times. Dropped with
-  /// the trend.
-  final Map<(String, int?), ({String trendKey, DateTime at})> _lastSeenAt = {};
+  /// results, with its trend's key and scan cycle, for the expanded card's
+  /// When row. Two occurrences under one stable id keep their own times.
+  /// An entry goes with its trend, or once unseen for as many cycles as a
+  /// trend may stay unseen, since new elements keep adding occurrences.
+  final Map<(String, int?), ({String trendKey, DateTime at, int cycle})>
+  _lastSeenAt = {};
   int _scanCycleIndex = 0;
 
   // Fix verification baseline
@@ -1750,6 +1752,10 @@ class SleuthController {
   /// dropped.
   DateTime? lastSeenAt(PerformanceIssue issue) =>
       _lastSeenAt[(listKeyFor(issue), issue.occurrenceId)]?.at;
+
+  /// Cards [lastSeenAt] holds a time for.
+  @visibleForTesting
+  int get lastSeenCountForTest => _lastSeenAt.length;
 
   /// The debug counts the latest scan passed to its detectors, for the
   /// expanded card's Why it rebuilds row. Null before the first such scan
@@ -5419,6 +5425,7 @@ class SleuthController {
       _lastSeenAt[(listKeyFor(issue), issue.occurrenceId)] = (
         trendKey: id,
         at: now,
+        cycle: _scanCycleIndex,
       );
       final trend = _recurrenceTrends.putIfAbsent(id, RecurrenceTrend.new);
       trend.recordPresent(
@@ -5435,7 +5442,9 @@ class SleuthController {
     // Evict stale entries (unseen for 120+ cycles)
     _recurrenceTrends.removeWhere((_, trend) => trend.isStale(_scanCycleIndex));
     _lastSeenAt.removeWhere(
-      (_, seen) => !_recurrenceTrends.containsKey(seen.trendKey),
+      (_, seen) =>
+          !_recurrenceTrends.containsKey(seen.trendKey) ||
+          _scanCycleIndex - seen.cycle >= RecurrenceTrend.staleThreshold,
     );
 
     // Update fix baseline absence/presence tracking
