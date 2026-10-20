@@ -203,6 +203,39 @@ void main() {
       expect(asked, 1);
     });
 
+    testWidgets('running out of retries changes the live region label', (
+      tester,
+    ) async {
+      Future<void> pump(SleuthRunState run) => _pumpBox(
+        tester,
+        SleuthStatusBox(
+          kind: statusKindOf(run),
+          run: run,
+          coverage: _coverage(on: 19),
+        ),
+      );
+      await pump(
+        const SleuthRunState(
+          phase: SleuthRunPhase.running,
+          everConnected: true,
+          reconnectAttempt: 7,
+          maxReconnectAttempts: 7,
+        ),
+      );
+      expect(find.bySemanticsLabel('VM link lost'), findsOneWidget);
+      await pump(
+        const SleuthRunState(
+          phase: SleuthRunPhase.running,
+          everConnected: true,
+          stoppedRetrying: true,
+        ),
+      );
+      expect(
+        find.bySemanticsLabel('VM link lost, stopped retrying'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('a live region whose label holds while the countdown moves '
         'in the value', (tester) async {
       final start = DateTime.now();

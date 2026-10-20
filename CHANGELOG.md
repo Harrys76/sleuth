@@ -203,8 +203,10 @@
   checks off; VM link lost, with the reconnect attempt; and stopped
   retrying, with Reconnect. With cards listed, an expanded card whose
   issue is gone included, only a lost link takes a line above them, and
-  the status row names the state when it counts no card. Each line is a live region: its label names the state and its
-  value holds the numbers, so the warm-up countdown does not repeat it.
+  the status row names the state when it counts no card. Each line is a
+  live region: its label names the state (stopped retrying has its own)
+  and its value holds the numbers, so the warm-up countdown does not
+  repeat it.
 - One debug banner replaces the debug-mode and instrumentation banners.
   Its text stops growing at the chrome limit, dismissing it lasts for the
   session, and focus then moves to the severity chips.
@@ -236,7 +238,8 @@
   the bar sits at the top.
 - The effort colours, `aboutBackground`, `fixHintText`,
   `highlightLabelText` and the three `aiShimmer` colours are unused by the
-  overlay and kept for custom themes. The guide describes the new expanded card and Not useful.
+  overlay and kept for custom themes. The guide describes the new
+  expanded card and Not useful.
 
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase: the issues of the phase's category, `event_loop_stall`
