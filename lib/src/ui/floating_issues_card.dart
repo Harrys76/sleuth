@@ -1402,7 +1402,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   /// Says the VM link dropped while the card is open. A screen reader
-  /// hears it from the status line, and an action toast keeps the slot.
+  /// hears it from the status line when that line is reachable, and an
+  /// action toast keeps the slot.
   void _onVmLinkChanged() {
     final connected = widget.controller.vmConnectedNotifier.value;
     final was = _vmWasConnected;
@@ -1412,7 +1413,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final screenReader =
         (MediaQuery.maybeAccessibleNavigationOf(context) ?? false) ||
         SemanticsBinding.instance.semanticsEnabled;
-    if (screenReader) return;
+    if (screenReader && _statusLineReachable) return;
     if (_toast.value?.actionLabel != null) return;
     _toast.show(
       'VM link lost. Checks that need it are paused until it is back.',
@@ -1421,6 +1422,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   bool _vmWasConnected = false;
+
+  /// The card body with its status line is on screen and in the semantics
+  /// tree: no page, bar or menu covers it and the card is not minimized.
+  bool get _statusLineReachable =>
+      openLayerDepth == 0 &&
+      !_barOpen &&
+      !_menuOpen &&
+      _windowState != CardWindowState.minimized;
 
   final GlobalKey _statusKey = GlobalKey(debugLabel: 'status line');
 
