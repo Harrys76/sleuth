@@ -935,6 +935,17 @@ class SleuthController {
     return result;
   }
 
+  /// Whether this run counts rebuilds per route for Rebuild stats: a
+  /// profile run with [SleuthConfig.enableDeepDebugInstrumentation] whose
+  /// timeline drain is installed or waiting for the scheduler to go idle.
+  /// Debug runs count rebuilds for the detectors only.
+  bool get countsRouteRebuilds {
+    final coordinator = _debugCoordinator;
+    if (coordinator == null) return false;
+    return coordinator.isProfileModeInstalled ||
+        (!kDebugMode && config.enableDeepDebugInstrumentation);
+  }
+
   /// Whether any heavy debug profiling flags are actually active.
   ///
   /// Returns `true` only when at least one Flutter debug flag was saved and

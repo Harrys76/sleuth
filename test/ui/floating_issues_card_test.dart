@@ -51,7 +51,14 @@ PerformanceIssue _pinIssue({
 /// `_scanTreeInner` drain → merge block runs against synthetic
 /// `flutterTimeline`-source data without needing profile-mode compilation.
 class _FakeCoordinator extends DebugInstrumentationCoordinator {
-  _FakeCoordinator() : super(installRebuild: false, installPaint: false);
+  _FakeCoordinator({this.profileMode = false})
+    : super(installRebuild: false, installPaint: false);
+
+  /// Stands in for an installed profile-mode timeline drain.
+  final bool profileMode;
+
+  @override
+  bool get isProfileModeInstalled => profileMode;
 
   DebugSnapshot nextSnapshot = const DebugSnapshot(
     rebuildCounts: {},
@@ -397,16 +404,28 @@ void main() {
         find.bySemanticsLabel('Startup, Not measured yet'),
         findsOneWidget,
       );
-      expect(
-        find.bySemanticsLabel('Rebuild stats, No counts yet'),
-        findsOneWidget,
-      );
+      // A debug run counts rebuilds for the detectors only.
+      expect(find.bySemanticsLabel('Rebuild stats, Off'), findsOneWidget);
       // No hidden issues: no row.
       expect(moreMenuRow('Hidden issues'), findsNothing);
       await tester.tap(moreMenuRow('Startup'));
       await tester.pump();
       expect(find.byType(StartupMetricsPage), findsNothing);
       expect(find.byType(SleuthMoreMenu), findsOneWidget);
+    });
+
+    testWidgets('Rebuild stats waits for counts in a run that counts them', (
+      tester,
+    ) async {
+      final c = scanningController();
+      c.debugCoordinatorForTest = _FakeCoordinator(profileMode: true);
+      await tester.pumpWidget(pumpMenuCard(c));
+      await openMoreMenu(tester);
+
+      expect(
+        find.bySemanticsLabel('Rebuild stats, No counts yet'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Rebuild stats shows the total read at open and opens its '

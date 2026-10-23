@@ -1141,6 +1141,26 @@ void main() {
       await drainToasts(tester);
     });
 
+    // OK has no chip without OK cards, so it cannot be the one left on.
+    testWidgets('the last chip that shows cards stays on', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('w'),
+        _issue('c', severity: IssueSeverity.critical),
+      ];
+      await pumpCard(tester);
+
+      await tapChip(tester, 'critical');
+      await drainToasts(tester);
+      await tapChip(tester, 'warning');
+      expect(
+        controller.overlayUiState.severityFilter,
+        containsAll([IssueSeverity.warning, IssueSeverity.ok]),
+      );
+      expect(find.text('Title w'), findsOneWidget);
+      expect(find.text('Keep at least one severity'), findsOneWidget);
+      await drainToasts(tester);
+    });
+
     testWidgets('toggling with a card expanded clears the expansion without '
         'asserting', (tester) async {
       controller.issuesNotifier.value = [
@@ -1247,14 +1267,22 @@ void main() {
     });
 
     testWidgets('nothing matches the severity filter; Reset', (tester) async {
-      controller.issuesNotifier.value = [_issue('w')];
+      controller.issuesNotifier.value = [
+        _issue('w'),
+        _issue('c', severity: IssueSeverity.critical),
+      ];
       await pumpCard(tester);
-      await tapChip(tester, 'warning');
+      await tapChip(tester, 'critical');
+      // The warning card goes; only the critical one, filtered out, is left.
+      controller.issuesNotifier.value = [
+        _issue('c', severity: IssueSeverity.critical),
+      ];
+      await tester.pump();
       expect(find.text('No issues match the severity filter'), findsOneWidget);
 
       await tester.tap(find.bySemanticsLabel('Reset'));
       await tester.pump();
-      expect(find.text('Title w'), findsOneWidget);
+      expect(find.text('Title c'), findsOneWidget);
       await drainToasts(tester);
     });
 
