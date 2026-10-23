@@ -6,7 +6,8 @@ class IssueMetadataBuilder {
 
   /// What the detector observed and how sure it is: the detector's
   /// confidence reason, or the data source when it gave none, then the
-  /// confidence.
+  /// confidence as a sentence of its own, since a reason can end in advice
+  /// ("Enable debug callbacks for paint evidence").
   static String evidence(PerformanceIssue issue) {
     final reason = issue.confidenceReason?.trim();
     final basis = reason != null && reason.isNotEmpty
@@ -16,10 +17,11 @@ class IssueMetadataBuilder {
         : 'From the ${issue.observationSource?.displayName ?? 'overlay heuristics'}';
     final confidence = switch (issue.confidence) {
       IssueConfidence.confirmed => 'confirmed',
-      IssueConfidence.likely => 'likely rather than confirmed',
-      IssueConfidence.possible => 'possible: no runtime signal confirmed it',
+      IssueConfidence.likely => 'likely, not confirmed',
+      IssueConfidence.possible =>
+        'possible, since no runtime signal confirmed it',
     };
-    return '$basis, so $confidence.';
+    return '$basis. Sleuth rates it $confidence.';
   }
 
   /// Where in DevTools to confirm the issue.

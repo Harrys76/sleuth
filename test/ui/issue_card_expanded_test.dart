@@ -198,7 +198,7 @@ void main() {
   ) async {
     Offset label() => tester.getTopLeft(find.text('Evidence'));
     Offset value() => tester.getTopLeft(
-      find.text('From the overlay heuristics, so confirmed.'),
+      find.text('From the overlay heuristics. Sleuth rates it confirmed.'),
     );
 
     await _pump(tester, IssueCard(issue: _issue(), initiallyExpanded: true));
