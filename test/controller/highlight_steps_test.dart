@@ -84,11 +84,18 @@ void main() {
     final c = SleuthController();
     addTearDown(c.dispose);
     c.scanTickNotifier.value = 1;
-    c.publishHighlightsForTest([_h(1)]);
+    // A list card's tagged highlight and the repaint card's own one.
+    const own = WidgetHighlight(
+      rect: Rect.fromLTWH(0, 20, 10, 10),
+      widgetName: 'CustomPaint',
+      severity: IssueSeverity.warning,
+      detectorName: 'Repaint',
+    );
+    c.publishHighlightsForTest([_h(1), own]);
     c.selectHighlightForIssue(
       _issue('repaint_debug_CustomPaint', widgetName: 'CustomPaint'),
     );
-    expect(c.selectedHighlightNotifier.value, isNotNull);
+    expect(c.selectedHighlightNotifier.value, same(own));
     expect(c.highlightStepNotifier.value, isNull);
   });
 
