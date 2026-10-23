@@ -3801,16 +3801,21 @@ class _StatusRow extends StatelessWidget {
                     // status line explains.
                     ? SleuthListenableBuilder(
                         listenable: controller.runStateNotifier,
-                        builder: (_) => Text(
-                          statusRowLabel(
-                            statusKindOf(controller.runStateNotifier.value),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: theme.textSecondary,
-                            fontSize: theme.fontLg,
-                            fontWeight: FontWeight.w600,
+                        // A container, or the label lands on the overlay's
+                        // full-screen node.
+                        builder: (_) => Semantics(
+                          container: true,
+                          child: Text(
+                            statusRowLabel(
+                              statusKindOf(controller.runStateNotifier.value),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: theme.textSecondary,
+                              fontSize: theme.fontLg,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       )
