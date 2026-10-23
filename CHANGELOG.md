@@ -45,7 +45,8 @@ list every change.
   `WidgetHighlight.stableId`, `SleuthThemeData.cardDivider` and
   `SleuthThemeData.severityGraphicColor`.
 - A test that pins the public names, and a CI job that diffs the API
-  against the latest published 1.x release.
+  against the latest published 1.x release and fails on a breaking change
+  without a major version bump.
 
 ### Overlay
 
@@ -64,6 +65,9 @@ list every change.
   On a card that lists several widgets, Next steps through them.
 - Keyboard navigation inside the card, a 320 px minimum width, toasts in
   the theme's inverted colours, and outlined light-mode severity marks.
+- An app's own `AnimatedBuilder`, `TweenAnimationBuilder`, `Checkbox` and
+  `ShaderMask` rebuilds count in the per-route rebuild counts again. The
+  overlay no longer uses them, so they left the framework denylist.
 
 ### Fixed
 
