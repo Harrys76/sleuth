@@ -80,6 +80,27 @@ void main() {
     });
   });
 
+  group('Status row', () {
+    // A screen reader reads the frame rate where it is drawn, not as a
+    // node the size of the screen.
+    for (final withIssues in [true, false]) {
+      testWidgets('the frame rate has its own node '
+          '(${withIssues ? 'chips' : 'no issues'})', (tester) async {
+        final handle = tester.ensureSemantics();
+        final controller = await pumpOverlay(tester);
+        if (withIssues) controller.issuesNotifier.value = mixedOverlayIssues();
+        await openDashboard(tester, controller);
+
+        final node = tester.getSemantics(
+          find.bySemanticsLabel('Frame rate pending'),
+        );
+        expect(node.label, 'Frame rate pending');
+        expect(node.rect.size, tester.getSize(find.text('— fps')));
+        handle.dispose();
+      });
+    }
+  });
+
   group('Card header and grip', () {
     Future<SleuthController> pumpCard(WidgetTester tester) async {
       tester.view.physicalSize = const Size(400, 800);

@@ -1103,6 +1103,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _menuValues = (
         ttffMs: Sleuth.startupMetrics?.ttffMs,
         rebuildTotal: rebuilds > 0 ? rebuilds : null,
+        rebuildCounting: widget.controller.countsRouteRebuilds,
         hiddenCount:
             _ui.hiddenKeys.length +
             widget.controller.suppressedCountNotifier.value,
@@ -1246,7 +1247,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   void _toggleSeverity(IssueSeverity severity) {
-    if (!_ui.toggleSeverity(severity)) {
+    // A severity with no cards has no chip, so the chips could all read
+    // off over an empty list. Refuse to turn a chip off when no card would
+    // be left. Effects that surface once their cause's severity is off
+    // count as cards.
+    var refused = false;
+    if (_ui.severityFilter.contains(severity)) {
+      final issues = widget.controller.issuesNotifier.value;
+      final after = applyOverlayFilters(
+        issues,
+        severities: {..._ui.severityFilter}..remove(severity),
+        hiddenKeys: _ui.hiddenKeys,
+      );
+      refused = after.isEmpty && _ui.visibleIssues(issues).isNotEmpty;
+    }
+    if (refused || !_ui.toggleSeverity(severity)) {
       _toast.show('Keep at least one severity', tone: OverlayToastTone.warning);
     }
   }
@@ -3097,7 +3112,9 @@ class _FpsText extends StatelessWidget {
         final fps = buffer.throughputFps
             .clamp(0.0, target.toDouble())
             .toStringAsFixed(0);
+        // A container, or the label lands on the overlay's full-screen node.
         return Semantics(
+          container: true,
           label: warming ? 'Frame rate pending' : '$fps frames per second',
           excludeSemantics: true,
           child: Text(

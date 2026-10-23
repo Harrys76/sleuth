@@ -14,6 +14,10 @@ typedef MoreMenuValues = ({
   /// Rebuilds counted on the current route, or null when there are none.
   int? rebuildTotal,
 
+  /// Whether the run counts rebuilds per route at all. Without it the
+  /// Rebuild stats row reads "Off" rather than waiting for counts.
+  bool rebuildCounting,
+
   /// Issues hidden from the overlay or suppressed by the config.
   int hiddenCount,
 });
@@ -156,9 +160,11 @@ class _SleuthMoreMenuState extends State<SleuthMoreMenu>
                         _MenuRow(
                           icon: Icons.autorenew,
                           label: 'Rebuild stats',
-                          value: rebuilds == null
+                          value: rebuilds != null
+                              ? _grouped(rebuilds)
+                              : values.rebuildCounting
                               ? 'No counts yet'
-                              : _grouped(rebuilds),
+                              : 'Off',
                           onTap: rebuilds == null
                               ? null
                               : widget.onRebuildStats,
