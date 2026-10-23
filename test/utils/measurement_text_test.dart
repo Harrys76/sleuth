@@ -360,6 +360,55 @@ void main() {
     );
   });
 
+  group('copyDetailsText', () {
+    test('puts the Measured sentence after the header lines', () {
+      final issue = PerformanceIssue(
+        severity: IssueSeverity.critical,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'Heavy Computation: 243.7ms',
+        detail: 'A long-running operation ran on the UI thread.',
+        fixHint: 'Move the work off the UI thread.',
+        stableId: 'heavy_compute',
+        routeName: '/demo/CSV Import',
+        measurement: const IssueMeasurement(
+          value: 243.7,
+          unit: MeasurementUnit.milliseconds,
+          warningAt: 8,
+          criticalAt: 16,
+        ),
+      );
+      expect(
+        copyDetailsText(issue),
+        'Heavy Computation: 243.7ms\n'
+        'Severity: critical\n'
+        'Confidence: confirmed\n'
+        'Route: /demo/CSV Import\n'
+        'Measured: 244 ms in one build on the UI thread. Warning at 8.0 ms. '
+        'Critical at 16.0 ms.\n'
+        '\n'
+        'A long-running operation ran on the UI thread.\n'
+        '\n'
+        'Fix: Move the work off the UI thread.\n'
+        '\n'
+        'Stable ID: heavy_compute',
+      );
+    });
+
+    test('is the plain clipboard text without a measurement', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        stableId: 'heavy_compute',
+      );
+      expect(copyDetailsText(issue), issue.toClipboardText());
+    });
+  });
+
   group('gaugeMax', () {
     test('a quarter past the higher line', () {
       expect(

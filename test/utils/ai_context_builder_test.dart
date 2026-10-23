@@ -4,6 +4,7 @@ import 'package:sleuth/src/analyzer/render_pipeline_analyzer.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/frame_verdict.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/utils/ai_context_builder.dart';
 import 'package:sleuth/src/utils/ai_session_context.dart';
 import 'package:sleuth/src/vm/connection_mode.dart';
@@ -61,6 +62,31 @@ void main() {
       );
       expect(prompt, contains('Heap Growing'));
       expect(prompt, contains('512 KB/s growth'));
+    });
+
+    test('includes the measured value with its lines', () {
+      final prompt = AiContextBuilder.buildSystemPrompt(
+        issue: makeIssue(stableId: 'heavy_compute').copyWith(
+          measurement: const IssueMeasurement(
+            value: 243.7,
+            unit: MeasurementUnit.milliseconds,
+            warningAt: 8,
+            criticalAt: 16,
+          ),
+        ),
+      );
+      expect(
+        prompt,
+        contains(
+          'Measured: 244 ms in one build on the UI thread. Warning at 8.0 '
+          'ms. Critical at 16.0 ms.',
+        ),
+      );
+    });
+
+    test('leaves the measured line out without a measurement', () {
+      final prompt = AiContextBuilder.buildSystemPrompt(issue: makeIssue());
+      expect(prompt, isNot(contains('Measured:')));
     });
 
     test('includes fixHint', () {

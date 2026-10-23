@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/utils/own_work_log.dart';
 
@@ -68,6 +70,55 @@ void main() {
       expect(clipboardContent, contains('"currentIssues"'));
 
       // Drain the 2s feedback banner timer
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('Copy details carries the Measured sentence', (tester) async {
+      String? clipboardContent;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final args = call.arguments as Map<dynamic, dynamic>;
+            clipboardContent = args['text'] as String?;
+          }
+          return null;
+        },
+      );
+      controller.issuesNotifier.value = const [
+        PerformanceIssue(
+          severity: IssueSeverity.critical,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'Heavy Computation: 243.7ms',
+          detail: 'A long-running operation ran on the UI thread.',
+          fixHint: 'Move the work off the UI thread.',
+          stableId: 'heavy_compute',
+          measurement: IssueMeasurement(
+            value: 243.7,
+            unit: MeasurementUnit.milliseconds,
+            warningAt: 8,
+            criticalAt: 16,
+          ),
+        ),
+      ];
+
+      await tester.pumpWidget(buildCard());
+      await tester.tap(find.text('Heavy Computation: 243.7ms'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.ensureVisible(find.text('Copy details'));
+      await tester.pump();
+      await tester.tap(find.text('Copy details'));
+      await tester.pump();
+
+      expect(
+        clipboardContent,
+        contains(
+          'Measured: 244 ms in one build on the UI thread. Warning at 8.0 '
+          'ms. Critical at 16.0 ms.',
+        ),
+      );
       await tester.pump(const Duration(seconds: 3));
     });
 
