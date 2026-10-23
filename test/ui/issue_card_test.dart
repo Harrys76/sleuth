@@ -144,7 +144,9 @@ void main() {
 
       // The reason opens the Evidence row.
       expect(
-        find.text('Measured directly from VM timeline, so confirmed.'),
+        find.text(
+          'Measured directly from VM timeline. Sleuth rates it confirmed.',
+        ),
         findsOneWidget,
       );
     });

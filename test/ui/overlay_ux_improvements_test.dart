@@ -127,7 +127,7 @@ void main() {
       );
       expect(
         find.text(
-          'Rebuild evidence and a subtree scan, so likely rather than '
+          'Rebuild evidence and a subtree scan. Sleuth rates it likely, not '
           'confirmed.',
         ),
         findsOneWidget,
@@ -144,7 +144,10 @@ void main() {
           initiallyExpanded: true,
         ),
       );
-      expect(find.text('From the VM timeline, so confirmed.'), findsOneWidget);
+      expect(
+        find.text('From the VM timeline. Sleuth rates it confirmed.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Check in names the DevTools view for the category', (
