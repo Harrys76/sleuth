@@ -33,11 +33,12 @@ PerformanceIssue _other(String id) => PerformanceIssue(
   stableId: id,
 );
 
-WidgetHighlight _layAt(Rect rect) => WidgetHighlight(
+WidgetHighlight _layAt(Rect rect, {int? occurrence}) => WidgetHighlight(
   rect: rect,
   widgetName: 'Lay',
   severity: IssueSeverity.warning,
   detectorName: 'LayoutDetector',
+  occurrenceId: occurrence,
 );
 
 /// A scan has run and found Lay at [rect].
@@ -421,7 +422,10 @@ void main() {
       final b = twin('B', 2);
       final c = twin('C', 3);
       final controller = await _openWith(tester, [a, b, c]);
-      _seedHighlight(controller, _top);
+      // B's own element: an issue that names its element is outlined
+      // only there.
+      controller.scanTickNotifier.value = 1;
+      controller.publishHighlightsForTest([_layAt(_top, occurrence: 2)]);
       final focused = _recordScreenReaderFocus(tester);
       await _tapCrosshair(tester, 'Title B');
       expect(_bar, findsOneWidget);
