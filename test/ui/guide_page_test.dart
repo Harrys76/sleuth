@@ -86,6 +86,28 @@ void main() {
       expect(pageText, contains('83'));
     });
 
+    testWidgets('the Back tip names the menu and the highlight bar', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: GuidePage(onClose: () {})),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tip = find.textContaining(
+        'back gesture or button closes the open page, the More menu or the '
+        'highlight bar, then the card',
+      );
+      await tester.scrollUntilVisible(
+        tip,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(tip, findsOneWidget);
+    });
+
     testWidgets('back button calls onClose', (tester) async {
       var closed = false;
       await tester.pumpWidget(

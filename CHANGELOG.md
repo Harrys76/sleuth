@@ -65,6 +65,12 @@ list every change.
 - Keyboard navigation inside the card, a 320 px minimum width, toasts in
   the theme's inverted colours, and outlined light-mode severity marks.
 
+### Fixed
+
+- Ancestor chains, fix hints and the card's Where row name each widget's
+  own `file:line`. A widget type built in several places reported the
+  first place Sleuth saw.
+
 ## 0.38.0
 
 More accurate detectors, a VM timeline read that no longer stalls the app,

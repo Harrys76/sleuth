@@ -454,8 +454,9 @@ class _GuidePageState extends State<GuidePage>
           theme,
           '\u{2B05}\u{FE0F}',
           'Back',
-          'The system back gesture or button closes the open page, then '
-              'the card, before your app\'s navigation sees it.',
+          'The system back gesture or button closes the open page, the '
+              'More menu or the highlight bar, then the card, before your '
+              'app\'s navigation sees it.',
         ),
         _infoTile(
           theme,
