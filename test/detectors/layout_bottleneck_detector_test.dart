@@ -546,6 +546,8 @@ void main() {
         );
         expect(wrapIssues.first.widgetName, 'Wrap');
         expect(highlight.widgetName, 'Wrap');
+        // The outline label names the widget once: "Layout: Wrap, 35 ...".
+        expect(highlight.detail, '35 children, not virtualized');
       });
 
       testWidgets('no issue for Wrap with <=30 children', (tester) async {

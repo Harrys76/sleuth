@@ -75,13 +75,12 @@ void main() {
         isNotEmpty,
         reason: 'RenderShaderMask with deep subtree should produce highlights',
       );
-      expect(
-        detector.highlights.any(
-          (h) => h.detail?.contains('RenderShaderMask') ?? false,
-        ),
-        isTrue,
-        reason: 'Should mention RenderShaderMask in detail',
+      // The outline label reads "GPU: RenderShaderMask, 7 descendants":
+      // the type is the widget name, so the detail does not repeat it.
+      final highlight = detector.highlights.firstWhere(
+        (h) => h.widgetName == 'RenderShaderMask',
       );
+      expect(highlight.detail, matches(RegExp(r'^\d+ descendants$')));
     });
 
     testWidgets('detects ColorFiltered with deep subtree (v11.8)', (
@@ -95,13 +94,10 @@ void main() {
         isNotEmpty,
         reason: 'ColorFiltered with deep subtree should produce highlights',
       );
-      expect(
-        detector.highlights.any(
-          (h) => h.detail?.contains('RenderColorFiltered') ?? false,
-        ),
-        isTrue,
-        reason: 'Should mention RenderColorFiltered in detail',
+      final highlight = detector.highlights.firstWhere(
+        (h) => h.widgetName == 'RenderColorFiltered',
       );
+      expect(highlight.detail, matches(RegExp(r'^\d+ descendants$')));
     });
 
     testWidgets('no highlights for ColorFiltered with shallow subtree', (

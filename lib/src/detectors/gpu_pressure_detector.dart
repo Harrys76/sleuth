@@ -536,16 +536,16 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     if (typeName == null) return;
 
     if (subtreeSize > 5) {
-      // Sigma-aware detail for BackdropFilter.
+      // Sigma-aware detail for BackdropFilter. The outline label names
+      // the type before the highlight detail, so the detail leaves it out.
       String nodeDetail = '$typeName ($subtreeSize descendants)';
-      String highlightDetail = '$typeName with $subtreeSize descendants';
+      String highlightDetail = '$subtreeSize descendants';
       IssueSeverity highlightSeverity = IssueSeverity.warning;
 
       if (backdropSigma != null) {
         final sigmaStr = backdropSigma.toStringAsFixed(1);
         nodeDetail = '$typeName ($subtreeSize descendants, σ=$sigmaStr)';
-        highlightDetail =
-            '$typeName with $subtreeSize descendants (σ=$sigmaStr)';
+        highlightDetail = '$subtreeSize descendants (σ=$sigmaStr)';
         if (backdropSigma > _highSigmaThreshold) {
           highlightSeverity = IssueSeverity.critical;
         }
