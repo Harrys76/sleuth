@@ -158,9 +158,13 @@ void main() {
         reported.occurrenceId,
       );
 
+      // The outline takes the severity of the issue it was found for.
+      expect(controller.highlightTargetSeverity, IssueSeverity.warning);
+
       // After a scan a widget it did not outline is not found at once, and
       // a later scan selects nothing for it.
       controller.clearSelectedHighlight();
+      expect(controller.highlightTargetSeverity, isNull);
       expect(
         controller.selectHighlightForIssue(
           issue('Missing'),

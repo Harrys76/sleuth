@@ -21,6 +21,7 @@ class HighlightOverlay extends StatelessWidget {
     required this.highlights,
     required this.selectedHighlight,
     required this.markersEnabled,
+    this.outlineSeverity,
   });
 
   final ValueNotifier<({int generation, List<WidgetHighlight> items})>
@@ -30,6 +31,12 @@ class HighlightOverlay extends StatelessWidget {
   /// The corner markers draw while this is true. The list is emptied only
   /// at the next scan, so turning them off hides them here at once.
   final ValueListenable<bool> markersEnabled;
+
+  /// The severity of the issue the outline belongs to, read when the
+  /// selection changes. The outline takes its colour, so a critical card's
+  /// widget is not outlined in a widget's own warning colour. Null keeps
+  /// the highlight's severity.
+  final IssueSeverity? Function()? outlineSeverity;
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +78,9 @@ class HighlightOverlay extends StatelessWidget {
                             highlights: items,
                             generation: payload.generation,
                             selected: selected,
+                            outlineSeverity: selected == null
+                                ? null
+                                : outlineSeverity?.call(),
                             theme: theme,
                             textScaler: textScaler,
                             topInset: topInset,
@@ -92,6 +102,7 @@ class _HighlightPainter extends CustomPainter {
     required this.highlights,
     required this.generation,
     this.selected,
+    this.outlineSeverity,
     required this.theme,
     required this.textScaler,
     required this.topInset,
@@ -101,6 +112,7 @@ class _HighlightPainter extends CustomPainter {
   final List<WidgetHighlight> highlights;
   final int generation;
   final WidgetHighlight? selected;
+  final IssueSeverity? outlineSeverity;
   final SleuthThemeData theme;
   final TextScaler textScaler;
   final double topInset;
@@ -157,7 +169,16 @@ class _HighlightPainter extends CustomPainter {
 
   /// Full border + label for the selected/focused widget.
   void _drawSelectedBorder(Canvas canvas, Size size, WidgetHighlight h) {
-    final color = _colorFor(h.severity);
+    // Off screen, the bar says so; a dimmed screen and a label pinned to
+    // its edge would point at a widget the screen cannot show.
+    final shown = Rect.fromLTRB(
+      0,
+      0,
+      size.width,
+      math.max(0.0, size.height - keyboardHeight),
+    );
+    if (!h.rect.overlaps(shown)) return;
+    final color = _colorFor(outlineSeverity ?? h.severity);
 
     // Dim the rest of the screen using path difference (v9.14).
     // Replaces saveLayer + BlendMode.clear — no offscreen GPU buffer.
@@ -260,6 +281,7 @@ class _HighlightPainter extends CustomPainter {
   bool shouldRepaint(_HighlightPainter old) =>
       old.generation != generation ||
       !identical(old.selected, selected) ||
+      old.outlineSeverity != outlineSeverity ||
       !identical(old.theme, theme) ||
       old.textScaler != textScaler ||
       old.topInset != topInset ||
