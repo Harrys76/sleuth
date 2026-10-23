@@ -190,6 +190,7 @@ abstract class SimpleStructuralDetector extends BaseDetector {
         WidgetHighlight(
           rect: offset & ro.size,
           renderObject: ro,
+          occurrenceId: identityHashCode(element),
           widgetName: element.widget.runtimeType.toString(),
           severity: severity,
           detectorName: name,

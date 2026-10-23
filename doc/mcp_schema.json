@@ -79,7 +79,7 @@
       "errors": ["arg_invalid_section", "arg_invalid_int", "arg_pagination_unused"],
       "data": {
         "_shape_source": "SessionSnapshot.toJson() in lib/src/models/session_snapshot.dart",
-        "_projection_note": "When any projection arg is set, a payload field is present only if its SnapshotSection is in _projectedSections. Metadata keys (schemaVersion, exportedAt, packageVersion, isVmConnected, isDebugMode, suppressedCount) always serialize.",
+        "_projection_note": "When any projection arg is set, a payload field is present only if its SnapshotSection is in _projectedSections. Metadata keys (schemaVersion, exportedAt, packageVersion, isVmConnected, isDebugMode, suppressedCount, notUsefulMarks) always serialize.",
         "_projectedSections": {"type": "List<String>", "required": false, "nullable": false, "presence": "when any projection arg (sections, maxIssueCount or maxRouteCount) was set; holds the SnapshotSection keys in this payload, sorted alphabetically"},
         "_projectionLimits": {"type": "Map", "required": false, "nullable": false, "presence": "when maxIssueCount or maxRouteCount was set", "shape": {"maxIssueCount": {"type": "int", "required": false, "nullable": false}, "maxRouteCount": {"type": "int", "required": false, "nullable": false}}},
         "_projectionApplied": {"type": "String", "required": false, "nullable": false, "presence": "when any projection arg was set", "values": ["by_app", "by_sidecar_fallback"]},
@@ -92,6 +92,33 @@
         "capturedFrames": {"type": "List<Map>", "required": true, "nullable": false, "presence": "always, unless sections leaves it out"},
         "currentIssues": {"type": "List<Map>", "required": true, "nullable": false, "presence": "always, unless sections leaves it out"},
         "suppressedCount": {"type": "int", "required": false, "nullable": false, "presence": "only when above 0"},
+        "notUsefulMarks": {
+          "type": "List<Map>",
+          "required": false,
+          "nullable": false,
+          "presence": "only when an issue was marked Not useful in the overlay this session",
+          "doc": "Session-only marks, oldest first, at most 200. Like suppressedCount it is written whatever the projection.",
+          "item_shape": {
+            "key": {"type": "String", "required": true, "nullable": false, "doc": "The overlay list key: stableId (else the title), plus |widgetName when the issue names a widget."},
+            "stableId": {"type": "String", "required": false, "nullable": false, "presence": "when the issue has one"},
+            "title": {"type": "String", "required": true, "nullable": false},
+            "category": {"type": "String", "required": true, "nullable": false, "values": ["build", "layout", "paint", "raster", "memory", "channel", "font", "network", "startup"]},
+            "severity": {"type": "String", "required": true, "nullable": false, "values": ["ok", "warning", "critical"]},
+            "confidence": {"type": "String", "required": true, "nullable": false, "values": ["confirmed", "likely", "possible"]},
+            "measurement": {"type": "Map", "required": false, "nullable": false, "presence": "when the issue had a measurement with a finite value", "doc": "The same shape as a currentIssues item's measurement key.", "shape": {
+              "value": {"type": "num", "required": true, "nullable": false},
+              "unit": {"type": "String", "required": true, "nullable": false, "doc": "milliseconds, seconds, percent, bytes, bytesPerSecond, count, perSecond, perMinute or frames. A reader keeps a unit it does not know by name."},
+              "warningAt": {"type": "num", "required": false, "nullable": false, "presence": "when the detector has a warning line"},
+              "criticalAt": {"type": "num", "required": false, "nullable": false, "presence": "when the detector has a critical line"},
+              "windowMs": {"type": "num", "required": false, "nullable": false, "presence": "when the value was counted over a window; a fraction keeps microseconds"},
+              "warningStrict": {"type": "bool", "required": false, "nullable": false, "value": true, "presence": "only with warningAt, when a value must exceed it"},
+              "criticalStrict": {"type": "bool", "required": false, "nullable": false, "value": true, "presence": "only with criticalAt, when a value must exceed it"}
+            }},
+            "route": {"type": "String", "required": false, "nullable": false, "presence": "when the issue carried a route"},
+            "markedAt": {"type": "String (ISO-8601)", "required": true, "nullable": false},
+            "live": {"type": "bool", "required": true, "nullable": false, "doc": "Whether the issue was still reported when the payload was built."}
+          }
+        },
         "recentRequests": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when NetworkMonitorDetector is enabled and the request ring buffer is non-empty"},
         "heapSamples": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when MemoryPressureDetector has at least one sample buffered"},
         "phaseEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when the controller's rolling timeline-event buffer is non-empty"},
@@ -222,7 +249,8 @@
       "data": {
         "issues": {"type": "List<Map>", "required": true, "nullable": false, "item_shape": "PerformanceIssue.toJson()"},
         "route": {"type": "String", "required": false, "nullable": false, "presence": "only when the route arg was non-empty"},
-        "vmConnected": {"type": "bool", "required": true, "nullable": false, "doc": "The same flag as ext.sleuth.diagnose data.vmConnected. It tells a VM-connected basic session from one without a VM link."}
+        "vmConnected": {"type": "bool", "required": true, "nullable": false, "doc": "The same flag as ext.sleuth.diagnose data.vmConnected. It tells a VM-connected basic session from one without a VM link."},
+        "notUsefulMarks": {"type": "List<Map>", "required": false, "nullable": false, "presence": "only when an issue was marked Not useful in the overlay this session", "doc": "Every mark, whatever the route arg.", "item_shape": "see ext.sleuth.snapshot.data.notUsefulMarks item_shape"}
       }
     },
     "ext.sleuth.routeHealth": {

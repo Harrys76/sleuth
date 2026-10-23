@@ -108,7 +108,7 @@ The handler returns `SessionSnapshot.toJson()`, defined in `lib/src/models/sessi
 | `maxIssueCount` | String (int) | keeps the top N already-ranked `currentIssues`. A negative or non-numeric value returns `arg_invalid_int`. Setting it while `sections` leaves out `currentIssues` returns `arg_pagination_unused`. |
 | `maxRouteCount` | String (int) | keeps the N most recent `routeSessions` by `startedAt`. It returns the same errors as `maxIssueCount`, with `routeSessions` in place of `currentIssues`. |
 
-When any projection arg is set, a payload field is present only if its section is in `_projectedSections`. A cap without `sections` lists every section there. Metadata keys (`schemaVersion`, `exportedAt`, `packageVersion`, `isVmConnected`, `isDebugMode`, `suppressedCount`) always serialize.
+When any projection arg is set, a payload field is present only if its section is in `_projectedSections`. A cap without `sections` lists every section there. Metadata keys (`schemaVersion`, `exportedAt`, `packageVersion`, `isVmConnected`, `isDebugMode`, `suppressedCount`, `notUsefulMarks`) always serialize.
 
 | `data` key | Type | Required | Presence |
 |---|---|---|---|
@@ -124,6 +124,7 @@ When any projection arg is set, a payload field is present only if its section i
 | `capturedFrames` | List\<Map\> | yes | always, unless sections leaves it out |
 | `currentIssues` | List\<Map\> | yes | always, unless sections leaves it out |
 | `suppressedCount` | int | no | only when above 0 |
+| `notUsefulMarks` | List\<Map\> | no | only when an issue was marked Not useful in the overlay this session. Session-only marks, oldest first, at most 200; item shape below. |
 | `recentRequests` | List\<Map\> | no | when NetworkMonitorDetector is enabled and the request ring buffer is non-empty |
 | `heapSamples` | List\<Map\> | no | when MemoryPressureDetector has at least one sample buffered |
 | `phaseEvents` | List\<Map\> | no | when the controller's rolling timeline-event buffer is non-empty |
@@ -135,6 +136,33 @@ When any projection arg is set, a payload field is present only if its section i
 | `sessionSummary` | Map | no | when at least one of its keys is present (an issue is ranked, the frame-stats buffer is non-empty, or at least two heap samples are buffered); every key inside is conditional |
 | `startupMetrics` | Map | no | when `Sleuth.init` captured first-frame data |
 | `routeSessions` | List\<Map\> | no | when the route history is not empty |
+
+#### `notUsefulMarks[]` item shape
+
+| Key | Type | Required | Presence |
+|---|---|---|---|
+| `key` | String | yes | always; the overlay list key: `stableId` (else the title), plus `\|widgetName` when the issue names a widget |
+| `stableId` | String | no | when the issue has one |
+| `title` | String | yes | always |
+| `category`, `severity`, `confidence` | String | yes | always; the enum names |
+| `measurement` | Map | no | when the issue had a measurement with a finite value; the same shape as a `currentIssues` item's `measurement`, below |
+| `route` | String | no | when the issue carried a route |
+| `markedAt` | String (ISO-8601) | yes | always |
+| `live` | bool | yes | always; whether the issue was still reported when the payload was built |
+
+#### Issue `measurement` sub-shape
+
+An issue item (`currentIssues[]`, `ext.sleuth.issues` `issues[]`) carries `measurement` when its detector reported a number: the value it measured and its warning and critical lines. The issue's `severity` is the detector's and can disagree with where the value sits against the lines, in either direction.
+
+| Key | Type | Required | Presence |
+|---|---|---|---|
+| `value` | num | yes | always |
+| `unit` | String | yes | always; `milliseconds`, `seconds`, `percent`, `bytes`, `bytesPerSecond`, `count`, `perSecond`, `perMinute` or `frames`. A reader keeps a unit it does not know by name. |
+| `warningAt` | num | no | when the detector has a warning line |
+| `criticalAt` | num | no | when the detector has a critical line |
+| `windowMs` | num | no | when the value was counted over a window; a fraction keeps microseconds |
+| `warningStrict` | bool | no | only with `warningAt`, when a value must exceed it; always `true` when present |
+| `criticalStrict` | bool | no | only with `criticalAt`, when a value must exceed it; always `true` when present |
 
 #### `recurrenceTrends.<stableId>` sub-shape
 
@@ -216,6 +244,7 @@ Returns the current aggregated issues. It takes an optional `route` (String). Wi
 | `issues` | List\<Map\> | yes | always; each item is `PerformanceIssue.toJson()` |
 | `route` | String | no | only when the route arg was non-empty |
 | `vmConnected` | bool | yes | always; the same flag as `ext.sleuth.diagnose` `data.vmConnected`, which tells a VM-connected `basic` session from one without a VM link |
+| `notUsefulMarks` | List\<Map\> | no | only when an issue was marked Not useful in the overlay this session; every mark, whatever the `route` arg. The item shape is `ext.sleuth.snapshot` `notUsefulMarks[]`. |
 
 ### `ext.sleuth.routeHealth`
 

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart' show Sleuth, StartupMetrics;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/detectors/platform_channel_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/heap_sample.dart';
@@ -443,10 +444,33 @@ void main() {
               as Map<String, Object?>)['item_shape']
           as Map<String, Object?>;
 
+  Map<String, Object?> notUsefulMarkShape() =>
+      (dataShape('ext.sleuth.snapshot')['notUsefulMarks']
+              as Map<String, Object?>)['item_shape']
+          as Map<String, Object?>;
+
+  Map<String, Object?> measurementShape() =>
+      (notUsefulMarkShape()['measurement'] as Map<String, Object?>)['shape']
+          as Map<String, Object?>;
+
+  /// An issue as PlatformChannelDetector emits it: 25 calls in one second
+  /// against a 20/s line, so it carries a measurement.
+  PerformanceIssue measuredIssue() {
+    var now = DateTime(2026);
+    final detector = PlatformChannelDetector(clock: () => now);
+    addTearDown(detector.dispose);
+    detector.processTimelineData(platformChannelData(channelEventCount: 25));
+    now = now.add(const Duration(seconds: 2));
+    detector.processTimelineData(emptyTimelineData());
+    return detector.issues.single;
+  }
+
   /// String references in the schema, resolved to the shapes they name.
   Map<String, Map<String, Object?>> refs() => {
     'see ext.sleuth.snapshot.data.routeSessions item_shape':
         routeSessionShape(),
+    'see ext.sleuth.snapshot.data.notUsefulMarks item_shape':
+        notUsefulMarkShape(),
     'same as ext.sleuth.explain.data.explanation': explanationShape(),
   };
 
@@ -708,6 +732,54 @@ void main() {
         );
       },
     );
+
+    test('a detector measurement matches the documented shape', () {
+      final issue = measuredIssue();
+      final json = jsonDecode(jsonEncode(issue.toJson())) as Map;
+      expect(json, contains('measurement'));
+      _expectMatchesShape(
+        measurementShape(),
+        (json['measurement'] as Map).cast<String, Object?>(),
+        path: 'issue.measurement',
+      );
+    });
+
+    test('notUsefulMarks emits once an issue is marked and matches the '
+        'documented shape', () async {
+      final issue = measuredIssue();
+      final c = _newController()..seedIssuesForTest([issue]);
+      final before = await extSnapshotHandler(c, const {});
+      expect(
+        (before['data'] as Map<String, Object?>).containsKey('notUsefulMarks'),
+        isFalse,
+      );
+
+      c.markNotUseful(issue);
+      for (final args in const [
+        <String, String>{},
+        <String, String>{'sections': 'currentIssues'},
+      ]) {
+        final env = await extSnapshotHandler(c, args);
+        final data = env['data'] as Map<String, Object?>;
+        final marks = (data['notUsefulMarks'] as List).cast<Map>();
+        expect(marks.single['live'], isTrue);
+        expect(marks.single['measurement'], isNotNull);
+        _expectMatchesShape(
+          args.isEmpty
+              ? dataShape('ext.sleuth.snapshot')
+              : _projectedSnapshotShape(dataShape('ext.sleuth.snapshot'), data),
+          data,
+          path: 'snapshot.data$args',
+        );
+      }
+
+      // The issue leaves the reported list; its mark stays, not live.
+      c.seedIssuesForTest(const []);
+      final env = await extSnapshotHandler(c, const {});
+      final marks = ((env['data'] as Map)['notUsefulMarks'] as List)
+          .cast<Map>();
+      expect(marks.single['live'], isFalse);
+    });
 
     test('recentRequests emits once the network buffer is non-empty', () async {
       // Precondition triad (see exportSnapshot): _initialized AND
@@ -1116,6 +1188,7 @@ void main() {
       // Keys explicitly exercised in this group (presence tests above):
       const exercisedHere = <String>{
         'suppressedCount',
+        'notUsefulMarks',
         'startupMetrics',
         'recentRequests',
         'heapSamples',
@@ -1279,6 +1352,36 @@ void main() {
           dataShape('ext.sleuth.issues'),
           env['data'] as Map<String, Object?>,
           path: 'issues.data$args',
+        );
+      }
+    });
+
+    test('notUsefulMarks sits beside the issues once one is marked', () async {
+      final issue = measuredIssue();
+      final c = _newController()..seedIssuesForTest([issue]);
+      expect(
+        ((await extIssuesHandler(c, const {}))['data'] as Map).containsKey(
+          'notUsefulMarks',
+        ),
+        isFalse,
+      );
+      c.markNotUseful(issue);
+      for (final args in const [
+        <String, String>{},
+        <String, String>{'route': '/elsewhere'},
+      ]) {
+        final env = await extIssuesHandler(c, args);
+        final data = env['data'] as Map<String, Object?>;
+        expect((data['notUsefulMarks'] as List), hasLength(1));
+        final skipped = _expectMatchesShape(
+          dataShape('ext.sleuth.issues'),
+          data,
+          path: 'issues.data$args',
+          refs: refs(),
+        );
+        expect(
+          skipped,
+          isNot(contains(startsWith('issues.data$args.notUseful'))),
         );
       }
     });

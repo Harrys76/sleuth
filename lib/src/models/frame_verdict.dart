@@ -77,7 +77,10 @@ class FrameVerdict {
   /// Human-readable explanation of the verdict.
   final String reason;
 
-  /// Issues detected that relate to this frame.
+  /// Issues reported at this frame that can explain [suspectedPhase]: the
+  /// issues of the phase's category, `event_loop_stall` for a start
+  /// delay, none for a stall or an unknown phase. Jank symptoms are left
+  /// out.
   final List<PerformanceIssue> relatedIssues;
 
   /// Whether this verdict was generated with full VM Timeline data.

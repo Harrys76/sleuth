@@ -9,6 +9,41 @@ import 'package:sleuth/src/utils/widget_location.dart';
 void main() {
   setUp(() => sourceLocationCache.clear());
 
+  group('leafSourceLocation', () {
+    testWidgets('reads the leaf location back from a real chain', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: TestParentWidget(child: TestLeafWidget()),
+        ),
+      );
+      final element = tester.element(find.byType(TestLeafWidget));
+      // Without widget creation tracking there is no location to read, and
+      // the test would pass on the null branch alone.
+      expect(
+        WidgetInspectorService.instance.isWidgetCreationTracked(),
+        isTrue,
+        reason: 'flutter test tracks widget creation by default',
+      );
+      final location = leafSourceLocation(buildAncestorChain(element));
+      expect(location, matches(RegExp(r'widget_location_test\.dart:\d+$')));
+      expect(location, sourceLocationCache.lookup(element));
+    });
+
+    test('no chain, no location on the leaf, or a malformed tail', () {
+      expect(leafSourceLocation(null), isNull);
+      expect(leafSourceLocation('Page (lib/page.dart:3) > Leaf'), isNull);
+      expect(leafSourceLocation('Leaf (not a location)'), isNull);
+      expect(leafSourceLocation('Leaf (lib/a.dart:12)'), 'lib/a.dart:12');
+      expect(
+        leafSourceLocation('Page > Column > Leaf (lib/a.dart:12)'),
+        'lib/a.dart:12',
+      );
+    });
+  });
+
   group('buildAncestorChain with source location', () {
     testWidgets('appends file:line to leaf widget', (tester) async {
       await tester.pumpWidget(

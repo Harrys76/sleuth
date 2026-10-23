@@ -218,6 +218,28 @@ void main() {
       await drainToasts(tester);
     });
 
+    testWidgets('a widget that is not on screen unticks the card', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        _issue('lay', category: IssueCategory.layout),
+      ];
+      // A scan already ran and outlined nothing.
+      controller.scanTickNotifier.value = 1;
+      await pumpCard(tester);
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+
+      expect(
+        find.textContaining('Widget not currently visible'),
+        findsOneWidget,
+      );
+      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+      expect(controller.pendingIssueSelection, isNull);
+      expect(controller.selectedHighlightNotifier.value, isNull);
+      await drainToasts(tester);
+    });
+
     testWidgets('losing the highlighted issue clears the highlight', (
       tester,
     ) async {

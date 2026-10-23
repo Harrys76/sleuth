@@ -37,6 +37,38 @@
   compare by name, a custom detector can name its own, and a reader keeps
   a unit it does not know by name instead of dropping the measurement.
 - `SimpleStructuralDetector.report` takes an optional `measurement`.
+- Snapshots and `ext.sleuth.issues` carry `notUsefulMarks`, the issues
+  marked Not useful in the overlay this session (oldest first, at most
+  200), each with the issue's key, title, category, severity, confidence,
+  measurement, route, `markedAt` and whether it is still reported
+  (`live`). Like `suppressedCount` the key is metadata: written only when
+  there is a mark, whatever the projection, and never a `SnapshotSection`.
+  `SessionSnapshot.notUsefulMarks` and `NotUsefulMark` read it back.
+  `doc/mcp_schema.{json,md}` document it and the issue `measurement`
+  shape, and the sidecar lists it in `snapshotMetadataKeys`.
+- `WidgetHighlight.occurrenceId`: the identity of the element a highlight
+  was measured from, equal to the `occurrenceId` of its issue.
+- `DebugSnapshot.forcedRebuildsOf` (debug callbacks): for each widget type
+  a parent's build rebuilt, the types whose builds forced it, framework
+  widgets included, and how often. `forcedTypesCapped` reports its caps.
+
+### Changed
+
+- `FrameVerdict.relatedIssues` lists only the issues that can explain the
+  verdict's phase: the issues of the phase's category, `event_loop_stall`
+  for a start delay, and none for a stall or an unknown phase. Jank
+  symptoms are never listed, so exports carry fewer issues, and the
+  reason's `Related:` line names an issue of the phase. The overlay's JANK
+  tag shows only while `jank_detected` or `sustained_jank` is reported.
+- Highlighting an issue outlines only its own widget: the element it was
+  reported for, else the first widget with its name. Another widget of
+  the same category is no longer outlined in its place. When the widget
+  is not on screen the card unticks, and no outline appears later.
+- Copying the snapshot from the overlay counts as Sleuth's own work, so
+  it is left out of the next frame's start delay. A second tap during a
+  copy is ignored.
+- A dismissed debug-mode banner stays dismissed when the dashboard is
+  closed and reopened.
 
 ## 0.38.0
 

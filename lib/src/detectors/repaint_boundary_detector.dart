@@ -179,6 +179,7 @@ class RepaintBoundaryDetector extends BaseDetector
       WidgetHighlight(
         rect: rect,
         renderObject: ro,
+        occurrenceId: identityHashCode(element),
         widgetName: typeNameCache.lookup(element.widget),
         severity: IssueSeverity.warning,
         detectorName: 'RepaintBoundary',

@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
-/// Bounded cache of widget [Type] → abbreviated "file:line" source locations.
+/// Abbreviated "file:line" creation locations of widgets, cached per
+/// [Element].
 ///
 /// Uses [InspectorSerializationDelegate.additionalNodeProperties] to access
 /// creation location data injected by the track-widget-creation kernel
@@ -12,37 +13,39 @@ import 'package:flutter/widgets.dart';
 /// `ipa`, which writes `TRACK_WIDGET_CREATION=false` into the generated
 /// xcconfig (Xcode or fastlane archives that reuse it inherit the setting).
 ///
-/// Cache is bounded by [maxEntries] — when full, new types are not cached
-/// but existing lookups remain valid. Source locations are stable per widget
-/// type, so eviction is unnecessary. Keyed by `widget.runtimeType` itself,
-/// so a lookup (hit or miss past the cap) allocates no type-name string.
+/// Keyed by element, not by widget type, because a type built in several
+/// places, such as a `ValueListenableBuilder<int>` on two screens, has one
+/// location per call site. An element keeps its first result, which goes
+/// stale only when its parent swaps in the same widget type from another
+/// call site. The [Expando]s drop entries together with their elements.
 class SourceLocationCache {
-  SourceLocationCache({this.maxEntries = 200});
+  SourceLocationCache();
 
-  /// Maximum number of cached widget types.
-  final int maxEntries;
-  final Map<Type, String> _cache = {};
+  /// Marks an element whose lookup found no location.
+  static const Object _none = Object();
+
+  Expando<Object> _locations = Expando('Sleuth source location');
+  Expando<({String location, String? packageName})> _structured = Expando(
+    'Sleuth structured source location',
+  );
   bool? _trackingAvailable;
+  int _resolved = 0;
 
   /// Returns abbreviated "file:line" for the [element]'s widget, or null.
   ///
-  /// Results are cached by `widget.runtimeType`. Returns null when the build
-  /// does not track widget creation (release, `--no-track-widget-creation`,
-  /// or an iOS build from `flutter build ios` / `ipa` without the setting).
+  /// Returns null when the build does not track widget creation (release,
+  /// `--no-track-widget-creation`, or an iOS build from `flutter build ios`
+  /// / `ipa` without the setting).
   String? lookup(Element element) {
     _trackingAvailable ??= WidgetInspectorService.instance
         .isWidgetCreationTracked();
     if (!_trackingAvailable!) return null;
 
-    final type = element.widget.runtimeType;
-    final cached = _cache[type];
-    if (cached != null) return cached;
-    if (_cache.length >= maxEntries) return null;
-
+    final cached = _locations[element];
+    if (cached != null) return cached is String ? cached : null;
     final location = _resolve(element);
-    if (location != null) {
-      _cache[type] = location;
-    }
+    _locations[element] = location ?? _none;
+    _resolved++;
     return location;
   }
 
@@ -88,26 +91,8 @@ class SourceLocationCache {
   /// Unlike [lookup] which returns a formatted string, this returns the
   /// abbreviated path, line number, and extracted package name separately.
   ({String location, String? packageName})? lookupStructured(Element element) {
-    _trackingAvailable ??= WidgetInspectorService.instance
-        .isWidgetCreationTracked();
-    if (!_trackingAvailable!) return null;
-
-    final type = element.widget.runtimeType;
-    final cached = _structuredCache[type];
-    if (cached != null) return cached;
-    if (_cache.length >= maxEntries) return null;
-
-    final location = _resolve(element);
-    if (location == null) return null;
-
-    // Also populate the string cache for backward compatibility.
-    _cache[type] = location;
-
-    final result = _resolveStructured(element);
-    if (result != null) {
-      _structuredCache[type] = result;
-    }
-    return result;
+    if (lookup(element) == null) return null;
+    return _structured[element] ??= _resolveStructured(element);
   }
 
   ({String location, String? packageName})? _resolveStructured(
@@ -135,9 +120,6 @@ class SourceLocationCache {
     }
   }
 
-  final Map<Type, ({String location, String? packageName})> _structuredCache =
-      {};
-
   /// Extracts the package name from a source file path.
   ///
   /// - `/path/packages/my_app/lib/screens/home.dart` → `my_app`
@@ -160,11 +142,12 @@ class SourceLocationCache {
 
   /// Clears cached entries and resets the tracking availability flag.
   void clear() {
-    _cache.clear();
-    _structuredCache.clear();
+    _locations = Expando('Sleuth source location');
+    _structured = Expando('Sleuth structured source location');
     _trackingAvailable = null;
+    _resolved = 0;
   }
 
-  /// Number of cached entries.
-  int get length => _cache.length;
+  /// Number of elements resolved since construction or the last [clear].
+  int get length => _resolved;
 }

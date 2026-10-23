@@ -1,3 +1,12 @@
+## Unreleased
+
+- `snapshotMetadataKeys` includes `notUsefulMarks`, the envelope key in
+  which newer apps list the issues marked Not useful in the overlay. The
+  sidecar's own projection keeps it like `suppressedCount`.
+- The schema copy documents `notUsefulMarks` and the issue `measurement`
+  shape, and the tool schema describes the `measurement` object of a
+  verbose issue.
+
 ## 0.9.0
 
 Pins sleuth 0.38.0, accepts 0.37 apps with a warning and refuses 0.36

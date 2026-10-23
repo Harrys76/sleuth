@@ -64,4 +64,5 @@ const Set<String> snapshotMetadataKeys = {
   'isVmConnected',
   'isDebugMode',
   'suppressedCount',
+  'notUsefulMarks',
 };
