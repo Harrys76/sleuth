@@ -637,6 +637,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       ancestorChain: chain,
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
+      extraTraceArgs: held.latestRateArg,
       measurement: held.measurement(
         warningAt: paintFrequencyThreshold.toDouble(),
         criticalAt: (paintFrequencyThreshold * debugCriticalMultiplier)

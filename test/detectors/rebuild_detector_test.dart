@@ -2,6 +2,7 @@ import 'dart:developer' show Timeline;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/utils/measurement_text.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/models/issue_measurement.dart';
@@ -1634,6 +1635,29 @@ void main() {
       detector.evaluateNow();
       expect(detector.issues.single.stableId, 'rebuild_debug_MyWidget');
       expect(detector.issues.single.severity, IssueSeverity.warning);
+    });
+
+    // A held type turns critical on the latest window while the value
+    // averages two: 15/s then 35/s reads 25/s, under the 30/s line.
+    test('a rate the latest second made critical is not called held', () {
+      for (final count in [15, 35]) {
+        detector.updateDebugSnapshot(
+          DebugSnapshot(
+            rebuildCounts: {'MyWidget': count},
+            totalPaintCount: 0,
+            elapsed: const Duration(seconds: 1),
+          ),
+        );
+        detector.evaluateNow();
+      }
+      final issue = detector.issues.single;
+      expect(issue.severity, IssueSeverity.critical);
+      expect(issue.measurement!.value, 25);
+      expect(issue.extraTraceArgs?['latestRatePerSec'], '35.0');
+      expect(
+        measuredSeverityNote(issue),
+        'Critical: the latest second went over the line',
+      );
     });
   });
 }

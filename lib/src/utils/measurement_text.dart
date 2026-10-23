@@ -1,5 +1,6 @@
 import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
+import 'rate_hysteresis.dart' show latestRateTraceArg;
 
 /// [value] in [unit], as the Measured row and its gauge show it.
 String formatMeasurementValue(double value, MeasurementUnit unit) {
@@ -129,17 +130,23 @@ const Map<String, String> measuredPhrases = {
   final template = id == null ? null : measuredPhrases[measurementFamilyOf(id)];
   if (template == null) return ('', value, '');
   final window = m.window;
-  final filled = template
+  // The window part and the value's place come from the template before
+  // the names go in, so a name holding brackets or "{v}" stays as written.
+  final shaped = template.replaceAllMapped(
+    _windowPart,
+    (match) => window == null
+        ? ''
+        : match.group(1)!.replaceAll('{t}', formatWindow(window)),
+  );
+  String named(String part) => part
       .replaceAll('{w}', issue.widgetName ?? 'the widget')
-      .replaceAll('{n}', colon >= 0 ? id!.substring(colon + 1) : '')
-      .replaceAllMapped(
-        _windowPart,
-        (match) => window == null
-            ? ''
-            : match.group(1)!.replaceAll('{t}', formatWindow(window)),
-      );
-  final at = filled.indexOf('{v}');
-  return (filled.substring(0, at), value, filled.substring(at + 3));
+      .replaceAll('{n}', colon >= 0 ? id!.substring(colon + 1) : '');
+  final at = shaped.indexOf('{v}');
+  return (
+    named(shaped.substring(0, at)),
+    value,
+    named(shaped.substring(at + 3)),
+  );
 }
 
 final RegExp _windowPart = RegExp(r'\[([^\]]*)\]');
@@ -172,24 +179,32 @@ String? measuredText(PerformanceIssue issue) {
   ].join('\n');
 }
 
-/// Whether [m]'s value reaches [line]: at or above it, or above it when
+/// Whether [value] reaches [line]: at or above it, or above it when
 /// [strict].
-bool _reaches(IssueMeasurement m, double? line, bool strict) =>
-    line != null && (strict ? m.value > line : m.value >= line);
+bool _reaches(double value, double? line, bool strict) =>
+    line != null && (strict ? value > line : value >= line);
 
 /// A line under the gauge when the severity and the value disagree.
 ///
-/// A severity above what the value reaches is a held severity. A warning
+/// A severity above what the value reaches is a held severity, except for
+/// a debug rate whose latest second went over the critical line
+/// ([latestRateTraceArg]) while the value averages two seconds. A warning
 /// whose value reaches the critical line comes from a detector that judged
 /// another reading: for the debug rates, the latest second. The card never
 /// derives severity from the measurement.
 String? measuredSeverityNote(PerformanceIssue issue) {
   final m = issue.measurement;
   if (m == null || !m.hasFiniteValue) return null;
-  final reachesWarning = _reaches(m, m.warningAt, m.warningStrict);
-  final reachesCritical = _reaches(m, m.criticalAt, m.criticalStrict);
+  final reachesWarning = _reaches(m.value, m.warningAt, m.warningStrict);
+  final reachesCritical = _reaches(m.value, m.criticalAt, m.criticalStrict);
   switch (issue.severity) {
     case IssueSeverity.critical when m.criticalAt != null && !reachesCritical:
+      final latest = double.tryParse(
+        issue.extraTraceArgs?[latestRateTraceArg] ?? '',
+      );
+      if (latest != null && _reaches(latest, m.criticalAt, m.criticalStrict)) {
+        return 'Critical: the latest second went over the line';
+      }
       return 'Held at critical: the value has not stayed below the line '
           'long enough to clear it';
     case IssueSeverity.warning when m.warningAt != null && !reachesWarning:

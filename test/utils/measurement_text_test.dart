@@ -149,6 +149,22 @@ void main() {
       );
     });
 
+    // A resource name is the app's own text; brackets or "{v}" in it are
+    // not template markers.
+    test('a resource name with brackets or {v} is shown as written', () {
+      const age = IssueMeasurement(value: 400, unit: MeasurementUnit.seconds);
+      expect(measuredLine(_issue('tracked_resource_long_lived:sock[1]', age)), (
+        'One "sock[1]" instance alive for ',
+        '400 s',
+        '',
+      ));
+      expect(measuredLine(_issue('tracked_resource_long_lived:x{v}', age)), (
+        'One "x{v}" instance alive for ',
+        '400 s',
+        '',
+      ));
+    });
+
     test('a window names its length; without one the phrase names none', () {
       expect(
         measuredLine(
@@ -302,6 +318,46 @@ void main() {
           ),
         ),
         'Not critical: the latest second stayed at or under the line',
+      );
+    });
+
+    // A held debug rate turns critical on its latest second while the
+    // value averages two seconds.
+    test('a debug rate the latest second made critical says so', () {
+      expect(
+        measuredSeverityNote(
+          _issue(
+            'repaint_debug_Ticker',
+            const IssueMeasurement(
+              value: 55,
+              unit: rate,
+              warningAt: 30,
+              criticalAt: 60,
+              criticalStrict: true,
+            ),
+            severity: IssueSeverity.critical,
+          ).copyWith(extraTraceArgs: {'latestRatePerSec': '70.0'}),
+        ),
+        'Critical: the latest second went over the line',
+      );
+    });
+
+    test('a debug rate held critical under its line says so', () {
+      expect(
+        measuredSeverityNote(
+          _issue(
+            'repaint_debug_Ticker',
+            const IssueMeasurement(
+              value: 50,
+              unit: rate,
+              warningAt: 30,
+              criticalAt: 60,
+              criticalStrict: true,
+            ),
+            severity: IssueSeverity.critical,
+          ).copyWith(extraTraceArgs: {'latestRatePerSec': '48.0'}),
+        ),
+        startsWith('Held at critical'),
       );
     });
 
