@@ -79,16 +79,22 @@ Color gaugeFillColor(SleuthThemeData theme, IssueSeverity severity) {
       : theme.severityTextColor(severity);
 }
 
-/// The value at the right end of the gauge: a quarter past the largest of
-/// the value and the lines, or 100 for a percent that stays within it.
+/// The value at the right end of the gauge: 100 for a percent whose lines
+/// are at most 100, else a quarter past the higher positive line, else a
+/// quarter past the value (1 when the value is not a positive number).
+///
+/// The scale comes from the lines, so the ticks stay put and the fill
+/// follows the value. A scale that grew with the value kept the fill at
+/// the same length on every scan and moved the ticks instead. A value past
+/// the end fills the track, and the painter breaks the fill near its end.
 @visibleForTesting
 double gaugeMax(IssueMeasurement m) {
-  final top = [
-    m.value,
+  final line = [
     ?m.warningAt,
     ?m.criticalAt,
-  ].where((v) => v.isFinite).fold(0.0, math.max);
-  if (m.unit == MeasurementUnit.percent && top <= 100) return 100;
+  ].where((v) => v.isFinite && v > 0).fold(0.0, math.max);
+  if (m.unit == MeasurementUnit.percent && line <= 100) return 100;
+  final top = line > 0 ? line : (m.hasFiniteValue ? m.value : 0.0);
   return top <= 0 ? 1 : top * 1.25;
 }
 
@@ -112,6 +118,9 @@ class _GaugePainter extends CustomPainter {
   final TextStyle labelStyle;
   final TextScaler scaler;
   final double radius;
+
+  /// Distance of the first break cut from the track's right end.
+  static const double _breakInset = 10;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -141,6 +150,20 @@ class _GaugePainter extends CustomPainter {
           ),
           Paint()..color = gap,
         );
+      } else if (measurement.value > max) {
+        // Two slanted cuts near the end, as on a chart's broken bar: the
+        // value runs past the scale, and the text above gives the number.
+        final cut = Paint()
+          ..color = gap
+          ..strokeWidth = 2;
+        for (final inset in const [_breakInset, _breakInset + 5]) {
+          final cx = size.width - inset;
+          canvas.drawLine(
+            Offset(cx - 2, top + height + 1),
+            Offset(cx + 2, top - 1),
+            cut,
+          );
+        }
       }
     }
     final tickPaint = Paint()..color = tick;
