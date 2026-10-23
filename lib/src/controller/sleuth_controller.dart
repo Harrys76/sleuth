@@ -655,6 +655,10 @@ class SleuthController {
   /// loses it (detached, off screen) and a later one has it back.
   PerformanceIssue? _highlightTarget;
 
+  /// Severity of the issue whose widget is outlined, which the outline
+  /// takes; null while nothing is outlined.
+  IssueSeverity? get highlightTargetSeverity => _highlightTarget?.severity;
+
   /// Highlights are collected while the markers are on, and while an
   /// issue's outline is shown or looked up.
   bool get _collectingHighlights =>
