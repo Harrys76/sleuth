@@ -1020,7 +1020,8 @@ class SleuthController {
     final name = issue.widgetName;
     if (name == null) return null;
     for (final h in highlights) {
-      if (h.widgetName == name) return h;
+      // A tagged highlight is a list card's widget, not this issue's.
+      if (h.widgetName == name && h.stableId == null) return h;
     }
     return null;
   }
@@ -3829,7 +3830,7 @@ class SleuthController {
     for (final h in highlights) {
       if (occurrence != null
           ? h.occurrenceId == occurrence && h.stableId == null
-          : h.widgetName == issue.widgetName) {
+          : h.widgetName == issue.widgetName && h.stableId == null) {
         return h;
       }
     }
