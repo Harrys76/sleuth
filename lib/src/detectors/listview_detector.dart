@@ -410,7 +410,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
             widgetName: widgetName,
             severity: severity,
             detectorName: 'Non-lazy',
-            detail: '$widgetName(shrinkWrap: true) inside $flexName',
+            detail: 'shrinkWrap: true inside $flexName',
           ),
         );
       }
@@ -626,8 +626,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
             widgetName: 'SliverToBoxAdapter',
             severity: IssueSeverity.warning,
             detectorName: 'Eager Sliver',
-            detail:
-                '$scrollableType(shrinkWrap: true) inside SliverToBoxAdapter',
+            detail: 'holds $scrollableType(shrinkWrap: true)',
           ),
         );
       }

@@ -1028,6 +1028,11 @@ void main() {
         );
         expect(detector.issues.first.title, contains('ListView'));
         expect(detector.issues.first.severity, IssueSeverity.warning);
+        expect(detector.highlights.single.widgetName, 'SliverToBoxAdapter');
+        expect(
+          detector.highlights.single.detail,
+          'holds ListView(shrinkWrap: true)',
+        );
       });
 
       testWidgets(
@@ -1158,6 +1163,12 @@ void main() {
         );
         expect(issue.fixHint, contains('CustomScrollView'));
         expect(ids(), isNot(contains('non_lazy_listview')));
+        // The outline label names the widget once.
+        final highlight = detector.highlights.singleWhere(
+          (h) => h.occurrenceId == issue.occurrenceId,
+        );
+        expect(highlight.widgetName, 'ListView');
+        expect(highlight.detail, 'shrinkWrap: true inside Column');
       });
 
       testWidgets('takes precedence over non_lazy_listview above the '
