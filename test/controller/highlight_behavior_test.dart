@@ -365,6 +365,45 @@ void main() {
     );
   });
 
+  group('own highlight', () {
+    // Two lists of the same type: only the second one's highlight is in
+    // the list, as after a scroll dropped the first one's element.
+    test('an issue with an element identity is never given a same-named '
+        'sibling', () {
+      final controller = SleuthController()..initializeDetectorsForTest();
+      addTearDown(controller.dispose);
+      controller.highlightsNotifier.value = (
+        generation: 1,
+        items: const [
+          WidgetHighlight(
+            rect: Rect.fromLTWH(0, 0, 100, 50),
+            widgetName: 'ListView',
+            severity: IssueSeverity.warning,
+            detectorName: 'Non-lazy',
+            occurrenceId: 2,
+          ),
+        ],
+      );
+      const first = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'Non-lazy List: ListView with 60 children',
+        detail: '',
+        fixHint: '',
+        stableId: 'non_lazy_listview',
+        widgetName: 'ListView',
+        occurrenceId: 1,
+      );
+
+      expect(
+        controller.selectHighlightForIssue(first),
+        HighlightLookup.notFound,
+      );
+      expect(controller.selectedHighlightNotifier.value, isNull);
+    });
+  });
+
   group('highlight dirty-check', () {
     late SleuthController controller;
 

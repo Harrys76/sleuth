@@ -861,9 +861,12 @@ class SleuthController {
   ) {
     final occurrence = issue.occurrenceId;
     if (occurrence != null) {
+      // An issue that names its element takes that element's highlight
+      // or none: a sibling with the same name belongs to another issue.
       for (final h in highlights) {
         if (h.occurrenceId == occurrence) return h;
       }
+      return null;
     }
     final name = issue.widgetName;
     if (name == null) return null;
