@@ -971,7 +971,8 @@ class _GuidePageState extends State<GuidePage>
           Icons.keyboard_outlined,
           'Escape first leaves a focused Sleuth text field, then closes '
           'the open page, the More menu or the highlight bar, then the '
-          'card. A dialog or text field in your app keeps its Escape.',
+          'card. A dialog in your app keeps its Escape, and so does a text '
+          'field unless the highlight bar is up.',
         ),
       ],
     );

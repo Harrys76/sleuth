@@ -36,4 +36,4 @@ Sleuth honours both the Android animator duration scale (`disableAnimations`) an
 
 ## Keyboard
 
-Escape first unfocuses a focused overlay text field, then closes the open page, the More menu or the highlight bar, then the dashboard. A focused text field or an open dialog or sheet in your app keeps its Escape.
+Escape first unfocuses a focused overlay text field, then closes the open page, the More menu or the highlight bar, then the dashboard. An open dialog or sheet in your app keeps its Escape, and so does a focused app text field unless the highlight bar is up.

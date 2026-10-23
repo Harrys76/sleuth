@@ -45,7 +45,7 @@ An empty list shows the run state instead of a blank card: Starting, Warming up 
 
 With the dashboard open, the system back gesture or button closes the innermost overlay layer before the app's own navigation sees it: first a focused text field, then a full-screen page (encyclopedia, guide, AI chat, Hidden list), then the More menu, then the highlight bar, then the dashboard. With the dashboard closed, back goes to the app unchanged. On Android, Sleuth claims predictive back swipes while a layer is open, also after the app navigates underneath it (for example back to its root route). On Flutter versions that offer the swipe to every listener, an app route that can pop may pop as well. After the dashboard closes at the app's root route, Android's back-to-home preview returns once the app navigates; back itself still leaves the app.
 
-On a hardware keyboard, Escape first unfocuses a focused overlay text field, then closes the open page, the More menu or the highlight bar, then the dashboard. A focused text field or an open dialog or sheet in your app keeps its Escape.
+On a hardware keyboard, Escape first unfocuses a focused overlay text field, then closes the open page, the More menu or the highlight bar, then the dashboard. An open dialog or sheet in your app keeps its Escape, and so does a focused app text field unless the highlight bar is up.
 
 ## Theme and accessibility
 
