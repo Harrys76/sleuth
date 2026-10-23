@@ -782,15 +782,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// afterwards, so Escape is left to the app when its focus is in a text
   /// field or in a dismissible route (a dialog or sheet closes on Escape
   /// through `DismissIntent`). With a page or the Hidden list open the
-  /// app holds no focus, and Escape always closes the layer; the menu and
-  /// the highlight bar also take it, as system back does.
+  /// app holds no focus, and Escape always closes the layer; the menu
+  /// also takes it, as system back does. The highlight bar takes it from
+  /// an app text field too, but leaves it to an app dialog or sheet, which
+  /// would otherwise close with the bar on one key press.
   bool _onKeyEvent(KeyEvent event) {
     if (!mounted || event is KeyUpEvent) return false;
     if (event.logicalKey != LogicalKeyboardKey.escape) {
       return _moveOrActivate(event);
     }
     if (event is! KeyDownEvent) return false;
-    if (openLayerDepth == 0 && !_menuOpen && !_barOpen && _appTakesEscape()) {
+    if (openLayerDepth == 0 &&
+        !_menuOpen &&
+        _appTakesEscape(textField: !_barOpen)) {
       return false;
     }
     if (!closeInnermostLayer()) widget.onClose();
@@ -840,16 +844,20 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     return true;
   }
 
-  /// Whether the app's focused widget handles Escape itself. The route
-  /// lookup subscribes the focused element to its route: 3.32 has no
-  /// route lookup without a dependency, so it runs last.
-  bool _appTakesEscape() {
+  /// Whether the app's focused widget handles Escape itself. With
+  /// [textField] false a focused app text field does not count, only a
+  /// dismissible route. The route lookup subscribes the focused element
+  /// to its route: 3.32 has no route lookup without a dependency, so it
+  /// runs last.
+  bool _appTakesEscape({bool textField = true}) {
     final focusContext = FocusManager.instance.primaryFocus?.context;
     return focusContext != null &&
         focusContext.mounted &&
         focusContext.findAncestorStateOfType<_FloatingIssuesCardState>() !=
             this &&
-        (focusContext.findAncestorWidgetOfExactType<EditableText>() != null ||
+        ((textField &&
+                focusContext.findAncestorWidgetOfExactType<EditableText>() !=
+                    null) ||
             (ModalRoute.of(focusContext)?.barrierDismissible ?? false));
   }
 
