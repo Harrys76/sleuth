@@ -5,7 +5,7 @@ import 'type_name_cache.dart';
 
 /// Module-level cache for widget source location lookups.
 ///
-/// Shared across all [buildAncestorChain] calls. Bounded at 200 entries.
+/// Shared across all [buildAncestorChain] calls, one entry per element.
 /// Call [SourceLocationCache.clear] in tests to reset state.
 final sourceLocationCache = SourceLocationCache();
 

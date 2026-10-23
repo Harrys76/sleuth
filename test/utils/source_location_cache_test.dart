@@ -60,16 +60,6 @@ void main() {
       cache.clear();
       expect(cache.length, 0);
     });
-
-    test('maxEntries defaults to 200', () {
-      final cache = SourceLocationCache();
-      expect(cache.maxEntries, 200);
-    });
-
-    test('custom maxEntries respected', () {
-      final cache = SourceLocationCache(maxEntries: 10);
-      expect(cache.maxEntries, 10);
-    });
   });
 
   group('SourceLocationCache with widget tree', () {
@@ -87,7 +77,7 @@ void main() {
       expect(location, contains('source_location_cache_test.dart:'));
     });
 
-    testWidgets('lookup caches by widget type', (tester) async {
+    testWidgets('a second lookup of an element uses the cache', (tester) async {
       final cache = SourceLocationCache();
 
       await tester.pumpWidget(const _TestWidget());
@@ -97,17 +87,21 @@ void main() {
       final second = cache.lookup(element);
 
       expect(first, isNotNull);
-      expect(second, first); // Same cached value
+      expect(second, first);
       expect(cache.length, 1);
     });
 
-    testWidgets('two widgets of the same type share one entry', (tester) async {
+    // One widget type built in two places, as a `ValueListenableBuilder<int>`
+    // is on two demo screens: each element reports its own call site.
+    testWidgets('one type from two call sites keeps both locations', (
+      tester,
+    ) async {
       final cache = SourceLocationCache();
 
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: Column(children: [_TestWidget(), _TestWidget()]),
+          child: Column(children: [_firstCallSite, _secondCallSite]),
         ),
       );
 
@@ -117,57 +111,25 @@ void main() {
       final second = cache.lookup(elements[1]);
 
       expect(first, isNotNull);
-      expect(second, first);
-      expect(cache.length, 1);
-      expect(cache.lookupStructured(elements[1])?.location, first);
+      expect(second, isNotNull);
+      expect(second, isNot(first));
+      expect(cache.length, 2);
+      expect(cache.lookupStructured(elements[1])?.location, second);
     });
 
-    testWidgets('bounded at maxEntries', (tester) async {
-      final cache = SourceLocationCache(maxEntries: 1);
+    testWidgets('clear forgets resolved elements', (tester) async {
+      final cache = SourceLocationCache();
 
-      await tester.pumpWidget(
-        const Directionality(
-          textDirection: TextDirection.ltr,
-          child: Column(children: [_TestWidget(), _OtherTestWidget()]),
-        ),
-      );
+      await tester.pumpWidget(const _TestWidget());
 
-      final element1 = tester.element(find.byType(_TestWidget));
-      final element2 = tester.element(find.byType(_OtherTestWidget));
-
-      // First lookup fills the single slot.
-      final loc1 = cache.lookup(element1);
-      expect(loc1, isNotNull);
-      expect(cache.length, 1);
-
-      // Second type cannot be cached — returns null.
-      final loc2 = cache.lookup(element2);
-      expect(loc2, isNull);
-      expect(cache.length, 1);
-    });
-
-    testWidgets('clear allows re-caching', (tester) async {
-      final cache = SourceLocationCache(maxEntries: 1);
-
-      await tester.pumpWidget(
-        const Directionality(
-          textDirection: TextDirection.ltr,
-          child: Column(children: [_TestWidget(), _OtherTestWidget()]),
-        ),
-      );
-
-      final element1 = tester.element(find.byType(_TestWidget));
-      final element2 = tester.element(find.byType(_OtherTestWidget));
-
-      cache.lookup(element1);
+      final element = tester.element(find.byType(_TestWidget));
+      final location = cache.lookup(element);
       expect(cache.length, 1);
 
       cache.clear();
       expect(cache.length, 0);
 
-      // Now the other type can be cached.
-      final loc = cache.lookup(element2);
-      expect(loc, isNotNull);
+      expect(cache.lookup(element), location);
       expect(cache.length, 1);
     });
 
@@ -258,10 +220,6 @@ class _TestWidget extends StatelessWidget {
   Widget build(BuildContext context) => const SizedBox.shrink(key: Key('test'));
 }
 
-class _OtherTestWidget extends StatelessWidget {
-  const _OtherTestWidget();
-
-  @override
-  Widget build(BuildContext context) =>
-      const SizedBox.shrink(key: Key('other'));
-}
+// One widget type created at two call sites, on separate lines.
+const Widget _firstCallSite = _TestWidget();
+const Widget _secondCallSite = _TestWidget();
