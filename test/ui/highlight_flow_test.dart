@@ -308,6 +308,37 @@ void main() {
       expect(_bar, findsNothing);
     });
 
+    // A dialog closes on Escape through its own DismissIntent, and the key
+    // reaches the app after the overlay's handler.
+    testWidgets('Escape over an app dialog closes the dialog, not the bar', (
+      tester,
+    ) async {
+      final navigator = GlobalKey<NavigatorState>();
+      final controller = await _openWith(
+        tester,
+        [_lay],
+        app: MaterialApp(
+          navigatorKey: navigator,
+          home: const Scaffold(body: SizedBox.expand()),
+        ),
+      );
+      _seedHighlight(controller, _top);
+      await _tapCrosshair(tester);
+      expect(_bar, findsOneWidget);
+
+      showDialog<void>(
+        context: navigator.currentContext!,
+        builder: (_) => const AlertDialog(content: Text('app dialog')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('app dialog'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('app dialog'), findsNothing);
+      expect(_bar, findsOneWidget);
+    });
+
     testWidgets('the bar keeps its controls when the shield goes', (
       tester,
     ) async {
