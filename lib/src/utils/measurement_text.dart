@@ -219,3 +219,22 @@ String measuredSemanticsLabel(PerformanceIssue issue) {
     ?note,
   ].join('. ');
 }
+
+/// The Measured row as sentences for text the user copies or sends, such
+/// as Copy details and the AI prompt. Null when the issue has no finite
+/// measurement.
+String? measuredSentence(PerformanceIssue issue) =>
+    measuredLine(issue) == null ? null : '${measuredSemanticsLabel(issue)}.';
+
+/// [PerformanceIssue.toClipboardText] with the Measured sentence after its
+/// header lines (title, severity, confidence, route, widget), as Copy
+/// details puts it on the clipboard.
+String copyDetailsText(PerformanceIssue issue) {
+  final text = issue.toClipboardText();
+  final measured = measuredSentence(issue);
+  if (measured == null) return text;
+  final headerEnd = text.indexOf('\n\n');
+  if (headerEnd < 0) return '$text\n$measured';
+  return '${text.substring(0, headerEnd)}\n$measured'
+      '${text.substring(headerEnd)}';
+}

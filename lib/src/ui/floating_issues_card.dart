@@ -25,6 +25,7 @@ import 'guide_page.dart';
 import 'rebuild_stats_page.dart';
 import 'startup_metrics_page.dart';
 import '../models/ai_chat_adapter.dart';
+import '../utils/measurement_text.dart' show copyDetailsText;
 import '../utils/ai_session_context.dart';
 import '../utils/issue_explanation_builder.dart';
 import '../utils/own_work_log.dart';
@@ -1300,7 +1301,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   Future<void> _copyIssue(PerformanceIssue issue) =>
-      _copyText(issue.toClipboardText(), 'Copied');
+      _copyText(copyDetailsText(issue), 'Copied');
 
   /// Copies [text] and confirms with [confirmation], or says it failed.
   Future<void> _copyText(String text, String confirmation) async {
