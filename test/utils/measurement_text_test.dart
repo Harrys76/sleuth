@@ -361,7 +361,7 @@ void main() {
   });
 
   group('gaugeMax', () {
-    test('a quarter past the largest of the value and the lines', () {
+    test('a quarter past the higher line', () {
       expect(
         gaugeMax(
           const IssueMeasurement(
@@ -372,6 +372,30 @@ void main() {
           ),
         ),
         20,
+      );
+    });
+
+    test('stays put while the value grows past the lines', () {
+      IssueMeasurement frames(double value) => IssueMeasurement(
+        value: value,
+        unit: MeasurementUnit.frames,
+        criticalAt: 3,
+      );
+      expect(gaugeMax(frames(3)), 3.75);
+      expect(gaugeMax(frames(52)), 3.75);
+      expect(gaugeMax(frames(77)), 3.75);
+    });
+
+    test('a quarter past the value without a positive line', () {
+      expect(
+        gaugeMax(
+          const IssueMeasurement(
+            value: 10,
+            unit: MeasurementUnit.count,
+            warningAt: 0,
+          ),
+        ),
+        12.5,
       );
     });
 
