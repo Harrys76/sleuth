@@ -12,6 +12,8 @@ import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 import '../helpers/contrast_helpers.dart';
+import '../helpers/overlay_harness.dart'
+    show moreMenuRow, openFromMoreMenu, openMoreMenu;
 
 PerformanceIssue _issue(
   String id, {
@@ -94,13 +96,22 @@ void main() {
     await tester.pump();
   }
 
-  /// The summary-bar chip for [severity] ("N severity, on" / "..., off, ...").
+  /// The status-row chip for [severity] ("N severity, on" / "..., off, ...").
   Finder chip(String severity) => find.byWidgetPredicate(
     (w) =>
         w is Semantics &&
         w.properties.selected != null &&
         (w.properties.label?.contains(' $severity, ') ?? false),
   );
+
+  /// Scrolls the [severity] chip into view and taps it. The test font is
+  /// wider than platform fonts, so three chips do not fit a 320 px card.
+  Future<void> tapChip(WidgetTester tester, String severity) async {
+    await tester.ensureVisible(chip(severity));
+    await tester.pump();
+    await tester.tap(chip(severity));
+    await tester.pump();
+  }
 
   /// Border of the [severity] chip's pill.
   BorderSide pillBorder(WidgetTester tester, String severity) {
@@ -154,7 +165,7 @@ void main() {
       expect(find.text('Title child'), findsNothing);
       expect(find.text('Title other'), findsOneWidget);
       expect(find.text('Issue hidden'), findsOneWidget);
-      expect(find.text('1 hidden'), findsOneWidget);
+      expect(controller.overlayUiState.hiddenKeys, hasLength(1));
       expect(tester.takeException(), isNull);
 
       await tester.tap(find.text('Undo'));
@@ -748,7 +759,64 @@ void main() {
   });
 
   group('Showing X of Y', () {
-    testWidgets('counts cards, not ids: one of two widgets hidden', (
+    testWidgets('counts cards, not ids, under a severity filter', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        _issue('dup', widgetName: 'A'),
+        _issue('dup', widgetName: 'B'),
+        _issue('crit', severity: IssueSeverity.critical),
+      ];
+      await pumpCard(tester);
+      await tapChip(tester, 'critical');
+      expect(find.text('Showing 2 of 3'), findsOneWidget);
+      // A screen reader hears the new count.
+      expect(
+        find.ancestor(
+          of: find.text('Showing 2 of 3'),
+          matching: find.byWidgetPredicate(
+            (w) => w is Semantics && w.properties.liveRegion == true,
+          ),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Show all'));
+      await tester.pump();
+      expect(find.textContaining('Showing'), findsNothing);
+      expect(find.text('Title crit'), findsOneWidget);
+      await drainToasts(tester);
+    });
+
+    testWidgets('a scan that only flips the row keeps the list mounted '
+        'and scrolled', (tester) async {
+      final warnings = [for (var i = 0; i < 20; i++) _issue('w$i')];
+      controller.issuesNotifier.value = [
+        ...warnings,
+        _issue('crit', severity: IssueSeverity.critical),
+      ];
+      await pumpCard(tester);
+      await tapChip(tester, 'critical');
+      expect(find.text('Showing 20 of 21'), findsOneWidget);
+
+      final scrollable = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      );
+      final state = tester.state<ScrollableState>(scrollable);
+      state.position.jumpTo(60);
+      await tester.pump();
+
+      // The critical issue goes away: the same cards show, the row goes.
+      controller.issuesNotifier.value = [...warnings];
+      await tester.pump();
+      expect(find.textContaining('Showing'), findsNothing);
+      expect(tester.state<ScrollableState>(scrollable), same(state));
+      expect(state.position.pixels, 60);
+      await drainToasts(tester);
+    });
+
+    testWidgets('hidden cards do not narrow; the More menu counts them', (
       tester,
     ) async {
       controller.issuesNotifier.value = [
@@ -759,20 +827,13 @@ void main() {
         ..hide('dup|A')
         ..hide('stale');
       await pumpCard(tester);
-      expect(find.text('Showing 1 of 2'), findsOneWidget);
-    });
-
-    testWidgets('a stale hidden key does not narrow', (tester) async {
-      controller.issuesNotifier.value = [_issue('a'), _issue('b')];
-      controller.overlayUiState.hide('stale');
-      await pumpCard(tester);
       expect(find.textContaining('Showing'), findsNothing);
-      expect(find.text('2 confirmed'), findsOneWidget);
+      expect(find.text('1 warning'), findsOneWidget);
     });
   });
 
-  group('Summary bar', () {
-    testWidgets('takes 36 px from the list and two collapsed rows fit at '
+  group('Status row', () {
+    testWidgets('sits above the list at 48 px and two collapsed rows fit at '
         'the minimum card height', (tester) async {
       tester.view.physicalSize = const Size(800, 400);
       tester.view.devicePixelRatio = 1;
@@ -807,11 +868,12 @@ void main() {
       );
       expect(card.height, 300); // 400 * 0.55 is below the minimum
 
-      final chipTop = tester.getTopLeft(chip('warning')).dy;
+      final chipRect = tester.getRect(chip('warning'));
       final list = tester.getRect(find.byType(ListView));
-      expect(list.top - chipTop, 36);
-      // The chip's hit box is still 48 tall.
-      expect(tester.getSize(chip('warning')).height, 48);
+      expect(chipRect.height, 48);
+      // The list starts below the row and its 1 px divider; nothing of
+      // the row lies over it.
+      expect(list.top, greaterThanOrEqualTo(chipRect.bottom + 1));
 
       final rows = [
         for (final e in find.byType(IssueCard).evaluate())
@@ -835,31 +897,26 @@ void main() {
       );
     });
 
-    testWidgets('a tap just below the bar beside the chips reaches the list', (
-      tester,
-    ) async {
+    testWidgets('the frame rate sits at the end of the row', (tester) async {
       controller.issuesNotifier.value = [_issue('a')];
       await pumpCard(tester);
-      final list = tester.getRect(find.byType(ListView));
-      final title = tester.getRect(find.text('Title a'));
-      // Inside the chips' 48 px band, right of the chips.
-      await tester.tapAt(Offset(title.right - 2, list.top + 6));
-      await tester.pump();
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+      final fps = tester.getRect(find.textContaining('fps'));
+      final row = tester.getRect(chip('warning'));
+      expect(fps.center.dy, closeTo(row.center.dy, 1));
+      expect(fps.left, greaterThan(row.right));
     });
   });
 
-  group('Footer and Hidden list', () {
-    test('footer label omits zero parts', () {
-      expect(hiddenFooterLabel(0, 0), isNull);
-      expect(hiddenFooterLabel(2, 0), '2 hidden');
-      expect(hiddenFooterLabel(0, 3), '3 suppressed');
-      expect(hiddenFooterLabel(2, 3), '2 hidden · 3 suppressed');
+  group('Hidden issues row and Hidden list', () {
+    testWidgets('the More menu has no Hidden issues row at 0', (tester) async {
+      controller.issuesNotifier.value = [_issue('a')];
+      await pumpCard(tester);
+      await openMoreMenu(tester);
+      expect(moreMenuRow('Hidden issues'), findsNothing);
     });
 
-    testWidgets('footer opens the Hidden list; restore and restore all', (
-      tester,
-    ) async {
+    testWidgets('the row counts hidden and suppressed issues and opens the '
+        'Hidden list; restore and restore all', (tester) async {
       controller.issuesNotifier.value = [_issue('a'), _issue('b')];
       controller.suppressedCountNotifier.value = 3;
       controller.overlayUiState
@@ -868,8 +925,11 @@ void main() {
         ..hide('gone');
       await pumpCard(tester);
 
-      await tester.tap(find.text('3 hidden · 3 suppressed'));
+      await openMoreMenu(tester);
+      expect(find.bySemanticsLabel('Hidden issues, 6'), findsOneWidget);
+      await tester.tap(moreMenuRow('Hidden issues'));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.byType(HiddenIssuesPage), findsOneWidget);
       expect(find.text('Title a'), findsOneWidget);
       expect(find.text('Not detected right now'), findsOneWidget);
@@ -891,8 +951,7 @@ void main() {
         ..hide('c')
         ..hide('a');
       await pumpCard(tester);
-      await tester.tap(find.text('2 hidden'));
-      await tester.pump();
+      await openFromMoreMenu(tester, 'Hidden issues');
 
       await tester.tap(find.bySemanticsLabel('Restore all hidden issues'));
       await tester.pump();
@@ -910,8 +969,7 @@ void main() {
       controller.issuesNotifier.value = [_issue('b')];
       controller.overlayUiState.hide('a');
       await pumpCard(tester);
-      await tester.tap(find.text('1 hidden'));
-      await tester.pump();
+      await openFromMoreMenu(tester, 'Hidden issues');
       expect(find.text('Not detected right now'), findsOneWidget);
 
       controller.issuesNotifier.value = [_issue('a'), _issue('b')];
@@ -1009,8 +1067,7 @@ void main() {
       await pumpCard(tester);
       expect(find.text('Title child'), findsNothing);
 
-      await tester.tap(chip('critical'));
-      await tester.pump();
+      await tapChip(tester, 'critical');
       expect(find.text('Title root'), findsNothing);
       expect(find.text('Title child'), findsOneWidget);
       // One card shown by default (child collapsed under root), one now:
@@ -1031,8 +1088,7 @@ void main() {
       await pumpCard(tester);
       expect(chip('warning'), findsNothing);
 
-      await tester.tap(chip('critical'));
-      await tester.pump();
+      await tapChip(tester, 'critical');
       expect(find.text('Title child'), findsOneWidget);
       expect(find.bySemanticsLabel('1 warning, on'), findsOneWidget);
       expect(
@@ -1059,15 +1115,13 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(chip('warning'));
-      await tester.pump();
+      await tapChip(tester, 'warning');
       expect(find.text('Title lay'), findsNothing);
       expect(controller.pendingIssueSelection, isNull);
       expect(controller.selectedHighlightNotifier.value, isNull);
 
       // Shown again, the card is no longer ticked.
-      await tester.tap(chip('warning'));
-      await tester.pump();
+      await tapChip(tester, 'warning');
       expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
       await drainToasts(tester);
     });
@@ -1081,9 +1135,28 @@ void main() {
         ..toggleSeverity(IssueSeverity.ok);
       await tester.pump();
 
-      await tester.tap(chip('warning'));
-      await tester.pump();
+      await tapChip(tester, 'warning');
       expect(controller.overlayUiState.severityFilter, {IssueSeverity.warning});
+      expect(find.text('Keep at least one severity'), findsOneWidget);
+      await drainToasts(tester);
+    });
+
+    // OK has no chip without OK cards, so it cannot be the one left on.
+    testWidgets('the last chip that shows cards stays on', (tester) async {
+      controller.issuesNotifier.value = [
+        _issue('w'),
+        _issue('c', severity: IssueSeverity.critical),
+      ];
+      await pumpCard(tester);
+
+      await tapChip(tester, 'critical');
+      await drainToasts(tester);
+      await tapChip(tester, 'warning');
+      expect(
+        controller.overlayUiState.severityFilter,
+        containsAll([IssueSeverity.warning, IssueSeverity.ok]),
+      );
+      expect(find.text('Title w'), findsOneWidget);
       expect(find.text('Keep at least one severity'), findsOneWidget);
       await drainToasts(tester);
     });
@@ -1098,8 +1171,7 @@ void main() {
       await expand(tester, 'a');
       expect(find.byIcon(Icons.push_pin), findsOneWidget);
 
-      await tester.tap(chip('critical'));
-      await tester.pump();
+      await tapChip(tester, 'critical');
       expect(tester.takeException(), isNull);
       expect(find.byIcon(Icons.push_pin), findsNothing);
       final card = tester.widget<IssueCard>(find.byType(IssueCard));
@@ -1124,21 +1196,17 @@ void main() {
       final border = pillBorder(tester, 'warning');
       expect(border.color, theme.severityWarningText);
       expect(border.width, 1.5);
-      expect(chipGlyph('warning', Icons.check), findsOneWidget);
+      expect(chipGlyph('warning', Icons.warning), findsOneWidget);
 
-      // A tap in the part of the hit box that overlaps the list toggles.
-      final list = tester.getRect(find.byType(ListView));
-      await tester.tapAt(
-        Offset(tester.getCenter(chip('warning')).dx, list.top + 8),
-      );
-      await tester.pumpAndSettle();
+      await tapChip(tester, 'warning');
       expect(
         find.bySemanticsLabel('1 warning, off, tap to show'),
         findsOneWidget,
       );
-      // Off: a dot instead of the check, and the plain border.
-      expect(chipGlyph('warning', Icons.check), findsNothing);
-      expect(pillBorder(tester, 'warning').width, 1);
+      // Off: the outlined icon and a quaternary outline.
+      expect(chipGlyph('warning', Icons.warning), findsNothing);
+      expect(chipGlyph('warning', Icons.warning_amber), findsOneWidget);
+      expect(pillBorder(tester, 'warning').color, theme.textQuaternary);
       await drainToasts(tester);
     });
 
@@ -1157,8 +1225,12 @@ void main() {
           _issue('o', severity: IssueSeverity.ok),
         ];
         await pumpCard(tester, theme: theme);
-        for (final severity in ['critical', 'warning', 'ok']) {
-          expect(chipGlyph(severity, Icons.check), findsOneWidget);
+        for (final (severity, icon) in [
+          ('critical', Icons.error),
+          ('warning', Icons.warning),
+          ('ok', Icons.check_circle),
+        ]) {
+          expect(chipGlyph(severity, icon), findsOneWidget);
           final border = pillBorder(tester, severity).color;
           for (final host in const [Color(0xFF000000), Color(0xFFFFFFFF)]) {
             final card = composite(theme.cardBackground, host);
@@ -1195,15 +1267,22 @@ void main() {
     });
 
     testWidgets('nothing matches the severity filter; Reset', (tester) async {
-      controller.issuesNotifier.value = [_issue('w')];
+      controller.issuesNotifier.value = [
+        _issue('w'),
+        _issue('c', severity: IssueSeverity.critical),
+      ];
       await pumpCard(tester);
-      await tester.tap(chip('warning'));
+      await tapChip(tester, 'critical');
+      // The warning card goes; only the critical one, filtered out, is left.
+      controller.issuesNotifier.value = [
+        _issue('c', severity: IssueSeverity.critical),
+      ];
       await tester.pump();
       expect(find.text('No issues match the severity filter'), findsOneWidget);
 
       await tester.tap(find.bySemanticsLabel('Reset'));
       await tester.pump();
-      expect(find.text('Title w'), findsOneWidget);
+      expect(find.text('Title c'), findsOneWidget);
       await drainToasts(tester);
     });
 
@@ -1277,22 +1356,18 @@ void main() {
       controller.overlayUiState.hide('x');
       await pumpCard(tester);
       await expand(tester, 'a');
-      for (final label in [
-        'Copy issue details',
-        'Hide this issue',
-        '1 hidden. Show hidden issues',
-      ]) {
+      for (final label in ['Copy issue details', 'Hide this issue']) {
         final size = tester.getSize(find.bySemanticsLabel(label));
         expect(size.height, greaterThanOrEqualTo(48), reason: label);
-      }
-      for (final label in ['Copy issue details', 'Hide this issue']) {
-        expect(
-          tester.getSize(find.bySemanticsLabel(label)).width,
-          greaterThanOrEqualTo(48),
-          reason: label,
-        );
+        expect(size.width, greaterThanOrEqualTo(48), reason: label);
       }
       expect(tester.getSize(chip('warning')).height, greaterThanOrEqualTo(48));
+
+      await openMoreMenu(tester);
+      expect(
+        tester.getSize(find.bySemanticsLabel('Hidden issues, 1')).height,
+        greaterThanOrEqualTo(48),
+      );
     });
   });
 }

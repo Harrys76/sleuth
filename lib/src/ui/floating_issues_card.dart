@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show GestureBinding;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +18,8 @@ import '../models/widget_highlight.dart';
 import 'issue_card.dart';
 import 'ai_chat_page.dart';
 import 'issue_encyclopedia_page.dart';
+import 'focus_ink_well.dart';
+import 'more_menu.dart';
 import 'guide_page.dart';
 import 'rebuild_stats_page.dart';
 import 'startup_metrics_page.dart';
@@ -26,7 +29,6 @@ import '../utils/issue_explanation_builder.dart';
 import '../utils/own_work_log.dart';
 import '../vm/connection_mode.dart';
 import 'hidden_issues_page.dart';
-import 'motion.dart';
 import 'overlay_filters.dart';
 import 'overlay_toast.dart';
 import 'overlay_ui_state.dart';
@@ -290,13 +292,17 @@ class FloatingIssuesCard extends StatefulWidget {
 /// [closeInnermostLayer] on system back before closing the dashboard.
 abstract interface class OverlayLayerHost {
   /// Closes the innermost open layer: unfocuses a focused text field,
-  /// else closes the open full-screen page, else the Hidden list. Returns
-  /// false when none of these is open.
+  /// else closes the open full-screen page, else the Hidden list, else
+  /// the More menu. Returns false when none of these is open.
   bool closeInnermostLayer();
 
   /// Number of full-screen layers (pages and the Hidden list) open above
   /// the card. Read from [FloatingIssuesCard.onLayersChanged].
   int get openLayerDepth;
+
+  /// Whether the More menu is open inside the card. Read from
+  /// [FloatingIssuesCard.onLayersChanged].
+  bool get menuOpen;
 }
 
 /// A full-screen layer over the card.
@@ -445,6 +451,39 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// the dashboard opens.
   final GlobalKey _headerKey = GlobalKey(debugLabel: 'Sleuth header');
 
+  /// The More menu, open inside the card over a scrim, and what it shows,
+  /// read when it opened.
+  bool _menuOpen = false;
+  MoreMenuValues? _menuValues;
+
+  /// Menu open state reported through [FloatingIssuesCard.onLayersChanged].
+  bool _reportedMenuOpen = false;
+
+  /// Keeps keyboard focus in the menu while it is open.
+  final FocusScopeNode _menuScope = FocusScopeNode(
+    debugLabel: 'Sleuth More menu',
+  );
+
+  /// The More button's focus and semantics node: focus returns there
+  /// when the menu, or a page opened from it, closes.
+  final FocusNode _moreFocus = FocusNode(debugLabel: 'Sleuth More');
+  final GlobalKey _moreKey = GlobalKey(debugLabel: 'Sleuth More');
+
+  /// The menu panel's semantics node, which takes screen reader focus
+  /// when the menu opens.
+  final GlobalKey _menuKey = GlobalKey(debugLabel: 'Sleuth More menu');
+
+  /// The first severity chip, which takes screen reader focus when Show
+  /// all or Reset, the control that held it, goes away.
+  final GlobalKey _firstChipKey = GlobalKey(debugLabel: 'Sleuth chip');
+
+  /// The card with its grip and menu; a pointer down outside it closes the
+  /// menu.
+  final GlobalKey _cardKey = GlobalKey(debugLabel: 'Sleuth card');
+
+  /// [_layerOpener] value of a page opened from the More menu.
+  static const String _moreOpener = 'Sleuth More';
+
   /// Scroll position of the issue list, kept while a page covers the card
   /// (the list unmounts under it).
   final _IssueListScrollController _listScroll = _IssueListScrollController();
@@ -480,9 +519,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   Set<String> _cachedJankKeys = const {};
 
   double _cardWidth = _defaultCardWidth;
-  static const double _defaultCardWidth = 300;
-  static const double _minCardWidth = 220;
+  static const double _defaultCardWidth = 320;
+  static const double _minCardWidth = 320;
   static const double _minCardHeight = 300;
+
+  /// Smallest card width on a screen of [size] with safe area [safe]:
+  /// [_minCardWidth], or the safe area minus 16 px margins when that is
+  /// narrower.
+  static double _minWidthFor(Size size, EdgeInsets safe) =>
+      math.max(0.0, math.min(_minCardWidth, size.width - safe.horizontal - 32));
+
+  /// [_minWidthFor] the screen of the last build; 0 before it.
+  double _cachedMinWidth = 0;
 
   /// Height of the minimized card: the 48 px header row.
   static const double _minimizedHeight = 48;
@@ -493,8 +541,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Height of the card header.
   static const double _headerHeight = _controlRowHeight;
 
-  /// Height of the card footer: a control row and its top border.
-  static const double _footerHeight = _controlRowHeight + 1;
+  /// Smallest height of the status row at [chromeScale], with the divider
+  /// below it.
+  static double _statusHeightFor(double chromeScale) =>
+      _controlRowHeight * chromeScale + 1;
 
   // ─── Window state ──────────────────────────────────────────────────
   CardWindowState _windowState = CardWindowState.normal;
@@ -583,6 +633,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Writes the local geometry to [OverlayUiState]: once per drag end,
   /// resize end, or window-state change.
   void _commitGeometry() {
+    // A width stored below the minimum (an older release allowed 220 px)
+    // is raised here and at layout, not when the state is read.
+    final minWidth = _cachedMinWidth;
+    if (_cardWidth < minWidth) _cardWidth = minWidth;
+    final restoreWidth = _preTransitionWidth;
+    if (restoreWidth != null && restoreWidth < minWidth) {
+      _preTransitionWidth = minWidth;
+    }
     _committingGeometry = true;
     try {
       _ui.setCardGeometry(
@@ -666,13 +724,56 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// through `DismissIntent`). With a page or the Hidden list open the
   /// app holds no focus, and Escape always closes the layer.
   bool _onKeyEvent(KeyEvent event) {
-    if (!mounted ||
-        event is! KeyDownEvent ||
-        event.logicalKey != LogicalKeyboardKey.escape) {
+    if (!mounted || event is KeyUpEvent) return false;
+    if (event.logicalKey != LogicalKeyboardKey.escape) {
+      return _moveOrActivate(event);
+    }
+    if (event is! KeyDownEvent) return false;
+    if (openLayerDepth == 0 && !_menuOpen && _appTakesEscape()) return false;
+    if (!closeInnermostLayer()) widget.onClose();
+    return true;
+  }
+
+  static final _activateKeys = {
+    LogicalKeyboardKey.enter,
+    LogicalKeyboardKey.numpadEnter,
+    LogicalKeyboardKey.space,
+  };
+
+  /// Tab and Shift+Tab move focus, and Enter and Space activate the
+  /// focused control, while focus is in the card. The overlay sits above
+  /// the app's `WidgetsApp`, whose default shortcuts therefore never reach
+  /// it; a card hosted inside a `WidgetsApp` leaves the keys to those
+  /// shortcuts. A focused text field keeps Enter and Space.
+  bool _moveOrActivate(KeyEvent event) {
+    final focus = FocusManager.instance.primaryFocus;
+    final focusContext = focus?.context;
+    if (focus == null ||
+        focusContext == null ||
+        !focusContext.mounted ||
+        focusContext.findAncestorStateOfType<_FloatingIssuesCardState>() !=
+            this ||
+        focusContext.findAncestorWidgetOfExactType<WidgetsApp>() != null) {
       return false;
     }
-    if (openLayerDepth == 0 && _appTakesEscape()) return false;
-    if (!closeInnermostLayer()) widget.onClose();
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.tab) {
+      if (HardwareKeyboard.instance.isShiftPressed) {
+        focus.previousFocus();
+      } else {
+        focus.nextFocus();
+      }
+      return true;
+    }
+    if (event is! KeyDownEvent ||
+        !_activateKeys.contains(key) ||
+        focusContext.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return false;
+    }
+    const intent = ActivateIntent();
+    final action = Actions.maybeFind<ActivateIntent>(focusContext);
+    if (action == null || !action.isEnabled(intent)) return false;
+    Actions.invoke(focusContext, intent);
     return true;
   }
 
@@ -691,6 +792,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   @override
   void dispose() {
+    if (_menuOpen) {
+      GestureBinding.instance.pointerRouter.removeGlobalRoute(_onGlobalPointer);
+    }
+    _menuScope.dispose();
+    _moreFocus.dispose();
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     SemanticsBinding.instance.removeSemanticsEnabledListener(_syncToastTiming);
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
@@ -801,6 +907,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   void _minimize() {
     if (_windowState == CardWindowState.minimized) return;
+    _closeMenu(refocus: false);
     setState(() {
       _preTransitionOffset ??= _cardOffset;
       _preTransitionWidth ??= _cardWidth;
@@ -813,6 +920,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   void _maximize(BuildContext context) {
     if (_windowState == CardWindowState.maximized) return;
+    _closeMenu(refocus: false);
     final size = MediaQuery.sizeOf(context);
     final safe = MediaQuery.viewPaddingOf(context);
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
@@ -844,6 +952,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       );
 
   void _restore() {
+    _closeMenu(refocus: false);
     setState(() {
       if (_preTransitionOffset != null) _cardOffset = _preTransitionOffset;
       if (_preTransitionWidth != null) _cardWidth = _preTransitionWidth!;
@@ -894,6 +1003,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   void _refocusOpener() {
     final opener = _layerOpener;
     _layerOpener = null;
+    if (opener == _moreOpener) {
+      _focusSemantics(_moreKey);
+      // Keyboard focus goes back to More unless something holds it; the
+      // overlay gives an app node that had focus its focus back.
+      final focus = FocusManager.instance.primaryFocus;
+      if (focus == null || focus is FocusScopeNode) _moreFocus.requestFocus();
+      return;
+    }
     RenderObject? target;
     if (opener != null) {
       final wanted = ValueKey<String>(opener);
@@ -957,10 +1074,108 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       setState(() => _showGuide = false);
     } else if (_showHidden) {
       setState(() => _showHidden = false);
+    } else if (_menuOpen) {
+      _closeMenu();
     } else {
       return false;
     }
     return true;
+  }
+
+  // ─── More menu ─────────────────────────────────────────────────────
+
+  @override
+  bool get menuOpen => _menuOpen;
+
+  void _toggleMenu() => _menuOpen ? _closeMenu() : _openMenu();
+
+  /// Opens the menu with the startup time, the route's rebuild count and
+  /// the hidden count as they are now. A pointer down outside the card
+  /// closes it again (see [_onGlobalPointer]).
+  void _openMenu() {
+    if (_menuOpen) return;
+    final counts = widget.controller.activeRouteSession?.rebuildCountsByType;
+    final rebuilds = counts == null
+        ? 0
+        : counts.values.fold<int>(0, (a, b) => a + b);
+    setState(() {
+      _menuOpen = true;
+      _menuValues = (
+        ttffMs: Sleuth.startupMetrics?.ttffMs,
+        rebuildTotal: rebuilds > 0 ? rebuilds : null,
+        rebuildCounting: widget.controller.countsRouteRebuilds,
+        hiddenCount:
+            _ui.hiddenKeys.length +
+            widget.controller.suppressedCountNotifier.value,
+      );
+    });
+    GestureBinding.instance.pointerRouter.addGlobalRoute(_onGlobalPointer);
+    // Keyboard focus moves into the panel, from the app too: autofocus
+    // alone does not take focus another scope holds.
+    // The first enabled row takes keyboard focus, so Enter acts at once,
+    // and the screen reader moves to the panel.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_menuOpen) return;
+      _menuScope.requestFocus();
+      _menuScope.nextFocus();
+      _focusSemantics(_menuKey);
+    });
+  }
+
+  /// Closes the menu. With [refocus], keyboard and screen reader focus
+  /// return to the More button; a tap that closed it elsewhere keeps its
+  /// own focus.
+  void _closeMenu({bool refocus = true}) {
+    if (!_menuOpen) return;
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(_onGlobalPointer);
+    setState(() {
+      _menuOpen = false;
+      _menuValues = null;
+    });
+    if (refocus) {
+      _focusMore();
+    } else if (_menuScope.hasFocus) {
+      _menuScope.unfocus();
+    }
+  }
+
+  /// Moves keyboard and screen reader focus to the More button.
+  void _focusMore() {
+    _moreFocus.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusSemantics(_moreKey);
+    });
+  }
+
+  /// A pointer down on the app closes the menu and still reaches the app;
+  /// the route exists only while the menu is open. A pointer down on the
+  /// card is left to the scrim and the header.
+  void _onGlobalPointer(PointerEvent event) {
+    if (event is! PointerDownEvent || !_menuOpen) return;
+    final box = _cardKey.currentContext?.findRenderObject();
+    if (box is RenderBox && box.attached && box.hasSize) {
+      final local = box.globalToLocal(event.position);
+      if ((Offset.zero & box.size).contains(local)) return;
+    }
+    _closeMenu(refocus: false);
+  }
+
+  /// Turns every severity back on and moves screen reader focus to the
+  /// first chip, since the Show all or Reset control that held it goes.
+  void _showAllSeverities() {
+    _ui.resetSeverityFilter();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusSemantics(_firstChipKey);
+    });
+  }
+
+  /// Closes the menu, then opens a page with More recorded as the opener.
+  void _openFromMenu(VoidCallback open) {
+    _closeMenu(refocus: false);
+    setState(() {
+      open();
+      _layerOpener = _moreOpener;
+    });
   }
 
   void _closeAiChat() => setState(() {
@@ -1031,27 +1246,22 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (mounted) _toast.show('Copied');
   }
 
-  static String _themeModeLabel(SleuthThemeMode mode) => switch (mode) {
-    SleuthThemeMode.system => 'System',
-    SleuthThemeMode.light => 'Light',
-    SleuthThemeMode.dark => 'Dark',
-  };
-
-  /// Header theme toggle: System -> Light -> Dark -> System. Light and
-  /// Dark take precedence over a `Sleuth.updateTheme` override, which
-  /// shows again on System.
-  void _cycleThemeMode() {
-    final next = switch (_ui.themeMode) {
-      SleuthThemeMode.system => SleuthThemeMode.light,
-      SleuthThemeMode.light => SleuthThemeMode.dark,
-      SleuthThemeMode.dark => SleuthThemeMode.system,
-    };
-    _ui.themeMode = next;
-    _toast.show('Theme: ${_themeModeLabel(next)}');
-  }
-
   void _toggleSeverity(IssueSeverity severity) {
-    if (!_ui.toggleSeverity(severity)) {
+    // A severity with no cards has no chip, so the chips could all read
+    // off over an empty list. Refuse to turn a chip off when no card would
+    // be left. Effects that surface once their cause's severity is off
+    // count as cards.
+    var refused = false;
+    if (_ui.severityFilter.contains(severity)) {
+      final issues = widget.controller.issuesNotifier.value;
+      final after = applyOverlayFilters(
+        issues,
+        severities: {..._ui.severityFilter}..remove(severity),
+        hiddenKeys: _ui.hiddenKeys,
+      );
+      refused = after.isEmpty && _ui.visibleIssues(issues).isNotEmpty;
+    }
+    if (refused || !_ui.toggleSeverity(severity)) {
       _toast.show('Keep at least one severity', tone: OverlayToastTone.warning);
     }
   }
@@ -1235,7 +1445,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       } catch (e) {
         debugPrint('Sleuth: snapshot copy failed: $e');
         if (mounted) {
-          _toast.show("Couldn't copy snapshot", tone: OverlayToastTone.warning);
+          _toast.show(
+            "Couldn't copy snapshot",
+            tone: OverlayToastTone.warning,
+            actionLabel: 'Try again',
+            onAction: _exportToClipboard,
+          );
         }
         return;
       }
@@ -1308,12 +1523,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // at 1.0x.
     final chromeScale = chromeScaleOf(context);
     final available = screenSize.height - safe.top - math.max(safe.bottom, 20);
-    // The card never gets shorter than its header, summary bar and
-    // footer.
+    // The card never gets shorter than its header, its status row and one
+    // 48 px row of the list.
     final chromeHeight =
-        _headerHeight +
-        _footerHeight +
-        _IssuesSummaryBar.hitHeightFor(chromeScale);
+        _headerHeight + _statusHeightFor(chromeScale) + _controlRowHeight;
     final minHeight = math.min(
       _minCardHeight * chromeScale,
       math.max(chromeHeight, available),
@@ -1324,8 +1537,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final double cardHeight;
     if (_windowState == CardWindowState.maximized) {
       // Follows a rotation or window resize. Tracks the keyboard so the
-      // card shrinks above it, down to the header, the summary bar and
-      // the footer.
+      // card shrinks above it, down to the header, the status row and a
+      // row of the list.
       if (_maximizedFor != (screenSize, safe)) _fitMaximized(screenSize, safe);
       _cardHeight = _maximizedHeight(screenSize, safe, keyboardHeight);
       cardHeight = math.max(_cardHeight!, chromeHeight);
@@ -1336,7 +1549,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         maxAllowedHeight,
       );
     }
-    final effectiveWidth = _effectiveWidth(screenSize);
+    _cachedMinWidth = _minWidthFor(screenSize, safe);
+    final effectiveWidth = _effectiveWidth(screenSize, safe);
     _cachedSafePadding = safe;
     _cachedEffectiveWidth = effectiveWidth;
     _cachedKeyboardHeight = keyboardHeight;
@@ -1368,8 +1582,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       if (layerDepth == 0) _listAtTop = _listScroll.keptOffset <= 0;
       final opened = layers.difference(_reportedLayers);
       _reportedLayers = layers;
+      _reportedMenuOpen = _menuOpen;
       widget.onLayersChanged?.call();
       _afterLayersChanged(opened.isEmpty ? null : opened.last);
+    } else if (_menuOpen != _reportedMenuOpen) {
+      // The overlay blocks the app's semantics while the menu is open.
+      _reportedMenuOpen = _menuOpen;
+      widget.onLayersChanged?.call();
     }
 
     return Stack(
@@ -1379,6 +1598,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             left: clamped.dx,
             top: clamped.dy,
             child: Stack(
+              key: _cardKey,
               clipBehavior: Clip.none,
               children: [
                 _buildCardBody(
@@ -1389,6 +1609,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   chromeScale,
                   clamped,
                 ),
+                if (_menuOpen && !isMinimized) _menuScrim(theme),
                 if (!isMinimized)
                   _buildResizeHandle(
                     screenSize,
@@ -1397,6 +1618,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     maxAllowedHeight,
                     theme,
                   ),
+                if (_menuOpen && !isMinimized)
+                  _menuPanel(effectiveWidth, cardHeight, theme, chromeScale),
               ],
             ),
           ),
@@ -1559,40 +1782,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     ),
   );
 
-  /// Triggered by [_RebuildStatsBanner] when its frozen snapshot is
-  /// discarded by an automatic resume on route change. Shows a toast so
-  /// the user knows their pause was cleared and isn't surprised by
-  /// suddenly-live counts.
-  void _onRebuildPauseDiscarded() {
-    if (!mounted) return;
-    _toast.show('Route changed, pause cleared', tone: OverlayToastTone.warning);
-  }
-
-  /// Called when the user taps `See all M →` in the expanded
-  /// [_RebuildStatsBanner] panel. When the panel is paused, [overrideCounts]
-  /// carries the panel's frozen snapshot and the drilldown opens against
-  /// THAT map (panel and drilldown agree on what the user is reading).
-  /// Otherwise reads the active [RouteSession] live and snapshots
-  /// [RouteSession.rebuildCountsByType] at tap time.
-  ///
-  /// If the session was cleared between the panel rendering and the tap
-  /// (pathological: route change mid-gesture), shows a "Session no longer
-  /// active" toast instead of pushing.
-  void _onSeeAllRebuildsTap([Map<String, int>? overrideCounts]) {
+  /// Opens Rebuild stats on a snapshot of the active route's counts, taken
+  /// at tap time so later scans do not reorder the rows. When the session
+  /// ended before the tap (a route change mid-gesture) a toast says so
+  /// instead.
+  void _onSeeAllRebuildsTap() {
     final session = widget.controller.activeRouteSession;
-    // Choose the source of truth for the drilldown snapshot:
-    //   * paused panel → frozen counts (what the user is currently reading)
-    //   * live panel   → fresh read of the session map
-    // If both are missing/empty, we have nothing to drill into.
-    final source = overrideCounts ?? session?.rebuildCountsByType;
+    final source = session?.rebuildCountsByType;
     if (source == null || source.isEmpty) {
       _toast.show('Session no longer active', tone: OverlayToastTone.warning);
       return;
     }
     setState(() {
-      // Defensive copy — snapshot semantics mean mutations to either the
-      // live session or the panel's frozen map must not reorder rows in
-      // the open drilldown.
       _rebuildStatsSnapshot = Map<String, int>.of(source);
       _rebuildStatsRouteName = session?.routeName;
       _showRebuildStats = true;
@@ -1607,13 +1808,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       (_cardHeight ?? screenSize.height * 0.55).clamp(floor, ceiling);
 
   /// Shown width of the card: the stored width, at least the minimum.
-  double _effectiveWidth(Size screenSize) => _cardWidth
-      .clamp(_minCardWidth, math.max(_minCardWidth, screenSize.width))
-      .toDouble();
+  double _effectiveWidth(Size screenSize, EdgeInsets safe) {
+    final min = _minWidthFor(screenSize, safe);
+    return _cardWidth.clamp(min, math.max(min, screenSize.width)).toDouble();
+  }
 
   /// Fits the whole card inside the usable area (the safe area above the
-  /// keyboard) before a move or resize is committed, so the footer and
-  /// the resize grip stay on screen. A resize ([keepTop]) keeps the top
+  /// keyboard) before a move or resize is committed, so the resize grip
+  /// stays on screen. A resize ([keepTop]) keeps the top
   /// edge and caps the height at the usable bottom, unless the minimum
   /// height does not fit below the top edge: then the card moves up and
   /// may take the whole usable height. A move keeps the height and moves
@@ -1632,7 +1834,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final offset = _clampOffset(
       screenSize,
       safe,
-      _effectiveWidth(screenSize),
+      _effectiveWidth(screenSize, safe),
       _cachedKeyboardHeight,
     );
     var shown = _cachedCardHeight;
@@ -1694,18 +1896,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     Offset position,
   ) {
     final isMinimized = _windowState == CardWindowState.minimized;
-    // The status row and banners scroll once they would take more than
-    // half of the space between header and footer and leave the list less
-    // than the summary bar plus about two collapsed cards (large text, a
-    // short card, an open FPS explainer). They never leave the list less
-    // than the summary bar plus one row; in a card squeezed below that
-    // (a keyboard over a maximized card) they give up all their space.
-    final middle = math.max(0.0, cardHeight - _headerHeight - _footerHeight);
-    final barHit = _IssuesSummaryBar.hitHeightFor(chromeScale);
-    final minList = barHit + 96;
+    // The banners scroll once they would take more than half of the space
+    // below the status row and leave the list less than about two
+    // collapsed cards (large text, a short card). They never leave the
+    // list less than one row; in a card squeezed below that (a keyboard
+    // over a maximized card) they give up all their space.
+    final middle = math.max(
+      0.0,
+      cardHeight - _headerHeight - _statusHeightFor(chromeScale),
+    );
+    const minList = 96.0;
     final bannersMaxHeight = math
         .max(middle * 0.5, middle - minList)
-        .clamp(0.0, math.max(0.0, middle - barHit - 48))
+        .clamp(0.0, math.max(0.0, middle - 48))
         .toDouble();
     return ConstrainedBox(
       constraints: BoxConstraints(
@@ -1726,59 +1929,162 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               position,
               theme,
             ),
-            if (!isMinimized) ...[
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: bannersMaxHeight),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _StatusRow(controller: widget.controller),
-                      Divider(color: theme.border, height: 1),
-                      _WarningBanners(
-                        isDeepInstrumentationActive:
-                            widget.controller.isDeepInstrumentationActive,
-                      ),
-                      if (widget.isDebugMode &&
-                          widget.controller.config.showDebugModeBanner &&
-                          !widget.controller.debugBannerDismissed)
-                        _DebugModeBanner(
-                          onDismiss: () => setState(
-                            () => widget.controller.debugBannerDismissed = true,
+            if (!isMinimized)
+              Flexible(
+                // Under the menu's scrim the card's content is out of
+                // reach, for touch and for a screen reader.
+                child: ExcludeSemantics(
+                  excluding: _menuOpen,
+                  // The status row and the list share one pass over the
+                  // reported issues.
+                  child: ValueListenableBuilder<List<PerformanceIssue>>(
+                    valueListenable: widget.controller.issuesNotifier,
+                    builder: (context, issues, _) {
+                      final model = _ListModel(issues, _ui);
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _StatusRow(
+                            controller: widget.controller,
+                            chromeScale: chromeScale,
+                            severityCounts: model.severityCounts,
+                            enabledSeverities: _ui.severityFilter,
+                            onToggleSeverity: _toggleSeverity,
+                            firstChipKey: _firstChipKey,
                           ),
-                        ),
-                      if (Sleuth.startupMetrics != null)
-                        _StartupMetricsBanner(
-                          onTap: () =>
-                              setState(() => _showStartupDetail = true),
-                        ),
-                      // Always-on inline rebuild-stats panel; see
-                      // [_RebuildStatsBanner].
-                      _RebuildStatsBanner(
-                        controller: widget.controller,
-                        onTap: _onSeeAllRebuildsTap,
-                        onPauseDiscarded: _onRebuildPauseDiscarded,
-                      ),
-                    ],
+                          Divider(color: theme.cardDivider, height: 1),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxHeight: bannersMaxHeight,
+                            ),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _WarningBanners(
+                                    isDeepInstrumentationActive: widget
+                                        .controller
+                                        .isDeepInstrumentationActive,
+                                  ),
+                                  if (widget.isDebugMode &&
+                                      widget
+                                          .controller
+                                          .config
+                                          .showDebugModeBanner &&
+                                      !widget.controller.debugBannerDismissed)
+                                    _DebugModeBanner(
+                                      onDismiss: () => setState(
+                                        () =>
+                                            widget
+                                                    .controller
+                                                    .debugBannerDismissed =
+                                                true,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Flexible(
+                            child: RepaintBoundary(
+                              child: _buildIssuesList(model),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
-              Flexible(
-                child: RepaintBoundary(child: _buildIssuesList(chromeScale)),
-              ),
-              _CardFooter(
-                controller: widget.controller,
-                hiddenCount: _ui.hiddenKeys.length,
-                onShowHidden: () => setState(() => _showHidden = true),
-                onExport: _exportToClipboard,
-                onEncyclopedia: () => setState(() {
-                  _detailStableId = null;
-                  _showDetail = true;
-                }),
-                onGuide: () => setState(() => _showGuide = true),
-              ),
-            ],
           ],
+        ),
+      ),
+    );
+  }
+
+  /// The menu's scrim over the card below the header. A tap on it closes
+  /// the menu and goes no further.
+  Widget _menuScrim(SleuthThemeData theme) => Positioned(
+    top: _headerHeight,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      excludeFromSemantics: true,
+      onTap: _closeMenu,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.dimOverlay,
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(theme.radiusCard),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  /// The More menu panel, under the More button, at most the card height
+  /// below the header.
+  Widget _menuPanel(
+    double cardWidth,
+    double cardHeight,
+    SleuthThemeData theme,
+    double chromeScale,
+  ) {
+    final margin = theme.spacingMd;
+    final width = math.max(
+      0.0,
+      math.min(236 * chromeScale, cardWidth - 2 * margin),
+    );
+    // The More button's right edge: the header's right padding, close and
+    // the window controls (minimize and maximize, or restore).
+    final moreRight =
+        theme.spacingXs +
+        _controlRowHeight +
+        (_windowState == CardWindowState.normal ? 2 : 1) * 36;
+    final right = math.max(
+      margin,
+      math.min(moreRight, cardWidth - width - margin),
+    );
+    final values = _menuValues!;
+    return Positioned(
+      top: _headerHeight - theme.spacingXs,
+      right: right,
+      width: width,
+      // Menu text grows like the header's, up to the chrome clamp; the
+      // panel width grows with it.
+      child: SleuthTextScaleClamp(
+        maxScaleFactor: kChromeMaxTextScale,
+        child: SleuthMoreMenu(
+          semanticsKey: _menuKey,
+          values: values,
+          themeMode: _ui.themeMode,
+          focusScope: _menuScope,
+          maxHeight: math.max(0.0, cardHeight - _headerHeight - margin),
+          onStartup: () => _openFromMenu(() => _showStartupDetail = true),
+          onRebuildStats: () {
+            _closeMenu(refocus: false);
+            _onSeeAllRebuildsTap();
+            if (_showRebuildStats) {
+              _layerOpener = _moreOpener;
+            } else {
+              // No page opened (the route's session ended): focus goes
+              // back to More, under the toast that says why.
+              _focusMore();
+            }
+          },
+          onHiddenIssues: () => _openFromMenu(() => _showHidden = true),
+          onEncyclopedia: () => _openFromMenu(() {
+            _detailStableId = null;
+            _showDetail = true;
+          }),
+          onGuide: () => _openFromMenu(() => _showGuide = true),
+          onCopySnapshot: () {
+            _closeMenu();
+            _exportToClipboard();
+          },
+          onThemeMode: (mode) => _ui.themeMode = mode,
         ),
       ),
     );
@@ -1791,21 +2097,38 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     double maxAllowedHeight,
     SleuthThemeData theme,
   ) {
+    final grip = CustomPaint(
+      painter: _CornerGripPainter(gripColor: theme.gripDots),
+    );
+    // A maximized card's size follows the screen: it draws the dots in
+    // the same corner and takes no touches or actions there.
+    if (_windowState != CardWindowState.normal) {
+      return Positioned(
+        right: 0,
+        bottom: 0,
+        width: 48,
+        height: 48,
+        child: IgnorePointer(child: ExcludeSemantics(child: grip)),
+      );
+    }
+
     // The stored height keeps the unscaled minimum: the scaled floor
     // (large text) is display-only, so the card returns to its own height
     // at 1.0x. Growing starts from the shown height; shrinking from the
     // stored one while the floor holds the shown height up.
+    final minWidth = _cachedMinWidth;
     void resizeBy(double dw, double dh) {
       // A right-flush card grows leftwards ([_clampOffset] moves it), up
       // to the safe-area width minus [_clampOffset]'s 5 px margin, so it
-      // never reaches under a landscape notch.
-      _cardWidth = (_cardWidth + dw).clamp(
-        _minCardWidth,
-        math.max(
-          _minCardWidth,
-          screenSize.width - _cachedSafePadding.horizontal - 5,
-        ),
+      // never reaches under a landscape notch. The step starts from the
+      // width shown: a stored width from an older release or a larger
+      // screen is clamped first.
+      final maxWidth = math.max(
+        minWidth,
+        screenSize.width - _cachedSafePadding.horizontal - 5,
       );
+      final shown = _cardWidth.clamp(minWidth, maxWidth);
+      _cardWidth = (shown + dw).clamp(minWidth, maxWidth);
       final stored = _cardHeight ?? cardHeight;
       final base = dh < 0 ? math.min(stored, cardHeight) : cardHeight;
       _cardHeight = (base + dh).clamp(
@@ -1824,10 +2147,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     }
 
     // 48 x 48 hit box; the grip dots keep their corner position. Screen
-    // readers resize through the custom actions in 48 px steps. Resizing,
-    // by touch or by action, is offered only in the normal window state (a
-    // maximized card's size follows the screen).
-    final isNormal = _windowState == CardWindowState.normal;
+    // readers resize through the custom actions in 48 px steps.
+    final atMinWidth = _cachedEffectiveWidth <= minWidth;
+    final atMaxWidth =
+        _cachedEffectiveWidth >=
+        math.max(
+          minWidth,
+          screenSize.width - _cachedSafePadding.horizontal - 5,
+        );
     return Positioned(
       right: 0,
       bottom: 0,
@@ -1837,42 +2164,34 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         container: true,
         label: 'Resize card',
         value: _sizeValue(_cachedEffectiveWidth, cardHeight),
-        customSemanticsActions: isNormal
-            ? {
-                const CustomSemanticsAction(label: 'Taller'): () =>
-                    resizeAndCommit(0, _a11yStep),
-                const CustomSemanticsAction(label: 'Shorter'): () =>
-                    resizeAndCommit(0, -_a11yStep),
-                const CustomSemanticsAction(label: 'Wider'): () =>
-                    resizeAndCommit(_a11yStep, 0),
-                const CustomSemanticsAction(label: 'Narrower'): () =>
-                    resizeAndCommit(-_a11yStep, 0),
-              }
-            : null,
+        customSemanticsActions: {
+          const CustomSemanticsAction(label: 'Taller'): () =>
+              resizeAndCommit(0, _a11yStep),
+          const CustomSemanticsAction(label: 'Shorter'): () =>
+              resizeAndCommit(0, -_a11yStep),
+          if (!atMaxWidth)
+            const CustomSemanticsAction(label: 'Wider'): () =>
+                resizeAndCommit(_a11yStep, 0),
+          if (!atMinWidth)
+            const CustomSemanticsAction(label: 'Narrower'): () =>
+                resizeAndCommit(-_a11yStep, 0),
+        },
         child: MouseRegion(
-          cursor: isNormal
-              ? SystemMouseCursors.resizeDownRight
-              : MouseCursor.defer,
+          cursor: SystemMouseCursors.resizeDownRight,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             // The custom actions resize; pan scroll actions would not.
             excludeFromSemantics: true,
             // The grip follows the finger; the card is fitted on screen
             // when the drag ends.
-            onPanUpdate: isNormal
-                ? (details) => setState(
-                    () => resizeBy(details.delta.dx, details.delta.dy),
-                  )
-                : null,
-            onPanEnd: isNormal
-                ? (_) {
-                    setState(() => _fitToUsableArea(keepTop: true));
-                    _commitGeometry();
-                  }
-                : null,
-            child: CustomPaint(
-              painter: _CornerGripPainter(gripColor: theme.gripDots),
-            ),
+            onPanStart: (_) => _closeMenu(refocus: false),
+            onPanUpdate: (details) =>
+                setState(() => resizeBy(details.delta.dx, details.delta.dy)),
+            onPanEnd: (_) {
+              setState(() => _fitToUsableArea(keepTop: true));
+              _commitGeometry();
+            },
+            child: grip,
           ),
         ),
       ),
@@ -1948,8 +2267,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           : null,
       child: GestureDetector(
         excludeFromSemantics: true,
-        // While the finger is down the card keeps at least its title bar
-        // on screen; on release the whole card is fitted on screen.
+        // A drag closes the menu. While the finger is down the card keeps
+        // at least its title bar on screen; on release the whole card is
+        // fitted on screen.
+        onPanStart: movable ? (_) => _closeMenu(refocus: false) : null,
         onPanUpdate: movable
             ? (details) {
                 setState(() {
@@ -1981,23 +2302,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
               constraints: const BoxConstraints(minHeight: _controlRowHeight),
               child: Row(
                 children: [
-                  Icon(Icons.pets, size: 14, color: theme.textPrimary),
-                  SizedBox(width: theme.spacingXs),
-                  // The title gives way first: it ellipsizes before any
-                  // control loses its 48 px height. The header node carries
-                  // the name.
+                  // The title area gives way first (see [_headerTitle]);
+                  // the controls keep their 48 px height.
                   Expanded(
-                    child: ExcludeSemantics(
-                      child: Text(
-                        'Sleuth',
-                        style: TextStyle(
-                          color: theme.textPrimary,
-                          fontSize: theme.fontBase,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: widget.controller.vmConnectedNotifier,
+                      builder: (_, connected, _) =>
+                          _headerTitle(theme, connected),
                     ),
                   ),
                   // Issue count badge (visible when minimized so user sees at a glance)
@@ -2020,6 +2331,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                             ? theme.checkboxActive
                             : theme.textTertiary,
                         onTap: () {
+                          _closeMenu(refocus: false);
                           final newValue = !enabled;
                           widget.controller.highlightEnabledNotifier.value =
                               newValue;
@@ -2030,19 +2342,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                         tooltip: enabled ? 'Hide overlay' : 'Show overlay',
                       ),
                     ),
-                  // Theme toggle: System -> Light -> Dark (hidden when minimized).
-                  if (!isMinimized)
-                    _compactHeaderButton(
-                      icon: switch (_ui.themeMode) {
-                        SleuthThemeMode.system => Icons.brightness_auto,
-                        SleuthThemeMode.light => Icons.light_mode,
-                        SleuthThemeMode.dark => Icons.dark_mode,
-                      },
-                      color: theme.textTertiary,
-                      onTap: _cycleThemeMode,
-                      tooltip: 'Toggle theme',
-                      value: _themeModeLabel(_ui.themeMode),
-                    ),
+                  if (!isMinimized) _moreButton(theme),
                   // Window controls. Hidden at narrow widths (<280px) so the
                   // title keeps some room.
                   if (showWindowControls && isNormal)
@@ -2074,6 +2374,151 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     tooltip: 'Close Sleuth',
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Measured fit of the header title, cached for one set of inputs: a
+  /// drag rebuilds the header every frame. The theme and the inherited
+  /// style are part of the key, since `Sleuth.updateTheme` can change a
+  /// font size or a spacing while the card is open.
+  ({
+    double width,
+    TextScaler scaler,
+    bool vm,
+    bool debug,
+    SleuthThemeData theme,
+    TextStyle inherited,
+  })?
+  _titleFitFor;
+  ({bool title, _RunLabelSize label})? _titleFit;
+
+  /// The paw, "Sleuth" and the run label, stepped down to the width the
+  /// controls leave: all three, then without the "Sleuth" text (the paw
+  /// keeps the label), then the short run label, then its dot alone.
+  /// Widths are measured with the header's clamped text scale; the run
+  /// label never ellipsizes, and its semantics always carry the full text.
+  Widget _headerTitle(SleuthThemeData theme, bool vmConnected) {
+    final debug = widget.isDebugMode;
+    final mode = debug ? 'Debug' : 'Profile';
+    final titleStyle = TextStyle(
+      color: theme.textPrimary,
+      fontSize: theme.fontBase,
+      fontWeight: FontWeight.bold,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaler = MediaQuery.textScalerOf(context);
+        // Text merges the inherited style (Material's letter spacing), so
+        // the measurement does too.
+        final inherited = DefaultTextStyle.of(context).style;
+        final key = (
+          width: constraints.maxWidth,
+          scaler: scaler,
+          vm: vmConnected,
+          debug: debug,
+          theme: theme,
+          inherited: inherited,
+        );
+        var fit = _titleFit;
+        if (fit == null || _titleFitFor != key) {
+          double measure(String text, TextStyle style) {
+            final painter = TextPainter(
+              text: TextSpan(text: text, style: inherited.merge(style)),
+              textDirection: TextDirection.ltr,
+              textScaler: scaler,
+              maxLines: 1,
+            )..layout();
+            final width = painter.width;
+            painter.dispose();
+            return width;
+          }
+
+          final gap = theme.spacingXs;
+          const paw = 14.0;
+          final labelStyle = _RunLabel.textStyle(theme);
+          final chrome = _RunLabel.chromeWidth(theme);
+          final full =
+              chrome + measure(_RunLabel.text(mode, vmConnected), labelStyle);
+          final short = chrome + measure(mode, labelStyle);
+          final title = measure('Sleuth', titleStyle) + gap;
+          final room = constraints.maxWidth - paw - gap;
+          fit = title + full <= room
+              ? (title: true, label: _RunLabelSize.full)
+              : full <= room
+              ? (title: false, label: _RunLabelSize.full)
+              : short <= room
+              ? (title: false, label: _RunLabelSize.short)
+              : (title: false, label: _RunLabelSize.dot);
+          _titleFit = fit;
+          _titleFitFor = key;
+        }
+        return Row(
+          children: [
+            Icon(Icons.pets, size: 14, color: theme.textPrimary),
+            SizedBox(width: theme.spacingXs),
+            if (fit.title) ...[
+              // The header node carries the name.
+              ExcludeSemantics(
+                child: Text(
+                  'Sleuth',
+                  style: titleStyle,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              ),
+              SizedBox(width: theme.spacingXs),
+            ],
+            _RunLabel(mode: mode, vmConnected: vmConnected, size: fit.label),
+          ],
+        );
+      },
+    );
+  }
+
+  /// The header's More button. It opens and closes the menu, and keyboard
+  /// focus returns to it when the menu closes.
+  Widget _moreButton(SleuthThemeData theme) {
+    final radius = BorderRadius.circular(theme.radiusLg);
+    return Semantics(
+      key: _moreKey,
+      label: 'More',
+      button: true,
+      expanded: _menuOpen,
+      onTap: _toggleMenu,
+      excludeSemantics: true,
+      child: SleuthFocusInkWell(
+        focusNode: _moreFocus,
+        onTap: _toggleMenu,
+        borderRadius: radius,
+        builder: (context, showFocus) => SizedBox(
+          width: 36,
+          height: _controlRowHeight,
+          child: Center(
+            child: SleuthFocusOutline(
+              show: showFocus,
+              color: theme.checkboxActive,
+              borderRadius: radius,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: _menuOpen
+                      ? theme.checkboxActive.withValues(alpha: 0.22)
+                      : null,
+                  borderRadius: radius,
+                ),
+                child: SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: Icon(
+                    Icons.more_horiz,
+                    size: 16,
+                    color: theme.textTertiary,
+                  ),
+                ),
               ),
             ),
           ),
@@ -2175,15 +2620,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   // ─── Issues List ─────────────────────────────────────────────────────
 
-  Widget _buildIssuesList(double chromeScale) {
+  Widget _buildIssuesList(_ListModel model) {
     // The list rebuilds only when the issue set changes. Each card's
     // recurrence badge re-reads `recurrenceTrends` on the scan pulse by
     // itself, so a tick that leaves the issues unchanged rebuilds badges,
     // not cards.
-    return ValueListenableBuilder<List<PerformanceIssue>>(
-      valueListenable: widget.controller.issuesNotifier,
-      builder: (context, issues, _) {
+    {
+      {
         final theme = SleuthTheme.of(context);
+        final issues = model.issues;
         if (issues.isEmpty) {
           // The next list starts at the top.
           _listScroll.dropKeptOffset();
@@ -2198,90 +2643,29 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           );
         }
 
-        // Severity filter, then collapse, then hide — the same list
+        // Severity filter, then collapse, then hide: the same list
         // `_pruneStaleState` keys against. See [applyOverlayFilters].
-        final ui = _ui;
-        final visibleIssues = ui.visibleIssues(issues);
-
-        // Lists behind the summary chips and the "Showing X of Y" line.
-        final allSeverities = {...IssueSeverity.values};
-        final unfiltered = applyOverlayFilters(
-          issues,
-          severities: allSeverities,
-          hiddenKeys: ui.hiddenKeys,
-        );
-        final unhidden = applyOverlayFilters(
-          issues,
-          severities: allSeverities,
-          hiddenKeys: const {},
-        );
-        // `unhidden` is the default-state list (every severity, nothing
-        // hidden), so its length is the card total. Stale hidden keys
-        // that match nothing leave the count unchanged and do not narrow.
-        final totalCards = unhidden.length;
-        final isNarrowed = visibleIssues.length < totalCards;
-
-        // A chip counts the cards its severity shows under the current
-        // filter. Turning a severity off can surface an effect that was
-        // collapsed under one of its cards, so a disabled severity is
-        // counted with itself added to the filter.
-        final severityCounts = <IssueSeverity, int>{};
-        for (final issue in visibleIssues) {
-          severityCounts.update(
-            issue.severity,
-            (n) => n + 1,
-            ifAbsent: () => 1,
-          );
-        }
-        for (final severity in IssueSeverity.values) {
-          if (ui.severityFilter.contains(severity)) continue;
-          final withSeverity = applyOverlayFilters(
-            issues,
-            severities: {...ui.severityFilter, severity},
-            hiddenKeys: ui.hiddenKeys,
-          );
-          severityCounts[severity] = withSeverity
-              .where((i) => i.severity == severity)
-              .length;
-        }
-
-        final summary = _IssuesSummaryBar(
-          chromeScale: chromeScale,
-          issues: visibleIssues,
-          severityCounts: severityCounts,
-          enabledSeverities: ui.severityFilter,
-          shownOfTotal: isNarrowed
-              ? (shown: visibleIssues.length, total: totalCards)
-              : null,
-          onToggleSeverity: _toggleSeverity,
-        );
+        final visibleIssues = model.visible;
 
         if (visibleIssues.isEmpty) {
           // The next list starts at the top.
           _listAtTop = true;
           _listScroll.dropKeptOffset();
-          final allHidden = unfiltered.isEmpty;
-          return _IssuesSummaryBar.above(
-            chromeScale: chromeScale,
-            summary: summary,
-            body: _EmptyListMessage(
-              message: allHidden
-                  ? 'All ${unhidden.length} '
-                        '${unhidden.length == 1 ? 'issue' : 'issues'} hidden'
-                  : 'No issues match the severity filter',
-              actionLabel: allHidden ? 'Show hidden' : 'Reset',
-              onAction: allHidden
-                  ? () => setState(() => _showHidden = true)
-                  : ui.resetSeverityFilter,
-            ),
+          final allHidden = model.unfiltered.isEmpty;
+          return _EmptyListMessage(
+            message: allHidden
+                ? 'All ${model.unhidden.length} '
+                      '${model.unhidden.length == 1 ? 'issue' : 'issues'} hidden'
+                : 'No issues match the severity filter',
+            actionLabel: allHidden ? 'Show hidden' : 'Reset',
+            onAction: allHidden
+                ? () => setState(() => _showHidden = true)
+                : _showAllSeverities,
           );
         }
 
-        // Apply the freeze zone AFTER the summary bar reads the flow
-        // ordering. Freezing is a render-order concern only — counts in
-        // the summary bar must not change based on which cards are
-        // currently expanded. Always feed the flow (pre-freeze) list
-        // into `_IssuesSummaryBar`.
+        // The freeze zone only orders the cards; the status row counts
+        // the flow list, whatever is expanded.
         //
         // The held order runs first, so the freeze snapshot captures
         // what the user saw and new cards enter the flow below it.
@@ -2330,665 +2714,581 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
           for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
 
-        return _IssuesSummaryBar.above(
-          chromeScale: chromeScale,
-          summary: summary,
-          body: ValueListenableBuilder<WidgetHighlight?>(
-            valueListenable: widget.controller.selectedHighlightNotifier,
-            builder: (_, selectedHighlight, _) => Listener(
-              // Touches on the list hold back a pending reorder.
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: _onListPointerDown,
-              onPointerMove: (_) => _onListActivity(),
-              onPointerUp: _onListPointerUp,
-              onPointerCancel: _onListPointerUp,
-              onPointerSignal: (_) => _onListActivity(),
-              onPointerPanZoomStart: (_) => _onListActivity(),
-              onPointerPanZoomUpdate: (_) => _onListActivity(),
-              // Scrolls that reach no Listener (a screen reader's scroll
-              // action) also hold it back, and report the offset.
-              child: NotificationListener<ScrollNotification>(
-                onNotification: _onListScroll,
-                child: ListView.builder(
-                  controller: _listScroll,
-                  padding: EdgeInsets.all(theme.spacingSm),
-                  itemCount: orderedIssues.length,
-                  // Keyed-reorder remount fix: without a
-                  // `findChildIndexCallback`, `SliverChildBuilderDelegate`
-                  // cannot locate a keyed child whose index has shifted
-                  // between builds, so Flutter destroys the Element and
-                  // builds a fresh one — which resets `_IssueCardState`
-                  // (loses expansion, scroll, and all local UI state).
-                  // This hits any issue whose rank position moves when
-                  // the ranker reorders the list. Cards are already
-                  // `ValueKey`-stamped with `listKeyFor`; this callback
-                  // just tells the sliver where each key landed.
-                  //
-                  // Looks up `orderedIndexByKey` (the POST-pin map) so
-                  // the sliver locates keyed children at their rendered
-                  // positions. Using the pre-pin list here would remount
-                  // every pinned card on the first render after pin
-                  // application, which resets `_IssueCardState` — the
-                  // very bug the `ValueKey` + findChildIndexCallback
-                  // pair exists to prevent.
-                  findChildIndexCallback: (Key key) {
-                    if (key is! ValueKey<String>) return null;
-                    return orderedIndexByKey[key.value];
-                  },
-                  itemBuilder: (_, index) {
-                    final issue = orderedIssues[index];
-                    final locatable = _isLocatableIssue(issue);
-                    final issueKey = listKeys[index];
-                    final isHighlighted =
-                        selectedHighlight != null &&
-                        locatable &&
-                        _selectedIssueId == issueKey;
-
-                    // Look up downstream issue objects for root issues.
-                    // Uses the precomputed stableId→issue map (O(1) per
-                    // lookup) so this resolution does not blow up to
-                    // O(n²) on tall overlays.
-                    List<PerformanceIssue>? downstream;
-                    if (issue.downstreamIds != null &&
-                        issue.downstreamIds!.isNotEmpty) {
-                      downstream = <PerformanceIssue>[];
-                      for (final downId in issue.downstreamIds!) {
-                        final found = stableIdToIssue[downId];
-                        if (found != null) downstream.add(found);
-                      }
-                    }
-
-                    // Resolve parent issues for the multi-parent "Caused
-                    // by" badge. parentIssues is null when no annotation
-                    // exists or when every parent is suppressed by the
-                    // ranker. Suppressed-but-annotated parents surface
-                    // as a count for the IssueCard's "(+N not shown)"
-                    // annotation so a partial parent list does not look
-                    // complete.
-                    List<PerformanceIssue>? parents;
-                    var suppressedParentCount = 0;
-                    final parentIds = issue.rootCauseIds;
-                    if (parentIds != null && parentIds.isNotEmpty) {
-                      parents = <PerformanceIssue>[];
-                      for (final parentId in parentIds) {
-                        final found = stableIdToIssue[parentId];
-                        if (found != null) {
-                          parents.add(found);
-                        } else {
-                          suppressedParentCount++;
-                        }
-                      }
-                      if (parents.isEmpty) parents = null;
-                    }
-
-                    // Capture the build-time `index` into a local so the
-                    // `onExpandedChanged` closure closes over a
-                    // deterministic value instead of whatever `index`
-                    // would be at callback-time (which could be stale
-                    // if a scan tick fired between build and tap).
-                    final capturedIndex = index;
-
-                    // Capture the build-time visibleIssues reference so
-                    // the snapshot taken on 0→1 expand reflects what the
-                    // user actually saw, NOT a newer value that may have
-                    // been published to `issuesNotifier` between the
-                    // frame commit and the tap arriving. Defensive copy
-                    // is made inside the callback so the snapshot
-                    // outlives this build closure without being aliased
-                    // to the live list.
-                    final capturedVisibleIssues = heldIssues;
-
-                    // The list `capturedIndex` indexes. An expansion below the
-                    // frozen zone re-captures the snapshot from it.
-                    final capturedOrdered = orderedIssues;
-
-                    return IssueCard(
-                      key: ValueKey(listKeys[index]),
-                      issue: issue,
-                      recurrenceTrendOf: () =>
-                          widget.controller.recurrenceTrends[issue.stableId ??
-                              issue.title],
-                      scanTick: widget.controller.scanTickNotifier,
-                      deepInstrumentationActive:
-                          widget.controller.isDeepInstrumentationActive,
-                      initiallyExpanded: _expandedIndices.containsKey(issueKey),
-                      collapseEpoch: _collapseEpoch,
-                      onExpandedChanged: (expanded) {
-                        setState(() {
-                          if (expanded) {
-                            // 0→1 transition: capture snapshot before
-                            // recording the expand entry so the class
-                            // invariant (snapshot != null ↔ map not
-                            // empty) holds at every observable state.
-                            if (_expandedIndices.isEmpty) {
-                              _orderSnapshot = List<PerformanceIssue>.of(
-                                capturedVisibleIssues,
-                              );
-                            } else if (capturedIndex >
-                                _expandedIndices.values.reduce(math.max)) {
-                              // The zone grows past the snapshot's frozen
-                              // slice, whose tail may no longer match the rows
-                              // on screen. Re-capture what the user sees so
-                              // the new index points into the list it came
-                              // from.
-                              final snapshot = List<PerformanceIssue>.of(
-                                capturedOrdered,
-                              );
-                              _repointExpansions(snapshot);
-                              _orderSnapshot = snapshot;
-                            }
-                            _expandedIndices[issueKey] = capturedIndex;
-                          } else {
-                            _expandedIndices.remove(issueKey);
-                            // 1→0 transition: release the snapshot so
-                            // the next expand captures a fresh one from
-                            // whatever the ranker currently shows. The
-                            // order on screen becomes the held order, so
-                            // nothing moves under the finger; a pending
-                            // change waits for the next quiet period.
-                            if (_expandedIndices.isEmpty) {
-                              _orderSnapshot = null;
-                              _heldKeys = [
-                                ...{
-                                  for (final i in capturedOrdered)
-                                    listKeyFor(i),
-                                },
-                              ];
-                            }
-                          }
-                        });
-                      },
-                      locatable: locatable,
-                      highlighted: isHighlighted,
-                      onHighlightChanged: locatable
-                          ? (checked) =>
-                                _onHighlightChanged(checked, issueKey, issue)
-                          : null,
-                      jankCorrelated: _cachedJankKeys.contains(
-                        issue.stableId ?? issue.title,
-                      ),
-                      jankFlash: false,
-                      downstreamIssues: downstream,
-                      parentIssues: parents,
-                      suppressedParentCount: suppressedParentCount,
-                      onLearnMore:
-                          IssueExplanationBuilder.explain(issue.stableId) !=
-                              null
-                          ? () => setState(() {
-                              _detailStableId = issue.stableId;
-                              _detailContextIssue = issue;
-                              _showDetail = true;
-                              _layerOpener = issueKey;
-                            })
-                          : null,
-                      onAskAi: widget.controller.config.aiChat != null
-                          ? () => setState(() {
-                              _chatIssueKey = _chatKeyFor(issue);
-                              _chatIssue = issue;
-                              _showAiChat = true;
-                              _layerOpener = issueKey;
-                            })
-                          : null,
-                      onCopy: () => _copyIssue(issue),
-                      onHide: () => _hideIssue(issue),
-                      isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
-                    );
-                  },
+        final list = ValueListenableBuilder<WidgetHighlight?>(
+          valueListenable: widget.controller.selectedHighlightNotifier,
+          builder: (_, selectedHighlight, _) => Listener(
+            // Touches on the list hold back a pending reorder.
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _onListPointerDown,
+            onPointerMove: (_) => _onListActivity(),
+            onPointerUp: _onListPointerUp,
+            onPointerCancel: _onListPointerUp,
+            onPointerSignal: (_) => _onListActivity(),
+            onPointerPanZoomStart: (_) => _onListActivity(),
+            onPointerPanZoomUpdate: (_) => _onListActivity(),
+            // Scrolls that reach no Listener (a screen reader's scroll
+            // action) also hold it back, and report the offset.
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onListScroll,
+              child: ListView.builder(
+                controller: _listScroll,
+                // The grip sits over the bottom-right corner; the last
+                // card scrolls clear of it.
+                padding: EdgeInsets.fromLTRB(
+                  theme.spacingSm,
+                  theme.spacingSm,
+                  theme.spacingSm,
+                  48,
                 ),
+                itemCount: orderedIssues.length,
+                // Keyed-reorder remount fix: without a
+                // `findChildIndexCallback`, `SliverChildBuilderDelegate`
+                // cannot locate a keyed child whose index has shifted
+                // between builds, so Flutter destroys the Element and
+                // builds a fresh one — which resets `_IssueCardState`
+                // (loses expansion, scroll, and all local UI state).
+                // This hits any issue whose rank position moves when
+                // the ranker reorders the list. Cards are already
+                // `ValueKey`-stamped with `listKeyFor`; this callback
+                // just tells the sliver where each key landed.
+                //
+                // Looks up `orderedIndexByKey` (the POST-pin map) so
+                // the sliver locates keyed children at their rendered
+                // positions. Using the pre-pin list here would remount
+                // every pinned card on the first render after pin
+                // application, which resets `_IssueCardState` — the
+                // very bug the `ValueKey` + findChildIndexCallback
+                // pair exists to prevent.
+                findChildIndexCallback: (Key key) {
+                  if (key is! ValueKey<String>) return null;
+                  return orderedIndexByKey[key.value];
+                },
+                itemBuilder: (_, index) {
+                  final issue = orderedIssues[index];
+                  final locatable = _isLocatableIssue(issue);
+                  final issueKey = listKeys[index];
+                  final isHighlighted =
+                      selectedHighlight != null &&
+                      locatable &&
+                      _selectedIssueId == issueKey;
+
+                  // Look up downstream issue objects for root issues.
+                  // Uses the precomputed stableId→issue map (O(1) per
+                  // lookup) so this resolution does not blow up to
+                  // O(n²) on tall overlays.
+                  List<PerformanceIssue>? downstream;
+                  if (issue.downstreamIds != null &&
+                      issue.downstreamIds!.isNotEmpty) {
+                    downstream = <PerformanceIssue>[];
+                    for (final downId in issue.downstreamIds!) {
+                      final found = stableIdToIssue[downId];
+                      if (found != null) downstream.add(found);
+                    }
+                  }
+
+                  // Resolve parent issues for the multi-parent "Caused
+                  // by" badge. parentIssues is null when no annotation
+                  // exists or when every parent is suppressed by the
+                  // ranker. Suppressed-but-annotated parents surface
+                  // as a count for the IssueCard's "(+N not shown)"
+                  // annotation so a partial parent list does not look
+                  // complete.
+                  List<PerformanceIssue>? parents;
+                  var suppressedParentCount = 0;
+                  final parentIds = issue.rootCauseIds;
+                  if (parentIds != null && parentIds.isNotEmpty) {
+                    parents = <PerformanceIssue>[];
+                    for (final parentId in parentIds) {
+                      final found = stableIdToIssue[parentId];
+                      if (found != null) {
+                        parents.add(found);
+                      } else {
+                        suppressedParentCount++;
+                      }
+                    }
+                    if (parents.isEmpty) parents = null;
+                  }
+
+                  // Capture the build-time `index` into a local so the
+                  // `onExpandedChanged` closure closes over a
+                  // deterministic value instead of whatever `index`
+                  // would be at callback-time (which could be stale
+                  // if a scan tick fired between build and tap).
+                  final capturedIndex = index;
+
+                  // Capture the build-time visibleIssues reference so
+                  // the snapshot taken on 0→1 expand reflects what the
+                  // user actually saw, NOT a newer value that may have
+                  // been published to `issuesNotifier` between the
+                  // frame commit and the tap arriving. Defensive copy
+                  // is made inside the callback so the snapshot
+                  // outlives this build closure without being aliased
+                  // to the live list.
+                  final capturedVisibleIssues = heldIssues;
+
+                  // The list `capturedIndex` indexes. An expansion below the
+                  // frozen zone re-captures the snapshot from it.
+                  final capturedOrdered = orderedIssues;
+
+                  return IssueCard(
+                    key: ValueKey(listKeys[index]),
+                    issue: issue,
+                    recurrenceTrendOf: () =>
+                        widget.controller.recurrenceTrends[issue.stableId ??
+                            issue.title],
+                    scanTick: widget.controller.scanTickNotifier,
+                    deepInstrumentationActive:
+                        widget.controller.isDeepInstrumentationActive,
+                    initiallyExpanded: _expandedIndices.containsKey(issueKey),
+                    collapseEpoch: _collapseEpoch,
+                    onExpandedChanged: (expanded) {
+                      setState(() {
+                        if (expanded) {
+                          // 0→1 transition: capture snapshot before
+                          // recording the expand entry so the class
+                          // invariant (snapshot != null ↔ map not
+                          // empty) holds at every observable state.
+                          if (_expandedIndices.isEmpty) {
+                            _orderSnapshot = List<PerformanceIssue>.of(
+                              capturedVisibleIssues,
+                            );
+                          } else if (capturedIndex >
+                              _expandedIndices.values.reduce(math.max)) {
+                            // The zone grows past the snapshot's frozen
+                            // slice, whose tail may no longer match the rows
+                            // on screen. Re-capture what the user sees so
+                            // the new index points into the list it came
+                            // from.
+                            final snapshot = List<PerformanceIssue>.of(
+                              capturedOrdered,
+                            );
+                            _repointExpansions(snapshot);
+                            _orderSnapshot = snapshot;
+                          }
+                          _expandedIndices[issueKey] = capturedIndex;
+                        } else {
+                          _expandedIndices.remove(issueKey);
+                          // 1→0 transition: release the snapshot so
+                          // the next expand captures a fresh one from
+                          // whatever the ranker currently shows. The
+                          // order on screen becomes the held order, so
+                          // nothing moves under the finger; a pending
+                          // change waits for the next quiet period.
+                          if (_expandedIndices.isEmpty) {
+                            _orderSnapshot = null;
+                            _heldKeys = [
+                              ...{
+                                for (final i in capturedOrdered) listKeyFor(i),
+                              },
+                            ];
+                          }
+                        }
+                      });
+                    },
+                    locatable: locatable,
+                    highlighted: isHighlighted,
+                    onHighlightChanged: locatable
+                        ? (checked) =>
+                              _onHighlightChanged(checked, issueKey, issue)
+                        : null,
+                    jankCorrelated: _cachedJankKeys.contains(
+                      issue.stableId ?? issue.title,
+                    ),
+                    jankFlash: false,
+                    downstreamIssues: downstream,
+                    parentIssues: parents,
+                    suppressedParentCount: suppressedParentCount,
+                    onLearnMore:
+                        IssueExplanationBuilder.explain(issue.stableId) != null
+                        ? () => setState(() {
+                            _detailStableId = issue.stableId;
+                            _detailContextIssue = issue;
+                            _showDetail = true;
+                            _layerOpener = issueKey;
+                          })
+                        : null,
+                    onAskAi: widget.controller.config.aiChat != null
+                        ? () => setState(() {
+                            _chatIssueKey = _chatKeyFor(issue);
+                            _chatIssue = issue;
+                            _showAiChat = true;
+                            _layerOpener = issueKey;
+                          })
+                        : null,
+                    onCopy: () => _copyIssue(issue),
+                    onHide: () => _hideIssue(issue),
+                    isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
+                  );
+                },
               ),
             ),
           ),
         );
-      },
-    );
+        // The list keeps its place in the tree whether or not the row
+        // shows, so a scan that only flips the row keeps the scroll offset
+        // and each card's state.
+        return Column(
+          children: [
+            if (model.narrowed)
+              _ShowingRow(
+                shown: visibleIssues.length,
+                total: model.unfiltered.length,
+                onShowAll: _showAllSeverities,
+              ),
+            Expanded(key: const ValueKey('issue-list'), child: list),
+          ],
+        );
+      }
+    }
   }
 }
 
 // ─── Status Row ─────────────────────────────────────────────────────────
 
-enum _LineSlot { lead, trail }
-
-/// [lead] at the start and [trail] at the end of one line, vertically
-/// centred; when they do not fit side by side, [trail] moves below
-/// [lead] and stays at the end.
-class _LeadTrailLine
-    extends SlottedMultiChildRenderObjectWidget<_LineSlot, RenderBox> {
-  const _LeadTrailLine({
-    required this.lead,
-    required this.trail,
-    required this.gap,
-  });
-
-  final Widget lead;
-  final Widget trail;
-
-  /// Smallest horizontal gap between [lead] and [trail] on one line.
-  final double gap;
-
-  @override
-  Iterable<_LineSlot> get slots => _LineSlot.values;
-
-  @override
-  Widget? childForSlot(_LineSlot slot) => switch (slot) {
-    _LineSlot.lead => lead,
-    _LineSlot.trail => trail,
-  };
-
-  @override
-  _RenderLeadTrailLine createRenderObject(BuildContext context) =>
-      _RenderLeadTrailLine(gap);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    _RenderLeadTrailLine renderObject,
-  ) {
-    renderObject.gap = gap;
-  }
-}
-
-class _RenderLeadTrailLine extends RenderBox
-    with SlottedContainerRenderObjectMixin<_LineSlot, RenderBox> {
-  _RenderLeadTrailLine(this._gap);
-
-  double _gap;
-  set gap(double value) {
-    if (value == _gap) return;
-    _gap = value;
-    markNeedsLayout();
-  }
-
-  RenderBox? get _lead => childForSlot(_LineSlot.lead);
-  RenderBox? get _trail => childForSlot(_LineSlot.trail);
-
-  Size _layout(
-    BoxConstraints constraints,
-    ChildLayouter layoutChild, {
-    bool position = false,
-  }) {
-    final lead = _lead;
-    final trail = _trail;
-    final loose = constraints.loosen();
-    final leadSize = lead == null ? Size.zero : layoutChild(lead, loose);
-    final trailSize = trail == null ? Size.zero : layoutChild(trail, loose);
-    final oneLineWidth = leadSize.width + _gap + trailSize.width;
-    final width = constraints.hasBoundedWidth
-        ? constraints.maxWidth
-        : oneLineWidth;
-    final oneLine = oneLineWidth <= width;
-    final height = oneLine
-        ? math.max(leadSize.height, trailSize.height)
-        : leadSize.height + trailSize.height;
-    if (position) {
-      final trailX = math.max(0.0, width - trailSize.width);
-      if (lead != null) {
-        (lead.parentData! as BoxParentData).offset = Offset(
-          0,
-          oneLine ? (height - leadSize.height) / 2 : 0,
-        );
-      }
-      if (trail != null) {
-        (trail.parentData! as BoxParentData).offset = Offset(
-          trailX,
-          oneLine ? (height - trailSize.height) / 2 : leadSize.height,
-        );
-      }
+/// The cards behind the status row and the list, worked out once per
+/// issue change: severity filter, then collapse, then hide.
+class _ListModel {
+  _ListModel(this.issues, OverlayUiState ui) {
+    visible = ui.visibleIssues(issues);
+    final allSeverities = {...IssueSeverity.values};
+    unfiltered = applyOverlayFilters(
+      issues,
+      severities: allSeverities,
+      hiddenKeys: ui.hiddenKeys,
+    );
+    // The default-state list (every severity, nothing hidden). Stale
+    // hidden keys that match nothing leave it unchanged.
+    unhidden = applyOverlayFilters(
+      issues,
+      severities: allSeverities,
+      hiddenKeys: const {},
+    );
+    // A chip counts the cards its severity shows under the current
+    // filter. Turning a severity off can surface an effect that was
+    // collapsed under one of its cards, so a disabled severity is counted
+    // with itself added to the filter.
+    for (final issue in visible) {
+      severityCounts.update(issue.severity, (n) => n + 1, ifAbsent: () => 1);
     }
-    return constraints.constrain(Size(width, height));
-  }
-
-  @override
-  Size computeDryLayout(covariant BoxConstraints constraints) =>
-      _layout(constraints, ChildLayoutHelper.dryLayoutChild);
-
-  @override
-  void performLayout() {
-    size = _layout(constraints, ChildLayoutHelper.layoutChild, position: true);
-  }
-
-  @override
-  double computeMinIntrinsicWidth(double height) => math.max(
-    _lead?.getMinIntrinsicWidth(height) ?? 0,
-    _trail?.getMinIntrinsicWidth(height) ?? 0,
-  );
-
-  @override
-  double computeMaxIntrinsicWidth(double height) =>
-      (_lead?.getMaxIntrinsicWidth(height) ?? 0) +
-      _gap +
-      (_trail?.getMaxIntrinsicWidth(height) ?? 0);
-
-  double _intrinsicHeight(double width, bool max) {
-    double h(RenderBox? box) => box == null
-        ? 0
-        : max
-        ? box.getMaxIntrinsicHeight(width)
-        : box.getMinIntrinsicHeight(width);
-    final fits = computeMaxIntrinsicWidth(double.infinity) <= width;
-    return fits ? math.max(h(_lead), h(_trail)) : h(_lead) + h(_trail);
-  }
-
-  @override
-  double computeMinIntrinsicHeight(double width) =>
-      _intrinsicHeight(width, false);
-
-  @override
-  double computeMaxIntrinsicHeight(double width) =>
-      _intrinsicHeight(width, true);
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    for (final child in children) {
-      final parentData = child.parentData! as BoxParentData;
-      context.paintChild(child, offset + parentData.offset);
-    }
-  }
-
-  @override
-  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
-    for (final child in children) {
-      final parentData = child.parentData! as BoxParentData;
-      final hit = result.addWithPaintOffset(
-        offset: parentData.offset,
-        position: position,
-        hitTest: (result, transformed) =>
-            child.hitTest(result, position: transformed),
+    for (final severity in IssueSeverity.values) {
+      if (ui.severityFilter.contains(severity)) continue;
+      final withSeverity = applyOverlayFilters(
+        issues,
+        severities: {...ui.severityFilter, severity},
+        hiddenKeys: ui.hiddenKeys,
       );
-      if (hit) return true;
+      severityCounts[severity] = withSeverity
+          .where((i) => i.severity == severity)
+          .length;
     }
-    return false;
   }
+
+  /// The reported issues.
+  final List<PerformanceIssue> issues;
+
+  /// The cards the list shows.
+  late final List<PerformanceIssue> visible;
+
+  /// The cards with every severity on and hidden cards left out.
+  late final List<PerformanceIssue> unfiltered;
+
+  /// The cards with every severity on and nothing hidden.
+  late final List<PerformanceIssue> unhidden;
+
+  final Map<IssueSeverity, int> severityCounts = {};
+
+  /// A severity filter leaves cards out. Hidden cards are counted in the
+  /// More menu, not here.
+  bool get narrowed => visible.length < unfiltered.length;
 }
 
-class _StatusRow extends StatefulWidget {
-  const _StatusRow({required this.controller});
+/// The row under the header: the severity chips, which are the headline
+/// and the filter, and the frame rate at the end.
+class _StatusRow extends StatelessWidget {
+  const _StatusRow({
+    required this.controller,
+    required this.chromeScale,
+    required this.severityCounts,
+    required this.enabledSeverities,
+    required this.onToggleSeverity,
+    required this.firstChipKey,
+  });
 
   final SleuthController controller;
 
-  @override
-  State<_StatusRow> createState() => _StatusRowState();
-}
+  /// Chrome text scale (1.0 to 1.3); the row's minimum height grows with
+  /// it.
+  final double chromeScale;
 
-class _StatusRowState extends State<_StatusRow> {
-  /// Minimum frames in the buffer before the primary numeral shows.
-  /// Shown as `—` while the buffer warms up so the first tick does not
-  /// flash a red 0.
-  static const int _warmupFrameCount = 3;
+  final Map<IssueSeverity, int> severityCounts;
+  final Set<IssueSeverity> enabledSeverities;
+  final ValueChanged<IssueSeverity> onToggleSeverity;
 
-  /// True when the user has tapped the info icon — reveals the Actual /
-  /// Throughput FPS detail row and short explainer.
-  bool _infoExpanded = false;
+  /// Goes on whichever chip comes first.
+  final GlobalKey firstChipKey;
 
-  SleuthController get controller => widget.controller;
+  static const _order = [
+    IssueSeverity.critical,
+    IssueSeverity.warning,
+    IssueSeverity.ok,
+  ];
 
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    // The FPS group and the VM+/FRAME and DBG badges wrap; the issue count
-    // stays at the right edge, below them when it does not fit beside.
+    // A disabled severity keeps its chip so it can be turned back on, even
+    // when it has no cards now.
+    final shown = [
+      for (final severity in _order)
+        if ((severityCounts[severity] ?? 0) > 0 ||
+            !enabledSeverities.contains(severity))
+          severity,
+    ];
     return SleuthTextScaleClamp(
       maxScaleFactor: kChromeMaxTextScale,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: theme.spacingLg),
-            child: _LeadTrailLine(
-              gap: theme.spacingXs,
-              lead: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: theme.spacingXs,
-                children: [
-                  _fpsGroup(theme),
-                  _modeBadge(theme),
-                  if (kDebugMode && controller.isDebugCallbacksActive)
-                    _badge(theme, 'DBG', theme.badgeDbgBg, theme.badgeDbgText),
-                ],
-              ),
-              trail: _issueCount(theme),
-            ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: _FloatingIssuesCardState._controlRowHeight * chromeScale,
+        ),
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: theme.spacingSm,
+            right: theme.spacingLg,
           ),
-          if (_infoExpanded) ...[
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                theme.spacingLg,
-                0,
-                theme.spacingLg,
-                theme.spacingXs,
-              ),
-              child: Text(
-                'TPUT (primary) estimates capacity from frame latency.\n'
-                'ACTUAL counts presented frames per second, so it is low when idle.',
-                style: TextStyle(
-                  color: theme.textTertiary,
-                  fontSize: theme.fontXs,
-                  height: 1.4,
-                ),
-              ),
-            ),
-            _ThroughputDetailRow(controller: controller),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // Primary numeral shows throughputFps (latency-derived) so idle screens
-  // read smooth — actualFps counts presented frames and drops to low
-  // values when Flutter is not repainting. True device rate is still
-  // exposed in the expanded detail row (ACTUAL cell) and the snapshot
-  // export.
-  Widget _fpsGroup(SleuthThemeData theme) {
-    return ValueListenableBuilder<FrameStatsBuffer>(
-      valueListenable: controller.frameStatsNotifier,
-      builder: (_, buffer, _) {
-        final target = controller.config.fpsTarget;
-        final isWarming = buffer.length < _warmupFrameCount;
-        final fps = buffer.throughputFps.clamp(0.0, target.toDouble());
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              isWarming ? '—' : fps.toStringAsFixed(0),
-              style: TextStyle(
-                color: isWarming
-                    ? theme.textTertiary
-                    : theme.fpsTextColor(fps, target: target),
-                fontSize: theme.fontXxl,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(width: theme.spacingXxs),
-            Text(
-              'FPS',
-              style: TextStyle(
-                color: theme.textTertiary,
-                fontSize: theme.fontSm,
-              ),
-            ),
-            Semantics(
-              label: _infoExpanded
-                  ? 'Hide FPS explainer'
-                  : 'Show FPS explainer',
-              button: true,
-              expanded: _infoExpanded,
-              child: GestureDetector(
-                onTap: () => setState(() => _infoExpanded = !_infoExpanded),
-                behavior: HitTestBehavior.opaque,
-                child: SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Center(
-                    child: Icon(
-                      Icons.info_outline,
-                      size: 14,
-                      color: theme.textQuaternary,
-                    ),
+          // One line: the chips scroll sideways when they do not fit, so
+          // the row keeps its height in a squeezed card and the frame rate
+          // stays at the end.
+          child: Row(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final (i, severity) in shown.indexed)
+                        Padding(
+                          padding: EdgeInsets.only(right: theme.spacingXxs),
+                          child: _SeverityChip(
+                            key: i == 0 ? firstChipKey : null,
+                            severity: severity,
+                            count: severityCounts[severity] ?? 0,
+                            selected: enabledSeverities.contains(severity),
+                            onTap: () => onToggleSeverity(severity),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  /// VM+ when the VM service is connected, FRAME otherwise.
-  Widget _modeBadge(SleuthThemeData theme) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: controller.vmConnectedNotifier,
-      builder: (_, connected, _) => _badge(
-        theme,
-        connected ? 'VM+' : 'FRAME',
-        connected ? theme.badgeVmBg : theme.badgeFrameBg,
-        connected ? theme.badgeVmText : theme.badgeFrameText,
-      ),
-    );
-  }
-
-  Widget _badge(SleuthThemeData theme, String label, Color bg, Color fg) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(theme.radiusLg),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: fg,
-            fontSize: theme.fontXxs,
-            fontWeight: FontWeight.bold,
+              SizedBox(width: theme.spacingSm),
+              _FpsText(controller: controller),
+            ],
           ),
         ),
       ),
     );
   }
+}
 
-  /// Issue count with a severity dot.
-  Widget _issueCount(SleuthThemeData theme) {
-    return ValueListenableBuilder<List<PerformanceIssue>>(
-      valueListenable: controller.issuesNotifier,
-      builder: (_, issues, _) {
-        if (issues.isEmpty) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.check_circle, color: theme.severityOk, size: 14),
-              SizedBox(width: theme.spacingXs),
-              Text(
-                '0 issues',
-                style: TextStyle(
-                  color: theme.severityOkText,
-                  fontSize: theme.fontMd,
-                ),
-              ),
-            ],
-          );
-        }
-        final hasCritical = issues.any(
-          (i) => i.severity == IssueSeverity.critical,
-        );
-        final severityColor = hasCritical
-            ? theme.severityCritical
-            : theme.severityWarning;
-        final severityText = hasCritical
-            ? theme.severityCriticalText
-            : theme.severityWarningText;
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: severityColor,
-                shape: BoxShape.circle,
-              ),
-              child: const SizedBox(width: 8, height: 8),
+/// The frame rate at the end of the status row: the throughput estimate,
+/// which stays steady on an idle screen, or a dash while the first frames
+/// arrive.
+class _FpsText extends StatelessWidget {
+  const _FpsText({required this.controller});
+
+  final SleuthController controller;
+
+  /// Frames in the buffer before a rate shows.
+  static const int _warmupFrameCount = 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    return ValueListenableBuilder<FrameStatsBuffer>(
+      valueListenable: controller.frameStatsNotifier,
+      builder: (_, buffer, _) {
+        final target = controller.config.fpsTarget;
+        final warming = buffer.length < _warmupFrameCount;
+        final fps = buffer.throughputFps
+            .clamp(0.0, target.toDouble())
+            .toStringAsFixed(0);
+        // A container, or the label lands on the overlay's full-screen node.
+        return Semantics(
+          container: true,
+          label: warming ? 'Frame rate pending' : '$fps frames per second',
+          excludeSemantics: true,
+          child: Text(
+            warming ? '— fps' : '$fps fps',
+            style: TextStyle(
+              color: theme.textTertiary,
+              fontSize: theme.fontBase,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
-            SizedBox(width: theme.spacingXs),
-            Text(
-              '${issues.length} issue${issues.length == 1 ? '' : 's'}',
-              style: TextStyle(color: severityText, fontSize: theme.fontMd),
-            ),
-          ],
+          ),
         );
       },
     );
   }
 }
 
-/// Expanded-card detail row showing actualFps alongside throughputFps.
-/// Visible only when the user taps the info icon on `_StatusRow`.
-class _ThroughputDetailRow extends StatelessWidget {
-  const _ThroughputDetailRow({required this.controller});
-  final SleuthController controller;
+/// How much of the run label the header has room for.
+enum _RunLabelSize {
+  /// "Profile · VM".
+  full,
+
+  /// "Profile".
+  short,
+
+  /// The dot alone.
+  dot,
+}
+
+/// The header's run label: how the app was built and whether Sleuth has
+/// its VM service link, with a dot in the severity text colours.
+class _RunLabel extends StatelessWidget {
+  const _RunLabel({
+    required this.mode,
+    required this.vmConnected,
+    required this.size,
+  });
+
+  /// "Debug" or "Profile".
+  final String mode;
+  final bool vmConnected;
+  final _RunLabelSize size;
+
+  static TextStyle textStyle(SleuthThemeData theme) => TextStyle(
+    color: theme.textSecondary,
+    fontSize: theme.fontXs,
+    fontWeight: FontWeight.w600,
+  );
+
+  /// The full label's text.
+  static String text(String mode, bool vmConnected) =>
+      '$mode · ${vmConnected ? 'VM' : 'no VM'}';
+
+  /// Width the pill adds around its text: padding, border, dot and gap.
+  static double chromeWidth(SleuthThemeData theme) =>
+      2 * theme.spacingMd + 2 + _dot + theme.spacingXs;
+
+  static const double _dot = 7;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    return Semantics(
+      label: '$mode run, ${vmConnected ? 'VM connected' : 'no VM link'}',
+      excludeSemantics: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: theme.cardDivider),
+          borderRadius: BorderRadius.circular(theme.radiusXxl),
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: theme.spacingMd,
+            vertical: theme.spacingXxs,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Filled with the VM, a ring without it, so the state does
+              // not rest on colour once the text is shortened.
+              DecoratedBox(
+                decoration: vmConnected
+                    ? BoxDecoration(
+                        color: theme.severityOkText,
+                        shape: BoxShape.circle,
+                      )
+                    : BoxDecoration(
+                        border: Border.all(
+                          color: theme.severityWarningText,
+                          width: 1.5,
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                child: const SizedBox(width: _dot, height: _dot),
+              ),
+              if (size != _RunLabelSize.dot) ...[
+                SizedBox(width: theme.spacingXs),
+                Text(
+                  size == _RunLabelSize.short ? mode : text(mode, vmConnected),
+                  style: textStyle(theme),
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Showing X of Y" above the list while a severity is turned off, with
+/// Show all, which turns every severity back on.
+class _ShowingRow extends StatelessWidget {
+  const _ShowingRow({
+    required this.shown,
+    required this.total,
+    required this.onShowAll,
+  });
+
+  final int shown;
+  final int total;
+  final VoidCallback onShowAll;
 
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        theme.spacingLg,
-        0,
-        theme.spacingLg,
-        theme.spacingXs,
-      ),
-      child: ValueListenableBuilder<FrameStatsBuffer>(
-        valueListenable: controller.frameStatsNotifier,
-        builder: (_, buffer, _) {
-          final target = controller.config.fpsTarget;
-          final actual = buffer.actualFps.clamp(0.0, target.toDouble());
-          final throughput = buffer.throughputFps.clamp(0.0, target.toDouble());
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _FpsCell(value: actual, target: target, label: 'ACTUAL'),
-              SizedBox(width: theme.spacingLg),
-              _FpsCell(value: throughput, target: target, label: 'TPUT'),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _FpsCell extends StatelessWidget {
-  const _FpsCell({
-    required this.value,
-    required this.target,
-    required this.label,
-  });
-  final double value;
-  final int target;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = SleuthTheme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value.toStringAsFixed(0),
-          style: TextStyle(
-            color: theme.fpsTextColor(value, target: target),
-            fontSize: theme.fontXxl,
-            fontWeight: FontWeight.bold,
+      padding: EdgeInsets.only(left: theme.spacingLg, right: theme.spacingXs),
+      child: Row(
+        children: [
+          Expanded(
+            // Read out when a chip changes the count.
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                'Showing $shown of $total',
+                style: TextStyle(
+                  color: theme.textSecondary,
+                  fontSize: theme.fontMd,
+                ),
+              ),
+            ),
           ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            color: theme.textTertiary,
-            fontSize: theme.fontXs,
-            letterSpacing: 0.5,
+          Semantics(
+            button: true,
+            label: 'Show all',
+            onTap: onShowAll,
+            container: true,
+            excludeSemantics: true,
+            child: GestureDetector(
+              onTap: onShowAll,
+              behavior: HitTestBehavior.opaque,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
+                  child: Center(
+                    widthFactor: 1,
+                    child: Text(
+                      'Show all',
+                      style: TextStyle(
+                        color: theme.checkboxActive,
+                        fontSize: theme.fontMd,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -3133,343 +3433,20 @@ class _WarningBanners extends StatelessWidget {
   }
 }
 
-// ─── Card Footer ────────────────────────────────────────────────────────
-
-/// Footer text for [hidden] runtime-hidden and [suppressed]
-/// config-suppressed issues, e.g. `2 hidden · 3 suppressed`; a part is
-/// omitted when its count is 0, and null when both are.
-@visibleForTesting
-String? hiddenFooterLabel(int hidden, int suppressed) {
-  final parts = [
-    if (hidden > 0) '$hidden hidden',
-    if (suppressed > 0) '$suppressed suppressed',
-  ];
-  return parts.isEmpty ? null : parts.join(' · ');
-}
-
-class _CardFooter extends StatelessWidget {
-  const _CardFooter({
-    required this.controller,
-    required this.hiddenCount,
-    required this.onShowHidden,
-    required this.onExport,
-    required this.onEncyclopedia,
-    required this.onGuide,
-  });
-
-  final SleuthController controller;
-
-  /// Issues hidden from the overlay at runtime.
-  final int hiddenCount;
-
-  /// Opens the Hidden list.
-  final VoidCallback onShowHidden;
-  final VoidCallback onExport;
-  final VoidCallback onEncyclopedia;
-  final VoidCallback onGuide;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = SleuthTheme.of(context);
-    return Container(
-      width: double.infinity,
-      // The right inset leaves the corner to the 48 px resize handle.
-      padding: EdgeInsets.only(left: theme.spacingMd, right: 48),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: theme.border, width: 1)),
-      ),
-      child: SleuthTextScaleClamp(
-        maxScaleFactor: kChromeMaxTextScale,
-        // The hidden-issues action moves to a row of its own when it does
-        // not fit beside the three buttons (a narrow card, large text), so
-        // it keeps a 48 x 48 target and its whole label.
-        child: Wrap(
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Semantics(
-              label: 'Encyclopedia',
-              button: true,
-              child: GestureDetector(
-                onTap: onEncyclopedia,
-                behavior: HitTestBehavior.opaque,
-                child: SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Center(
-                    child: Icon(
-                      Icons.menu_book_outlined,
-                      color: theme.textTertiary,
-                      size: 16,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Semantics(
-              label: 'Export',
-              button: true,
-              child: GestureDetector(
-                onTap: onExport,
-                behavior: HitTestBehavior.opaque,
-                child: SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Center(
-                    child: Icon(
-                      Icons.ios_share,
-                      color: theme.textTertiary,
-                      size: 16,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Semantics(
-              label: 'Guide',
-              button: true,
-              child: GestureDetector(
-                onTap: onGuide,
-                behavior: HitTestBehavior.opaque,
-                child: SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Center(
-                    child: Icon(
-                      Icons.help_outline,
-                      color: theme.textTertiary,
-                      size: 16,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            ValueListenableBuilder<int>(
-              valueListenable: controller.suppressedCountNotifier,
-              builder: (_, suppressed, _) {
-                final label = hiddenFooterLabel(hiddenCount, suppressed);
-                if (label == null) return const SizedBox.shrink();
-                return Semantics(
-                  button: true,
-                  label: '$label. Show hidden issues',
-                  onTap: onShowHidden,
-                  container: true,
-                  excludeSemantics: true,
-                  child: GestureDetector(
-                    onTap: onShowHidden,
-                    behavior: HitTestBehavior.opaque,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        minWidth: 48,
-                        minHeight: 48,
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.only(left: theme.spacingMd),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: 1,
-                          // On a row of its own the label wraps rather
-                          // than ellipsizes.
-                          child: Text(
-                            label,
-                            style: TextStyle(
-                              color: theme.textQuaternary,
-                              fontSize: theme.fontSm,
-                              decoration: TextDecoration.underline,
-                              decorationColor: theme.textQuaternary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Issues Summary Bar ──────────────────────────────────────────────────
-
-class _IssuesSummaryBar extends StatelessWidget {
-  const _IssuesSummaryBar({
-    required this.chromeScale,
-    required this.issues,
-    required this.severityCounts,
-    required this.enabledSeverities,
-    required this.shownOfTotal,
-    required this.onToggleSeverity,
-  });
-
-  /// Cards currently shown; drives the confirmed/heuristic split.
-  final List<PerformanceIssue> issues;
-
-  /// Cards of each severity the list shows with that severity enabled
-  /// and the others as they are (hidden cards excluded); drives the chip
-  /// counts.
-  final Map<IssueSeverity, int> severityCounts;
-
-  final Set<IssueSeverity> enabledSeverities;
-
-  /// Set when a severity is off or a card is hidden: shown and total
-  /// card counts for "Showing X of Y".
-  final ({int shown, int total})? shownOfTotal;
-
-  final ValueChanged<IssueSeverity> onToggleSeverity;
-
-  /// Chrome text scale (1.0 to 1.3); the bar grows with it.
-  final double chromeScale;
-
-  static const _order = [
-    IssueSeverity.critical,
-    IssueSeverity.warning,
-    IssueSeverity.ok,
-  ];
-
-  /// Height the bar takes from the list at 1.0x text.
-  static const double barHeight = 36;
-
-  /// Minimum height of the chips' hit boxes.
-  static const double minHitHeight = 48;
-
-  /// Bar height at [chromeScale].
-  static double barHeightFor(double chromeScale) => barHeight * chromeScale;
-
-  /// Height of the chips' hit boxes at [chromeScale]: at least
-  /// [minHitHeight]. The part below the bar overlaps the top of the list
-  /// and takes taps only where a chip is.
-  static double hitHeightFor(double chromeScale) =>
-      math.max(minHitHeight, barHeightFor(chromeScale));
-
-  /// [summary] over [body]: [body] starts one bar height below the top,
-  /// and [summary] is laid over it so the chips keep their hit boxes
-  /// without taking more height from the list.
-  static Widget above({
-    required double chromeScale,
-    required Widget summary,
-    required Widget body,
-  }) => Stack(
-    children: [
-      Positioned.fill(top: barHeightFor(chromeScale), child: body),
-      Positioned(
-        top: 0,
-        left: 0,
-        right: 0,
-        height: hitHeightFor(chromeScale),
-        child: SleuthTextScaleClamp(
-          maxScaleFactor: kChromeMaxTextScale,
-          child: summary,
-        ),
-      ),
-    ],
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = SleuthTheme.of(context);
-    final counts = severityCounts;
-    var confirmed = 0;
-    var heuristic = 0;
-    for (final issue in issues) {
-      if (issue.confidence == IssueConfidence.confirmed) {
-        confirmed++;
-      } else {
-        heuristic++;
-      }
-    }
-    final narrowed = shownOfTotal;
-    final caption = narrowed != null
-        ? 'Showing ${narrowed.shown} of ${narrowed.total}'
-        : [
-            if (confirmed > 0) '$confirmed confirmed',
-            if (heuristic > 0) '$heuristic heuristic',
-          ].join(' · ');
-
-    // Only the chips take taps; the rest of the hit box lets them through
-    // to the list below.
-    final bar = barHeightFor(chromeScale);
-    return Stack(
-      children: [
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          height: bar,
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: theme.border, width: 1),
-                ),
-              ),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final severity in _order)
-                  // A disabled severity keeps its chip so it can be
-                  // turned back on, even when it has no cards right now.
-                  if ((counts[severity] ?? 0) > 0 ||
-                      !enabledSeverities.contains(severity))
-                    _SeverityChip(
-                      chromeScale: chromeScale,
-                      severity: severity,
-                      count: counts[severity] ?? 0,
-                      selected: enabledSeverities.contains(severity),
-                      onTap: () => onToggleSeverity(severity),
-                    ),
-                SizedBox(width: theme.spacingXs),
-                Expanded(
-                  child: IgnorePointer(
-                    child: SizedBox(
-                      height: bar,
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          caption,
-                          style: TextStyle(
-                            color: theme.textTertiary,
-                            fontSize: theme.fontSm,
-                          ),
-                          textAlign: TextAlign.right,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Severity count in the summary bar that toggles the overlay's severity
-/// filter. The hit box is 48 x 48 at least; the pill sits centred in the
-/// bar's visible height.
+/// A severity chip in the status row: the count and its word, which
+/// toggles the severity filter. On, it is filled and shows the filled
+/// severity icon; off, it is outlined in [SleuthThemeData.textQuaternary]
+/// with the outlined icon, so the state does not rest on colour alone. The
+/// hit box is at least 48 x 48.
 class _SeverityChip extends StatelessWidget {
   const _SeverityChip({
-    required this.chromeScale,
+    super.key,
     required this.severity,
     required this.count,
     required this.selected,
     required this.onTap,
   });
 
-  final double chromeScale;
   final IssueSeverity severity;
   final int count;
   final bool selected;
@@ -3478,12 +3455,24 @@ class _SeverityChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    final color = theme.severityColor(severity);
+    final accent = theme.severityColor(severity);
+    final tinted = theme.severityTextColor(severity);
     final name = switch (severity) {
       IssueSeverity.critical => 'critical',
       IssueSeverity.warning => 'warning',
       IssueSeverity.ok => 'ok',
     };
+    final icon = switch ((severity, selected)) {
+      (IssueSeverity.critical, true) => Icons.error,
+      (IssueSeverity.critical, false) => Icons.error_outline,
+      (IssueSeverity.warning, true) => Icons.warning,
+      (IssueSeverity.warning, false) => Icons.warning_amber,
+      (IssueSeverity.ok, true) => Icons.check_circle,
+      (IssueSeverity.ok, false) => Icons.check_circle_outline,
+    };
+    final foreground = selected
+        ? theme.badgeTextOn(accent, tinted: tinted)
+        : theme.textTertiary;
     return Semantics(
       button: true,
       selected: selected,
@@ -3495,157 +3484,49 @@ class _SeverityChip extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minWidth: _IssuesSummaryBar.minHitHeight,
-          ),
-          child: SizedBox(
-            height: _IssuesSummaryBar.hitHeightFor(chromeScale),
-            child: Align(
-              alignment: Alignment.topCenter,
-              widthFactor: 1,
-              child: SizedBox(
-                height: _IssuesSummaryBar.barHeightFor(chromeScale),
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          child: Center(
+            widthFactor: 1,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 30),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: selected ? theme.badgeFill(accent) : null,
+                  borderRadius: BorderRadius.circular(theme.radiusFull),
+                  border: Border.all(
+                    color: selected ? tinted : theme.textQuaternary,
+                    width: 1.5,
+                  ),
+                ),
                 child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: theme.spacingXxs),
-                  child: Center(
-                    widthFactor: 1,
-                    child: _SeverityChipPill(
-                      color: color,
-                      textColor: theme.badgeTextOn(
-                        color,
-                        tinted: theme.severityTextColor(severity),
+                  padding: EdgeInsets.only(
+                    left: theme.spacingSm,
+                    right: theme.spacingMd,
+                    top: theme.spacingXs,
+                    bottom: theme.spacingXs,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 14, color: foreground),
+                      SizedBox(width: theme.spacingXs),
+                      Text(
+                        '$count $name',
+                        style: TextStyle(
+                          color: foreground,
+                          fontSize: theme.fontLg,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
                       ),
-                      indicatorColor: theme.severityTextColor(severity),
-                      count: count,
-                      selected: selected,
-                    ),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The visible pill of a [_SeverityChip]; animates between selected
-/// (severity fill at [SleuthThemeData.badgeFillAlpha], a 1.5 px border in
-/// [indicatorColor]) and unselected (border token at 0.5, muted text) over
-/// 200 ms, or at once under reduced motion. A check before the count marks
-/// a selected chip and a dot an unselected one, so the state does not rest
-/// on colour alone.
-class _SeverityChipPill extends StatefulWidget {
-  const _SeverityChipPill({
-    required this.color,
-    required this.textColor,
-    required this.indicatorColor,
-    required this.count,
-    required this.selected,
-  });
-
-  final Color color;
-
-  /// Count and check colour when selected.
-  final Color textColor;
-
-  /// Border colour when selected: 3:1 or more against the card.
-  final Color indicatorColor;
-  final int count;
-  final bool selected;
-
-  @override
-  State<_SeverityChipPill> createState() => _SeverityChipPillState();
-}
-
-class _SeverityChipPillState extends State<_SeverityChipPill>
-    with SingleTickerProviderStateMixin {
-  static const Duration _lerp = Duration(milliseconds: 200);
-
-  late final AnimationController _selection = AnimationController(
-    vsync: this,
-    duration: _lerp,
-    value: widget.selected ? 1 : 0,
-  )..addListener(_tick);
-
-  void _tick() => setState(() {});
-
-  /// Reduced motion turned on mid-change finishes it.
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    settleIfMotionReduced(context, _selection);
-  }
-
-  @override
-  void didUpdateWidget(_SeverityChipPill oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.selected != oldWidget.selected) {
-      _selection.duration = motionDuration(context, _lerp);
-      if (widget.selected) {
-        _selection.forward();
-      } else {
-        _selection.reverse();
-      }
-      settleOnReducedMotion(context, _selection);
-    }
-  }
-
-  @override
-  void dispose() {
-    _selection.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = SleuthTheme.of(context);
-    final t = _selection.value;
-    final color = widget.color;
-    final foreground = Color.lerp(theme.textQuaternary, widget.textColor, t)!;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: theme.badgeFillAlpha * t),
-        borderRadius: BorderRadius.circular(theme.radiusMd),
-        border: Border.all(
-          // High contrast keeps the unselected border at full strength.
-          color: Color.lerp(
-            theme.border.withValues(alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.5),
-            widget.indicatorColor,
-            t,
-          )!,
-          width: 1 + 0.5 * t,
-        ),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: theme.spacingSm,
-          vertical: theme.spacingXxs,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (widget.selected)
-              Icon(Icons.check, size: 10, color: foreground)
-            else
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: foreground,
-                  shape: BoxShape.circle,
-                ),
-                child: const SizedBox(width: 6, height: 6),
-              ),
-            const SizedBox(width: 3),
-            Text(
-              '${widget.count}',
-              style: TextStyle(
-                color: foreground,
-                fontSize: theme.fontSm,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -3751,576 +3632,4 @@ class _CornerGripPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _CornerGripPainter oldDelegate) =>
       gripColor != oldDelegate.gripColor;
-}
-
-// ─── Startup Metrics Banner ─────────────────────────────────────────────
-
-class _StartupMetricsBanner extends StatelessWidget {
-  const _StartupMetricsBanner({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final metrics = Sleuth.startupMetrics;
-    if (metrics == null) return const SizedBox.shrink();
-
-    final theme = SleuthTheme.of(context);
-    final parts = <String>[];
-    if (metrics.ttffMs != null) {
-      parts.add('TTFF: ${metrics.ttffMs!.round()} ms');
-    }
-    if (metrics.ttiMs != null) {
-      parts.add('TTI: ${metrics.ttiMs!.round()} ms');
-    }
-    if (parts.isEmpty) return const SizedBox.shrink();
-
-    final color = theme.categoryStartup;
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Semantics(
-        label: 'Startup metrics, tap for details',
-        button: true,
-        child: DecoratedBox(
-          decoration: BoxDecoration(color: color.withValues(alpha: 0.1)),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: theme.spacingSm,
-              vertical: theme.spacingXxs,
-            ),
-            // 48 px tall target; the banners scroll when the card is short.
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 48),
-              child: Row(
-                children: [
-                  Icon(Icons.rocket_launch_outlined, size: 12, color: color),
-                  SizedBox(width: theme.spacingXs),
-                  Expanded(
-                    child: Text(
-                      parts.join(' \u00B7 '),
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: theme.fontSm,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 14,
-                    color: color.withValues(alpha: 0.6),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Always-on entry point to the per-route rebuild data. Renders an inline
-/// banner whenever the active [RouteSession] has any rebuild attribution,
-/// regardless of whether any detector has emitted a warning. This is the
-/// sole data-discovery surface for rebuild stats since v0.15.2 — the
-/// previous `rebuild_hotspot_summary` rollup IssueCard was removed because
-/// (a) the panel covers both the data and the signal, (b) an always-pinned
-/// IssueCard collided with ranker reorders,
-/// and (c) profile-mode counts include first builds (inflations), which
-/// made route entry look like a
-/// warning storm in the issues list.
-///
-/// **Two states:**
-///
-/// * **Collapsed (default)** — single row with `Rebuilds: N across M
-///   widgets` + a chevron. Tap to expand.
-/// * **Expanded** — collapsed header + top-3 widget rows with rank, name,
-///   live-tweened count, and a normalised bar fill. A Pause toggle freezes
-///   the displayed counts so the user can read a stable snapshot. A
-///   `See all M →` link pushes the full [RebuildStatsPage] drilldown via
-///   the same snapshot-and-push handler the rollup card used to use.
-///
-/// **Reactivity:** rebuilds on every scan tick (`scanTickNotifier`, the
-/// pulse for rebuild-attribution updates) or when the active route session
-/// itself changes (`routeHistoryNotifier`, which fires on route push/pop
-/// and tab switches). The panel reads `controller.activeRouteSession` at
-/// build time, so the union of these two notifiers is sufficient — no
-/// extra per-frame work.
-///
-/// **Pause semantics:** when the user taps Pause, the panel snapshots
-/// `RouteSession.rebuildCountsByType` into [_frozenCounts] and renders
-/// from that map until the user taps Resume. If the route session
-/// changes while paused (auto-detected via [routeHistoryNotifier]), the
-/// freeze is automatically cleared so the user is never looking at
-/// stale data from a previous route — the new route's panel starts
-/// fresh in live mode.
-class _RebuildStatsBanner extends StatefulWidget {
-  const _RebuildStatsBanner({
-    required this.controller,
-    required this.onTap,
-    required this.onPauseDiscarded,
-  });
-
-  final SleuthController controller;
-
-  /// Called when the user taps `See all M →`. Reuses the same
-  /// snapshot-and-push code path the rollup IssueCard used before
-  /// v0.15.2 (`_FloatingIssuesCardState._onSeeAllRebuildsTap`), so the
-  /// drilldown's snapshot semantics are unchanged.
-  ///
-  /// When the panel is paused, the banner passes its [_frozenCounts] map
-  /// as [overrideCounts] so the drilldown opens against the same data the
-  /// user is currently reading on the panel — without this, a paused
-  /// panel showing N rebuilds would push a drilldown showing the live
-  /// (unfrozen) count, which is the snapshot-drift bug fixed in v0.15.2.
-  final void Function(Map<String, int>? overrideCounts) onTap;
-
-  /// Called when the panel auto-resumes due to a route change while the
-  /// user had it paused. The host card uses this to surface a transient
-  /// "Pause cleared — route changed" snackbar so the user is never
-  /// silently dropped from a frozen view back into live updates.
-  final VoidCallback onPauseDiscarded;
-
-  @override
-  State<_RebuildStatsBanner> createState() => _RebuildStatsBannerState();
-}
-
-class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
-  /// Collapsed by default per the v0.15.2 UX choice. The panel header
-  /// stays one row tall when nothing surprising is happening; the user
-  /// expands only when they want to inspect the breakdown.
-  bool _expanded = false;
-
-  /// True when the user has tapped Pause. Frozen counts in
-  /// [_frozenCounts] are rendered instead of the live session map.
-  bool _paused = false;
-
-  /// Snapshot copy of `session.rebuildCountsByType` taken at the moment
-  /// the user tapped Pause. Defensive copy so subsequent live mutations
-  /// to the session map cannot reorder rows or change totals while the
-  /// user is reading a frozen view. Cleared on Resume or on route change.
-  Map<String, int>? _frozenCounts;
-
-  /// Hoisted `Listenable.merge` so the panel attaches its
-  /// listeners exactly once instead of allocating a fresh merge wrapper
-  /// (which detaches and re-attaches both source listeners) on every
-  /// build. The panel rebuilds frequently — once per scan tick plus
-  /// once per route push/pop — so the per-build allocation showed up as
-  /// pointless churn in the listener path. Field is `late final` and
-  /// set in [initState] from the same two source notifiers that used
-  /// to be merged inline in `build()`.
-  late final Listenable _mergedListenable;
-
-  @override
-  void initState() {
-    super.initState();
-    _mergedListenable = Listenable.merge([
-      widget.controller.scanTickNotifier,
-      widget.controller.routeHistoryNotifier,
-    ]);
-    // Auto-resume on route change: a frozen view of route A's counts is
-    // confusing once the user has navigated to route B. The panel's
-    // listener clears the freeze the instant a new session is created,
-    // so the new route's panel starts fresh in live mode without the
-    // user having to manually tap Resume.
-    widget.controller.routeHistoryNotifier.addListener(_onRouteSessionChanged);
-  }
-
-  @override
-  void dispose() {
-    widget.controller.routeHistoryNotifier.removeListener(
-      _onRouteSessionChanged,
-    );
-    super.dispose();
-  }
-
-  void _onRouteSessionChanged() {
-    if (!mounted) return;
-    if (!_paused) return;
-    setState(() {
-      _paused = false;
-      _frozenCounts = null;
-    });
-    // Notify the host card so it can surface a transient
-    // "Pause cleared — route changed" snackbar. Without this signal the
-    // user comes back from a tab swap to find their pause silently gone.
-    widget.onPauseDiscarded();
-  }
-
-  void _toggleExpanded() {
-    setState(() => _expanded = !_expanded);
-  }
-
-  void _togglePause() {
-    setState(() {
-      if (_paused) {
-        _paused = false;
-        _frozenCounts = null;
-        return;
-      }
-      final session = widget.controller.activeRouteSession;
-      if (session == null) return;
-      _frozenCounts = Map<String, int>.of(session.rebuildCountsByType);
-      _paused = true;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SleuthListenableBuilder(
-      // Hoisted merge — see field declaration. Allocating
-      // `Listenable.merge(...)` inline here would re-create the wrapper
-      // on every build and detach/re-attach both source listeners.
-      listenable: _mergedListenable,
-      builder: (context) {
-        final session = widget.controller.activeRouteSession;
-        // Distinguish "no session" from "session exists but no
-        // counts" — the latter is debug-info-worthy when the user is
-        // expecting to see attribution. Both paths still suppress the
-        // panel from view, but with explicit reasons rather than a
-        // single silent SizedBox.shrink() that hides three different
-        // failure modes (null session, empty map, zero total).
-        if (session == null) return const SizedBox.shrink();
-        final liveCounts = session.rebuildCountsByType;
-        // Source-of-truth selection — frozen wins over live when paused.
-        final counts = _paused && _frozenCounts != null
-            ? _frozenCounts!
-            : liveCounts;
-        if (counts.isEmpty) return const SizedBox.shrink();
-        final total = counts.values.fold<int>(0, (a, b) => a + b);
-        if (total <= 0) return const SizedBox.shrink();
-        final widgetCount = counts.length;
-
-        // Sort once per build — counts are tiny (10s of entries at most)
-        // so this is cheap. Top-3 lifted out of the same sorted list to
-        // avoid a second pass.
-        final sorted = counts.entries.toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
-        final top = sorted.take(_topN).toList(growable: false);
-        final topMax = top.isNotEmpty ? top.first.value : 0;
-
-        final theme = SleuthTheme.of(context);
-        final color = theme.categoryBuild;
-
-        return DecoratedBox(
-          decoration: BoxDecoration(color: color.withValues(alpha: 0.1)),
-          // Tap-target compromise: tightened the panel's internal vertical
-          // padding (4 → 2) and the header→rows spacer (8 → 2) to
-          // reclaim the pixels spent on enlarged tap targets, so the
-          // expanded panel still fits the cramped 330dp overlay budget.
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              theme.spacingSm,
-              2,
-              theme.spacingSm,
-              2,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildHeaderRow(theme, color, total, widgetCount),
-                if (_expanded) ...[
-                  const SizedBox(height: 2),
-                  for (var i = 0; i < top.length; i++)
-                    _buildTopRow(
-                      theme: theme,
-                      color: color,
-                      rank: i + 1,
-                      typeName: top[i].key,
-                      count: top[i].value,
-                      barFraction: topMax == 0 ? 0.0 : top[i].value / topMax,
-                    ),
-                  _buildExpandedFooter(theme, color, widgetCount),
-                ],
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// v0.15.2 UX knob: the panel surfaces the top-3 rebuilders inline.
-  /// The full list is reachable via the `See all M →` drilldown link.
-  /// Three is the sweet spot for "scan-at-a-glance" — five rows turns
-  /// the panel into a list and competes with the issue cards below it.
-  static const int _topN = 3;
-
-  Widget _buildHeaderRow(
-    SleuthThemeData theme,
-    Color color,
-    int total,
-    int widgetCount,
-  ) {
-    final widgetWord = widgetCount == 1 ? 'widget' : 'widgets';
-    final summary = 'Rebuilds: $total across $widgetCount $widgetWord';
-    final pausedHint = _paused ? ', paused' : '';
-    final semanticsHint = _expanded
-        ? '$summary$pausedHint, expanded, tap to collapse'
-        : '$summary$pausedHint, collapsed, tap to expand';
-
-    return Semantics(
-      label: semanticsHint,
-      button: true,
-      // A full-width row at least 48 px tall; the banners scroll when the
-      // card is short. `HitTestBehavior.opaque` makes every pixel of the
-      // row hittable.
-      child: GestureDetector(
-        onTap: _toggleExpanded,
-        behavior: HitTestBehavior.opaque,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 48),
-          child: Row(
-            children: [
-              Icon(Icons.repeat, size: 12, color: color),
-              SizedBox(width: theme.spacingXs),
-              Expanded(
-                child: Text(
-                  summary,
-                  style: TextStyle(
-                    color: theme.textPrimary,
-                    fontSize: theme.fontSm,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              // Pause indicator on the COLLAPSED header. Without
-              // this, a user who pauses, collapses, and walks away has
-              // no visual signal that the displayed total is frozen.
-              if (!_expanded && _paused) ...[
-                SizedBox(width: theme.spacingXxs),
-                // A text token keeps the state icon at 3:1 or more on
-                // the tinted banner.
-                Icon(Icons.pause, size: 10, color: theme.textSecondary),
-              ],
-              if (_expanded) ...[
-                Semantics(
-                  label: _paused
-                      ? 'Resume live rebuild updates'
-                      : 'Pause live rebuild updates',
-                  button: true,
-                  // 48 x 48 hit box; the banners scroll when the card is
-                  // short. `HitTestBehavior.opaque` is critical: without it
-                  // the OUTER header GestureDetector would intercept
-                  // the tap when the finger lands on the padding rather
-                  // than on the icon glyph itself, toggling expansion
-                  // instead of pause/resume.
-                  child: SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: GestureDetector(
-                      onTap: _togglePause,
-                      behavior: HitTestBehavior.opaque,
-                      child: Center(
-                        child: Icon(
-                          _paused ? Icons.play_arrow : Icons.pause,
-                          size: 14,
-                          color: color,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              Icon(
-                _expanded ? Icons.expand_less : Icons.expand_more,
-                size: 14,
-                color: color.withValues(
-                  alpha: theme.badgeFillAlpha >= 1 ? 1 : 0.7,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopRow({
-    required SleuthThemeData theme,
-    required Color color,
-    required int rank,
-    required String typeName,
-    required int count,
-    required double barFraction,
-  }) {
-    // Tap-target compromise: per-row bottom gap tightened from spacingXxs (4dp)
-    // to 2dp so 3 rows reclaim 6dp toward the enlarged tap-target
-    // budget. The bar still has visible separation thanks to the row's
-    // intrinsic Text + bar layout.
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 18,
-                child: Text(
-                  '$rank.',
-                  style: TextStyle(
-                    color: theme.textTertiary,
-                    fontSize: theme.fontXs,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  typeName,
-                  style: TextStyle(
-                    color: theme.textPrimary,
-                    fontSize: theme.fontSm,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              SizedBox(width: theme.spacingXs),
-              // Animated count tween — when live counts move, the number
-              // smoothly interpolates so eye-catching frames don't feel
-              // like a glitch. 200ms matches Material's "short" duration
-              // — long enough to read, short enough not to lag behind a
-              // 1-second scan tick.
-              //
-              // `IntTween(begin: 0, end: count)` is the canonical
-              // pattern. On first appearance the row tweens from 0 → N;
-              // on subsequent rebuilds with a different `end`,
-              // TweenAnimationBuilder's `didUpdateWidget` substitutes
-              // the current animated value as the new `begin` and
-              // animates from the old end to the new one. The previous
-              // `IntTween(begin: count, end: count)` form happened to
-              // work because the substitution overwrites `begin`, but
-              // it misled the reader and set the wrong starting value
-              // when the row first appeared.
-              TweenAnimationBuilder<int>(
-                key: ValueKey(typeName),
-                tween: IntTween(begin: 0, end: count),
-                duration: motionDuration(
-                  context,
-                  const Duration(milliseconds: 200),
-                ),
-                builder: (context, value, _) => Text(
-                  '\u00d7$value',
-                  style: TextStyle(
-                    color: theme.textPrimary,
-                    fontSize: theme.fontSm,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          // Tap-target compromise: 1dp gap + 2dp bar (from 4dp + 3dp) reclaims
-          // 4dp/row × 3 rows = 12dp toward the enlarged tap-target
-          // budget. The bar is still a visible rule.
-          const SizedBox(height: 1),
-          Padding(
-            padding: const EdgeInsets.only(left: 18),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: SizedBox(
-                height: 2,
-                child: LinearProgressIndicator(
-                  value: barFraction.clamp(0.0, 1.0),
-                  backgroundColor: color.withValues(alpha: 0.15),
-                  valueColor: AlwaysStoppedAnimation<Color>(color),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExpandedFooter(
-    SleuthThemeData theme,
-    Color color,
-    int widgetCount,
-  ) {
-    // The "See all N →" link is only meaningful when the drilldown
-    // would actually surface widgets that are NOT already shown inline.
-    // With top-N = 3, a route with ≤ 3 widgets has nothing to drill into,
-    // so the link is suppressed to avoid a redundant tap target.
-    final showSeeAll = widgetCount > _topN;
-    return SleuthTextScaleClamp(
-      maxScaleFactor: kChromeMaxTextScale,
-      child: _expandedFooterRow(theme, color, widgetCount, showSeeAll),
-    );
-  }
-
-  Widget _expandedFooterRow(
-    SleuthThemeData theme,
-    Color color,
-    int widgetCount,
-    bool showSeeAll,
-  ) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        // Inflation footnote (profile counts include first builds), the
-        // short form of the disclaimer that the drilldown page renders in
-        // full. The inline panel only has room for a one-liner; users who
-        // need the full caveat (and the note that Sleuth's own overlay
-        // widgets are excluded) tap through to the drilldown.
-        Flexible(
-          child: Text(
-            'includes inflations',
-            style: TextStyle(
-              color: theme.textTertiary,
-              fontSize: theme.fontXxs,
-              fontStyle: FontStyle.italic,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        if (showSeeAll) ...[
-          SizedBox(width: theme.spacingSm),
-          Semantics(
-            label: 'See all $widgetCount rebuilds',
-            button: true,
-            // 48 px tall hit box. `HitTestBehavior.opaque` makes the
-            // whole padded box receive taps even where the text doesn't
-            // cover it.
-            child: SizedBox(
-              height: 48,
-              child: GestureDetector(
-                onTap: () {
-                  // Pass the panel's frozen snapshot through to the
-                  // drilldown when paused, so the drilldown opens against
-                  // the same data the user is reading on the panel.
-                  widget.onTap(_paused ? _frozenCounts : null);
-                },
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: theme.spacingXs),
-                  child: Center(
-                    widthFactor: 1,
-                    child: Text(
-                      'See all $widgetCount',
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: theme.fontXs,
-                        fontWeight: FontWeight.w600,
-                        decoration: TextDecoration.underline,
-                        decorationColor: theme.textPrimary,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
 }

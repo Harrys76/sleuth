@@ -6,6 +6,8 @@ import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 
+import '../helpers/overlay_harness.dart' show openMoreMenu;
+
 /// An issue with detector id [id] reported on [widget]; the title names
 /// the widget so the two cards can be told apart.
 PerformanceIssue _issue(
@@ -136,9 +138,8 @@ void main() {
     expect(find.text('Title B'), findsOneWidget);
   });
 
-  testWidgets('hiding one leaves the other visible; footer reads 1 hidden', (
-    tester,
-  ) async {
+  testWidgets('hiding one leaves the other visible; the More menu counts '
+      '1 hidden', (tester) async {
     controller.issuesNotifier.value = [
       _issue('dup', widget: 'A'),
       _issue('dup', widget: 'B'),
@@ -150,8 +151,9 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Title A'), findsNothing);
     expect(find.text('Title B'), findsOneWidget);
-    expect(find.text('1 hidden'), findsOneWidget);
     expect(controller.overlayUiState.hiddenKeys, {'dup|A'});
+    await openMoreMenu(tester);
+    expect(find.bySemanticsLabel('Hidden issues, 1'), findsOneWidget);
     await drainToasts(tester);
   });
 

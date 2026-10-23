@@ -82,7 +82,7 @@ TextScaler _cardScaler(WidgetTester tester) =>
 
 /// The status row is chrome, clamped again inside the card.
 TextScaler _chromeScaler(WidgetTester tester) =>
-    MediaQuery.textScalerOf(tester.element(find.text('FRAME')));
+    MediaQuery.textScalerOf(tester.element(find.textContaining('fps')));
 
 void main() {
   group('clampTextScaler', () {
@@ -215,8 +215,7 @@ void main() {
 
       // Pages and the Hidden list carry their own chrome clamps.
       for (final label in ['Encyclopedia', 'Guide']) {
-        await tester.tap(find.bySemanticsLabel(label));
-        await tester.pump();
+        await openFromMoreMenu(tester, label);
         await tester.pump(const Duration(milliseconds: 600));
         expect(tester.takeException(), isNull, reason: label);
         await systemBack(tester);
@@ -224,8 +223,7 @@ void main() {
       }
       controller.overlayUiState.hide('slow_request');
       await tester.pump();
-      await tester.tap(find.bySemanticsLabel('1 hidden. Show hidden issues'));
-      await tester.pump();
+      await openFromMoreMenu(tester, 'Hidden issues');
       await tester.pump(const Duration(milliseconds: 600));
       expect(tester.takeException(), isNull, reason: 'hidden page');
     });

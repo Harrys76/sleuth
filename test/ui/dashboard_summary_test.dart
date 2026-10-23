@@ -22,7 +22,7 @@ PerformanceIssue _testIssue({
 }
 
 void main() {
-  group('Issues summary bar', () {
+  group('Status row chips', () {
     late SleuthController controller;
 
     setUp(() {
@@ -42,27 +42,15 @@ void main() {
       );
     }
 
-    testWidgets('no issues — summary bar not rendered', (tester) async {
+    testWidgets('no issues: no severity chips', (tester) async {
       await tester.pumpWidget(buildCard());
 
-      // Empty state shown
       expect(find.textContaining('No issues detected'), findsOneWidget);
-      // "confirmed" text from summary bar should not be present
-      expect(find.textContaining('confirmed'), findsNothing);
+      expect(find.textContaining('critical'), findsNothing);
+      expect(find.textContaining('warning'), findsNothing);
     });
 
-    testWidgets('issues present — summary bar rendered', (tester) async {
-      controller.issuesNotifier.value = [
-        _testIssue(severity: IssueSeverity.critical, title: 'Issue 1'),
-        _testIssue(severity: IssueSeverity.warning, title: 'Issue 2'),
-      ];
-
-      await tester.pumpWidget(buildCard());
-
-      expect(find.textContaining('confirmed'), findsOneWidget);
-    });
-
-    testWidgets('severity counts are correct', (tester) async {
+    testWidgets('chips name each severity with its count', (tester) async {
       controller.issuesNotifier.value = [
         _testIssue(severity: IssueSeverity.critical, title: 'C1'),
         _testIssue(severity: IssueSeverity.critical, title: 'C2'),
@@ -71,65 +59,41 @@ void main() {
 
       await tester.pumpWidget(buildCard());
 
-      // Find the severity count texts in the summary bar.
-      // Critical count = 2, warning count = 1
-      final texts = tester.widgetList<Text>(find.byType(Text));
-      final countTexts = texts
-          .where(
-            (t) =>
-                t.style?.fontSize == 10 &&
-                t.style?.fontWeight == FontWeight.w600,
-          )
-          .map((t) => t.data)
-          .toList();
-
-      expect(countTexts, contains('2')); // 2 critical
-      expect(countTexts, contains('1')); // 1 warning
+      expect(find.text('2 critical'), findsOneWidget);
+      expect(find.text('1 warning'), findsOneWidget);
+      // A severity with no cards has no chip while it is on.
+      expect(find.textContaining(' ok'), findsNothing);
     });
 
-    testWidgets('evidence quality shows confirmed and heuristic counts', (
-      tester,
-    ) async {
+    testWidgets('no confidence caption under the chips', (tester) async {
       controller.issuesNotifier.value = [
-        _testIssue(confidence: IssueConfidence.confirmed, title: 'Confirmed 1'),
-        _testIssue(confidence: IssueConfidence.confirmed, title: 'Confirmed 2'),
-        _testIssue(confidence: IssueConfidence.possible, title: 'Possible 1'),
+        _testIssue(confidence: IssueConfidence.confirmed, title: 'Confirmed'),
+        _testIssue(confidence: IssueConfidence.possible, title: 'Possible'),
       ];
 
       await tester.pumpWidget(buildCard());
 
-      expect(find.textContaining('2 confirmed'), findsOneWidget);
-      expect(find.textContaining('1 heuristic'), findsOneWidget);
+      expect(find.textContaining('confirmed'), findsNothing);
+      expect(find.textContaining('heuristic'), findsNothing);
     });
 
-    testWidgets('summary bar updates when issues change', (tester) async {
+    testWidgets('chips follow issue changes', (tester) async {
       controller.issuesNotifier.value = [
         _testIssue(severity: IssueSeverity.warning, title: 'W1'),
       ];
 
       await tester.pumpWidget(buildCard());
+      expect(find.text('1 warning'), findsOneWidget);
+      expect(find.textContaining('critical'), findsNothing);
 
-      // Initially 1 warning
-      final textsInitial = tester.widgetList<Text>(find.byType(Text));
-      final warningCounts = textsInitial
-          .where(
-            (t) =>
-                t.data == '1' &&
-                t.style?.fontSize == 10 &&
-                t.style?.fontWeight == FontWeight.w600,
-          )
-          .toList();
-      expect(warningCounts, isNotEmpty);
-
-      // Add a critical issue
       controller.issuesNotifier.value = [
         _testIssue(severity: IssueSeverity.warning, title: 'W1'),
         _testIssue(severity: IssueSeverity.critical, title: 'C1'),
       ];
       await tester.pump();
 
-      // Now should show both counts
-      expect(find.textContaining('2 confirmed'), findsOneWidget);
+      expect(find.text('1 warning'), findsOneWidget);
+      expect(find.text('1 critical'), findsOneWidget);
     });
   });
 }

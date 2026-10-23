@@ -51,8 +51,47 @@
 - `DebugSnapshot.forcedRebuildsOf` (debug callbacks): for each widget type
   a parent's build rebuilt, the types whose builds forced it, framework
   widgets included, and how often. `forcedTypesCapped` reports its caps.
+- `SleuthThemeData.cardDivider`, the line under the status row. It
+  defaults to `0xFF4B5563` in dark and `0xFFB4BAC4` in light, `border` in
+  the high-contrast presets and `outlineVariant` in `fromColorScheme`.
 
 ### Changed
+
+- The card header shows a run label, such as "Debug · VM" or "Profile · no
+  VM", in place of the VM+, FRAME and DBG badges. A narrow card drops the
+  "Sleuth" name first, then "· VM", and at last keeps only the dot, which
+  is filled with the VM and a ring without it. A screen reader always
+  hears the full label.
+- A More button replaces the theme button. Its menu holds Startup (TTFF),
+  Rebuild stats (the route's count, opening the drilldown), Hidden issues
+  (with a count, only when there are any), Encyclopedia, Guide, Copy
+  snapshot and Theme (Auto, Light, Dark). It opens as a panel inside the
+  card. Back, Escape, a tap on the scrim or a tap on the app closes it,
+  and while it is open the app and the card body are hidden from screen
+  readers. Opening it moves keyboard focus to the first row that can act
+  and screen reader focus to the panel. More, the rows and the theme
+  segments draw a 2 px `checkboxActive` outline while the keyboard has
+  focus. A failed copy offers Try again.
+- Tab and Shift+Tab move focus, and Enter and Space activate the focused
+  control, inside the card and its pages. The overlay sits above the
+  app's `WidgetsApp`, so the app's default shortcuts never reached it; a
+  focused text field keeps Enter and Space.
+- The footer, the startup banner, the rebuild stats banner, the confidence
+  caption and the frame-rate detail row are gone. Hidden issues, Copy
+  snapshot, startup and rebuild stats moved into the More menu.
+- The severity chips lead the status row ("2 critical"), with a filled
+  icon while on and an outlined one while off. The frame rate sits at the
+  end of the row. "Showing X of Y" appears only while a severity is off,
+  since the More menu counts hidden cards. A screen reader hears the line
+  change, and Show all moves its focus to the first chip.
+- The card is at least 320 px wide, or the screen less 16 px margins on
+  a narrower screen, and stored narrower widths are raised. Its background
+  is opaque.
+- A maximized card draws the resize grip's dots only, and a drag there
+  reaches the list. The list ends with 48 px of padding, so the grip does
+  not cover the last card.
+- The overlay no longer uses `TweenAnimationBuilder`, so it is off the
+  debug instrumentation's framework denylist and an app's own uses count.
 
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase: the issues of the phase's category, `event_loop_stall`

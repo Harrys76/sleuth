@@ -889,6 +889,17 @@ class SleuthController {
     return result;
   }
 
+  /// Whether this run counts rebuilds per route for Rebuild stats: a
+  /// profile run with [SleuthConfig.enableDeepDebugInstrumentation] whose
+  /// timeline drain is installed or waiting for the scheduler to go idle.
+  /// Debug runs count rebuilds for the detectors only.
+  bool get countsRouteRebuilds {
+    final coordinator = _debugCoordinator;
+    if (coordinator == null) return false;
+    return coordinator.isProfileModeInstalled ||
+        (!kDebugMode && config.enableDeepDebugInstrumentation);
+  }
+
   /// Whether any heavy debug profiling flags are actually active.
   ///
   /// Returns `true` only when at least one Flutter debug flag was saved and
@@ -6092,8 +6103,8 @@ class SleuthConfig {
   /// Sleuth installs a `FlutterTimeline.debugCollect()` drain that records
   /// per-widget rebuild counts and attributes them to the active
   /// `RouteSession`'s `rebuildCountsByType` map. These counts power the
-  /// always-on `_RebuildStatsBanner` panel on the floating issues card
-  /// and the "See all N →" drilldown page (`RebuildStatsPage`).
+  /// More menu's Rebuild stats row on the floating issues card and its
+  /// drilldown page (`RebuildStatsPage`).
   /// **Note:** profile-mode counts include initial widget inflations as
   /// well as `setState`-driven rebuilds (the Flutter framework emits the
   /// same `BUILD` timeline scope for both), so route entry shows
