@@ -802,9 +802,10 @@ class DebugInstrumentationCoordinator {
     'TextField',
     'ValueListenableBuilder',
     'Wrap',
-    // --- Sleuth overlay widget classes (52) ---
+    // --- Sleuth overlay widget classes (53) ---
     'FloatingIssuesCard',
     '_StatusRow',
+    '_CardSlot',
     'TriggerButton',
     'SleuthOverlay',
     'HighlightOverlay',
