@@ -68,6 +68,9 @@ list every change.
 - An app's own `AnimatedBuilder`, `TweenAnimationBuilder`, `Checkbox` and
   `ShaderMask` rebuilds count in the per-route rebuild counts again. The
   overlay no longer uses them, so they left the framework denylist.
+- A new issue list rebuilds only the cards it changes.
+- Cards hidden under 0.38 stay hidden. The stored overlay state moves to
+  `schemaVersion` 2, which 0.38 reads as empty and leaves as it is.
 
 ### Fixed
 
