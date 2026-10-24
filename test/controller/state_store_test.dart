@@ -140,7 +140,7 @@ void main() {
 
       store.readCompleter.complete(
         jsonEncode({
-          'schemaVersion': 1,
+          'schemaVersion': OverlayUiState.schemaVersion,
           'hiddenKeys': ['a'],
         }),
       );
@@ -193,7 +193,7 @@ void main() {
     });
 
     for (final newer in [
-      '{"schemaVersion": 2, "hiddenKeys": ["x"]}',
+      '{"schemaVersion": 3, "hiddenKeys": ["x"]}',
       '{"schemaVersion": 9}',
     ]) {
       testWidgets('after a state from a newer release the session never '
@@ -235,7 +235,7 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
         expect(store.writes, hasLength(1));
         final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
-        expect(saved['schemaVersion'], 1);
+        expect(saved['schemaVersion'], OverlayUiState.schemaVersion);
         expect(saved['hiddenKeys'], ['k']);
       });
     }
@@ -271,7 +271,7 @@ void main() {
       controller.overlayUiState.hide('local');
       store.readCompleter.complete(
         jsonEncode({
-          'schemaVersion': 1,
+          'schemaVersion': OverlayUiState.schemaVersion,
           'hiddenKeys': ['loaded'],
         }),
       );
@@ -294,7 +294,7 @@ void main() {
         ..dashboardOpen = true;
       store.readCompleter.complete(
         jsonEncode({
-          'schemaVersion': 1,
+          'schemaVersion': OverlayUiState.schemaVersion,
           'hiddenKeys': ['loaded'],
         }),
       );
@@ -303,28 +303,57 @@ void main() {
       expect(store.writes, isEmpty);
     });
 
-    testWidgets('a key shown again during the read stays shown', (
-      tester,
-    ) async {
+    // A version 1 store's keys are read as any-widget keys, and the key
+    // shown again still drops out.
+    for (final (version, kept) in [
+      (OverlayUiState.schemaVersion, 'b'),
+      (1, 'b|*'),
+    ]) {
+      testWidgets('a key shown again during the read stays shown '
+          '(store version $version)', (tester) async {
+        final store = _ControlledStore();
+        final controller = _controller(store);
+        addTearDown(controller.dispose);
+
+        controller.overlayUiState
+          ..hide('a')
+          ..unhide('a');
+        store.readCompleter.complete(
+          jsonEncode({
+            'schemaVersion': version,
+            'hiddenKeys': ['a', 'b'],
+          }),
+        );
+        await tester.pump();
+        expect(controller.overlayUiState.hiddenKeys, {kept});
+
+        await tester.pump(const Duration(milliseconds: 600));
+        final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
+        expect(saved['hiddenKeys'], [kept]);
+      });
+    }
+
+    testWidgets('a card shown again during the read keeps its version 1 key '
+        'from hiding it', (tester) async {
       final store = _ControlledStore();
       final controller = _controller(store);
       addTearDown(controller.dispose);
 
       controller.overlayUiState
-        ..hide('a')
-        ..unhide('a');
+        ..hide('wrap_layout_bottleneck|Wrap')
+        ..unhide('wrap_layout_bottleneck|Wrap');
       store.readCompleter.complete(
         jsonEncode({
           'schemaVersion': 1,
-          'hiddenKeys': ['a', 'b'],
+          'hiddenKeys': ['wrap_layout_bottleneck', 'b'],
         }),
       );
       await tester.pump();
-      expect(controller.overlayUiState.hiddenKeys, {'b'});
+      expect(controller.overlayUiState.hiddenKeys, {'b|*'});
 
       await tester.pump(const Duration(milliseconds: 600));
       final saved = jsonDecode(store.writes.single) as Map<String, Object?>;
-      expect(saved['hiddenKeys'], ['b']);
+      expect(saved['hiddenKeys'], ['b|*']);
     });
 
     testWidgets('restore all during the read drops the stored keys', (
@@ -340,7 +369,7 @@ void main() {
         ..hide('y');
       store.readCompleter.complete(
         jsonEncode({
-          'schemaVersion': 1,
+          'schemaVersion': OverlayUiState.schemaVersion,
           'hiddenKeys': ['a', 'b'],
         }),
       );
@@ -360,7 +389,10 @@ void main() {
       const theme = SleuthThemeData.highContrastDark();
       controller.updateTheme(theme);
       store.readCompleter.complete(
-        jsonEncode({'schemaVersion': 1, 'themeMode': 'dark'}),
+        jsonEncode({
+          'schemaVersion': OverlayUiState.schemaVersion,
+          'themeMode': 'dark',
+        }),
       );
       await tester.pump();
 
@@ -396,7 +428,7 @@ void main() {
       // A late read changes nothing and still enables no writes.
       store.readCompleter.complete(
         jsonEncode({
-          'schemaVersion': 1,
+          'schemaVersion': OverlayUiState.schemaVersion,
           'hiddenKeys': ['late'],
         }),
       );
@@ -419,7 +451,7 @@ void main() {
         ..toggleSeverity(IssueSeverity.ok);
       store.readCompleter.complete(
         jsonEncode({
-          'schemaVersion': 1,
+          'schemaVersion': OverlayUiState.schemaVersion,
           'hiddenKeys': ['loaded'],
           'severityFilter': ['critical'],
           'cardWidth': 420,

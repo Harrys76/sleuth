@@ -736,6 +736,76 @@ void main() {
       await drainToasts(tester);
     });
 
+    // A store written before 1.0 hid these cards by stable id alone.
+    test('an any-widget key hides the stable id\'s cards by severity', () {
+      final wrap = _issue('wrap_layout_bottleneck', widgetName: 'Wrap');
+      final wrapCritical = _issue(
+        'wrap_layout_bottleneck',
+        widgetName: 'Wrap',
+        severity: IssueSeverity.critical,
+      );
+      expect(isHiddenBy(wrap, {'wrap_layout_bottleneck|*'}), isTrue);
+      expect(isHiddenBy(wrapCritical, {'wrap_layout_bottleneck|*'}), isFalse);
+      expect(
+        isHiddenBy(wrapCritical, {'wrap_layout_bottleneck|*!critical'}),
+        isTrue,
+      );
+      expect(
+        isHiddenBy(_issue('other'), {'wrap_layout_bottleneck|*'}),
+        isFalse,
+      );
+    });
+
+    testWidgets('the Hidden list names the card an any-widget key hides', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HiddenIssuesPage(
+            hiddenKeys: const ['wrap_layout_bottleneck|*'],
+            issues: [_issue('wrap_layout_bottleneck', widgetName: 'Wrap')],
+            configSuppressions: const {},
+            suppressedCount: 0,
+            onRestore: (_) {},
+            onRestoreAll: () {},
+            onClose: () {},
+          ),
+        ),
+      );
+      expect(find.text('Title wrap_layout_bottleneck'), findsOneWidget);
+      expect(find.text('Not detected right now'), findsNothing);
+    });
+
+    testWidgets('an any-widget key names a card it still hides', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HiddenIssuesPage(
+            hiddenKeys: const ['wrap_layout_bottleneck|*'],
+            issues: [
+              _issue(
+                'wrap_layout_bottleneck',
+                widgetName: 'Wrap',
+                severity: IssueSeverity.critical,
+              ).copyWith(title: 'Critical wrap'),
+              _issue(
+                'wrap_layout_bottleneck',
+                widgetName: 'Wrap',
+              ).copyWith(title: 'Warning wrap'),
+            ],
+            configSuppressions: const {},
+            suppressedCount: 0,
+            onRestore: (_) {},
+            onRestoreAll: () {},
+            onClose: () {},
+          ),
+        ),
+      );
+      expect(find.text('Warning wrap'), findsOneWidget);
+      expect(find.text('Shown again: now critical'), findsNothing);
+    });
+
     testWidgets('the Hidden list marks a card hidden at warning that is now '
         'critical', (tester) async {
       final hiddenAtWarning = hideKeyFor(_issue('jank', widgetName: 'Feed'));
