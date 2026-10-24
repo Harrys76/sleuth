@@ -9,6 +9,10 @@ list every change.
   returns `1` for `1.4.2`), because sleuth 1.x follows semver. Any 1.x
   app connects, with `version_skew_minor` when it is not the pinned
   version. Below 1.0.0 the lineage stays `major.minor`.
+- `compare_snapshots` adds `versionWarning` when the two snapshots come
+  from different releases of one lineage, such as 1.0.0 and 1.2.0. A
+  release can add detectors, move thresholds or fix false positives, so
+  part of the diff may come from the upgrade.
 - Compact issues in `get_issues` and `get_snapshot` keep the issue's
   `measurement` object: the number its detector reported, with the
   warning and critical lines.

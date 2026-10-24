@@ -281,14 +281,15 @@
         "fpsDelta": {"type": "double", "required": true, "nullable": true, "presence": "null when either snapshot lacked frameStatsSummary.averageFps/actualFps"},
         "beforeFps": {"type": "double", "required": true, "nullable": true},
         "afterFps": {"type": "double", "required": true, "nullable": true},
-        "coverageWarning": {"type": "String", "required": false, "nullable": false, "presence": "when neither snapshot had a VM service link (both report isVmConnected false); text starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover"}
+        "coverageWarning": {"type": "String", "required": false, "nullable": false, "presence": "when neither snapshot had a VM service link (both report isVmConnected false); text starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover"},
+        "versionWarning": {"type": "String", "required": false, "nullable": false, "presence": "when the two packageVersion values name different releases of one lineage (build metadata ignored), such as 1.0.0 and 1.2.0; text starts `sleuth_version_differs:` and names both versions, because a release can add detectors, move thresholds or fix false positives"}
       },
       "errors": [
         {"code": "arg_before_not_object", "doc": "the `before` arg is not a Map", "messagePrefix": "arg \"before\" must be object"},
         {"code": "arg_after_not_object", "doc": "the `after` arg is not a Map", "messagePrefix": "arg \"after\" must be object"},
         {"code": "arg_capped_issues_uncomparable", "doc": "one or both snapshots were projected with maxIssueCount. A truncated top-N issue window cannot be diffed, because an issue that left the window looks the same as one that resolved", "messagePrefix": "arg_capped_issues_uncomparable:"},
         {"code": "arg_section_mismatch", "doc": "the two snapshots were projected to different sections or different pagination limits", "messagePrefix": "arg_section_mismatch:"},
-        {"code": "arg_lineage_mismatch", "doc": "the two snapshots' packageVersion values fall in different sleuth major.minor lineages, or either is missing or not semver; detector ids and defaults change between lineages", "messagePrefix": "arg_lineage_mismatch:"},
+        {"code": "arg_lineage_mismatch", "doc": "the two snapshots' packageVersion values fall in different sleuth lineages (the major from 1.0.0, major.minor below it), or either is missing or not semver; detector ids and defaults change between lineages", "messagePrefix": "arg_lineage_mismatch:"},
         {"code": "arg_snapshot_in_warmup", "doc": "one or both snapshots were taken while Sleuth was still warming up (connectionMode warmup, or the warmup launchModeAdvisory that get_snapshot adds), so their issue lists may be incomplete; take that snapshot again after a few seconds", "messagePrefix": "arg_snapshot_in_warmup:"},
         {"code": "arg_coverage_mismatch", "doc": "only one snapshot had a VM service link (the other reports isVmConnected false), or either lacks a boolean isVmConnected; VM-only detector issues would read as resolved or new. Coverage reads isVmConnected only, so a basic session with a VM link counts as covered.", "messagePrefix": "arg_coverage_mismatch:"},
         {"code": "snapshot_schema_drift", "doc": "a snapshot lacks or mistypes currentIssues, currentIssues[].stableId/severity, or frameStatsSummary averageFps/actualFps", "messagePrefix": "snapshot "}

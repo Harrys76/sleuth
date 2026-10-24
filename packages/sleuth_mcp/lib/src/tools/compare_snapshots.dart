@@ -6,7 +6,8 @@ import 'launch_mode_advisory.dart';
 /// Diff two `SessionSnapshot` `data` payloads. Pure client-side; no
 /// bridge call. Returns `{added, removed, elevatedSeverity, countChanged,
 /// fpsDelta, beforeFps, afterFps}`, plus `coverageWarning` when neither
-/// snapshot had a VM service link.
+/// snapshot had a VM service link and `versionWarning` when the two come
+/// from different sleuth releases of one lineage.
 ///
 /// Issues aggregate per stableId: the highest severity across its
 /// occurrences and the occurrence count. A new critical occurrence beside
@@ -123,6 +124,8 @@ Future<Object> compareSnapshotsHandler(
   if (_vmCoverage(before) == false) {
     result['coverageWarning'] = noVmCoverageWarning;
   }
+  final versionWarning = _versionWarning(before, after);
+  if (versionWarning != null) result['versionWarning'] = versionWarning;
   return result;
 }
 
@@ -244,6 +247,27 @@ ToolCallResult? _lineageMismatch(
     );
   }
   return null;
+}
+
+/// `versionWarning` text when the two snapshots come from different sleuth
+/// releases, else null. The lineage check above passed, so the diff still
+/// runs. A minor release can add a detector or move a threshold, and a
+/// patch can fix a false positive, so part of the diff may come from the
+/// upgrade. Build metadata (`+...`) does not name a different release.
+String? _versionWarning(
+  Map<String, Object?> before,
+  Map<String, Object?> after,
+) {
+  String release(Map<String, Object?> s) =>
+      (s['packageVersion'] as String).split('+').first;
+  final b = release(before);
+  final a = release(after);
+  if (a == b) return null;
+  return 'sleuth_version_differs: before comes from sleuth $b and after '
+      'from $a. A release in one lineage can add detectors, move thresholds '
+      'or fix false positives, so an added, removed or changed issue may '
+      'come from the sleuth upgrade rather than the app. Re-capture both '
+      'runs with the same sleuth version to compare the app alone.';
 }
 
 /// Returns an `arg_snapshot_in_warmup` error envelope when either snapshot
