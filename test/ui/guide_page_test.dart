@@ -20,33 +20,47 @@ void main() {
       expect(find.textContaining('Critical'), findsOneWidget);
       expect(find.textContaining('Warning'), findsOneWidget);
 
-      // Confidence badges
-      expect(find.text('CONFIRMED'), findsOneWidget);
-      expect(find.text('LIKELY'), findsOneWidget);
-      expect(find.text('POSSIBLE'), findsOneWidget);
+      // Meta line: tags, confidence, recurrence and category words.
+      expect(find.text('Meta line'), findsOneWidget);
+      expect(find.text('Jank'), findsOneWidget);
+      expect(find.text('Debug timing'), findsOneWidget);
+      expect(find.text('New'), findsOneWidget);
+      final pageText = tester
+          .widgetList<RichText>(find.byType(RichText))
+          .map((w) => w.text.toPlainText())
+          .join('\n');
+      for (final term in [
+        'Confirmed',
+        'Likely',
+        'Possible',
+        'persistent',
+        'flaky',
+        'Build',
+        'Layout',
+        'Network',
+        'Startup',
+      ]) {
+        expect(pageText, contains(term), reason: term);
+      }
+      expect(pageText, contains('Widget rebuild overhead'));
+      expect(pageText, contains('seen X of Y scans'));
 
-      // Source accents
-      expect(find.text('Measured timing'), findsOneWidget);
-      expect(find.text('Debug callback'), findsOneWidget);
-      expect(find.text('Structural scan'), findsOneWidget);
-
-      // Category badges with descriptions
-      expect(find.text('BUILD'), findsOneWidget);
-      expect(find.text('LAYOUT'), findsOneWidget);
-      expect(find.text('NETWORK'), findsOneWidget);
-      expect(find.textContaining('Widget rebuild overhead'), findsOneWidget);
-      expect(find.textContaining('Layout constraint issues'), findsOneWidget);
-      expect(find.textContaining('HTTP request performance'), findsOneWidget);
+      // Gone with the redesigned card.
+      expect(find.text('CONFIRMED'), findsNothing);
+      expect(find.text('BUILD'), findsNothing);
+      expect(find.text('Measured timing'), findsNothing);
+      expect(pageText, isNot(contains('left bar')));
+      expect(pageText, isNot(contains('Emoji')));
+      expect(pageText, isNot(contains('checkbox')));
 
       // Effort badges
       expect(find.text('QUICK FIX'), findsOneWidget);
       expect(find.text('MEDIUM FIX'), findsOneWidget);
       expect(find.text('INVOLVED FIX'), findsOneWidget);
 
-      // Special indicators
-      expect(find.text('JANK'), findsOneWidget);
+      // Card colours
       expect(find.text('Highlighted'), findsOneWidget);
-      expect(find.text('Jank flash'), findsOneWidget);
+      expect(find.text('Jank flash'), findsNothing);
     });
 
     testWidgets('describes current overlay behavior', (tester) async {

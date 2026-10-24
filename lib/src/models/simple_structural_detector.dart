@@ -140,7 +140,9 @@ abstract class SimpleStructuralDetector extends BaseDetector {
   /// helper can attach a [WidgetHighlight] for the overlay. The issue
   /// carries the element's identity as [PerformanceIssue.occurrenceId], so
   /// reports from different elements under one [stableId] keep their own
-  /// overlay chats.
+  /// overlay chats, and the widget's runtime type as
+  /// [PerformanceIssue.widgetName], the name the overlay's "Show on
+  /// screen" control uses.
   ///
   /// [stableId] should be unique enough that the correlator can dedupe
   /// it across scans — prefix with the detector name and include the
@@ -167,6 +169,9 @@ abstract class SimpleStructuralDetector extends BaseDetector {
     ObservationSource observationSource = ObservationSource.structural,
     IssueMeasurement? measurement,
   }) {
+    // The issue and its highlight name the same widget, so the overlay
+    // can show it on screen.
+    final widgetName = element.widget.runtimeType.toString();
     _issues.add(
       PerformanceIssue(
         stableId: stableId,
@@ -179,6 +184,7 @@ abstract class SimpleStructuralDetector extends BaseDetector {
         observationSource: observationSource,
         detectedAt: DateTime.now(),
         occurrenceId: identityHashCode(element),
+        widgetName: widgetName,
         measurement: measurement,
       ),
     );
@@ -191,7 +197,7 @@ abstract class SimpleStructuralDetector extends BaseDetector {
           rect: offset & ro.size,
           renderObject: ro,
           occurrenceId: identityHashCode(element),
-          widgetName: element.widget.runtimeType.toString(),
+          widgetName: widgetName,
           severity: severity,
           detectorName: name,
         ),

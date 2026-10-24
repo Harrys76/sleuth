@@ -130,6 +130,9 @@ void main() {
           await _settle(tester, 'expand ${issue.stableId}');
           await _tapFinder(tester, find.text('About this detection'));
           await _settle(tester, 'about ${issue.stableId}');
+          // An expanded card outlives its issue; collapse it first.
+          await _tapFinder(tester, find.text(issue.title));
+          await _settle(tester, 'collapse ${issue.stableId}');
         }
         controller.issuesNotifier.value = [issues.first];
         await _settle(tester, 'root only');
@@ -271,6 +274,11 @@ void main() {
       matching: find.text(mixedOverlayIssues().first.detail),
     );
 
+    /// Taps the context card's first title line: at 2.0x the title can be
+    /// taller than the room the context gets above the keyboard.
+    Future<void> tapContextTitle(WidgetTester tester) =>
+        tester.tapAt(tester.getTopLeft(contextTitle) + const Offset(8, 8));
+
     /// The input bar is whole above [usableBottom].
     void expectInputVisible(WidgetTester tester, double usableBottom) {
       final send = tester.getRect(find.bySemanticsLabel('Send'));
@@ -288,7 +296,7 @@ void main() {
         await openChat(tester, scale);
         tester.view.viewInsets = const FakeViewPadding(bottom: 253);
         await _settle(tester, 'keyboard up');
-        await tester.tap(contextTitle);
+        await tapContextTitle(tester);
         await _settle(tester, 'context expanded');
         expect(contextDetail, findsOneWidget);
         expectInputVisible(tester, 568 - 253);
@@ -307,7 +315,7 @@ void main() {
         await openChat(tester, scale);
         tester.view.physicalSize = const Size(568, 320);
         await _settle(tester, 'landscape');
-        await tester.tap(contextTitle);
+        await tapContextTitle(tester);
         await _settle(tester, 'context expanded');
         expect(contextDetail, findsOneWidget);
 
@@ -441,15 +449,14 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('a maximized card offers no resize actions', (tester) async {
+    testWidgets('a maximized card offers the resize actions', (tester) async {
       final handle = tester.ensureSemantics();
       await pumpView(
         tester,
         const Size(400, 800),
         windowState: CardWindowState.maximized,
       );
-      // The grip draws its dots only.
-      expect(find.bySemanticsLabel('Resize card'), findsNothing);
+      expect(find.bySemanticsLabel('Resize card'), findsOneWidget);
       handle.dispose();
     });
 

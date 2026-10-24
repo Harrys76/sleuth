@@ -239,10 +239,10 @@ void main() {
 
       await tester.pumpWidget(buildCard());
 
-      // Find and tap the checkbox (highlight toggle)
-      final checkboxes = find.byType(Checkbox);
-      expect(checkboxes, findsOneWidget);
-      await tester.tap(checkboxes);
+      // Find and tap the crosshair (highlight toggle)
+      final crosshairs = find.byIcon(Icons.my_location);
+      expect(crosshairs, findsOneWidget);
+      await tester.tap(crosshairs);
       await tester.pump();
 
       // Banner should appear
@@ -270,8 +270,8 @@ void main() {
 
       await tester.pumpWidget(buildCard());
 
-      // Tap highlight checkbox
-      await tester.tap(find.byType(Checkbox));
+      // Tap the crosshair
+      await tester.tap(find.byIcon(Icons.my_location));
       await tester.pump();
 
       // Banner visible

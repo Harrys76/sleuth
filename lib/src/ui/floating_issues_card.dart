@@ -45,101 +45,132 @@ export 'overlay_filters.dart'
         listKeyFor,
         occurrenceKeysFor;
 
-/// Composes the frozen-zone list for an expanded render.
+/// A card of the frozen zone ([applyFreezeZone]).
+typedef FrozenCard = ({
+  /// The key the card renders under, fixed when the zone is captured, so
+  /// a card keeps its state when a twin ahead of it goes.
+  String key,
+
+  /// Its latest report, or the last one while it is not reported.
+  PerformanceIssue issue,
+
+  /// Whether the card is expanded.
+  bool expanded,
+
+  /// Whether the visible list held its report at the last match.
+  bool reported,
+});
+
+/// Result of [applyFreezeZone].
+typedef FrozenOrder = ({
+  /// The cards in display order: the frozen zone, then the flow.
+  List<PerformanceIssue> issues,
+
+  /// The key of each card in [issues].
+  List<String> keys,
+
+  /// The frozen zone matched to the visible list, one entry per leading
+  /// card of [issues]: the next call's `frozen`. Null when no card is
+  /// expanded.
+  List<FrozenCard>? frozen,
+});
+
+/// The card order while a card is expanded.
 ///
-/// Freeze-above-on-expand contract (v0.15.5):
+/// When the user expands a card, the cards from the top down to it are
+/// captured as [frozen] and keep their order on later updates; the rest
+/// of [visibleIssues] flows below them in its own order, so a new
+/// critical arriving mid-read lands under the frozen zone. With several
+/// cards expanded, the zone ends at the lowest one.
 ///
-///  * When the user expands a card at visible-index N, the list is
-///    captured as `orderSnapshot` and positions `0..N` (inclusive) freeze
-///    to what was on screen at expand time. Positions `N+1..end` flow
-///    normally through the ranker on every subsequent render.
-///  * With multiple expanded cards, `freezeEnd = max(expandedIndices)` —
-///    the deepest expansion wins (user-confirmed MAX rule). Expanding a
-///    shallower card while a deeper one is already expanded is a no-op
-///    on the zone.
-///  * Cards whose frozen-zone entry has disappeared from [visibleIssues]
-///    (e.g. downstream absorbed the issue, detector evicted it) are
-///    dropped silently from the output; `_pruneStaleState` evicts the
-///    matching entry on its next sweep.
-///  * Items in [visibleIssues] that aren't in the frozen zone are
-///    appended in their current ranker-flow order — a new CRITICAL
-///    landing mid-read arrives below the frozen zone, never above.
+/// Each frozen card is matched to its report in [visibleIssues]: the same
+/// [listKeyFor] and [PerformanceIssue.occurrenceId], and for twins with
+/// no occurrence id, the next unclaimed one in order. Expanded cards claim
+/// first. A matched card shows its latest report. An expanded card with no
+/// report stays as last reported (`reported: false`) until the user
+/// collapses it; a collapsed one leaves the zone, as do the collapsed
+/// cards below the lowest expanded one.
 ///
-/// Identity is the card's [occurrenceKeysFor] key in its list, matching
-/// the host's expansion and pruning bookkeeping: two cards sharing a
-/// [listKeyFor] stay two cards, the n-th of the snapshot anchored to the
-/// n-th live one.
-///
-/// Pure function over `(visibleIssues, orderSnapshot, expandedIndices)`
-/// — no widget state involved — marked [visibleForTesting] so the
-/// algorithm can be verified with deterministic unit tests instead of
-/// pumping the full overlay tree.
-///
-/// Contract invariant (asserted in debug): a non-null [orderSnapshot]
-/// must be accompanied by a non-empty [expandedIndices] and vice-versa.
-/// The host's lifecycle code in [_FloatingIssuesCardState] is the sole
-/// enforcer; this assert catches accidental half-state during refactors.
+/// Frozen cards render under their own keys; the flow takes
+/// [occurrenceKeysFor] keys that skip them.
 @visibleForTesting
-List<PerformanceIssue> applyFreezeZone({
+FrozenOrder applyFreezeZone({
   required List<PerformanceIssue> visibleIssues,
-  required List<PerformanceIssue>? orderSnapshot,
-  required Map<String, int> expandedIndices,
+  required List<FrozenCard>? frozen,
 }) {
-  assert(
-    (orderSnapshot == null) == expandedIndices.isEmpty,
-    'orderSnapshot/expandedIndices must be set together or cleared '
-    'together: snapshot=${orderSnapshot?.length}, '
-    'expandedIndices=${expandedIndices.length}, '
-    'keys=${expandedIndices.keys.toList()}',
-  );
-  if (expandedIndices.isEmpty || orderSnapshot == null) {
-    return visibleIssues;
+  final matched = frozen == null ? null : _matchFrozen(frozen, visibleIssues);
+  final issues = <PerformanceIssue>[];
+  final keys = <String>[];
+  // By identity: PerformanceIssue equality compares stable ids, which
+  // twins share.
+  final shown = Set<PerformanceIssue>.identity();
+  for (final card in matched ?? const <FrozenCard>[]) {
+    issues.add(card.issue);
+    keys.add(card.key);
+    if (card.reported) shown.add(card.issue);
   }
-  // freezeEnd = max(capturedIndex) — MAX rule.
-  var freezeEnd = expandedIndices.values.first;
-  for (final v in expandedIndices.values) {
-    if (v > freezeEnd) freezeEnd = v;
+  final used = keys.toSet();
+  final counts = <String, int>{};
+  for (final issue in visibleIssues) {
+    if (shown.contains(issue)) continue;
+    final base = listKeyFor(issue);
+    var n = counts[base] ?? 0;
+    String key;
+    do {
+      n++;
+      key = n == 1 ? base : '$base#$n';
+    } while (!used.add(key));
+    counts[base] = n;
+    issues.add(issue);
+    keys.add(key);
   }
-  // Clamp to what's representable: can't freeze past the snapshot's
-  // length (frozen zone comes from the snapshot) and can't freeze past
-  // the current visible length either (the frozen items need to still
-  // be somewhere in the visible set to survive the identity filter).
-  final maxSnapshotIdx = orderSnapshot.length - 1;
-  final maxVisibleIdx = visibleIssues.length - 1;
-  if (freezeEnd > maxSnapshotIdx) freezeEnd = maxSnapshotIdx;
-  if (freezeEnd > maxVisibleIdx) freezeEnd = maxVisibleIdx;
-  if (freezeEnd < 0) return visibleIssues;
+  return (issues: issues, keys: keys, frozen: matched);
+}
 
-  // Build identity set from the frozen slice.
-  final snapshotKeys = occurrenceKeysFor(orderSnapshot);
-  final frozenKeys = <String>{
-    for (var i = 0; i <= freezeEnd; i++) snapshotKeys[i],
-  };
-
-  // Index current visible issues by identity so we can re-anchor the
-  // snapshot slice to the latest PerformanceIssue instances (the
-  // ranker may have updated severity, recurrence, etc. on the same id).
-  final visibleKeys = occurrenceKeysFor(visibleIssues);
-  final visibleById = <String, PerformanceIssue>{
-    for (var i = 0; i < visibleIssues.length; i++)
-      visibleKeys[i]: visibleIssues[i],
-  };
-
-  final frozen = <PerformanceIssue>[];
-  for (var i = 0; i <= freezeEnd; i++) {
-    final live = visibleById[snapshotKeys[i]];
-    // Drop silently if the frozen-zone entry has disappeared from the
-    // visible set. `_pruneStaleState` will evict the expand-entry on
-    // its next sweep.
-    if (live != null) frozen.add(live);
+List<FrozenCard>? _matchFrozen(
+  List<FrozenCard> frozen,
+  List<PerformanceIssue> visible,
+) {
+  var end = -1;
+  for (var s = 0; s < frozen.length; s++) {
+    if (frozen[s].expanded) end = s;
   }
-
-  final flow = <PerformanceIssue>[
-    for (var i = 0; i < visibleIssues.length; i++)
-      if (!frozenKeys.contains(visibleKeys[i])) visibleIssues[i],
+  if (end < 0) return null;
+  final byKey = <String, List<int>>{};
+  for (var i = 0; i < visible.length; i++) {
+    (byKey[listKeyFor(visible[i])] ??= []).add(i);
+  }
+  final claimed = <int>{};
+  final match = List<int?>.filled(end + 1, null);
+  for (final expandedFirst in const [true, false]) {
+    for (var s = 0; s <= end; s++) {
+      final known = frozen[s].issue;
+      if (frozen[s].expanded != expandedFirst) continue;
+      for (final i in byKey[listKeyFor(known)] ?? const <int>[]) {
+        if (visible[i].occurrenceId == known.occurrenceId && claimed.add(i)) {
+          match[s] = i;
+          break;
+        }
+      }
+    }
+  }
+  return [
+    for (var s = 0; s <= end; s++)
+      if (match[s] case final i?)
+        (
+          key: frozen[s].key,
+          issue: visible[i],
+          expanded: frozen[s].expanded,
+          reported: true,
+        )
+      else if (frozen[s].expanded)
+        (
+          key: frozen[s].key,
+          issue: frozen[s].issue,
+          expanded: true,
+          reported: false,
+        ),
   ];
-
-  return <PerformanceIssue>[...frozen, ...flow];
 }
 
 /// Result of [holdIssueOrder].
@@ -350,48 +381,24 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Seeded from [OverlayUiState.cardOffset]; written back on drag end.
   Offset? _cardOffset;
 
-  /// Expansion registry: `issueKey -> capturedIndex`.
+  /// The frozen zone while a card is expanded ([applyFreezeZone]), null
+  /// otherwise: the cards from the top down to the lowest expanded one,
+  /// each with the key it renders under and its latest report.
   ///
-  /// When a card expands, its [listKeyFor] is mapped to the index it held in
-  /// the visible list at expand-time (captured from the `itemBuilder`
-  /// closure scope — see `_buildIssuesList`). The host uses the MAX
-  /// captured index across this map to compute the freeze boundary.
-  ///
-  /// Multiple cards can be expanded simultaneously — one entry per
-  /// expand. Entries are removed on collapse (see the `onExpandedChanged`
-  /// callback in `_buildIssuesList`) and pruned in [_pruneStaleState]
-  /// when their referenced issue disappears from the visible list.
-  ///
-  /// Paired with [_orderSnapshot]: both fields are populated together on
-  /// the 0→1 expand transition and cleared together on the 1→0 collapse
-  /// transition. Never mutate one without updating the other or the
-  /// class invariant breaks (asserted in [applyFreezeZone]).
-  ///
-  /// v0.15.5 replaces the v0.14.x single `_expandedIssueId` field with
-  /// this map. That field only tracked "which card is expanded" for
-  /// `initiallyExpanded`; it didn't freeze position, so ranker reorders
-  /// visibly shuffled whichever card the user was reading.
-  final Map<String, int> _expandedIndices = <String, int>{};
+  /// Captured from the list the user saw when they tapped (the build's
+  /// list, not a newer notifier value), so the zone holds the rows that
+  /// were on screen. Matched to each new visible list by
+  /// [_pruneStaleState] and the list build; released when the last card
+  /// collapses.
+  List<FrozenCard>? _frozen;
 
-  /// Snapshot of the visible list captured at the instant the user first
-  /// expanded any card (i.e. when [_expandedIndices] went 0→1).
-  ///
-  /// The snapshot is the source of truth for the frozen zone — positions
-  /// `0..max(_expandedIndices.values)` (inclusive) are drawn from this
-  /// list, not from the live ranker output. On collapse-to-empty, the
-  /// snapshot is released (set back to null) so the next expand captures
-  /// a fresh one from whatever the ranker currently shows.
-  ///
-  /// Source-of-truth rule: the snapshot is a **defensive copy** of the
-  /// `visibleIssues` closure-captured inside `_buildIssuesList`'s build
-  /// pass, NOT a read of `widget.controller.issuesNotifier.value`. The
-  /// notifier may have ticked between the frame the user saw and the
-  /// moment their tap arrived; using the live value could anchor the
-  /// freeze to rows the user never saw.
-  List<PerformanceIssue>? _orderSnapshot;
-
-  /// [listKeyFor] of the issue whose highlight checkbox is checked.
+  /// Key of the card whose crosshair is on, as it rendered when tapped.
   String? _selectedIssueId;
+
+  /// The issue of the card whose crosshair is on. A card with an
+  /// occurrence id is found by it ([_isSelectedCard]), as a twin ahead of
+  /// it going renumbers the flow's keys.
+  PerformanceIssue? _selectedIssue;
 
   /// Bumped when the host clears every expansion at once (severity filter
   /// change); [IssueCard] collapses without calling back.
@@ -670,9 +677,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     if (!setEquals(filter, _lastSeverityFilter)) {
       _lastSeverityFilter = {...filter};
       _releaseHeldOrder();
-      if (_expandedIndices.isNotEmpty || _orderSnapshot != null) {
-        _expandedIndices.clear();
-        _orderSnapshot = null;
+      if (_frozen != null) {
+        _frozen = null;
         _collapseEpoch++;
       }
     }
@@ -692,7 +698,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // production — `SleuthOverlay` builds the card once with a stable
     // controller — but cheap insurance for test harnesses that rebuild
     // the overlay with a fresh controller on the same widget instance).
-    // Without this, `_expandedIndices`/`_orderSnapshot` and listeners
+    // Without this, `_frozen` and listeners
     // would reference the old controller's issue ids and notifiers.
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.verdictNotifier.removeListener(_onVerdictChanged);
@@ -705,9 +711,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _lastSeverityFilter = {..._ui.severityFilter};
       _lastHiddenKeys = {..._ui.hiddenKeys};
       _releaseHeldOrder();
-      _expandedIndices.clear();
-      _orderSnapshot = null;
+      _frozen = null;
       _selectedIssueId = null;
+      _selectedIssue = null;
       _showAiChat = false;
       _chatIssueKey = null;
       _chatIssue = null;
@@ -815,8 +821,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     _preTransitionOffset = null;
     _preTransitionWidth = null;
     _preTransitionHeight = null;
-    _expandedIndices.clear();
-    _orderSnapshot = null;
+    _frozen = null;
     super.dispose();
   }
 
@@ -1293,14 +1298,100 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// **Invariant (load-bearing for freeze correctness):** `ValueNotifier`
   /// listeners fire synchronously before any `ValueListenableBuilder`
   /// rebuilds. That means by the time `_buildIssuesList` reads
-  /// `_expandedIndices` on the new list, `_pruneStaleState` has already
-  /// evicted stale ids from the map — no "zombie expand entry" can apply
+  /// `_frozen` on the new list, `_pruneStaleState` has already
+  /// matched the zone to it — no "zombie expand entry" can apply
   /// `initiallyExpanded: true` to a coincidentally-matching new-route
   /// issue. Do not move pruning to a post-frame callback or microtask:
   /// that would break this invariant and re-introduce the bug.
   void _onIssuesChanged() {
     _pruneStaleState();
     _onVerdictChanged();
+  }
+
+  /// The report of [known] among [reported]: same list key and element
+  /// identity. Of two cards sharing a list key, an occurrence key would
+  /// point at the twin once the first one goes; the element does not.
+  static PerformanceIssue? _reportOf(
+    PerformanceIssue known,
+    Iterable<PerformanceIssue> reported,
+  ) {
+    final key = listKeyFor(known);
+    for (final r in reported) {
+      if (r.occurrenceId == known.occurrenceId && listKeyFor(r) == key) {
+        return r;
+      }
+    }
+    return null;
+  }
+
+  /// Whether [a] and [b] hold the same cards in the same states; their
+  /// reports may be newer instances.
+  static bool _sameZone(List<FrozenCard>? a, List<FrozenCard>? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].key != b[i].key ||
+          a[i].expanded != b[i].expanded ||
+          a[i].reported != b[i].reported) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// The frozen zone once the user expands the card [key], shown at
+  /// [index] of the rendered [shown] list under [shownKeys]. A card in the
+  /// zone is marked expanded; any other card extends the zone down to it,
+  /// or to a lower expanded card, captured from the rows the user saw
+  /// with the keys they rendered under.
+  List<FrozenCard> _expandInZone(
+    String key,
+    int index,
+    PerformanceIssue issue,
+    List<PerformanceIssue> shown,
+    List<String> shownKeys,
+  ) {
+    final zone = _frozen ?? const <FrozenCard>[];
+    final byKey = {for (final card in zone) card.key: card};
+    if (byKey.containsKey(key)) {
+      return [
+        for (final card in zone)
+          card.key == key
+              ? (key: key, issue: issue, expanded: true, reported: true)
+              : card,
+      ];
+    }
+    var end = index;
+    for (var j = index + 1; j < shownKeys.length; j++) {
+      if (byKey[shownKeys[j]]?.expanded ?? false) end = j;
+    }
+    final next = <FrozenCard>[
+      for (var j = 0; j <= end; j++)
+        (
+          key: shownKeys[j],
+          issue: j == index ? issue : shown[j],
+          expanded: j == index || (byKey[shownKeys[j]]?.expanded ?? false),
+          reported: byKey[shownKeys[j]]?.reported ?? true,
+        ),
+    ];
+    // A list published after the tapped build can leave an expanded card
+    // out of those rows; it stays, below them.
+    final captured = {for (final card in next) card.key};
+    next.addAll(
+      zone.where((card) => card.expanded && !captured.contains(card.key)),
+    );
+    return next;
+  }
+
+  /// Whether the card [issue], rendered under [key], is the one whose
+  /// crosshair is on: the same occurrence when the issue has an
+  /// occurrence id, else the same key.
+  bool _isSelectedCard(PerformanceIssue issue, String key) {
+    final selected = _selectedIssue;
+    if (selected == null) return false;
+    if (selected.occurrenceId == null) return key == _selectedIssueId;
+    return issue.occurrenceId == selected.occurrenceId &&
+        listKeyFor(issue) == listKeyFor(selected);
   }
 
   /// Clears pin/selection/chat state when referenced issues are no longer
@@ -1312,9 +1403,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// Using raw keys leaked "zombie pins" for cards that stopped rendering
   /// when their root got collapsed into an expanded parent.
   ///
-  /// The visible list is [applyOverlayFilters] — the same list
-  /// [_buildIssuesList] renders — so a hidden or filtered-out card drops
-  /// its expansion entry here.
+  /// The visible list is [applyOverlayFilters], the same list
+  /// [_buildIssuesList] renders, and the frozen zone is matched to it
+  /// ([applyFreezeZone]).
   ///
   /// `_chatIssueKey` and `_chatHistories` intentionally stay on the
   /// raw-list check — those surfaces operate on ALL issues (including
@@ -1323,52 +1414,46 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   /// downstream list. `_selectedIssueId` is dropped, together with the
   /// controller's highlight selection, when its card leaves the visible
   /// list (the issue is gone, hidden, or filtered out by severity).
-  ///
-  /// Expansion and selection keys are [occurrenceKeysFor] keys. Issues
-  /// sharing a list key keep their ranker order through the held order
-  /// and the freeze zone, so the visible list numbers them as the
-  /// rendered list does.
   void _pruneStaleState() {
     final issues = widget.controller.issuesNotifier.value;
     final visible = _ui.visibleIssues(issues);
-    final visibleKeys = occurrenceKeysFor(visible).toSet();
     final chatKeys = <_ChatKey>{for (final i in issues) _chatKeyFor(i)};
     var changed = false;
 
-    final expandedBefore = _expandedIndices.length;
-    _expandedIndices.removeWhere((id, _) => !visibleKeys.contains(id));
-    if (_expandedIndices.length != expandedBefore) changed = true;
-
-    // Drop cards that left the visible list from the order snapshot, so
-    // one that comes back (Undo, restore, a detector re-emitting) lands
-    // below the frozen zone instead of pushing the expanded card down.
-    final snapshot = _orderSnapshot;
-    if (snapshot != null && _expandedIndices.isNotEmpty) {
-      final snapshotKeys = occurrenceKeysFor(snapshot);
-      final kept = [
-        for (var i = 0; i < snapshot.length; i++)
-          if (visibleKeys.contains(snapshotKeys[i])) snapshot[i],
-      ];
-      if (kept.length != snapshot.length) {
-        _repointExpansions(kept);
-        _orderSnapshot = kept;
-        changed = true;
-      }
+    // An expanded card stays until the user collapses it, even when its
+    // issue stops being reported or folds under another card: it does not
+    // vanish while it is being read. A card the user hid goes, expanded or
+    // not, judged on its current report, as hiding depends on its
+    // severity: with a shared hide key, hiding one occurrence hides its
+    // twin too. Collapsed cards that left the visible list leave the
+    // zone, so one that comes back (Undo, restore, a detector
+    // re-emitting) lands below it instead of pushing the expanded card
+    // down.
+    final frozen = _frozen;
+    if (frozen != null) {
+      final next = applyFreezeZone(
+        visibleIssues: visible,
+        frozen: [
+          for (final card in frozen)
+            card.expanded &&
+                    _ui.isHidden(_reportOf(card.issue, issues) ?? card.issue)
+                ? (
+                    key: card.key,
+                    issue: card.issue,
+                    expanded: false,
+                    reported: card.reported,
+                  )
+                : card,
+        ],
+      ).frozen;
+      if (!_sameZone(frozen, next)) changed = true;
+      _frozen = next;
     }
 
-    // Release the order snapshot when the freeze zone has emptied out —
-    // otherwise the snapshot lingers and a subsequent render would still
-    // anchor to a zero-width freeze zone (harmless but the invariant
-    // asserted in `applyFreezeZone` would fire). Covers the
-    // all-absorbed-into-downstream case.
-    if (_expandedIndices.isEmpty && _orderSnapshot != null) {
-      _orderSnapshot = null;
-      changed = true;
-    }
-
-    final selected = _selectedIssueId;
-    if (selected != null && !visibleKeys.contains(selected)) {
+    final selectedIssue = _selectedIssue;
+    if (selectedIssue != null && _reportOf(selectedIssue, visible) == null) {
       _selectedIssueId = null;
+      _selectedIssue = null;
       widget.controller.clearSelectedHighlight();
       changed = true;
     }
@@ -1398,20 +1483,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       _hiddenSourcesController = c;
     }
     return _hiddenSources!;
-  }
-
-  /// Points every expansion at its card's position in [snapshot], the
-  /// list about to become [_orderSnapshot]; expansions whose card is not
-  /// in it are dropped. The caller sets [_orderSnapshot] (or clears it
-  /// when no expansion is left).
-  void _repointExpansions(List<PerformanceIssue> snapshot) {
-    final keys = occurrenceKeysFor(snapshot);
-    final positions = <String, int>{
-      for (var i = 0; i < keys.length; i++) keys[i]: i,
-    };
-    _expandedIndices
-      ..removeWhere((key, _) => !positions.containsKey(key))
-      ..updateAll((key, _) => positions[key]!);
   }
 
   /// Stable keys from verdict.relatedIssues that match current issuesNotifier.
@@ -1467,7 +1538,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     PerformanceIssue issue,
   ) {
     if (checked) {
-      setState(() => _selectedIssueId = issueKey);
+      setState(() {
+        _selectedIssueId = issueKey;
+        _selectedIssue = issue;
+      });
       widget.controller.highlightEnabledNotifier.value = true;
       final result = widget.controller.selectHighlightForIssue(
         issue,
@@ -1478,15 +1552,20 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       );
       if (result == HighlightLookup.notFound) _onHighlightNotFound();
     } else {
-      setState(() => _selectedIssueId = null);
+      setState(_clearSelection);
       widget.controller.clearSelectedHighlight();
     }
+  }
+
+  void _clearSelection() {
+    _selectedIssueId = null;
+    _selectedIssue = null;
   }
 
   /// Unticks the card, so it does not claim an outline that never comes,
   /// and says why.
   void _onHighlightNotFound() {
-    setState(() => _selectedIssueId = null);
+    setState(_clearSelection);
     widget.controller.clearSelectedHighlight();
     _toast.show(
       'Widget not currently visible. Navigate to the screen where this '
@@ -1497,19 +1576,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   /// Whether an issue can be visually located on screen.
-  static bool _isLocatableIssue(PerformanceIssue issue) {
-    return switch (issue.category) {
-      IssueCategory.layout => true,
-      IssueCategory.build => issue.widgetName != null,
-      IssueCategory.paint => true,
-      IssueCategory.memory => issue.widgetName != null,
-      IssueCategory.raster => false,
-      IssueCategory.channel => false,
-      IssueCategory.font => false,
-      IssueCategory.network => false,
-      IssueCategory.startup => false,
-    };
-  }
+  /// A card can outline its widget only when the issue names one: the
+  /// highlight lookup matches the reported element or the widget name.
+  static bool _isLocatableIssue(PerformanceIssue issue) =>
+      issue.widgetName != null;
 
   @override
   Widget build(BuildContext context) {
@@ -2100,16 +2170,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final grip = CustomPaint(
       painter: _CornerGripPainter(gripColor: theme.gripDots),
     );
-    // A maximized card's size follows the screen: it draws the dots in
-    // the same corner and takes no touches or actions there.
-    if (_windowState != CardWindowState.normal) {
-      return Positioned(
-        right: 0,
-        bottom: 0,
-        width: 48,
-        height: 48,
-        child: IgnorePointer(child: ExcludeSemantics(child: grip)),
-      );
+
+    // A maximized card resizes too: the first step makes it a normal card
+    // at the size and place it has now, then resizes that.
+    void leaveMaximized() {
+      if (_windowState != CardWindowState.maximized) return;
+      _windowState = CardWindowState.normal;
+      _cardOffset = clamped;
+      _cardWidth = _cachedEffectiveWidth;
+      _cardHeight = cardHeight;
+      _preTransitionOffset = null;
+      _preTransitionWidth = null;
+      _preTransitionHeight = null;
     }
 
     // The stored height keeps the unscaled minimum: the scaled floor
@@ -2123,6 +2195,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       // never reaches under a landscape notch. The step starts from the
       // width shown: a stored width from an older release or a larger
       // screen is clamped first.
+      leaveMaximized();
       final maxWidth = math.max(
         minWidth,
         screenSize.width - _cachedSafePadding.horizontal - 5,
@@ -2184,7 +2257,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
             excludeFromSemantics: true,
             // The grip follows the finger; the card is fitted on screen
             // when the drag ends.
-            onPanStart: (_) => _closeMenu(refocus: false),
+            onPanStart: (_) {
+              _closeMenu(refocus: false);
+              setState(leaveMaximized);
+            },
             onPanUpdate: (details) =>
                 setState(() => resizeBy(details.delta.dx, details.delta.dy)),
             onPanEnd: (_) {
@@ -2629,7 +2705,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       {
         final theme = SleuthTheme.of(context);
         final issues = model.issues;
-        if (issues.isEmpty) {
+        // An expanded card outlives its issue, so the empty states wait
+        // until it is collapsed.
+        final expanded = _frozen != null;
+        if (issues.isEmpty && !expanded) {
           // The next list starts at the top.
           _listScroll.dropKeptOffset();
           return Center(
@@ -2647,7 +2726,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // `_pruneStaleState` keys against. See [applyOverlayFilters].
         final visibleIssues = model.visible;
 
-        if (visibleIssues.isEmpty) {
+        if (visibleIssues.isEmpty && !expanded) {
           // The next list starts at the top.
           _listAtTop = true;
           _listScroll.dropKeptOffset();
@@ -2681,11 +2760,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         );
         _recordHeldOrder(held);
         final heldIssues = held.issues;
-        final orderedIssues = applyFreezeZone(
+        final order = applyFreezeZone(
           visibleIssues: heldIssues,
-          orderSnapshot: _orderSnapshot,
-          expandedIndices: _expandedIndices,
+          frozen: _frozen,
         );
+        final orderedIssues = order.issues;
+        final frozenCards = order.frozen ?? const <FrozenCard>[];
 
         // Pre-build stableId → issue map across the FULL live list (not
         // just `orderedIssues` — downstream/parent issues collapsed under
@@ -2707,9 +2787,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // Two issues can share a list key (a detector that emits one
         // issue per occurrence under the same stable id and widget
         // name). Repeats get an occurrence suffix, which keys the sliver
-        // child, the expansion and the highlight selection; the held
-        // order, the new-card accent and hiding use the shared key.
-        final listKeys = occurrenceKeysFor(orderedIssues);
+        // child and the expansion; the held order, the new-card accent
+        // and hiding use the shared key.
+        final listKeys = order.keys;
         final orderedIndexByKey = <String, int>{
           for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
@@ -2765,12 +2845,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                 },
                 itemBuilder: (_, index) {
                   final issue = orderedIssues[index];
-                  final locatable = _isLocatableIssue(issue);
                   final issueKey = listKeys[index];
+                  final frozenCard = index < frozenCards.length
+                      ? frozenCards[index]
+                      : null;
+                  final stale = !(frozenCard?.reported ?? true);
+                  final locatable = !stale && _isLocatableIssue(issue);
                   final isHighlighted =
                       selectedHighlight != null &&
                       locatable &&
-                      _selectedIssueId == issueKey;
+                      _isSelectedCard(issue, issueKey);
 
                   // Look up downstream issue objects for root issues.
                   // Uses the precomputed stableId→issue map (O(1) per
@@ -2809,26 +2893,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     if (parents.isEmpty) parents = null;
                   }
 
-                  // Capture the build-time `index` into a local so the
-                  // `onExpandedChanged` closure closes over a
-                  // deterministic value instead of whatever `index`
-                  // would be at callback-time (which could be stale
-                  // if a scan tick fired between build and tap).
+                  // The build's index, rows and keys: a tap that arrives
+                  // after a newer issue list was published still freezes
+                  // the rows the user saw.
                   final capturedIndex = index;
-
-                  // Capture the build-time visibleIssues reference so
-                  // the snapshot taken on 0→1 expand reflects what the
-                  // user actually saw, NOT a newer value that may have
-                  // been published to `issuesNotifier` between the
-                  // frame commit and the tap arriving. Defensive copy
-                  // is made inside the callback so the snapshot
-                  // outlives this build closure without being aliased
-                  // to the live list.
-                  final capturedVisibleIssues = heldIssues;
-
-                  // The list `capturedIndex` indexes. An expansion below the
-                  // frozen zone re-captures the snapshot from it.
                   final capturedOrdered = orderedIssues;
+                  final capturedKeys = listKeys;
 
                   return IssueCard(
                     key: ValueKey(listKeys[index]),
@@ -2839,53 +2909,49 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     scanTick: widget.controller.scanTickNotifier,
                     deepInstrumentationActive:
                         widget.controller.isDeepInstrumentationActive,
-                    initiallyExpanded: _expandedIndices.containsKey(issueKey),
+                    initiallyExpanded: frozenCard?.expanded ?? false,
                     collapseEpoch: _collapseEpoch,
                     onExpandedChanged: (expanded) {
                       setState(() {
                         if (expanded) {
-                          // 0→1 transition: capture snapshot before
-                          // recording the expand entry so the class
-                          // invariant (snapshot != null ↔ map not
-                          // empty) holds at every observable state.
-                          if (_expandedIndices.isEmpty) {
-                            _orderSnapshot = List<PerformanceIssue>.of(
-                              capturedVisibleIssues,
-                            );
-                          } else if (capturedIndex >
-                              _expandedIndices.values.reduce(math.max)) {
-                            // The zone grows past the snapshot's frozen
-                            // slice, whose tail may no longer match the rows
-                            // on screen. Re-capture what the user sees so
-                            // the new index points into the list it came
-                            // from.
-                            final snapshot = List<PerformanceIssue>.of(
-                              capturedOrdered,
-                            );
-                            _repointExpansions(snapshot);
-                            _orderSnapshot = snapshot;
-                          }
-                          _expandedIndices[issueKey] = capturedIndex;
-                        } else {
-                          _expandedIndices.remove(issueKey);
-                          // 1→0 transition: release the snapshot so
-                          // the next expand captures a fresh one from
-                          // whatever the ranker currently shows. The
-                          // order on screen becomes the held order, so
-                          // nothing moves under the finger; a pending
-                          // change waits for the next quiet period.
-                          if (_expandedIndices.isEmpty) {
-                            _orderSnapshot = null;
-                            _heldKeys = [
-                              ...{
-                                for (final i in capturedOrdered) listKeyFor(i),
-                              },
-                            ];
-                          }
+                          _frozen = _expandInZone(
+                            issueKey,
+                            capturedIndex,
+                            issue,
+                            capturedOrdered,
+                            capturedKeys,
+                          );
+                          return;
                         }
+                        final frozen = _frozen;
+                        if (frozen == null) return;
+                        final next = [
+                          for (final card in frozen)
+                            card.key == issueKey
+                                ? (
+                                    key: card.key,
+                                    issue: card.issue,
+                                    expanded: false,
+                                    reported: card.reported,
+                                  )
+                                : card,
+                        ];
+                        if (next.any((card) => card.expanded)) {
+                          _frozen = next;
+                          return;
+                        }
+                        // 1→0: release the zone so the next expand captures
+                        // a fresh one. The order on screen becomes the held
+                        // order, so nothing moves under the finger; a
+                        // pending change waits for the next quiet period.
+                        _frozen = null;
+                        _heldKeys = [
+                          ...{for (final i in capturedOrdered) listKeyFor(i)},
+                        ];
                       });
                     },
                     locatable: locatable,
+                    stale: stale,
                     highlighted: isHighlighted,
                     onHighlightChanged: locatable
                         ? (checked) =>
@@ -2894,7 +2960,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     jankCorrelated: _cachedJankKeys.contains(
                       issue.stableId ?? issue.title,
                     ),
-                    jankFlash: false,
                     downstreamIssues: downstream,
                     parentIssues: parents,
                     suppressedParentCount: suppressedParentCount,
@@ -3197,12 +3262,14 @@ class _RunLabel extends StatelessWidget {
               DecoratedBox(
                 decoration: vmConnected
                     ? BoxDecoration(
-                        color: theme.severityOkText,
+                        color: theme.severityGraphicColor(IssueSeverity.ok),
                         shape: BoxShape.circle,
                       )
                     : BoxDecoration(
                         border: Border.all(
-                          color: theme.severityWarningText,
+                          color: theme.severityGraphicColor(
+                            IssueSeverity.warning,
+                          ),
                           width: 1.5,
                         ),
                         shape: BoxShape.circle,
@@ -3473,6 +3540,11 @@ class _SeverityChip extends StatelessWidget {
     final foreground = selected
         ? theme.badgeTextOn(accent, tinted: tinted)
         : theme.textTertiary;
+    // The outline and icon carry the hue (red, orange, green); the count
+    // keeps the darker text shade.
+    final graphic = selected
+        ? theme.severityGraphicColor(severity)
+        : theme.textTertiary;
     return Semantics(
       button: true,
       selected: selected,
@@ -3494,7 +3566,7 @@ class _SeverityChip extends StatelessWidget {
                   color: selected ? theme.badgeFill(accent) : null,
                   borderRadius: BorderRadius.circular(theme.radiusFull),
                   border: Border.all(
-                    color: selected ? tinted : theme.textQuaternary,
+                    color: selected ? graphic : theme.textQuaternary,
                     width: 1.5,
                   ),
                 ),
@@ -3508,7 +3580,7 @@ class _SeverityChip extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(icon, size: 14, color: foreground),
+                      Icon(icon, size: 14, color: graphic),
                       SizedBox(width: theme.spacingXs),
                       Text(
                         '$count $name',

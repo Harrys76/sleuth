@@ -55,7 +55,9 @@ class RepaintBoundaryDetector extends BaseDetector
   final List<({Element owner, int count})> _boundaryFrames = [];
 
   /// Accumulated excessive-boundary findings for finalizeScan.
-  final List<({int count, String location, int occurrenceId})>
+  final List<
+    ({int count, String location, int occurrenceId, String widgetName})
+  >
   _excessiveFindings = [];
 
   @override
@@ -166,10 +168,14 @@ class RepaintBoundaryDetector extends BaseDetector
     }
     final count = _boundaryFrames.removeLast().count;
     if (count <= _excessiveBoundaryThreshold) return;
+    // The issue and its highlight name the same widget, so the card can
+    // find the highlight by name as well as by element.
+    final widgetName = typeNameCache.lookup(element.widget);
     _excessiveFindings.add((
       count: count,
       location: buildAncestorChain(element),
       occurrenceId: identityHashCode(element),
+      widgetName: widgetName,
     ));
     final ro = element.renderObject;
     if (ro == null) return;
@@ -180,7 +186,7 @@ class RepaintBoundaryDetector extends BaseDetector
         rect: rect,
         renderObject: ro,
         occurrenceId: identityHashCode(element),
-        widgetName: typeNameCache.lookup(element.widget),
+        widgetName: widgetName,
         severity: IssueSeverity.warning,
         detectorName: 'RepaintBoundary',
         detail: '$count RepaintBoundary children use excessive GPU memory',
@@ -290,6 +296,7 @@ class RepaintBoundaryDetector extends BaseDetector
               'Structural scan only. The scrollable has too many boundaries',
           detectedAt: DateTime.now(),
           occurrenceId: finding.occurrenceId,
+          widgetName: finding.widgetName,
           measurement: IssueMeasurement(
             value: finding.count.toDouble(),
             unit: MeasurementUnit.count,
