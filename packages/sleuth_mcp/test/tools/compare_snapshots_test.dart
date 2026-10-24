@@ -66,6 +66,7 @@ void main() {
       expect(result['countChanged'], isEmpty);
       expect(result['fpsDelta'], -15.0);
       expect(result.containsKey('coverageWarning'), isFalse);
+      expect(result.containsKey('versionWarning'), isFalse);
     },
   );
 
@@ -310,12 +311,43 @@ void main() {
       expect(text, contains('0.37.0'));
     });
 
-    test('accepts the same lineage at different patches', () async {
+    test('accepts the same lineage at different patches, with a version '
+        'warning', () async {
       final result = await _compare(
         _snap([], packageVersion: '0.37.0'),
         _snap([], packageVersion: '0.37.2'),
       );
       expect(result, isA<Map<String, Object?>>());
+      expect(
+        (result as Map<String, Object?>)['versionWarning'],
+        startsWith('sleuth_version_differs:'),
+      );
+    });
+
+    test('a 1.0 snapshot and a later 1.x one compare with a version '
+        'warning', () async {
+      final result =
+          await _compare(
+                _snap([
+                  {'stableId': 'a', 'severity': 'warning'},
+                ], packageVersion: '1.0.0'),
+                _snap([], packageVersion: '1.2.0'),
+              )
+              as Map<String, Object?>;
+      expect(result['removed'], ['a']);
+      final warning = result['versionWarning'] as String;
+      expect(warning, startsWith('sleuth_version_differs:'));
+      expect(warning, contains('sleuth 1.0.0 and after from 1.2.0'));
+    });
+
+    test('one release with different build metadata does not warn', () async {
+      final result =
+          await _compare(
+                _snap([], packageVersion: '1.0.0'),
+                _snap([], packageVersion: '1.0.0+ci.7'),
+              )
+              as Map<String, Object?>;
+      expect(result.containsKey('versionWarning'), isFalse);
     });
 
     test('a prerelease or build stays in its lineage', () async {

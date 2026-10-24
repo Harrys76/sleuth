@@ -505,6 +505,26 @@ void main() {
       });
     }
 
+    test('versionWarning is documented and present iff the releases '
+        'differ', () async {
+      final handler = builtInTools['compare_snapshots']!.handler;
+      final doc = tools['compare_snapshots'] as Map<String, Object?>;
+      for (final (after, warns) in [('1.0.0', false), ('1.1.0', true)]) {
+        final result =
+            await handler(defaultFakeBridge(), {
+                  'before': {...snap('warning'), 'packageVersion': '1.0.0'},
+                  'after': {...snap('warning'), 'packageVersion': after},
+                })
+                as Map<String, Object?>;
+        expect(
+          result.keys.toSet().difference(_documentedKeys(doc)),
+          isEmpty,
+          reason: 'compare_snapshots emitted undocumented keys',
+        );
+        expect(result.containsKey('versionWarning'), warns);
+      }
+    });
+
     test('error: arg before not object', () async {
       final bridge = defaultFakeBridge();
       final handler = builtInTools['compare_snapshots']!.handler;

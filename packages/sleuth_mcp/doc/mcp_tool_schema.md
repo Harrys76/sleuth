@@ -210,6 +210,7 @@ Issues aggregate per stableId into the highest severity across its occurrences a
 | `beforeFps` | double | yes (nullable) | |
 | `afterFps` | double | yes (nullable) | |
 | `coverageWarning` | String | no | present when neither snapshot had a VM service link (both report `isVmConnected: false`). It starts with `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover. |
+| `versionWarning` | String | no | present when the two `packageVersion` values name different releases of one lineage, such as `1.0.0` and `1.2.0`; build metadata (`+...`) does not count. It starts with `sleuth_version_differs:` and names both versions, because a release can add detectors, move thresholds or fix false positives. |
 
 **Errors:**
 
@@ -217,7 +218,7 @@ Issues aggregate per stableId into the highest severity across its occurrences a
 - `arg "after" must be object (SessionSnapshot data)`
 - `arg_capped_issues_uncomparable`: one or both inputs were projected with `maxIssueCount`. A truncated top-N window cannot be diffed, because an issue that left the window looks the same as one that was resolved.
 - `arg_section_mismatch`: the inputs were projected to different sections or with different pagination limits.
-- `arg_lineage_mismatch`: the two `packageVersion` values fall in different sleuth `major.minor` lineages, or either is missing or not semver. Detector ids and defaults change between lineages, so the diff would report instrumentation changes as app changes.
+- `arg_lineage_mismatch`: the two `packageVersion` values fall in different sleuth lineages (the major from 1.0.0, `major.minor` below it), or either is missing or not semver. Detector ids and defaults change between lineages, so the diff would report instrumentation changes as app changes.
 - `arg_snapshot_in_warmup`: one or both snapshots were taken while Sleuth was still warming up, so their issue lists may be incomplete. A snapshot counts as a warmup snapshot when it carries `connectionMode: warmup` or the warmup `launchModeAdvisory` that `get_snapshot` adds. Wait a few seconds and take that snapshot again.
 - `arg_coverage_mismatch`: only one snapshot had a VM service link, or either lacks a boolean `isVmConnected`. Coverage reads `isVmConnected` only, so a `basic` session with a VM link counts as covered. VM-only detectors report nothing without a link, so their issues would read as resolved or new.
 - `snapshot …`: a snapshot lacks or mistypes `currentIssues`, `currentIssues[].stableId` or `severity`, or the `frameStatsSummary` fps (schema drift).
