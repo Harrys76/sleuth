@@ -1,6 +1,7 @@
 /// Trend direction for an issue's recurrence over time.
 ///
-/// Rendered on the issue card as a "Seen X/Y · {label}" badge, where:
+/// Rendered in the issue card's meta line as "seen X of Y scans, {label}",
+/// where:
 /// - **X** = [RecurrenceTrend.presentCount] (cycles where the issue fired)
 /// - **Y** = [RecurrenceTrend.length] (total cycles observed in the ring buffer)
 ///

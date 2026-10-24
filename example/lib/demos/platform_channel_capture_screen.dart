@@ -15,12 +15,12 @@ import 'capture_driver.dart';
 ///
 /// **VM-service connection required.** Same constraint as the other
 /// runtimeVerified capture screens: SleuthController's VmServiceClient
-/// must be connected (VM+ overlay) so `_recordIssuesForCapture` lands
+/// must be connected (overlay with a VM link) so `_recordIssuesForCapture` lands
 /// the `sleuth.issue.platform_channel_traffic.<tier>` trace event
 /// inside the scenario span. Sleuth connects to the app's own VM service
 /// from inside the app, so USB and wireless both work. `flutter run`
 /// starts DDS by default, and DDS keeps the VM service as its only
-/// client, which leaves Sleuth in FRAME mode. Launch with `--no-dds`
+/// client, which leaves Sleuth in no-VM mode. Launch with `--no-dds`
 /// (step 1), or start the installed app from the home screen.
 ///
 /// **Why the procedure differs from `MemoryPressureCaptureScreen`.**
@@ -542,8 +542,8 @@ class _PlatformChannelCaptureScreenState
           "completed but Sleuth.exportCaptureJson returned null at "
           'compose-time. Common causes: (1) captureMode is OFF. '
           'Restart with --dart-define=SLEUTH_CAPTURE_MODE=true. '
-          '(2) The VM service disconnected (FRAME mode). Re-launch from '
-          'the home screen so VM+ mode activates. Re-tap after fixing.',
+          '(2) The VM service disconnected (run label "· no VM"). Re-launch from '
+          'the home screen so the VM link comes back. Re-tap after fixing.',
         );
       });
       return;

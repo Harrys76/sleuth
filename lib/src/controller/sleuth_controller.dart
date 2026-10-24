@@ -1837,8 +1837,8 @@ class SleuthController {
   };
 
   /// Unmodifiable view of the current recurrence trend map, keyed by
-  /// issue `stableId`. Intended for the floating card to render "Seen X/Y"
-  /// badges. Trends update on every scan cycle; listeners should use
+  /// issue `stableId`. The floating card renders it as "seen X of Y scans"
+  /// in each meta line. Trends update on every scan cycle; listeners use
   /// [scanTickNotifier] as the rebuild trigger.
   Map<String, RecurrenceTrend> get recurrenceTrends =>
       Map.unmodifiable(_recurrenceTrends);

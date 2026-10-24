@@ -26,7 +26,7 @@ Where Sleuth helps more than DevTools:
 - **Structural checks.** It flags problems DevTools does not: non-lazy lists, images decoded above display size, missing `RepaintBoundary`, intrinsic layout and retained stream subscriptions.
 - **Explained issues.** Each card names the widget and its source line (`file.dart:42`), gives a fix hint, and says what evidence it is based on and how confident it is: confirmed, likely or possible.
 - **Causes linked to effects.** 42 causal rules link a root cause to the issues it causes, so a card shows why an issue matters.
-- **Fix verification and trends.** Capture a baseline, apply the fix and compare. A `Seen X/Y` badge and a trend label show whether an issue is getting better or worse across scans.
+- **Fix verification and trends.** Capture a baseline, apply the fix and compare. Each card's meta line ("seen 12 of 20 scans, persistent") shows whether an issue is getting better or worse across scans.
 - **AI help.** Ask the AI provider of your choice about any issue from its card, or let an assistant query the running app through the `sleuth_mcp` sidecar.
 
 What DevTools still does better:
@@ -211,11 +211,11 @@ final markdown = Sleuth.exportSummary(topN: 5); // paste into Slack or a PR desc
 final score = Sleuth.routeHealthScore('/settings'); // 0 to 100
 ```
 
-The dashboard's Export button copies the JSON snapshot to the clipboard. These calls return `null` in release mode, before `track()` is called, or after the overlay is disposed.
+Copy snapshot in the dashboard's More menu copies the JSON snapshot to the clipboard. These calls return `null` in release mode, before `track()` is called, or after the overlay is disposed.
 
 - **Routes.** Sleuth detects route changes from the element tree, with no `NavigatorObserver`, and keeps a `RouteSession` per route with FPS, jank ratio, issues and a health score. Tab shells (`IndexedStack`, `StatefulShellRoute.indexedStack`, `CupertinoTabScaffold`) get one session per tab. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#route-sessions) covers the session keys and tracking options.
 - **Fix verification.** Call `Sleuth.captureBaseline()` before a fix and `Sleuth.compareToBaseline()` after it. An issue counts as resolved after it stays absent for five scans, with a three-scan grace period after hot reload.
-- **Recurrence.** The `Seen X/Y` badge counts how many of the last 60 scans saw the issue, and its label (worsening, persistent, stable, improving, flaky) shows the recent trend. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#recurrence-badge) has the thresholds.
+- **Recurrence.** The card's meta line counts how many of the last 60 scans saw the issue ("seen 12 of 20 scans"), and its label (worsening, persistent, stable, improving, flaky) shows the recent trend. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#recurrence) has the thresholds.
 - **Startup.** Call `Sleuth.init()` as the first line of `main()` to measure time to first frame, split into engine and Dart phases. [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#startup-tracing) explains each metric.
 
 ## Confidence and ranking

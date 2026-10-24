@@ -8,17 +8,18 @@ final RegExp _semver = RegExp(
   r'(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$',
 );
 
-/// Returns the `major.minor` pair that defines a sleuth pre-1.0
-/// compatibility lineage, or null when [version] is not a semver
-/// `major.minor.patch` (with optional `-prerelease` / `+build`). Pre-1.0
-/// semver treats minor bumps as breaking, so the lineage boundary sits at
-/// the minor level. A prerelease or build of a version stays in that
-/// version's lineage (`0.37.0-dev.1` → `0.37`). Once sleuth reaches 1.0,
-/// switch this to return the major part only.
+/// Returns the compatibility lineage of a sleuth [version]: the major from
+/// 1.0.0 on (`1.4.2` gives `1`), where a breaking change takes a major
+/// release, and `major.minor` below 1.0.0 (`0.38.1` gives `0.38`), where a
+/// minor release could break. A prerelease or build of a version stays in
+/// that version's lineage (`1.0.0-dev.1` gives `1`). Returns null when
+/// [version] is not a semver `major.minor.patch` with optional
+/// `-prerelease` and `+build`.
 String? versionLineage(String version) {
   final match = _semver.firstMatch(version);
   if (match == null) return null;
-  return '${match[1]}.${match[2]}';
+  final major = match[1]!;
+  return major == '0' ? '$major.${match[2]}' : major;
 }
 
 /// Lineages this sidecar tolerates alongside its own pin. Each entry
@@ -34,5 +35,5 @@ const Set<String> acceptedPriorLineages = {
   // One-cycle fallback for apps still on the previous sleuth lineage
   // while the sidecar pin has advanced. Drop the entry one release
   // after the matching app version stops being supported.
-  '0.37',
+  '0.38',
 };

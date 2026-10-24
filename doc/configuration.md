@@ -87,7 +87,7 @@ Sleuth.track(
 
 ## Suppressing issues
 
-`suppressedIssues` removes matching issues before ranking, so they leave the overlay, `ext.sleuth.*`, snapshots and budgets alike, and the overlay footer counts them (`3 suppressed`). To move a card out of the way only while you work, hide it in the overlay instead ([Using the overlay](overlay.md#hiding-cards)).
+`suppressedIssues` removes matching issues before ranking, so they leave the overlay, `ext.sleuth.*`, snapshots and budgets alike. Hidden issues in the overlay's More menu counts them, and its page says how many were removed before ranking. To move a card out of the way only while you work, hide it in the overlay instead ([Using the overlay](overlay.md#hiding-cards)).
 
 ## Saving overlay state across restarts
 
@@ -126,7 +126,7 @@ A widget's card appears when one scan's rate reaches the threshold, and it stays
 
 ## Overlay theming
 
-The overlay follows the platform brightness and switches to a high-contrast preset when the platform asks for high contrast (iOS Increase Contrast). The header toggle cycles System, Light and Dark and remembers the choice (`OverlayUiState.themeMode`, persisted with the rest of the overlay state). The order of precedence, from highest, is the toggle's Light or Dark, then `Sleuth.updateTheme`, then `SleuthConfig.theme`, then automatic selection. Choosing Light or Dark shows the Sleuth preset (high-contrast when the platform asks for it) in place of an `updateTheme` or configured theme; System shows that theme again. Calling `Sleuth.updateTheme` with a theme sets the toggle to System.
+The overlay follows the platform brightness and switches to a high-contrast preset when the platform asks for high contrast (iOS Increase Contrast). Theme in the overlay's More menu picks Auto, Light or Dark and remembers the choice (`OverlayUiState.themeMode`, persisted with the rest of the overlay state). The order of precedence, from highest, is Theme's Light or Dark, then `Sleuth.updateTheme`, then `SleuthConfig.theme`, then automatic selection. Choosing Light or Dark shows the Sleuth preset (high-contrast when the platform asks for it) in place of an `updateTheme` or configured theme; Auto shows that theme again. Calling `Sleuth.updateTheme` with a theme sets Theme to Auto.
 
 ```dart
 // Static config at initialization

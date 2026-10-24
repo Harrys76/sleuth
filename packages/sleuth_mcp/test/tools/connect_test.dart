@@ -27,7 +27,7 @@ void main() {
           'connectionMode': 'basic',
           'schemaVersion': 1,
           'sessionUuid': 'uuid',
-          'data': {'packageVersion': '0.38.99'},
+          'data': {'packageVersion': '1.0.99'},
         });
       final handler = builtInTools['connect']!.handler;
       final result = await handler(bridge, {'uri': 'ws://localhost/ws'});
@@ -155,7 +155,7 @@ void main() {
           'connectionMode': 'basic',
           'schemaVersion': 1,
           'sessionUuid': 'uuid',
-          'data': {'packageVersion': '0.37.0'},
+          'data': {'packageVersion': '0.38.0'},
         });
       final handler = builtInTools['connect']!.handler;
       final result = await handler(bridge, {'uri': 'ws://localhost/ws'});

@@ -20,9 +20,9 @@ import 'capture_driver.dart';
 ///  1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
 ///        --dart-define=SLEUTH_CAPTURE_MODE=true \
 ///        --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`.
-///  2. Sleuth connects to the app's own VM service (VM+ mode). Without
+///  2. Sleuth connects to the app's own VM service (VM mode). Without
 ///     `--no-dds`, `flutter run` starts DDS, which keeps the VM service
-///     as its only client and leaves Sleuth in FRAME mode. In that case
+///     as its only client and leaves Sleuth in no-VM mode. In that case
 ///     quit `flutter run` (`q`) and re-open the app from the home screen.
 ///  3. Navigate to "Tracked resource capture helper" → tap a leg →
 ///     wait for "tap Export now" → tap **Export last leg** → paste
