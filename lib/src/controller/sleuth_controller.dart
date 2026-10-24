@@ -87,6 +87,7 @@ import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart' show getGlobalRect;
 import '../vm/timeline_parser.dart';
+import '../startup/startup_tracker.dart';
 
 /// Central controller aggregating all detectors and the pipeline analyzer.
 class SleuthController {
@@ -484,6 +485,18 @@ class SleuthController {
   final ValueNotifier<WidgetHighlight?> selectedHighlightNotifier =
       ValueNotifier(null);
 
+  /// Position of the outline among the widgets of an issue that lists
+  /// several ([listsWidgets]): `index` of `count`, both from the latest
+  /// publish. Null for an issue that names one widget and while nothing
+  /// is outlined.
+  final ValueNotifier<({int index, int count})?> highlightStepNotifier =
+      ValueNotifier(null);
+
+  /// The edge the highlight bar sits at while it is up: true at the top.
+  /// The card sets it after laying the bar out; the outline label reads it
+  /// to stay clear of the bar. Null while no bar is up.
+  final ValueNotifier<bool?> highlightBarAtTopNotifier = ValueNotifier(null);
+
   /// Runtime theme override. Takes precedence over [config.theme] and
   /// auto-detection when non-null; the header toggle's Light or Dark
   /// takes precedence over it.
@@ -613,6 +626,15 @@ class SleuthController {
   /// Severity of the issue whose widget is outlined, which the outline
   /// takes; null while nothing is outlined.
   IssueSeverity? get highlightTargetSeverity => _highlightTarget?.severity;
+
+  /// Element identity of the outlined widget of a [listsWidgets] target,
+  /// kept while the widget is off screen so a later publish finds it again.
+  int? _stepOccurrence;
+
+  /// Place of that widget among the issue's widgets at the latest publish
+  /// that had it. [highlightStepNotifier] shows a position that changes
+  /// only with Next and the lookup; this one tracks the list.
+  int _stepPlace = 0;
 
   /// Highlights are collected while the markers are on, and while an
   /// issue's outline is shown or looked up.
@@ -843,6 +865,71 @@ class SleuthController {
     selectedHighlightNotifier.value = null;
     _pendingHighlight = null;
     _highlightTarget = null;
+    _stepOccurrence = null;
+    highlightStepNotifier.value = null;
+    highlightBarAtTopNotifier.value = null;
+  }
+
+  /// Issue families whose single issue lists several widgets, each with
+  /// its own highlight tagged with the family's id
+  /// ([WidgetHighlight.stableId]).
+  static const _listFamilies = {
+    'always_repaint_painter',
+    'missing_repaint_boundary',
+    'layout_bottleneck',
+    'uncached_images',
+    'expensive_gpu_nodes',
+  };
+
+  /// Whether [issue] lists several widgets rather than naming one, so its
+  /// outline steps through them ([nextHighlightStep]).
+  static bool listsWidgets(PerformanceIssue issue) =>
+      issue.widgetName == null && _listFamilies.contains(issue.stableId);
+
+  /// The widgets of a [listsWidgets] issue among [highlights], one per
+  /// element, in scan order.
+  static List<WidgetHighlight> _stepsOf(
+    PerformanceIssue issue,
+    List<WidgetHighlight> highlights,
+  ) {
+    final seen = <int>{};
+    return [
+      for (final h in highlights)
+        if (h.stableId == issue.stableId &&
+            h.occurrenceId != null &&
+            seen.add(h.occurrenceId!))
+          h,
+    ];
+  }
+
+  /// 0 for no widget, 1 for one, 2 for several.
+  static int _countBand(int count) => math.min(count, 2);
+
+  /// Whether [nextHighlightStep] can outline another widget: the issue
+  /// has two or more, or its outlined widget is gone and another remains.
+  bool get canStepNext {
+    final count = highlightStepNotifier.value?.count ?? 0;
+    return count > 1 || (count == 1 && selectedHighlightNotifier.value == null);
+  }
+
+  /// Outlines the next widget of the outlined [listsWidgets] issue, after
+  /// the last one wrapping to the first. When the outlined widget is off
+  /// screen, the next one is the widget now at its place, the one that
+  /// followed it.
+  void nextHighlightStep() {
+    final target = _highlightTarget;
+    final step = highlightStepNotifier.value;
+    if (target == null || step == null || !listsWidgets(target)) return;
+    final steps = _stepsOf(target, highlightsNotifier.value.items);
+    if (steps.isEmpty) return;
+    final current = steps.indexWhere((h) => h.occurrenceId == _stepOccurrence);
+    final next = current >= 0
+        ? (current + 1) % steps.length
+        : _stepPlace % steps.length;
+    _stepOccurrence = steps[next].occurrenceId;
+    _stepPlace = next;
+    selectedHighlightNotifier.value = steps[next];
+    highlightStepNotifier.value = (index: next, count: steps.length);
   }
 
   /// Selects the highlight of [issue]: the one measured from the issue's
@@ -863,6 +950,8 @@ class SleuthController {
   }) {
     _pendingHighlight = null;
     _highlightTarget = null;
+    _stepOccurrence = null;
+    highlightStepNotifier.value = null;
     // Detectors computed their highlights in their last scan, but they are
     // collected only while highlighting is on, which it may just have
     // been switched to.
@@ -884,11 +973,34 @@ class SleuthController {
   }
 
   HighlightLookup _selectHighlight(PerformanceIssue issue) {
+    if (listsWidgets(issue)) {
+      // Built widgets include ones scrolled out of view (a list's cache
+      // extent); the outline starts on the first one on screen.
+      final steps = _stepsOf(issue, highlightsNotifier.value.items);
+      final screen = _screenRect();
+      final first = steps.indexWhere(
+        (h) => screen == null || h.rect.overlaps(screen),
+      );
+      if (first < 0) return HighlightLookup.notFound;
+      _highlightTarget = issue;
+      _stepOccurrence = steps[first].occurrenceId;
+      _stepPlace = first;
+      selectedHighlightNotifier.value = steps[first];
+      highlightStepNotifier.value = (index: first, count: steps.length);
+      return HighlightLookup.found;
+    }
     final match = _highlightOf(issue, highlightsNotifier.value.items);
     if (match == null) return HighlightLookup.notFound;
     _highlightTarget = issue;
     selectedHighlightNotifier.value = match;
     return HighlightLookup.found;
+  }
+
+  /// The app's screen in logical pixels, null without a view.
+  static Rect? _screenRect() {
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+    if (view == null || view.devicePixelRatio <= 0) return null;
+    return Offset.zero & (view.physicalSize / view.devicePixelRatio);
   }
 
   static WidgetHighlight? _highlightOf(
@@ -900,14 +1012,16 @@ class SleuthController {
       // An issue that names its element takes that element's highlight
       // or none: a sibling with the same name belongs to another issue.
       for (final h in highlights) {
-        if (h.occurrenceId == occurrence) return h;
+        // A tagged highlight belongs to a list issue on the same element.
+        if (h.occurrenceId == occurrence && h.stableId == null) return h;
       }
       return null;
     }
     final name = issue.widgetName;
     if (name == null) return null;
     for (final h in highlights) {
-      if (h.widgetName == name) return h;
+      // A tagged highlight is a list card's widget, not this issue's.
+      if (h.widgetName == name && h.stableId == null) return h;
     }
     return null;
   }
@@ -2197,7 +2311,7 @@ class SleuthController {
           ? buildWidgetHeatMap(rankedWithScores)
           : null,
       sessionSummary: summary.isNotEmpty ? summary : null,
-      startupMetrics: Sleuth.startupMetrics,
+      startupMetrics: StartupTracker.metrics,
       routeSessions: routeSessions,
       notUsefulMarks: notUsefulMarksForExport(),
     );
@@ -3178,7 +3292,7 @@ class SleuthController {
     }
 
     if (routeChanged) {
-      active?.endedAt = DateTime.now();
+      active?.end(DateTime.now());
       // Jank is judged per route: start a new frame window and drop the
       // previous route's jank issues before this tick aggregates, so they
       // never reach the new session. Raster-dominant frames from a
@@ -3214,7 +3328,7 @@ class SleuthController {
       }
       _consecutiveCleanScans = 0;
     }
-    _activeRouteSession?.scanCycleCount++;
+    _activeRouteSession?.countScanCycle();
 
     // Guard _detectors iteration — enable/disable calls that arrive via
     // notifier listeners during scan/aggregation are deferred.
@@ -3638,6 +3752,7 @@ class SleuthController {
             detail: h.detail,
             renderObject: ro,
             occurrenceId: h.occurrenceId,
+            stableId: h.stableId,
           ),
         );
       }
@@ -3662,8 +3777,11 @@ class SleuthController {
       final occurrence = selected.occurrenceId;
       WidgetHighlight? refreshed;
       for (final h in items) {
+        // One element can carry highlights of several issues (a
+        // CustomPaint flagged by two detectors); the outline stays with
+        // its own issue's.
         final same = occurrence != null
-            ? h.occurrenceId == occurrence
+            ? h.occurrenceId == occurrence && h.stableId == selected.stableId
             : h.detectorName == selected.detectorName &&
                   h.widgetName == selected.widgetName;
         if (same) {
@@ -3675,7 +3793,28 @@ class SleuthController {
     }
     // An outline that lost its element takes it back from a later publish.
     final target = _highlightTarget;
-    if (target != null && selectedHighlightNotifier.value == null) {
+    if (target != null && listsWidgets(target)) {
+      final steps = _stepsOf(target, items);
+      final index = steps.indexWhere((h) => h.occurrenceId == _stepOccurrence);
+      // The outline comes only from the issue's own widgets.
+      selectedHighlightNotifier.value = index >= 0 ? steps[index] : null;
+      if (index >= 0) _stepPlace = index;
+      // The shown position changes with Next and the lookup, not with each
+      // scan: a screen reader would read the bar's label again after every
+      // scroll. A move between no widget, one and several shows at once,
+      // since it decides whether Next shows; while the outlined widget is
+      // off screen the position stays where it was.
+      final shown = highlightStepNotifier.value;
+      if (shown == null ||
+          _countBand(shown.count) != _countBand(steps.length)) {
+        highlightStepNotifier.value = (
+          index: index >= 0
+              ? index
+              : math.min(shown?.index ?? 0, math.max(0, steps.length - 1)),
+          count: steps.length,
+        );
+      }
+    } else if (target != null && selectedHighlightNotifier.value == null) {
       selectedHighlightNotifier.value = _ownHighlightOf(target, items);
     }
   }
@@ -3690,8 +3829,8 @@ class SleuthController {
     final occurrence = issue.occurrenceId;
     for (final h in highlights) {
       if (occurrence != null
-          ? h.occurrenceId == occurrence
-          : h.widgetName == issue.widgetName) {
+          ? h.occurrenceId == occurrence && h.stableId == null
+          : h.widgetName == issue.widgetName && h.stableId == null) {
         return h;
       }
     }
@@ -4061,7 +4200,7 @@ class SleuthController {
   }
 
   void _onStartupTimelineEvents(StartupTimelineEvents events) {
-    Sleuth.enrichStartupWithVmData(
+    StartupTracker.enrichWithVmData(
       engineEnterUs: events.engineEnterUs,
       firstFrameRasterizedUs: events.firstFrameRasterizedUs,
       vmFirstBuildScopeMs: events.firstBuildScopeDurUs != null
@@ -5125,7 +5264,7 @@ class SleuthController {
   void _reassembleInternal() {
     final active = _activeRouteSession;
     if (active != null && active.endedAt == null) {
-      active.endedAt = DateTime.now();
+      active.end(DateTime.now());
       // Republish history so listeners see the newly-closed session.
       routeHistoryNotifier.value = List<RouteSession>.unmodifiable(
         _routeHistory.toList(),
@@ -5806,6 +5945,8 @@ class SleuthController {
     highlightsNotifier.dispose();
     highlightEnabledNotifier.dispose();
     selectedHighlightNotifier.dispose();
+    highlightStepNotifier.dispose();
+    highlightBarAtTopNotifier.dispose();
     suppressedCountNotifier.dispose();
     _notUseful.clear();
     notUsefulNotifier.dispose();

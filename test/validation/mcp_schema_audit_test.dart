@@ -945,7 +945,7 @@ void main() {
               tabVisitIndex: 2,
               hotReloadGeneration: 1,
             )
-            ..endedAt = start.add(const Duration(seconds: 2))
+            ..end(start.add(const Duration(seconds: 2)))
             ..rebuildCountsByType['Row'] = 4
             ..issueSnapshots['jank_detected'] = _issue(
               stableId: 'jank_detected',

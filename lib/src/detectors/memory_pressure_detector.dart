@@ -28,6 +28,7 @@ import 'heap_floor_tracker.dart';
 /// cross + 10 s sustained = ~14-15 s of scenario allocation before the
 /// first `heap_growing` issue can fire. Capture procedures should
 /// allocate ≥30 s for comfortable margin.
+@experimental
 class MemoryPressureDetector extends BaseDetector
     with DetectorMetadataProvider {
   MemoryPressureDetector({
@@ -362,7 +363,7 @@ class MemoryPressureDetector extends BaseDetector
 
   /// Record a single completed GC cycle.
   ///
-  /// Called by the controller's [SleuthController._onGcEvent] handler which
+  /// Called by the controller's `SleuthController._onGcEvent` handler which
   /// listens to the VM's authoritative per-cycle GC stream. Each call
   /// contributes exactly one event to the sliding window.
   ///
@@ -420,8 +421,8 @@ class MemoryPressureDetector extends BaseDetector
   /// GC events in the current 10 s window, by class, and their summed
   /// pause time.
   ///
-  /// [pauseAvailable] is true only when every event in the window has a
-  /// measured pause. [pauseMs] is null whenever it is false, so "no
+  /// `pauseAvailable` is true only when every event in the window has a
+  /// measured pause. `pauseMs` is null whenever it is false, so "no
   /// pauses" (0.0) and "not measurable" stay distinct.
   ({
     int events,

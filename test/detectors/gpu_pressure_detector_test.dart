@@ -1518,6 +1518,20 @@ void main() {
         expect(detector.highlights, isNotEmpty);
         expect(detector.highlights.first.severity, IssueSeverity.critical);
         expect(detector.highlights.first.detail, contains('σ=15.0'));
+        // Each highlight names its issue and element, for the crosshair's
+        // steps.
+        expect(
+          detector.highlights.map((h) => h.stableId),
+          everyElement('expensive_gpu_nodes'),
+        );
+        expect(
+          detector.highlights.map((h) => h.occurrenceId).toSet(),
+          hasLength(detector.highlights.length),
+        );
+        expect(
+          detector.highlights.map((h) => h.occurrenceId),
+          everyElement(isNotNull),
+        );
       });
 
       testWidgets('warning highlight for moderate sigma', (tester) async {

@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:meta/meta.dart' show experimental;
 
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
@@ -27,6 +28,7 @@ import '../vm/timeline_parser.dart';
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
 /// tick) and [evaluateNow] (timeline tick).
+@experimental
 class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   RepaintDetector({
     this.paintFrequencyThreshold = 30,

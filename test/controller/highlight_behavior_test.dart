@@ -453,6 +453,41 @@ void main() {
       );
       expect(controller.selectedHighlightNotifier.value, isNull);
     });
+
+    // A list card's highlights carry its stable id; an issue that only
+    // names the widget type does not take them.
+    test('a name match skips a list card\'s tagged highlight', () {
+      final controller = SleuthController()..initializeDetectorsForTest();
+      addTearDown(controller.dispose);
+      controller.highlightsNotifier.value = (
+        generation: 1,
+        items: const [
+          WidgetHighlight(
+            rect: Rect.fromLTWH(0, 0, 100, 50),
+            widgetName: 'CustomPaint',
+            severity: IssueSeverity.warning,
+            detectorName: 'CustomPainter',
+            occurrenceId: 3,
+            stableId: 'always_repaint_painter',
+          ),
+        ],
+      );
+      const named = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.paint,
+        confidence: IssueConfidence.likely,
+        title: 'Likely Repaint Origin: CustomPaint (40/sec)',
+        detail: '',
+        fixHint: '',
+        stableId: 'repaint_debug_CustomPaint',
+        widgetName: 'CustomPaint',
+      );
+
+      expect(
+        controller.selectHighlightForIssue(named),
+        HighlightLookup.notFound,
+      );
+    });
   });
 
   group('highlight dirty-check', () {

@@ -13,12 +13,20 @@ import 'text_scale_clamp.dart';
 bool highlightBarAtTop(Rect rect, Rect visible) =>
     rect.center.dy > visible.center.dy;
 
-/// Height of the highlight bar at chrome text scale [chromeScale].
-double highlightBarHeight(double chromeScale) => 48 * chromeScale;
+/// Height of the highlight bar at chrome text scale [chromeScale]: one
+/// 48 px row, or two when it [steps] through an issue's widgets.
+double highlightBarHeight(double chromeScale, {bool steps = false}) =>
+    (steps ? 96 : 48) * chromeScale;
 
 /// The bar the card shrinks to while it outlines an issue's widget:
 /// "Showing X", or "X is off screen" once the widget scrolls away or
 /// detaches, with Back to issues and close.
+///
+/// For an issue that lists widgets ([step] set) with another widget to go
+/// to, the first row also shows the outlined widget's position ("1 of 3")
+/// and a Next button, and Back to issues moves to a second row. [backKey]
+/// keeps Back to issues the same element across that move, so it keeps
+/// its focus.
 ///
 /// The label is a live region, so a screen reader hears the switch to
 /// off screen.
@@ -31,10 +39,29 @@ class SleuthHighlightBar extends StatelessWidget {
     required this.onBack,
     required this.onClose,
     this.backFocusNode,
+    this.step,
+    this.onNext,
+    this.nextFocusNode,
+    this.showNext = false,
+    this.backKey,
   });
 
   final IssueSeverity severity;
   final String widgetName;
+
+  /// Position of the outlined widget among the issue's widgets; Next shows
+  /// when there are two or more.
+  final ({int index, int count})? step;
+
+  /// Outlines the issue's next widget.
+  final VoidCallback? onNext;
+
+  /// Whether Next shows: two or more widgets, or the outlined one is gone
+  /// and another remains.
+  final bool showNext;
+
+  /// Focus for Next, which takes focus when a bar with Next opens.
+  final FocusNode? nextFocusNode;
 
   /// The outlined widget is not on screen now.
   final bool offScreen;
@@ -45,17 +72,88 @@ class SleuthHighlightBar extends StatelessWidget {
   /// Closes the dashboard.
   final VoidCallback onClose;
 
-  /// Focus for Back to issues, which takes focus when the bar opens.
+  /// Focus for Back to issues, which takes focus when a bar without Next
+  /// opens.
   final FocusNode? backFocusNode;
+
+  /// Global key for Back to issues, held by the owner across rebuilds.
+  final GlobalKey? backKey;
+
+  /// Side of the close button and the least size of the text buttons.
+  static const double _hit = 48;
+
+  /// Whether the bar shows Next, on a first row above Back to issues.
+  bool get _next => step != null && showNext && onNext != null;
+
+  /// Whether the bar shows the position: two or more widgets.
+  bool get _position => _next && step!.count > 1;
 
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    final label = offScreen
+    final state = offScreen
         ? '$widgetName is off screen'
         : 'Showing $widgetName';
+    final position = _position ? '${step!.index + 1} of ${step!.count}' : null;
+    final spoken = position == null ? state : '$state, $position';
     final radius = BorderRadius.circular(theme.radiusXxl);
     final buttonRadius = BorderRadius.circular(theme.radiusLg);
+    final textStyle = TextStyle(
+      color: theme.textPrimary,
+      fontSize: theme.fontBase,
+    );
+    // The widget name takes the ellipsis; the position never breaks.
+    final labelText = Expanded(
+      child: Semantics(
+        container: true,
+        liveRegion: true,
+        label: spoken,
+        excludeSemantics: true,
+        child: Row(
+          children: [
+            Flexible(
+              child: Text(
+                position == null ? state : '$state ·',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: textStyle,
+              ),
+            ),
+            if (position != null)
+              Text(' $position', softWrap: false, style: textStyle),
+          ],
+        ),
+      ),
+    );
+    final icon = ExcludeSemantics(
+      child: SleuthSeverityIcon(severity: severity, size: 16),
+    );
+    final close = Semantics(
+      container: true,
+      button: true,
+      label: 'Close Sleuth',
+      onTap: onClose,
+      excludeSemantics: true,
+      child: SleuthFocusInkWell(
+        onTap: onClose,
+        excludeFromSemantics: true,
+        borderRadius: buttonRadius,
+        builder: (context, showFocus) => SleuthFocusOutline(
+          show: showFocus,
+          color: theme.checkboxActive,
+          borderRadius: buttonRadius,
+          child: SizedBox(
+            width: _hit,
+            height: _hit,
+            child: Icon(Icons.close, size: 16, color: theme.textTertiary),
+          ),
+        ),
+      ),
+    );
+    final chromeScale = chromeScaleOf(context);
+    final rowHeight = BoxConstraints(
+      minHeight: highlightBarHeight(chromeScale),
+    );
     return SleuthTextScaleClamp(
       maxScaleFactor: kChromeMaxTextScale,
       child: Material(
@@ -64,70 +162,75 @@ class SleuthHighlightBar extends StatelessWidget {
         borderRadius: radius,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            minHeight: highlightBarHeight(chromeScaleOf(context)),
+            minHeight: highlightBarHeight(chromeScale, steps: _next),
           ),
           child: Padding(
             padding: EdgeInsets.only(left: theme.spacingLg),
             // Back to issues keeps its width up to half the row and wraps
             // past it; the label takes the rest, so close stays at the end.
             child: LayoutBuilder(
-              builder: (context, constraints) => Row(
-                children: [
-                  ExcludeSemantics(
-                    child: SleuthSeverityIcon(severity: severity, size: 16),
+              builder: (context, constraints) {
+                final back = ConstrainedBox(
+                  key: backKey,
+                  constraints: BoxConstraints(
+                    maxWidth: constraints.maxWidth / 2,
                   ),
-                  SizedBox(width: theme.spacingMd),
-                  Expanded(
-                    child: Semantics(
-                      container: true,
-                      liveRegion: true,
-                      label: label,
-                      excludeSemantics: true,
-                      child: Text(
-                        label,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: theme.textPrimary,
-                          fontSize: theme.fontBase,
-                        ),
-                      ),
-                    ),
+                  child: _textButton(
+                    theme,
+                    buttonRadius,
+                    text: 'Back to issues',
+                    onTap: onBack,
+                    focusNode: backFocusNode,
                   ),
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: constraints.maxWidth / 2,
-                    ),
-                    child: _backButton(theme, buttonRadius),
-                  ),
-                  Semantics(
-                    container: true,
-                    button: true,
-                    label: 'Close Sleuth',
-                    onTap: onClose,
-                    excludeSemantics: true,
-                    child: SleuthFocusInkWell(
-                      onTap: onClose,
-                      excludeFromSemantics: true,
-                      borderRadius: buttonRadius,
-                      builder: (context, showFocus) => SleuthFocusOutline(
-                        show: showFocus,
-                        color: theme.checkboxActive,
-                        borderRadius: buttonRadius,
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Icon(
-                            Icons.close,
-                            size: 16,
-                            color: theme.textTertiary,
+                );
+                if (!_next) {
+                  return Row(
+                    children: [
+                      icon,
+                      SizedBox(width: theme.spacingMd),
+                      labelText,
+                      back,
+                      close,
+                    ],
+                  );
+                }
+                // Next and Back to issues end on the same edge, left of
+                // close.
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ConstrainedBox(
+                      constraints: rowHeight,
+                      child: Row(
+                        children: [
+                          icon,
+                          SizedBox(width: theme.spacingMd),
+                          labelText,
+                          _textButton(
+                            theme,
+                            buttonRadius,
+                            text: 'Next',
+                            semanticsLabel: 'Next widget',
+                            onTap: onNext!,
+                            focusNode: nextFocusNode,
                           ),
-                        ),
+                          close,
+                        ],
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    ConstrainedBox(
+                      constraints: rowHeight,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          back,
+                          const SizedBox(width: _hit),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -135,20 +238,29 @@ class SleuthHighlightBar extends StatelessWidget {
     );
   }
 
-  Widget _backButton(SleuthThemeData theme, BorderRadius radius) => Semantics(
+  Widget _textButton(
+    SleuthThemeData theme,
+    BorderRadius radius, {
+    required String text,
+    String? semanticsLabel,
+    required VoidCallback onTap,
+    FocusNode? focusNode,
+  }) => Semantics(
     container: true,
     button: true,
-    label: 'Back to issues',
-    onTap: onBack,
+    label: semanticsLabel ?? text,
+    onTap: onTap,
     excludeSemantics: true,
     child: SleuthFocusInkWell(
-      onTap: onBack,
-      focusNode: backFocusNode,
+      onTap: onTap,
+      focusNode: focusNode,
       excludeFromSemantics: true,
       borderRadius: radius,
       builder: (context, showFocus) => ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-        child: Center(
+        constraints: const BoxConstraints(minWidth: _hit, minHeight: _hit),
+        // End-aligned, so stacked buttons end on one edge.
+        child: Align(
+          alignment: AlignmentDirectional.centerEnd,
           widthFactor: 1,
           child: SleuthFocusOutline(
             show: showFocus,
@@ -157,7 +269,7 @@ class SleuthHighlightBar extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: theme.spacingSm),
               child: Text(
-                'Back to issues',
+                text,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: theme.checkboxActive,

@@ -30,8 +30,6 @@ Map<String, Color> _surfaces(SleuthThemeData t) => {
   'cardBackground/white': composite(t.cardBackground, _white),
   'cardDefault': t.cardDefault,
   'cardHighlighted': t.cardHighlighted,
-  'cardJankFlash': t.cardJankFlash,
-  'aboutBackground': t.aboutBackground,
   'fixHintBackground': t.fixHintBackground,
 };
 
@@ -73,22 +71,13 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
       );
     }
   }
-  // Category, confidence, source, effort and effects badges.
+  // Category badges.
   final accents = {
     for (final c in IssueCategory.values)
       'category.${c.name}': t.categoryColor(c),
-    for (final c in IssueConfidence.values)
-      'confidence.${c.name}': t.confidenceColor(c),
-    for (final e in FixEffort.values) 'effort.${e.name}': t.effortColor(e),
-    'effectsBadge': t.effectsBadge,
   };
   for (final a in accents.entries) {
-    for (final s in [
-      'cardDefault',
-      'cardHighlighted',
-      'aboutBackground',
-      'fixHintBackground',
-    ]) {
+    for (final s in ['cardDefault', 'cardHighlighted', 'fixHintBackground']) {
       add(
         '${a.key} badge on $s',
         t.badgeTextOn(a.value),
@@ -96,20 +85,10 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
       );
     }
   }
-  add('badgeVm', t.badgeVmText, t.badgeVmBg);
-  add('badgeFrame', t.badgeFrameText, t.badgeFrameBg);
   add('badgeDbg', t.badgeDbgText, t.badgeDbgBg);
   add('bannerDebug', t.bannerDebugText, t.bannerDebugBg);
-  add(
-    'bannerInstrumentation',
-    t.bannerInstrumentationText,
-    t.bannerInstrumentationBg,
-  );
   add('bannerSuccess', t.bannerSuccessText, t.bannerSuccessBg);
   add('bannerWarning', t.bannerWarningText, t.bannerWarningBg);
-  add('fixHintText', t.fixHintText, t.fixHintBackground);
-  add('disclaimerText on cardDefault', t.disclaimerText, t.cardDefault);
-  add('disclaimerText on cardHighlighted', t.disclaimerText, t.cardHighlighted);
   add('aiChatUserBubble', t.aiChatUserBubbleText, t.aiChatUserBubbleBg);
   add(
     'checkboxActive text on pageBackground',
@@ -129,26 +108,10 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
   }
   add('trigger FPS warm-up dash', t.textTertiary, t.triggerBadgeBg);
   // The Ask AI link text on the card fills an expanded card can have.
-  for (final s in ['cardDefault', 'cardHighlighted', 'cardJankFlash']) {
+  for (final s in ['cardDefault', 'cardHighlighted']) {
     add('Ask AI link on $s', t.textSecondary, surfaces[s]!);
   }
   // Non-text indicators: 3:1 against what they sit on.
-  for (final source in [...ObservationSource.values, null]) {
-    for (final s in [
-      'cardDefault',
-      'cardHighlighted',
-      'cardJankFlash',
-      'cardBackground/black',
-      'cardBackground/white',
-    ]) {
-      add(
-        'source accent ${source?.name ?? 'none'} on $s',
-        t.sourceAccentColor(source),
-        surfaces[s]!,
-        3,
-      );
-    }
-  }
   add(
     'checkbox check on checkboxActive',
     SleuthThemeData.onColor(t.checkboxActive),
@@ -552,10 +515,6 @@ void main() {
       'textQuaternary',
       'border',
       'badgeFillAlpha',
-      'focusRingWidth',
-      'sourceAccentWidth',
-      'sourceStructural',
-      'sourceNone',
     };
 
     test('highContrastDark differs from dark only on the listed tokens', () {
@@ -583,7 +542,6 @@ void main() {
         expect(t.textTertiary, t.textSecondary);
         expect(t.textQuaternary, t.textSecondary);
         expect(t.badgeFillAlpha, 1);
-        expect(t.focusRingWidth, 2);
       }
     });
 
@@ -611,8 +569,6 @@ void main() {
         severityWarningText: const Color(0xFF020202),
         severityOkText: const Color(0xFF030303),
         badgeFillAlpha: 0.5,
-        focusRingWidth: 3,
-        sourceAccentWidth: 7,
         triggerIconOnLightFill: const Color(0xFF040404),
       );
       expect(t.brightness, Brightness.light);
@@ -620,8 +576,6 @@ void main() {
       expect(t.severityWarningText, const Color(0xFF020202));
       expect(t.severityOkText, const Color(0xFF030303));
       expect(t.badgeFillAlpha, 0.5);
-      expect(t.focusRingWidth, 3);
-      expect(t.sourceAccentWidth, 7);
       expect(t.triggerIconOnLightFill, const Color(0xFF040404));
       // Unset fields keep their value.
       expect(
@@ -765,57 +719,6 @@ void main() {
       expect(t.categoryColor(IssueCategory.channel), t.categoryChannel);
       expect(t.categoryColor(IssueCategory.font), t.categoryFont);
       expect(t.categoryColor(IssueCategory.network), t.categoryNetwork);
-    });
-  });
-
-  group('confidenceColor', () {
-    const t = SleuthThemeData();
-
-    test('returns correct color for all 3 levels', () {
-      expect(
-        t.confidenceColor(IssueConfidence.confirmed),
-        t.confidenceConfirmed,
-      );
-      expect(t.confidenceColor(IssueConfidence.likely), t.confidenceLikely);
-      expect(t.confidenceColor(IssueConfidence.possible), t.confidencePossible);
-    });
-  });
-
-  group('sourceAccentColor', () {
-    const t = SleuthThemeData();
-
-    test('returns correct color for all sources and null', () {
-      expect(
-        t.sourceAccentColor(ObservationSource.vmTimeline),
-        t.sourceVmTimeline,
-      );
-      expect(
-        t.sourceAccentColor(ObservationSource.debugCallback),
-        t.sourceDebugCallback,
-      );
-      expect(
-        t.sourceAccentColor(ObservationSource.debugCallbackAndStructural),
-        t.sourceDebugCallback,
-      );
-      expect(
-        t.sourceAccentColor(ObservationSource.structural),
-        t.sourceStructural,
-      );
-      expect(
-        t.sourceAccentColor(ObservationSource.frameTiming),
-        t.sourceVmTimeline,
-      );
-      expect(t.sourceAccentColor(null), t.sourceNone);
-    });
-  });
-
-  group('effortColor', () {
-    const t = SleuthThemeData();
-
-    test('returns correct color for all 3 levels', () {
-      expect(t.effortColor(FixEffort.quick), t.effortQuick);
-      expect(t.effortColor(FixEffort.medium), t.effortMedium);
-      expect(t.effortColor(FixEffort.involved), t.effortInvolved);
     });
   });
 

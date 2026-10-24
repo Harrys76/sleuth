@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:meta/meta.dart' show experimental;
 
 import '../models/base_detector.dart';
 import '../models/issue_measurement.dart';
@@ -734,6 +735,7 @@ class NetworkMonitorDetector extends BaseDetector
   }
 
   @override
+  @experimental
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:

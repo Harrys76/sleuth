@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +67,37 @@ List<int> _recordScreenReaderFocus(WidgetTester tester) {
   );
   return ids;
 }
+
+const _painters = PerformanceIssue(
+  severity: IssueSeverity.warning,
+  category: IssueCategory.paint,
+  confidence: IssueConfidence.possible,
+  title: 'Always-Repaint CustomPainter: 3 found',
+  detail: 'D',
+  fixHint: 'F',
+  stableId: 'always_repaint_painter',
+);
+
+/// The painter at [index] of the list card, at its own place on screen.
+WidgetHighlight _painterAt(int index) => WidgetHighlight(
+  rect: Rect.fromLTWH(20, 60 + index * 120.0, 160, 80),
+  widgetName: 'CustomPaint',
+  severity: IssueSeverity.warning,
+  detectorName: 'Painter',
+  occurrenceId: 100 + index,
+  stableId: 'always_repaint_painter',
+);
+
+/// A scan has run and found the list card's painters at [indexes].
+void _seedPainters(SleuthController controller, List<int> indexes) {
+  controller.scanTickNotifier.value = 1;
+  controller.publishHighlightsForTest([for (final i in indexes) _painterAt(i)]);
+}
+
+Finder get _next => find.bySemanticsLabel('Next widget');
+
+int? _outlined(SleuthController c) =>
+    c.selectedHighlightNotifier.value?.occurrenceId;
 
 const _top = Rect.fromLTWH(0, 40, 200, 100);
 const _bottom = Rect.fromLTWH(0, 600, 200, 100);
@@ -658,11 +690,35 @@ void main() {
   group('Outline label', () {
     const theme = SleuthThemeData();
 
+    /// Fill rects of the labels the overlay paints now.
+    List<Rect> paintedLabels() {
+      final rects = <Rect>[];
+      expect(
+        find.descendant(
+          of: find.byType(HighlightOverlay),
+          matching: find.byType(CustomPaint),
+        ),
+        paints..everything((method, args) {
+          if (method == #drawRRect) {
+            final paint = args[1] as Paint;
+            if (paint.style == PaintingStyle.fill &&
+                // Paint keeps 32-bit floats, so compare the packed value.
+                paint.color.toARGB32() == theme.severityWarning.toARGB32()) {
+              rects.add((args[0] as RRect).outerRect);
+            }
+          }
+          return true;
+        }),
+      );
+      return rects;
+    }
+
     Future<List<Rect>> labelRects(
       WidgetTester tester,
       double scale,
       WidgetHighlight selected, {
       double topInset = 0,
+      ValueNotifier<({int index, int count})?>? step,
     }) async {
       _phone(tester);
       final highlights =
@@ -690,30 +746,13 @@ void main() {
                 highlights: highlights,
                 selectedHighlight: current,
                 markersEnabled: markers,
+                highlightStep: step,
               ),
             ),
           ),
         ),
       );
-      final rects = <Rect>[];
-      expect(
-        find.descendant(
-          of: find.byType(HighlightOverlay),
-          matching: find.byType(CustomPaint),
-        ),
-        paints..everything((method, args) {
-          if (method == #drawRRect) {
-            final paint = args[1] as Paint;
-            if (paint.style == PaintingStyle.fill &&
-                // Paint keeps 32-bit floats, so compare the packed value.
-                paint.color.toARGB32() == theme.severityWarning.toARGB32()) {
-              rects.add((args[0] as RRect).outerRect);
-            }
-          }
-          return true;
-        }),
-      );
-      return rects;
+      return paintedLabels();
     }
 
     const short = WidgetHighlight(
@@ -793,6 +832,31 @@ void main() {
       expect(rect.top, greaterThanOrEqualTo(47 + 8 + 48));
     });
 
+    testWidgets('stays below a two-row bar at the top, from the step '
+        'update on', (tester) async {
+      const body = WidgetHighlight(
+        rect: Rect.fromLTWH(0, 103, 400, 697),
+        widgetName: 'Body',
+        severity: IssueSeverity.warning,
+        detectorName: 'Layout',
+      );
+      final step = ValueNotifier<({int index, int count})?>(null);
+      addTearDown(step.dispose);
+      final oneRow = (await labelRects(
+        tester,
+        1.0,
+        body,
+        topInset: 47,
+        step: step,
+      )).single;
+      expect(oneRow.top, lessThan(47 + 8 + 96));
+
+      // The step arrives after the outline, as it does from a lookup.
+      step.value = (index: 0, count: 3);
+      await tester.pump();
+      expect(paintedLabels().single.top, greaterThanOrEqualTo(47 + 8 + 96));
+    });
+
     testWidgets('wraps a long label to two lines and no more', (tester) async {
       final oneLine = (await labelRects(tester, 1.3, short)).single;
       final at13 = (await labelRects(tester, 1.3, long)).single;
@@ -821,6 +885,357 @@ void main() {
           );
         }
       }
+    });
+  });
+  group('Stepping through a list card', () {
+    const painters = 'Always-Repaint CustomPainter: 3 found';
+
+    testWidgets('a list card has the crosshair; another card without a '
+        'widget name has none', (tester) async {
+      await _openWith(tester, [_painters, _other('x')]);
+      expect(crosshair(painters), findsOneWidget);
+      expect(crosshair('Title x'), findsNothing);
+      expect(
+        find.bySemanticsLabel("Show this issue's widgets on screen"),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('outlines the first widget; Next moves through the rest '
+        'and wraps to the first', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1, 2]);
+
+      await _tapCrosshair(tester, painters);
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 1 of 3'),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 1 of 3'),
+        findsOneWidget,
+      );
+      expect(_outlined(controller), 100);
+
+      await tester.tap(_next);
+      await tester.pump();
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 2 of 3'),
+        findsOneWidget,
+      );
+      expect(_outlined(controller), 101);
+
+      await tester.tap(_next);
+      await tester.pump();
+      await tester.tap(_next);
+      await tester.pump();
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 1 of 3'),
+        findsOneWidget,
+      );
+      expect(_outlined(controller), 100);
+    });
+
+    testWidgets('Next and Back to issues end on the same edge, left of '
+        'close', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1, 2]);
+      await _tapCrosshair(tester, painters);
+
+      final close = find.descendant(
+        of: _bar,
+        matching: find.bySemanticsLabel('Close Sleuth'),
+      );
+      expect(tester.getRect(_next).right, tester.getRect(close).left);
+      expect(tester.getRect(_back).right, tester.getRect(_next).right);
+      expect(tester.getRect(_back).top, greaterThan(tester.getRect(_next).top));
+    });
+
+    testWidgets('the two-row bar fits a 320 px screen at 2.0x text', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final controller = await pumpOverlay(
+        tester,
+        textScale: 2.0,
+        config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+      );
+      controller.issuesNotifier.value = [_painters];
+      await openDashboard(tester, controller);
+      _seedPainters(controller, [0, 1, 2]);
+      await _tapCrosshair(tester, painters);
+      expect(_next, findsOneWidget);
+      expect(tester.takeException(), isNull);
+      final bar = tester.getRect(_bar);
+      expect(bar.right, lessThanOrEqualTo(320 - 8));
+      expect(tester.getSize(_next).height, greaterThanOrEqualTo(48));
+    });
+
+    testWidgets('starts on the first widget on screen, and with none on '
+        'screen toasts instead', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      controller.scanTickNotifier.value = 1;
+      // The first painter is built below the screen, in a list's cache
+      // extent.
+      controller.publishHighlightsForTest([
+        _painterAt(8),
+        _painterAt(0),
+        _painterAt(1),
+      ]);
+      await _tapCrosshair(tester, painters);
+      expect(_outlined(controller), 100);
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 2 of 3'),
+        findsOneWidget,
+      );
+      await tester.tap(_back);
+      await tester.pump();
+      await tester.pump();
+
+      controller.publishHighlightsForTest([_painterAt(8), _painterAt(9)]);
+      await _tapCrosshair(tester, painters);
+      expect(_bar, findsNothing);
+      expect(
+        find.textContaining("Couldn't find these widgets on screen"),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a scan that shifts the list leaves the shown position '
+        'until Next', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1, 2]);
+      await _tapCrosshair(tester, painters);
+      await tester.tap(_next);
+      await tester.pump();
+
+      controller.publishHighlightsForTest([
+        _painterAt(3),
+        _painterAt(0),
+        _painterAt(1),
+        _painterAt(2),
+      ]);
+      await tester.pump();
+      expect(_outlined(controller), 101);
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 2 of 3'),
+        findsOneWidget,
+      );
+
+      await tester.tap(_next);
+      await tester.pump();
+      expect(_outlined(controller), 102);
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 4 of 4'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a bar that steps opens with focus on Next; when Next '
+        'leaves, focus moves to Back to issues', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1]);
+      final focused = _recordScreenReaderFocus(tester);
+      await _tapCrosshair(tester, painters);
+      expect(focused.last, tester.getSemantics(_next).id);
+
+      // The second widget goes; Next finds only the first.
+      controller.publishHighlightsForTest([_painterAt(0)]);
+      await tester.tap(_next);
+      await tester.pump();
+      await tester.pump();
+      expect(_next, findsNothing);
+      expect(focused.last, tester.getSemantics(_back).id);
+    });
+
+    testWidgets('Next keeps the bar on its edge unless the new outline '
+        'runs under it; then the bar moves and shields its old place', (
+      tester,
+    ) async {
+      final controller = await _openWith(tester, [_painters]);
+      // Painters at the top, in the middle below the centre, and at the
+      // bottom.
+      _seedPainters(controller, [0, 3, 5]);
+      await _tapCrosshair(tester, painters);
+      final atBottom = tester.getRect(_bar);
+      expect(atBottom.top, greaterThan(400));
+
+      await tester.tap(_next);
+      await tester.pump();
+      expect(_outlined(controller), 103);
+      expect(tester.getRect(_bar), atBottom);
+
+      await tester.tap(_next);
+      await tester.pump();
+      await tester.pump();
+      expect(_outlined(controller), 105);
+      expect(tester.getRect(_bar).top, lessThan(400));
+      expect(controller.highlightBarAtTopNotifier.value, isTrue);
+      final shield = find.byKey(const ValueKey<String>('Sleuth bar shield'));
+      expect(tester.getRect(shield), atBottom);
+      await tester.pump(kDoubleTapTimeout);
+      expect(shield, findsNothing);
+    });
+
+    testWidgets('when the outlined widget goes and one other stays, Next '
+        'reaches it', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1]);
+      await _tapCrosshair(tester, painters);
+      expect(_outlined(controller), 100);
+
+      controller.publishHighlightsForTest([_painterAt(1)]);
+      await tester.pump();
+      expect(_outlined(controller), isNull);
+      expect(_next, findsOneWidget);
+
+      final twoRows = tester.getRect(_bar);
+      await tester.tap(_next);
+      await tester.pump();
+      expect(_outlined(controller), 101);
+      expect(_next, findsNothing);
+      // The bar lost its Next row; where it was stays shielded for a
+      // double tap's span.
+      expect(tester.getRect(_bar).height, lessThan(twoRows.height));
+      final shield = find.byKey(const ValueKey<String>('Sleuth bar shield'));
+      expect(tester.getRect(shield), twoRows);
+      await tester.pump(kDoubleTapTimeout);
+      expect(shield, findsNothing);
+    });
+
+    testWidgets('with one widget the bar has no Next and no position', (
+      tester,
+    ) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [1]);
+      await _tapCrosshair(tester, painters);
+      expect(find.bySemanticsLabel('Showing CustomPaint'), findsOneWidget);
+      expect(_next, findsNothing);
+      // One row, as for an issue that names its widget.
+      final close = find.descendant(
+        of: _bar,
+        matching: find.bySemanticsLabel('Close Sleuth'),
+      );
+      expect(tester.getCenter(_back).dy, tester.getCenter(close).dy);
+      expect(tester.getSize(_bar).height, lessThan(96));
+    });
+
+    testWidgets('Back to issues keeps its focus when Next arrives', (
+      tester,
+    ) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0]);
+      await _tapCrosshair(tester, painters);
+      final backNode = Focus.of(
+        tester.element(
+          find.descendant(of: _back, matching: find.text('Back to issues')),
+        ),
+      );
+      backNode.requestFocus();
+      await tester.pump();
+      final semanticsId = tester.getSemantics(_back).id;
+
+      // A second painter scrolls in; Next appears and the bar grows a row.
+      controller.publishHighlightsForTest([_painterAt(0), _painterAt(1)]);
+      await tester.pump();
+      expect(_next, findsOneWidget);
+      expect(backNode.hasPrimaryFocus, isTrue);
+      expect(tester.getSemantics(_back).id, semanticsId);
+    });
+
+    testWidgets('a widget that leaves keeps its place: the bar reads off '
+        'screen and the outline returns with it', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1, 2]);
+      await _tapCrosshair(tester, painters);
+      await tester.tap(_next);
+      await tester.pump();
+      expect(_outlined(controller), 101);
+
+      controller.publishHighlightsForTest([_painterAt(0), _painterAt(2)]);
+      await tester.pump();
+      expect(_outlined(controller), isNull);
+      expect(
+        find.bySemanticsLabel('CustomPaint is off screen, 2 of 3'),
+        findsOneWidget,
+      );
+
+      controller.publishHighlightsForTest([
+        _painterAt(0),
+        _painterAt(1),
+        _painterAt(2),
+      ]);
+      await tester.pump();
+      expect(_outlined(controller), 101);
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 2 of 3'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Next from an off-screen widget outlines the one that '
+        'followed it, wrapping after the last', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1, 2]);
+      await _tapCrosshair(tester, painters);
+      await tester.tap(_next);
+      await tester.pump();
+      controller.publishHighlightsForTest([_painterAt(0), _painterAt(2)]);
+      await tester.pump();
+      await tester.tap(_next);
+      await tester.pump();
+      expect(_outlined(controller), 102);
+      expect(
+        find.bySemanticsLabel('Showing CustomPaint, 2 of 2'),
+        findsOneWidget,
+      );
+
+      // Back to three, the outline is on the last; when it goes, Next
+      // wraps to the first.
+      controller.publishHighlightsForTest([
+        _painterAt(0),
+        _painterAt(1),
+        _painterAt(2),
+      ]);
+      await tester.pump();
+      controller.publishHighlightsForTest([_painterAt(0), _painterAt(1)]);
+      await tester.pump();
+      await tester.tap(_next);
+      await tester.pump();
+      expect(_outlined(controller), 100);
+    });
+
+    testWidgets('with none of its widgets on screen the card stays and a '
+        'toast says so', (tester) async {
+      final controller = await _openWith(tester, [_painters]);
+      controller.scanTickNotifier.value = 1;
+      controller.publishHighlightsForTest([_layAt(_top)]);
+      await _tapCrosshair(tester, painters);
+      expect(_bar, findsNothing);
+      expect(
+        find.text(
+          "Couldn't find these widgets on screen. They may be scrolled "
+          'away or not built yet.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a list issue that goes says so without a widget name', (
+      tester,
+    ) async {
+      final controller = await _openWith(tester, [_painters]);
+      _seedPainters(controller, [0, 1]);
+      await _tapCrosshair(tester, painters);
+      expect(_bar, findsOneWidget);
+
+      controller.issuesNotifier.value = [];
+      await tester.pump();
+      await tester.pump();
+      expect(_bar, findsNothing);
+      expect(find.text('This issue is no longer reported.'), findsOneWidget);
     });
   });
 }

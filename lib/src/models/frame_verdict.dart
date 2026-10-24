@@ -2,6 +2,9 @@ import 'cpu_attribution.dart';
 import 'performance_issue.dart';
 
 /// Rendering pipeline phase suspected as bottleneck.
+///
+/// A minor release can add values, so a `switch` over it needs a default
+/// branch.
 enum PipelinePhase {
   build,
   layout,

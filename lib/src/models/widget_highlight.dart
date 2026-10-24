@@ -15,6 +15,7 @@ class WidgetHighlight {
     this.detail,
     this.renderObject,
     this.occurrenceId,
+    this.stableId,
   });
 
   /// The widget's bounding box in global (screen) coordinates.
@@ -37,8 +38,15 @@ class WidgetHighlight {
   /// built without one; those are dropped by a rect-only refresh.
   final RenderObject? renderObject;
 
-  /// Identity of the element this highlight was measured from, equal to
-  /// the [PerformanceIssue.occurrenceId] of the issue it belongs to. Null
-  /// when the detector gives its issues no element identity. Runtime only.
+  /// Identity of the element this highlight was measured from: its
+  /// `identityHashCode`, equal to the [PerformanceIssue.occurrenceId] of an
+  /// issue tied to that one element. Null when the detector gives its
+  /// highlights no element identity. Runtime only.
   final int? occurrenceId;
+
+  /// [PerformanceIssue.stableId] of the issue this highlight belongs to,
+  /// for an issue that lists several widgets (such as
+  /// `always_repaint_painter`). The crosshair on that issue's card steps
+  /// through the highlights carrying its id. Null for other highlights.
+  final String? stableId;
 }

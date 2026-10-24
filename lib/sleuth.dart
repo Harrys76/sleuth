@@ -54,12 +54,13 @@
 library;
 
 import 'dart:developer' show Timeline;
-import 'dart:ui' show FramePhase;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart' show FrameTiming, SchedulerBinding;
 import 'package:flutter/widgets.dart';
+import 'package:meta/meta.dart' show experimental;
 
+import 'src/controller/active_controller.dart';
 import 'src/controller/sleuth_controller.dart';
 import 'src/detectors/network_monitor_detector.dart'
     show NetworkMonitorDetector;
@@ -76,74 +77,76 @@ import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
 import 'src/models/startup_metrics.dart';
+import 'src/startup/startup_tracker.dart';
 import 'src/ui/overlay_ui_state.dart';
 import 'src/ui/sleuth_overlay.dart';
 import 'src/vm/poll_timings.dart';
 import 'src/ui/sleuth_theme.dart';
 
-// Public API exports
+// Public API exports. Every line has a `show` list, and
+// test/validation/public_api_test.dart pins the exported names. Capture
+// and validation tooling lives in validation.dart instead.
 export 'src/ai/ai_providers.dart' show AiProviderException;
-export 'src/models/ai_chat_adapter.dart';
-export 'src/models/performance_issue.dart';
+export 'src/models/ai_chat_adapter.dart'
+    show AiChatAdapter, AiChatMessage, AiChatRequest, AiChatRole;
+export 'src/models/performance_issue.dart'
+    show
+        FixEffort,
+        InteractionContext,
+        IssueCategory,
+        IssueConfidence,
+        IssueSeverity,
+        ObservationSource,
+        PerformanceIssue;
 export 'src/models/issue_measurement.dart'
     show IssueMeasurement, MeasurementUnit;
-export 'src/models/frame_stats.dart';
-export 'src/models/frame_budget.dart';
-export 'src/models/frame_verdict.dart';
-export 'src/models/widget_highlight.dart';
-export 'src/models/capture_buffer.dart';
+export 'src/models/frame_stats.dart'
+    show FpsPercentiles, FrameStats, FrameStatsBuffer;
+export 'src/models/frame_verdict.dart' show FrameVerdict, PipelinePhase;
+export 'src/models/widget_highlight.dart' show WidgetHighlight;
+export 'src/models/capture_buffer.dart' show CaptureEntry;
 export 'src/models/not_useful_mark.dart' show NotUsefulMark;
-export 'src/models/session_snapshot.dart';
-export 'src/models/snapshot_sections.dart';
+export 'src/models/session_snapshot.dart'
+    show FrameStatsSummary, SessionSnapshot;
+export 'src/models/snapshot_sections.dart' show SnapshotSection;
 export 'src/controller/sleuth_controller.dart' show SleuthConfig;
-export 'src/detectors/stream_resource_detector.dart'
-    show StreamResourcePollResult;
-export 'src/controller/detector_thresholds.dart';
+export 'src/controller/detector_thresholds.dart' show DetectorThresholds;
 export 'src/ui/sleuth_theme.dart' show SleuthThemeData;
 export 'src/ui/overlay_ui_state.dart'
     show OverlayUiState, TriggerEdge, CardWindowState, SleuthThemeMode;
-export 'src/persistence/sleuth_state_store.dart';
-export 'src/debug/debug_instrumentation_config.dart';
+export 'src/persistence/sleuth_state_store.dart'
+    show InMemorySleuthStateStore, SleuthStateStore;
+export 'src/debug/debug_instrumentation_config.dart'
+    show DebugInstrumentationConfig;
 export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
-export 'src/models/simple_structural_detector.dart';
+export 'src/models/simple_structural_detector.dart'
+    show SimpleStructuralDetector;
 export 'src/vm/timeline_parser.dart'
     show ParsedTimelineData, PlatformChannelCall;
-export 'src/vm/connection_mode.dart' show ConnectionMode;
-export 'src/vm/poll_timings.dart' show PollTimings;
-export 'src/vm/service_extension_handlers.dart'
-    show kMcpEnvelopeSchemaVersion, kSleuthPackageVersion;
-export 'src/vm/service_extension_registry.dart' show ServiceExtensionRegistry;
 export 'src/debug/debug_snapshot.dart'
     show
         DebugSnapshot,
         PaintOriginInstance,
         PaintOriginStats,
         RebuildCountSource;
-export 'src/models/allocation_entry.dart';
-export 'src/models/cpu_attribution.dart';
-export 'src/models/gc_event_summary.dart';
-export 'src/models/heap_sample.dart';
-export 'src/models/phase_event.dart';
-export 'src/models/platform_channel_summary.dart';
-export 'src/models/recurrence_trend.dart';
-export 'src/models/widget_heat_map_entry.dart';
+export 'src/models/allocation_entry.dart' show AllocationEntry;
+export 'src/models/cpu_attribution.dart' show CpuAttribution;
+export 'src/models/gc_event_summary.dart' show GcEventSummary;
+export 'src/models/heap_sample.dart' show HeapSample;
+export 'src/models/phase_event.dart' show PhaseEvent, TimelinePhase;
+export 'src/models/platform_channel_summary.dart' show PlatformChannelSummary;
+export 'src/models/widget_heat_map_entry.dart' show WidgetHeatMapEntry;
 export 'src/models/fix_verification_result.dart'
     show FixVerificationResult, FixVerificationStatus, IssueVerificationEntry;
-export 'src/network/request_record.dart';
+export 'src/network/request_record.dart' show RequestRecord;
 export 'src/detectors/network_monitor_detector.dart'
     show NetworkMonitorDetector;
 export 'src/detectors/rebuild_detector.dart' show RebuildDetector;
 export 'src/detectors/stream_resource_detector.dart'
     show StreamResourceDetector;
-export 'src/utils/fix_hint_builder.dart';
-export 'src/utils/session_markdown_exporter.dart';
-export 'src/models/startup_metrics.dart';
-export 'src/models/route_session.dart';
-export 'src/validation/evidence_tier.dart';
-export 'src/validation/detector_metadata.dart';
-export 'src/validation/component_metadata.dart';
-export 'src/validation/profile_capture_schema.dart';
+export 'src/models/startup_metrics.dart' show StartupMetrics;
+export 'src/models/route_session.dart' show RouteSession;
 
 /// Entry point for the Sleuth package.
 ///
@@ -163,58 +166,34 @@ export 'src/validation/profile_capture_schema.dart';
 /// ```dart
 /// void main() => runApp(Sleuth.track(child: MyApp()));
 /// ```
+///
+/// ## Stability
+///
+/// Members marked `@experimental` drive the capture tooling in
+/// `package:sleuth/validation.dart`, and members marked
+/// `@visibleForTesting` exist for tests. Both are outside Sleuth's semver
+/// promise and can change in a minor release.
 class Sleuth {
   Sleuth._();
 
-  static SleuthController? _controller;
+  static SleuthController? get _controller => ActiveController.current;
 
-  // ── Startup tracing state ──────────────────────────────────────────────
-
-  /// Whether [init] has been called. Prevents double-measurement.
-  /// Survives hot restart (intentional — warm VM numbers are misleading).
-  static bool _initCalled = false;
+  // ── Startup tracing ────────────────────────────────────────────────────
 
   /// Print-once throttle on pre-init [setResourceThreshold] warning;
   /// multi-name pre-init would otherwise spam the debug console.
   static bool _preInitWarned = false;
 
-  /// Dart entry timestamp captured by [init].
-  static DateTime? _dartEntryTimestamp;
-
-  /// Monotonic microsecond timestamp from `Timeline.now` at [init] entry.
-  /// Same clock domain as engine timeline events.
-  static int? _dartEntryMonotonicUs;
-
-  /// Public read-only accessor for [_dartEntryMonotonicUs]. Null until
-  /// [init] runs. Same monotonic clock as `PhaseEvent.timestampUs`, so
-  /// detectors can compare timeline-event timestamps against app-start
-  /// directly (no clock normalization needed).
-  static int? get dartEntryMonotonicUs => _dartEntryMonotonicUs;
-
-  /// Framework init duration in microseconds (direct measurement).
-  static int? _frameworkInitDurationUs;
-
-  /// Startup metrics populated by the first-frame callback.
-  static StartupMetrics? _startupMetrics;
-
-  /// Buffered engine events that arrived before the first-frame callback.
-  /// Flushed into [_startupMetrics] when the callback fires.
-  static _PendingEngineEvents? _pendingEngineEvents;
-
-  /// Timestamp when [markInteractive] was called.
-  static DateTime? _interactiveTimestamp;
-
   /// The clock [init] and its first-frame callback read. Tests set it to
   /// control the measured time to first frame; null reads
   /// [DateTime.now].
   @visibleForTesting
-  static DateTime Function()? startupClockForTest;
+  static DateTime Function()? get startupClockForTest =>
+      StartupTracker.clockForTest;
 
-  /// The first-frame callback [init] registered, kept until it fires so
-  /// [resetStartupForTest] can remove it.
-  static void Function(List<FrameTiming>)? _firstFrameCallback;
-
-  static DateTime _startupNow() => (startupClockForTest ?? DateTime.now)();
+  @visibleForTesting
+  static set startupClockForTest(DateTime Function()? clock) =>
+      StartupTracker.clockForTest = clock;
 
   /// Initialize startup tracing before [runApp].
   ///
@@ -261,104 +240,7 @@ class Sleuth {
   /// Zero-cost in release mode. Safe to call multiple times (only the
   /// first invocation measures). Survives hot restart intentionally —
   /// a warm VM gives misleading cold-start numbers.
-  static void init() {
-    if (kReleaseMode) return;
-    if (_initCalled) return;
-    _initCalled = true;
-    _dartEntryTimestamp = _startupNow();
-    _dartEntryMonotonicUs = Timeline.now;
-
-    // Ensure bindings exist so SchedulerBinding is available.
-    // Wrap in Timeline.now to directly measure framework init duration
-    // (100% reliable — no VM timeline needed for this metric).
-    final fwInitStart = Timeline.now;
-    try {
-      WidgetsFlutterBinding.ensureInitialized();
-    } catch (_) {
-      // Custom binding already initialized. Timestamp is still captured;
-      // FrameTiming callback registration may fail below — that's OK,
-      // the detector will use the timestamp-only fallback.
-    }
-    _frameworkInitDurationUs = Timeline.now - fwInitStart;
-
-    try {
-      late void Function(List<FrameTiming>) callback;
-      callback = (List<FrameTiming> timings) {
-        // Unregister immediately — one-shot.
-        SchedulerBinding.instance.removeTimingsCallback(callback);
-        _firstFrameCallback = null;
-
-        if (timings.isEmpty) return;
-        final first = timings.first;
-
-        final vsyncStart = first.timestampInMicroseconds(FramePhase.vsyncStart);
-        final buildStart = first.timestampInMicroseconds(FramePhase.buildStart);
-        final buildFinish = first.timestampInMicroseconds(
-          FramePhase.buildFinish,
-        );
-        final rasterStart = first.timestampInMicroseconds(
-          FramePhase.rasterStart,
-        );
-        final rasterFinish = first.timestampInMicroseconds(
-          FramePhase.rasterFinish,
-        );
-
-        final vsyncOverhead = (buildStart - vsyncStart) / 1000.0;
-        final buildMs = (buildFinish - buildStart) / 1000.0;
-        final rasterMs = (rasterFinish - rasterStart) / 1000.0;
-        final totalMs = (rasterFinish - vsyncStart) / 1000.0;
-
-        // TTFF = time from Dart entry to first frame raster complete.
-        // Use wall-clock DateTime.now() — FrameTiming timestamps are from the
-        // monotonic system clock (uptime-based), not the Unix epoch, so
-        // DateTime.fromMicrosecondsSinceEpoch(rasterFinish) would produce
-        // garbage when diffed against _dartEntryTimestamp (wall clock).
-        final firstFrameCompleteTime = _startupNow();
-        final ttff =
-            firstFrameCompleteTime
-                .difference(_dartEntryTimestamp!)
-                .inMicroseconds /
-            1000.0;
-
-        _startupMetrics = StartupMetrics(
-          dartEntryTimestamp: _dartEntryTimestamp!,
-          ttffMs: ttff > 0 ? ttff : null,
-          ttiMs: _interactiveTimestamp != null
-              ? _interactiveTimestamp!
-                        .difference(_dartEntryTimestamp!)
-                        .inMicroseconds /
-                    1000.0
-              : null,
-          firstFrameVsyncOverheadMs: vsyncOverhead,
-          firstFrameBuildMs: buildMs,
-          firstFrameRasterMs: rasterMs,
-          firstFrameTotalMs: totalMs,
-          dartEntryMonotonicUs: _dartEntryMonotonicUs,
-          frameworkInitDurationUs: _frameworkInitDurationUs,
-        );
-
-        // Flush any engine events that arrived before first frame.
-        if (_pendingEngineEvents != null) {
-          _startupMetrics = _startupMetrics!.copyWith(
-            engineEnterUs: _pendingEngineEvents!.engineEnterUs,
-            firstFrameRasterizedUs:
-                _pendingEngineEvents!.firstFrameRasterizedUs,
-            vmFirstBuildScopeMs: _pendingEngineEvents!.vmFirstBuildScopeMs,
-            vmFirstFlushLayoutMs: _pendingEngineEvents!.vmFirstFlushLayoutMs,
-            vmFirstFlushPaintMs: _pendingEngineEvents!.vmFirstFlushPaintMs,
-            vmFirstRasterMs: _pendingEngineEvents!.vmFirstRasterMs,
-          );
-          _pendingEngineEvents = null;
-        }
-      };
-      SchedulerBinding.instance.addTimingsCallback(callback);
-      _firstFrameCallback = callback;
-    } catch (_) {
-      // SchedulerBinding not available (custom binding without
-      // SchedulerBinding mixin). TTFF will not be measured, but
-      // _dartEntryTimestamp is still available for TTI calculation.
-    }
-  }
+  static void init() => StartupTracker.init();
 
   /// Mark the app as interactive.
   ///
@@ -374,102 +256,20 @@ class Sleuth {
   /// ```
   ///
   /// No-op in release mode or if [init] was not called.
-  static void markInteractive() {
-    if (kReleaseMode) return;
-    if (_dartEntryTimestamp == null) return;
-    _interactiveTimestamp = DateTime.now();
-
-    // Update metrics if already captured by the first-frame callback.
-    if (_startupMetrics != null) {
-      _startupMetrics = _startupMetrics!.copyWith(
-        ttiMs:
-            _interactiveTimestamp!
-                .difference(_dartEntryTimestamp!)
-                .inMicroseconds /
-            1000.0,
-      );
-    }
-  }
+  static void markInteractive() => StartupTracker.markInteractive();
 
   /// Current startup metrics, or null if [init] was not called or the
   /// first frame has not yet been rendered.
-  ///
-  /// Package-internal — read by `StartupDetector` and [SleuthController].
-  static StartupMetrics? get startupMetrics => _startupMetrics;
-
-  /// Enrich startup metrics with VM timeline data (package-internal).
-  ///
-  /// Called by [SleuthController] on the first timeline poll when
-  /// retroactive startup events are found in the VM ring buffer.
-  /// Accepts both VM sub-phase durations and engine-level timestamps
-  /// extracted from the timeline.
-  static void enrichStartupWithVmData({
-    double? vmFirstBuildScopeMs,
-    double? vmFirstFlushLayoutMs,
-    double? vmFirstFlushPaintMs,
-    double? vmFirstRasterMs,
-    int? engineEnterUs,
-    int? firstFrameRasterizedUs,
-  }) {
-    if (_startupMetrics == null) {
-      // First-frame callback hasn't fired yet. Buffer all VM data
-      // for deferred application when metrics become available.
-      if (engineEnterUs != null ||
-          firstFrameRasterizedUs != null ||
-          vmFirstBuildScopeMs != null ||
-          vmFirstFlushLayoutMs != null ||
-          vmFirstFlushPaintMs != null ||
-          vmFirstRasterMs != null) {
-        _pendingEngineEvents = _PendingEngineEvents(
-          engineEnterUs: engineEnterUs,
-          firstFrameRasterizedUs: firstFrameRasterizedUs,
-          vmFirstBuildScopeMs: vmFirstBuildScopeMs,
-          vmFirstFlushLayoutMs: vmFirstFlushLayoutMs,
-          vmFirstFlushPaintMs: vmFirstFlushPaintMs,
-          vmFirstRasterMs: vmFirstRasterMs,
-        );
-      }
-      return;
-    }
-    _startupMetrics = _startupMetrics!.copyWith(
-      vmFirstBuildScopeMs: vmFirstBuildScopeMs,
-      vmFirstFlushLayoutMs: vmFirstFlushLayoutMs,
-      vmFirstFlushPaintMs: vmFirstFlushPaintMs,
-      vmFirstRasterMs: vmFirstRasterMs,
-      engineEnterUs: engineEnterUs,
-      firstFrameRasterizedUs: firstFrameRasterizedUs,
-    );
-  }
+  static StartupMetrics? get startupMetrics => StartupTracker.metrics;
 
   /// Reset startup state for testing purposes only.
   @visibleForTesting
-  static void resetStartupForTest() {
-    // A callback that never fired would otherwise run on the next timing
-    // report against the cleared state below.
-    final pending = _firstFrameCallback;
-    _firstFrameCallback = null;
-    if (pending != null) {
-      try {
-        SchedulerBinding.instance.removeTimingsCallback(pending);
-      } catch (_) {
-        // Without a binding, init registered nothing.
-      }
-    }
-    startupClockForTest = null;
-    _initCalled = false;
-    _dartEntryTimestamp = null;
-    _dartEntryMonotonicUs = null;
-    _frameworkInitDurationUs = null;
-    _startupMetrics = null;
-    _pendingEngineEvents = null;
-    _interactiveTimestamp = null;
-  }
+  static void resetStartupForTest() => StartupTracker.resetForTest();
 
   /// Inject startup metrics for testing purposes only.
   @visibleForTesting
-  static void setStartupMetricsForTest(StartupMetrics metrics) {
-    _startupMetrics = metrics;
-  }
+  static void setStartupMetricsForTest(StartupMetrics metrics) =>
+      StartupTracker.setMetricsForTest(metrics);
 
   // ── Core API ───────────────────────────────────────────────────────────
 
@@ -486,25 +286,17 @@ class Sleuth {
     // Complete no-op in release mode
     if (kReleaseMode) return child;
 
-    // Capture Dart entry timestamp if the app skipped explicit [init] —
-    // idempotent via `_initCalled`. Detectors that compare timeline
-    // timestamps against app-start (e.g. shader-warmup attribution) read
-    // [dartEntryMonotonicUs], which would stay null on
+    // Capture Dart entry timestamp if the app skipped explicit [init];
+    // init runs once. Detectors that compare timeline timestamps against
+    // app start (e.g. shader-warmup attribution) read
+    // `StartupTracker.dartEntryMonotonicUs`, which would stay null on
     // `runApp(Sleuth.track(...))` without this call.
     init();
 
     final controller = SleuthController(config: config);
-    _controller = controller;
+    ActiveController.current = controller;
 
     return SleuthOverlay(controller: controller, child: child);
-  }
-
-  /// Called by `SleuthOverlay.dispose` to clear the static reference.
-  /// Identity check ensures disposing an old overlay doesn't clear a new one.
-  ///
-  /// Package-internal — do not call from app code.
-  static void notifyControllerDisposed(SleuthController controller) {
-    if (_controller == controller) _controller = null;
   }
 
   /// Emits a `sleuth.scenario.begin` instant trace event for profile-mode
@@ -519,6 +311,7 @@ class Sleuth {
   ///
   /// [name] is recorded as an `args` field; pick something stable across
   /// runs of the same scenario (e.g. `'heavy_compute_above'`).
+  @experimental
   static void markScenarioBegin(String name) {
     if (kReleaseMode) return;
     final c = _controller;
@@ -539,6 +332,7 @@ class Sleuth {
 
   /// Counterpart to [markScenarioBegin]. Emits `sleuth.scenario.end`
   /// after the work being measured completes.
+  @experimental
   static void markScenarioEnd(String name) {
     if (kReleaseMode) return;
     final c = _controller;
@@ -567,6 +361,7 @@ class Sleuth {
   /// non-null and the poll exceeds the duration, the returned Future
   /// completes with a `TimeoutException` — caller should treat this
   /// as a failed capture and retry.
+  @experimental
   static Future<void> flushTimelineNow({Duration? timeout}) async {
     if (kReleaseMode) return;
     final c = _controller;
@@ -605,6 +400,7 @@ class Sleuth {
   /// plan. Returns null when [Sleuth] has not been
   /// initialised, in release mode, or when [DetectorType.repaint] was
   /// excluded from [SleuthConfig.enabledDetectors].
+  @experimental
   static RepaintDetector? get repaintDetector {
     if (kReleaseMode) return null;
     return _controller?.repaintDetector;
@@ -616,6 +412,7 @@ class Sleuth {
   /// downstream detectors. Returns null when [Sleuth] has not been
   /// initialised, in release mode, or when [DetectorType.memoryPressure]
   /// was excluded from [SleuthConfig.enabledDetectors].
+  @experimental
   static MemoryPressureDetector? get memoryPressureDetector {
     if (kReleaseMode) return null;
     return _controller?.memoryPressureDetector;
@@ -627,6 +424,7 @@ class Sleuth {
   /// null when [Sleuth] has not been initialised, in release mode, or
   /// when [SleuthConfig.enabledDetectors] leaves out
   /// [DetectorType.startup].
+  @experimental
   static StartupDetector? get startupDetector {
     if (kReleaseMode) return null;
     return _controller?.startupDetector;
@@ -652,6 +450,7 @@ class Sleuth {
   /// from [SleuthConfig.enabledDetectors], the detector is
   /// constructed but disabled — `Sleuth.trackResource` /
   /// `Sleuth.untrackResource` no-op via the disabled flag.
+  @experimental
   static TrackedResourceDetector? get trackedResourceDetector {
     if (kReleaseMode) return null;
     return _controller?.trackedResourceDetector;
@@ -758,6 +557,7 @@ class Sleuth {
   /// Returns a `disabled` result in release mode, when [Sleuth] has
   /// not been initialised, or when the detector is off. See
   /// [StreamResourceDetector.pollAllocationProfileNow].
+  @experimental
   static Future<StreamResourcePollResult>
   pollStreamResourceAllocationProfileNow() async {
     if (kReleaseMode) {
@@ -782,6 +582,7 @@ class Sleuth {
   /// output. Cleared at the start of every [exportCaptureJson] call.
   /// Returns null in release mode or before any capture export has
   /// been attempted.
+  @experimental
   static String? get lastCaptureExportFailure {
     if (kReleaseMode) return null;
     return _controller?.lastCaptureExportFailure;
@@ -793,6 +594,7 @@ class Sleuth {
   /// duplicate events the poll skipped. Null in
   /// release mode, before [init], without a VM connection, or before the
   /// first poll. The same values are served by `ext.sleuth.diagnose`.
+  @experimental
   static PollTimings? get lastPollTimings {
     if (kReleaseMode) return null;
     return _controller?.lastPollTimings;
@@ -818,6 +620,7 @@ class Sleuth {
   ///   False = FRAME mode (DevTools / `flutter run` owns the VM service)
   ///   so `exportCaptureJson` returns null with "VM service client
   ///   disconnected".
+  @experimental
   static ({bool initialized, bool captureMode, bool vmConnected})
   diagnoseCaptureState() {
     final c = _controller;
@@ -846,6 +649,7 @@ class Sleuth {
   ///
   /// No-op in release mode AND when [SleuthConfig.captureMode] is
   /// false. Production app sessions never narrow streams.
+  @experimental
   static Future<bool> suspendNonEssentialTimelineStreams() async {
     if (kReleaseMode) return false;
     final c = _controller;
@@ -861,6 +665,7 @@ class Sleuth {
   /// release mode, outside capture mode, without a VM link, or when the
   /// RPC failed, so a capture procedure can retry a restore that did not
   /// land.
+  @experimental
   static Future<bool> resumeAllTimelineStreams() async {
     if (kReleaseMode) return false;
     final c = _controller;
@@ -887,6 +692,7 @@ class Sleuth {
   ///
   /// No-op returning false in release mode and when
   /// [SleuthConfig.captureMode] is false.
+  @experimental
   static Future<bool> holdAllocationProfileReads({
     Duration timeout = const Duration(seconds: 10),
   }) async {
@@ -904,6 +710,7 @@ class Sleuth {
   ///
   /// No-op in release mode and when [SleuthConfig.captureMode] is false;
   /// a normal session always runs both legs.
+  @experimental
   static void setHeapGrowingLegsForCapture({bool? floor, bool? sample}) {
     if (kReleaseMode) return;
     final c = _controller;
@@ -912,6 +719,7 @@ class Sleuth {
   }
 
   /// Ends one [holdAllocationProfileReads].
+  @experimental
   static void releaseAllocationProfileReads() {
     if (kReleaseMode) return;
     final c = _controller;
@@ -949,6 +757,7 @@ class Sleuth {
   /// - `SleuthConfig.captureMode` must be true so the VM service
   ///   client retains the trace buffer between polls (otherwise
   ///   scenario events get cleared before Export can read them).
+  @experimental
   static Future<String?> exportCaptureJson({
     required String scenario,
     required String role,
@@ -1090,22 +899,4 @@ class Sleuth {
 
   /// Clear the fix verification baseline.
   static void clearBaseline() => _controller?.clearBaseline();
-}
-
-/// Buffered engine events that arrived before the first-frame callback.
-class _PendingEngineEvents {
-  const _PendingEngineEvents({
-    this.engineEnterUs,
-    this.firstFrameRasterizedUs,
-    this.vmFirstBuildScopeMs,
-    this.vmFirstFlushLayoutMs,
-    this.vmFirstFlushPaintMs,
-    this.vmFirstRasterMs,
-  });
-  final int? engineEnterUs;
-  final int? firstFrameRasterizedUs;
-  final double? vmFirstBuildScopeMs;
-  final double? vmFirstFlushLayoutMs;
-  final double? vmFirstFlushPaintMs;
-  final double? vmFirstRasterMs;
 }

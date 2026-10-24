@@ -189,6 +189,8 @@ class LayoutBottleneckDetector extends BaseDetector
             WidgetHighlight(
               rect: rect,
               renderObject: ro,
+              occurrenceId: identityHashCode(element),
+              stableId: 'layout_bottleneck',
               widgetName: widgetName,
               severity: isNested
                   ? IssueSeverity.critical

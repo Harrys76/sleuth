@@ -22,6 +22,8 @@ class HighlightOverlay extends StatelessWidget {
     required this.selectedHighlight,
     required this.markersEnabled,
     this.outlineSeverity,
+    this.highlightStep,
+    this.barAtTop,
   });
 
   final ValueNotifier<({int generation, List<WidgetHighlight> items})>
@@ -37,6 +39,14 @@ class HighlightOverlay extends StatelessWidget {
   /// widget is not outlined in a widget's own warning colour. Null keeps
   /// the highlight's severity.
   final IssueSeverity? Function()? outlineSeverity;
+
+  /// The outline's step through an issue's widgets; with two or more the
+  /// highlight bar has a second row the label stays below.
+  final ValueListenable<({int index, int count})?>? highlightStep;
+
+  /// The bar's edge while it is up (true at the top), set by the card.
+  /// Without it the label assumes the bar's default edge for the outline.
+  final ValueListenable<bool?>? barAtTop;
 
   @override
   Widget build(BuildContext context) {
@@ -56,46 +66,63 @@ class HighlightOverlay extends StatelessWidget {
     // through its card.
     return ExcludeSemantics(
       child: IgnorePointer(
-        child:
-            ValueListenableBuilder<
-              ({int generation, List<WidgetHighlight> items})
-            >(
-              valueListenable: highlights,
-              builder: (_, payload, _) => ValueListenableBuilder<bool>(
-                valueListenable: markersEnabled,
-                builder: (_, markers, _) =>
-                    ValueListenableBuilder<WidgetHighlight?>(
-                      valueListenable: selectedHighlight,
-                      builder: (_, selected, _) {
-                        final items = markers
-                            ? payload.items
-                            : const <WidgetHighlight>[];
-                        if (items.isEmpty && selected == null) {
-                          return const SizedBox.shrink();
-                        }
-                        return CustomPaint(
-                          painter: _HighlightPainter(
-                            highlights: items,
-                            generation: payload.generation,
-                            selected: selected,
-                            outlineSeverity: selected == null
-                                ? null
-                                : outlineSeverity?.call(),
-                            theme: theme,
-                            textScaler: textScaler,
-                            topInset: topInset,
-                            keyboardHeight: keyboardHeight,
-                          ),
-                          size: Size.infinite,
-                        );
-                      },
-                    ),
-              ),
-            ),
+        child: ValueListenableBuilder<({int index, int count})?>(
+          valueListenable: highlightStep ?? _noStep,
+          builder: (_, step, _) => ValueListenableBuilder<bool?>(
+            valueListenable: barAtTop ?? _noEdge,
+            builder: (_, atTop, _) {
+              // The bar has its second row when it shows Next.
+              final barSteps = (step?.count ?? 0) > 1;
+              return ValueListenableBuilder<
+                ({int generation, List<WidgetHighlight> items})
+              >(
+                valueListenable: highlights,
+                builder: (_, payload, _) => ValueListenableBuilder<bool>(
+                  valueListenable: markersEnabled,
+                  builder: (_, markers, _) =>
+                      ValueListenableBuilder<WidgetHighlight?>(
+                        valueListenable: selectedHighlight,
+                        builder: (_, selected, _) {
+                          final items = markers
+                              ? payload.items
+                              : const <WidgetHighlight>[];
+                          if (items.isEmpty && selected == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return CustomPaint(
+                            painter: _HighlightPainter(
+                              highlights: items,
+                              generation: payload.generation,
+                              selected: selected,
+                              outlineSeverity: selected == null
+                                  ? null
+                                  : outlineSeverity?.call(),
+                              theme: theme,
+                              textScaler: textScaler,
+                              topInset: topInset,
+                              keyboardHeight: keyboardHeight,
+                              barSteps: barSteps,
+                              barAtTop: atTop,
+                            ),
+                            size: Size.infinite,
+                          );
+                        },
+                      ),
+                ),
+              );
+            },
+          ),
+        ),
       ),
     );
   }
 }
+
+/// Stands in for a missing [HighlightOverlay.highlightStep].
+final ValueNotifier<({int index, int count})?> _noStep = ValueNotifier(null);
+
+/// Stands in for a missing [HighlightOverlay.barAtTop].
+final ValueNotifier<bool?> _noEdge = ValueNotifier(null);
 
 class _HighlightPainter extends CustomPainter {
   _HighlightPainter({
@@ -107,6 +134,8 @@ class _HighlightPainter extends CustomPainter {
     required this.textScaler,
     required this.topInset,
     required this.keyboardHeight,
+    this.barSteps = false,
+    this.barAtTop,
   });
 
   final List<WidgetHighlight> highlights;
@@ -117,6 +146,12 @@ class _HighlightPainter extends CustomPainter {
   final TextScaler textScaler;
   final double topInset;
   final double keyboardHeight;
+
+  /// The highlight bar has its second row (see [highlightBarHeight]).
+  final bool barSteps;
+
+  /// The bar's edge as the card placed it, null to use the default rule.
+  final bool? barAtTop;
 
   static const _markerSize = 8.0;
 
@@ -256,8 +291,8 @@ class _HighlightPainter extends CustomPainter {
     final minTop =
         topInset +
         margin +
-        (highlightBarAtTop(h.rect, visible)
-            ? theme.spacingMd + highlightBarHeight(chromeScale)
+        ((barAtTop ?? highlightBarAtTop(h.rect, visible))
+            ? theme.spacingMd + highlightBarHeight(chromeScale, steps: barSteps)
             : 0);
     final labelTop = clampDouble(
       h.rect.top - labelHeight - margin,
@@ -286,5 +321,7 @@ class _HighlightPainter extends CustomPainter {
       old.textScaler != textScaler ||
       old.topInset != topInset ||
       old.keyboardHeight != keyboardHeight ||
+      old.barSteps != barSteps ||
+      old.barAtTop != barAtTop ||
       !identical(old.highlights, highlights);
 }

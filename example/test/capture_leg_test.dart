@@ -7,8 +7,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
-import 'package:sleuth/src/detectors/repaint_detector.dart';
 
 import 'package:example/demos/capture_driver.dart';
 
