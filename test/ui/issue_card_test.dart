@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -954,6 +955,69 @@ void main() {
       expect(tester.widget<Semantics>(node).properties.toggled, isTrue);
       await tester.tap(node);
       expect(changes, [true, false]);
+    });
+  });
+
+  group('sameInputsAs', () {
+    // The card list keeps a card whose inputs are unchanged, so a field
+    // the check leaves out would leave its card stale.
+    test('compares every constructor field', () {
+      final source = File('lib/src/ui/issue_card.dart').readAsStringSync();
+      final constructor = RegExp(
+        r'const IssueCard\(\{([^}]*)\}\)',
+      ).firstMatch(source)!.group(1)!;
+      final fields = [
+        for (final m in RegExp(r'this\.(\w+)').allMatches(constructor))
+          m.group(1)!,
+      ];
+      final start = source.indexOf('bool sameInputsAs(IssueCard other) {');
+      final body = source.substring(start, source.indexOf('\n  }\n', start));
+      expect(fields, isNotEmpty);
+      expect([
+        for (final f in fields)
+          if (!body.contains('other.$f')) f,
+      ], isEmpty);
+    });
+
+    test('an issue with the same fingerprint and occurrence is the same', () {
+      final a = IssueCard(
+        issue: _testIssue(title: 'T'),
+        onCopy: () {},
+      );
+      final b = IssueCard(
+        issue: _testIssue(title: 'T'),
+        onCopy: () {},
+      );
+      expect(a.sameInputsAs(b), isTrue);
+      expect(
+        a.sameInputsAs(
+          IssueCard(
+            issue: _testIssue(title: 'U'),
+            onCopy: () {},
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        a.sameInputsAs(
+          IssueCard(
+            issue: _testIssue(title: 'T').copyWith(occurrenceId: 7),
+            onCopy: () {},
+          ),
+        ),
+        isFalse,
+      );
+      expect(a.sameInputsAs(IssueCard(issue: _testIssue(title: 'T'))), isFalse);
+      expect(
+        a.sameInputsAs(
+          IssueCard(
+            issue: _testIssue(title: 'T'),
+            onCopy: () {},
+            stale: true,
+          ),
+        ),
+        isFalse,
+      );
     });
   });
 }

@@ -448,6 +448,40 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   List<PerformanceIssue> _shownIssues = const [];
   List<String> _shownKeys = const [];
 
+  /// The list key and occurrence id of each card in [_shownIssues].
+  Set<(String, int?)> _shownIdentities = const {};
+
+  /// Moves on when a card's related rows may open differently: a change to
+  /// the severity filter, the hidden keys or the cards shown, all of which
+  /// [_relatedLinkOf] reads while the card builds. Also moves on with every
+  /// change to this widget or its dependencies. The rest of this state
+  /// reaches a card as an [IssueCard] input, so a card keeps its widget
+  /// while its inputs and this stay the same.
+  int _cardEpoch = 0;
+
+  /// Records the cards the list built in [issues] under [keys].
+  void _setShown(List<PerformanceIssue> issues, List<String> keys) {
+    final identities = {
+      for (final i in issues) (listKeyFor(i), i.occurrenceId),
+    };
+    if (!setEquals(identities, _shownIdentities)) _cardEpoch++;
+    _shownIdentities = identities;
+    _shownIssues = issues;
+    _shownKeys = keys;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _cardEpoch++;
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    _cardEpoch++;
+  }
+
   /// Severity filter seen by the last [_onUiStateChanged].
   Set<IssueSeverity> _lastSeverityFilter = const {};
 
@@ -728,11 +762,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         _frozen = null;
         _collapseEpoch++;
       }
+      _cardEpoch++;
     }
     final hidden = _ui.hiddenKeys;
     if (!setEquals(hidden, _lastHiddenKeys)) {
       _lastHiddenKeys = {...hidden};
       _releaseHeldOrder();
+      _cardEpoch++;
     }
     _pruneStaleState();
     setState(() {});
@@ -741,6 +777,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   @override
   void didUpdateWidget(covariant FloatingIssuesCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _cardEpoch++;
     // Defensive: if the host swaps the controller (not expected in
     // production — `SleuthOverlay` builds the card once with a stable
     // controller — but cheap insurance for test harnesses that rebuild
@@ -1586,10 +1623,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   /// The list shows no cards: nothing for a related row or a Hide to
   /// point at.
-  void _clearShown() {
-    _shownIssues = const [];
-    _shownKeys = const [];
-  }
+  void _clearShown() => _setShown(const [], const []);
 
   void _endReveal() {
     _revealKey = null;
@@ -3384,8 +3418,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         // and hiding use the shared key.
         final listKeys = order.keys;
         // What a related row's reveal and link state read.
-        _shownIssues = orderedIssues;
-        _shownKeys = listKeys;
+        _setShown(orderedIssues, listKeys);
         final orderedIndexByKey = <String, int>{
           for (var i = 0; i < listKeys.length; i++) listKeys[i]: i,
         };
@@ -3499,169 +3532,188 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   if (parents.isEmpty) parents = null;
                 }
 
-                // The build's index, rows and keys: a tap that arrives
-                // after a newer issue list was published still freezes
-                // the rows the user saw.
-                final capturedIndex = index;
-                final capturedOrdered = orderedIssues;
-                final capturedKeys = listKeys;
+                // An unchanged card keeps its widget across issue lists,
+                // so its callbacks look up the card's row in the list last
+                // built when they run. They act on that row's report,
+                // which can be newer than [issue], with other trace
+                // arguments and a raw measurement that moved.
+                PerformanceIssue latest() {
+                  final at = _shownKeys.indexOf(issueKey);
+                  return at < 0 ? issue : _shownIssues[at];
+                }
 
-                return IssueCard(
+                return _CardSlot(
                   key: ValueKey(listKeys[index]),
-                  issue: issue,
-                  recurrenceTrendOf: () =>
-                      widget.controller.recurrenceTrends[issue.stableId ??
-                          issue.title],
-                  scanTick: widget.controller.scanTickNotifier,
-                  initiallyExpanded: frozenCard?.expanded ?? false,
-                  collapseEpoch: _collapseEpoch,
-                  onExpandedChanged: (expanded) {
-                    setState(() {
-                      if (expanded) {
-                        _frozen = _expandInZone(
-                          issueKey,
-                          capturedIndex,
-                          issue,
-                          capturedOrdered,
-                          capturedKeys,
-                        );
-                        return;
-                      }
-                      final frozen = _frozen;
-                      if (frozen == null) return;
-                      final next = [
-                        for (final card in frozen)
-                          card.key == issueKey
-                              ? (
-                                  key: card.key,
-                                  issue: card.issue,
-                                  expanded: false,
-                                  reported: card.reported,
-                                )
-                              : card,
-                      ];
-                      if (next.any((card) => card.expanded)) {
-                        _frozen = next;
-                        return;
-                      }
-                      // 1→0: release the zone so the next expand captures
-                      // a fresh one. The order on screen becomes the held
-                      // order, so nothing moves under the finger; a
-                      // pending change waits for the next quiet period.
-                      _frozen = null;
-                      _heldKeys = [
-                        ...{for (final i in capturedOrdered) listKeyFor(i)},
-                      ];
-                    });
-                  },
-                  locatable: locatable,
-                  stale: stale,
-                  finding: finding,
-                  crosshairFocusEpoch:
-                      _isCardOf(
-                        _crosshairFocusIssue,
-                        _crosshairFocusKey,
-                        issue,
-                        issueKey,
-                      )
-                      ? _crosshairFocusEpoch
-                      : 0,
-                  crosshairKeyboardFocus: _crosshairKeyboardFocus,
-                  onCrosshairFocused: (scrolled) {
-                    _crosshairFocusStarted = true;
-                    final epoch = _crosshairFocusEpoch;
-                    scrolled.whenComplete(() {
-                      if (mounted && epoch == _crosshairFocusEpoch) {
-                        setState(_clearCrosshairFocus);
-                      }
-                    });
-                  },
-                  onHighlightChanged: locatable
-                      ? (checked) =>
-                            _onHighlightChanged(checked, issueKey, issue)
-                      : null,
-                  jankCorrelated: _cachedJankKeys.contains(
-                    issue.stableId ?? issue.title,
-                  ),
-                  downstreamIssues: downstream,
-                  parentIssues: parents,
-                  suppressedParentCount: suppressedParentCount,
-                  onLearnMore:
-                      IssueExplanationBuilder.explain(issue.stableId) != null
-                      ? () => setState(() {
-                          _detailStableId = issue.stableId;
-                          _detailContextIssue = issue;
-                          _showDetail = true;
-                          _layerOpener = issueKey;
-                        })
-                      : null,
-                  onAskAi: widget.controller.config.aiChat != null
-                      ? () => setState(() {
-                          _chatIssueKey = _chatKeyFor(issue);
-                          _chatIssue = issue;
-                          _showAiChat = true;
-                          _layerOpener = issueKey;
-                        })
-                      : null,
-                  onCopy: () => _copyIssue(issue),
-                  onHide: () =>
-                      _hideIssue(issue, index: capturedIndex, stale: stale),
-                  isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
-                  lastSeenOf: () => widget.controller.lastSeenAt(issue),
-                  relatedLinkOf: _relatedLinkOf,
-                  onOpenRelated: _openRelated,
-                  // The screen can change without the issue list
-                  // changing (a kept card, a screen with no issues), so
-                  // the count and the tap check it each time.
-                  onSeeRebuildStats: _showsRebuildStats(issue)
-                      ? () {
-                          if (!_onCurrentScreen(issue)) return;
-                          _onSeeAllRebuildsTap();
-                          if (_showRebuildStats) _layerOpener = issueKey;
+                  epoch: _cardEpoch,
+                  card: IssueCard(
+                    key: ValueKey(listKeys[index]),
+                    issue: issue,
+                    recurrenceTrendOf: () =>
+                        widget.controller.recurrenceTrends[issue.stableId ??
+                            issue.title],
+                    scanTick: widget.controller.scanTickNotifier,
+                    initiallyExpanded: frozenCard?.expanded ?? false,
+                    collapseEpoch: _collapseEpoch,
+                    onExpandedChanged: (expanded) {
+                      final shown = _shownIssues;
+                      final keys = _shownKeys;
+                      final at = keys.indexOf(issueKey);
+                      setState(() {
+                        if (expanded) {
+                          if (at < 0) return;
+                          _frozen = _expandInZone(
+                            issueKey,
+                            at,
+                            shown[at],
+                            shown,
+                            keys,
+                          );
+                          return;
                         }
-                      : null,
-                  rebuildStatsTotalOf: () =>
-                      _onCurrentScreen(issue) ? _rebuildTotal() : 0,
-                  onSeeStartup: issue.stableId == 'slow_startup_ttff'
-                      ? () => setState(() {
-                          _showStartupDetail = true;
-                          _layerOpener = issueKey;
-                        })
-                      : null,
-                  whyItRebuilds: kDebugMode && rebuildType != null,
-                  rebuildCauseOf:
-                      rebuildType != null &&
-                          widget.controller.isRebuildHookInstalled
-                      ? () => _rebuildCause(rebuildType, issue)
-                      : null,
-                  rebuildCauseUnavailable:
-                      widget.controller.config.enableDebugCallbacks
-                      ? 'Rebuilds are not counted: '
-                            'advanced.rebuildAttribution is off, or '
-                            'DevTools holds the rebuild callback.'
-                      : null,
-                  onCopyText: _copyText,
-                  notUseful: widget.controller.isNotUseful(issue),
-                  onNotUsefulChanged: (marked) => _setNotUseful(issue, marked),
-                  revealEpoch: issueKey == _revealKey ? _revealEpoch : 0,
-                  revealInline: issueKey == _revealKey ? _revealInline : null,
-                  onRevealed: (scrolled) {
-                    _revealStarted = true;
-                    scrolled.whenComplete(() {
-                      if (mounted && _revealKey == issueKey) {
-                        setState(_endReveal);
-                      }
-                    });
-                  },
-                  focusEpoch: issueKey == _focusKey ? _focusEpoch : 0,
-                  onFocused: (scrolled) {
-                    _focusStarted = true;
-                    scrolled.whenComplete(() {
-                      if (mounted && _focusKey == issueKey) {
-                        setState(() => _focusKey = null);
-                      }
-                    });
-                  },
+                        final frozen = _frozen;
+                        if (frozen == null) return;
+                        final next = [
+                          for (final card in frozen)
+                            card.key == issueKey
+                                ? (
+                                    key: card.key,
+                                    issue: card.issue,
+                                    expanded: false,
+                                    reported: card.reported,
+                                  )
+                                : card,
+                        ];
+                        if (next.any((card) => card.expanded)) {
+                          _frozen = next;
+                          return;
+                        }
+                        // 1→0: release the zone so the next expand captures
+                        // a fresh one. The order on screen becomes the held
+                        // order, so nothing moves under the finger; a
+                        // pending change waits for the next quiet period.
+                        _frozen = null;
+                        _heldKeys = [
+                          ...{for (final i in shown) listKeyFor(i)},
+                        ];
+                      });
+                    },
+                    locatable: locatable,
+                    stale: stale,
+                    finding: finding,
+                    crosshairFocusEpoch:
+                        _isCardOf(
+                          _crosshairFocusIssue,
+                          _crosshairFocusKey,
+                          issue,
+                          issueKey,
+                        )
+                        ? _crosshairFocusEpoch
+                        : 0,
+                    crosshairKeyboardFocus: _crosshairKeyboardFocus,
+                    onCrosshairFocused: (scrolled) {
+                      _crosshairFocusStarted = true;
+                      final epoch = _crosshairFocusEpoch;
+                      scrolled.whenComplete(() {
+                        if (mounted && epoch == _crosshairFocusEpoch) {
+                          setState(_clearCrosshairFocus);
+                        }
+                      });
+                    },
+                    onHighlightChanged: locatable
+                        ? (checked) =>
+                              _onHighlightChanged(checked, issueKey, latest())
+                        : null,
+                    jankCorrelated: _cachedJankKeys.contains(
+                      issue.stableId ?? issue.title,
+                    ),
+                    downstreamIssues: downstream,
+                    parentIssues: parents,
+                    suppressedParentCount: suppressedParentCount,
+                    onLearnMore:
+                        IssueExplanationBuilder.explain(issue.stableId) != null
+                        ? () => setState(() {
+                            _detailStableId = issue.stableId;
+                            _detailContextIssue = latest();
+                            _showDetail = true;
+                            _layerOpener = issueKey;
+                          })
+                        : null,
+                    onAskAi: widget.controller.config.aiChat != null
+                        ? () => setState(() {
+                            final report = latest();
+                            _chatIssueKey = _chatKeyFor(report);
+                            _chatIssue = report;
+                            _showAiChat = true;
+                            _layerOpener = issueKey;
+                          })
+                        : null,
+                    onCopy: () => _copyIssue(latest()),
+                    onHide: () {
+                      final at = _shownKeys.indexOf(issueKey);
+                      _hideIssue(
+                        latest(),
+                        index: at < 0 ? null : at,
+                        stale: stale,
+                      );
+                    },
+                    isNew: _newKeyTimers.containsKey(listKeyFor(issue)),
+                    lastSeenOf: () => widget.controller.lastSeenAt(issue),
+                    relatedLinkOf: _relatedLinkOf,
+                    onOpenRelated: _openRelated,
+                    // The screen can change without the issue list
+                    // changing (a kept card, a screen with no issues), so
+                    // the count and the tap check it each time.
+                    onSeeRebuildStats: _showsRebuildStats(issue)
+                        ? () {
+                            if (!_onCurrentScreen(issue)) return;
+                            _onSeeAllRebuildsTap();
+                            if (_showRebuildStats) _layerOpener = issueKey;
+                          }
+                        : null,
+                    rebuildStatsTotalOf: () =>
+                        _onCurrentScreen(issue) ? _rebuildTotal() : 0,
+                    onSeeStartup: issue.stableId == 'slow_startup_ttff'
+                        ? () => setState(() {
+                            _showStartupDetail = true;
+                            _layerOpener = issueKey;
+                          })
+                        : null,
+                    whyItRebuilds: kDebugMode && rebuildType != null,
+                    rebuildCauseOf:
+                        rebuildType != null &&
+                            widget.controller.isRebuildHookInstalled
+                        ? () => _rebuildCause(rebuildType, issue)
+                        : null,
+                    rebuildCauseUnavailable:
+                        widget.controller.config.enableDebugCallbacks
+                        ? 'Rebuilds are not counted: '
+                              'advanced.rebuildAttribution is off, or '
+                              'DevTools holds the rebuild callback.'
+                        : null,
+                    onCopyText: _copyText,
+                    notUseful: widget.controller.isNotUseful(issue),
+                    onNotUsefulChanged: (marked) =>
+                        _setNotUseful(latest(), marked),
+                    revealEpoch: issueKey == _revealKey ? _revealEpoch : 0,
+                    revealInline: issueKey == _revealKey ? _revealInline : null,
+                    onRevealed: (scrolled) {
+                      _revealStarted = true;
+                      scrolled.whenComplete(() {
+                        if (mounted && _revealKey == issueKey) {
+                          setState(_endReveal);
+                        }
+                      });
+                    },
+                    focusEpoch: issueKey == _focusKey ? _focusEpoch : 0,
+                    onFocused: (scrolled) {
+                      _focusStarted = true;
+                      scrolled.whenComplete(() {
+                        if (mounted && _focusKey == issueKey) {
+                          setState(() => _focusKey = null);
+                        }
+                      });
+                    },
+                  ),
                 );
               },
             ),
@@ -3684,6 +3736,40 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       }
     }
   }
+}
+
+/// Keeps an issue card's widget while [IssueCard.sameInputsAs] holds and
+/// [epoch] stays the same, so Flutter skips the card when a new issue list
+/// leaves it unchanged.
+class _CardSlot extends StatefulWidget {
+  const _CardSlot({super.key, required this.epoch, required this.card});
+
+  final int epoch;
+  final IssueCard card;
+
+  @override
+  State<_CardSlot> createState() => _CardSlotState();
+}
+
+class _CardSlotState extends State<_CardSlot> {
+  late IssueCard _card = widget.card;
+
+  @override
+  void didUpdateWidget(_CardSlot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.epoch != oldWidget.epoch || !widget.card.sameInputsAs(_card)) {
+      _card = widget.card;
+    }
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    _card = widget.card;
+  }
+
+  @override
+  Widget build(BuildContext context) => _card;
 }
 
 // ─── Status Row ─────────────────────────────────────────────────────────

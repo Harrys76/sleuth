@@ -78,9 +78,9 @@ import '../vm/cpu_sample_aggregator.dart';
 import '../vm/poll_timings.dart';
 import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
+import '../utils/issue_fingerprint.dart';
 import '../utils/capture_helper.dart';
 import '../utils/framework_types.dart' show isScaffoldElement, isTabBarView;
-import '../utils/measurement_text.dart' show measuredText;
 import '../utils/own_work_log.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
@@ -5252,60 +5252,9 @@ class SleuthController {
     }
   }
 
-  /// Joins every field the overlay renders, in rank order. Excludes
-  /// timestamps, ranking scores and trace arguments, which change every tick
-  /// without changing what a reader sees.
-  static String _issuesFingerprint(List<PerformanceIssue> issues) {
-    final b = StringBuffer();
-    for (final i in issues) {
-      b
-        ..write(i.stableId)
-        ..write('|')
-        ..write(i.severity.name)
-        ..write('|')
-        ..write(i.confidence.name)
-        ..write('|')
-        ..write(i.category.name)
-        ..write('|')
-        ..write(i.title)
-        ..write('|')
-        ..write(i.detail)
-        ..write('|')
-        ..write(i.fixHint)
-        ..write('|')
-        ..write(i.widgetName)
-        ..write('|')
-        ..write(i.ancestorChain)
-        ..write('|')
-        ..write(i.routeName)
-        ..write('|')
-        ..write(i.tabVisitIndex)
-        ..write('|')
-        // Two first visits of tabs on one route differ only here, and the
-        // card compares it with the current screen.
-        ..write(i.scaffoldHashKey)
-        ..write('|')
-        ..write(i.observationSource?.name)
-        ..write('|')
-        ..write(i.interactionContext?.name)
-        ..write('|')
-        ..write(i.debugModeDisclaimer)
-        ..write('|')
-        ..write(i.fixEffort?.name)
-        ..write('|')
-        ..write(i.confidenceReason)
-        ..write('|')
-        ..write(i.rootCauseIds?.join(','))
-        ..write('|')
-        ..write(i.downstreamIds?.join(','))
-        ..write('|')
-        // As the card's Measured row shows it, not the raw value: a held
-        // rate moves in its last digits while the row reads the same.
-        ..write(measuredText(i))
-        ..write('\n');
-    }
-    return b.toString();
-  }
+  /// The [issueFingerprint] of each issue, in rank order.
+  static String _issuesFingerprint(List<PerformanceIssue> issues) =>
+      issues.map(issueFingerprint).join('\n');
 
   @visibleForTesting
   void resortRootCauseIdsByCurrentSeverityForTest(

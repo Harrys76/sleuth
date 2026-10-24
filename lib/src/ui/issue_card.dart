@@ -7,6 +7,7 @@ import 'package:flutter/semantics.dart'
 import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/recurrence_trend.dart';
+import '../utils/issue_fingerprint.dart';
 import 'focus_ink_well.dart';
 import 'issue_card_details.dart';
 import 'motion.dart';
@@ -230,6 +231,76 @@ class IssueCard extends StatefulWidget {
   final int crosshairFocusEpoch;
   final bool crosshairKeyboardFocus;
   final ValueChanged<Future<void>>? onCrosshairFocused;
+
+  /// Whether [other] draws the same card: [issue] and the related issues
+  /// match by [issueFingerprint] and occurrence, every other value is
+  /// equal, and each callback is set in both or in neither. The card list
+  /// keeps an unchanged card instead of rebuilding it, so its callbacks
+  /// read the host's state when called, and a new field joins this check
+  /// (a test reads the constructor to hold that).
+  bool sameInputsAs(IssueCard other) {
+    bool set(Object? a, Object? b) => (a == null) == (b == null);
+    return key == other.key &&
+        _sameIssue(issue, other.issue) &&
+        identical(recurrenceTrend, other.recurrenceTrend) &&
+        set(recurrenceTrendOf, other.recurrenceTrendOf) &&
+        identical(scanTick, other.scanTick) &&
+        initiallyExpanded == other.initiallyExpanded &&
+        set(onExpandedChanged, other.onExpandedChanged) &&
+        locatable == other.locatable &&
+        finding == other.finding &&
+        set(onHighlightChanged, other.onHighlightChanged) &&
+        jankCorrelated == other.jankCorrelated &&
+        _sameIssues(downstreamIssues, other.downstreamIssues) &&
+        _sameIssues(parentIssues, other.parentIssues) &&
+        suppressedParentCount == other.suppressedParentCount &&
+        set(onLearnMore, other.onLearnMore) &&
+        set(onAskAi, other.onAskAi) &&
+        set(onCopy, other.onCopy) &&
+        set(onHide, other.onHide) &&
+        collapseEpoch == other.collapseEpoch &&
+        isNew == other.isNew &&
+        stale == other.stale &&
+        set(lastSeenOf, other.lastSeenOf) &&
+        set(relatedLinkOf, other.relatedLinkOf) &&
+        set(onOpenRelated, other.onOpenRelated) &&
+        set(onSeeRebuildStats, other.onSeeRebuildStats) &&
+        set(rebuildStatsTotalOf, other.rebuildStatsTotalOf) &&
+        set(onSeeStartup, other.onSeeStartup) &&
+        whyItRebuilds == other.whyItRebuilds &&
+        set(rebuildCauseOf, other.rebuildCauseOf) &&
+        rebuildCauseUnavailable == other.rebuildCauseUnavailable &&
+        set(onCopyText, other.onCopyText) &&
+        notUseful == other.notUseful &&
+        set(onNotUsefulChanged, other.onNotUsefulChanged) &&
+        revealEpoch == other.revealEpoch &&
+        _sameIssue(revealInline, other.revealInline) &&
+        set(onRevealed, other.onRevealed) &&
+        focusEpoch == other.focusEpoch &&
+        set(onFocused, other.onFocused) &&
+        crosshairFocusEpoch == other.crosshairFocusEpoch &&
+        crosshairKeyboardFocus == other.crosshairKeyboardFocus &&
+        set(onCrosshairFocused, other.onCrosshairFocused);
+  }
+
+  static bool _sameIssue(PerformanceIssue? a, PerformanceIssue? b) =>
+      identical(a, b) ||
+      (a != null &&
+          b != null &&
+          a.occurrenceId == b.occurrenceId &&
+          issueFingerprint(a) == issueFingerprint(b));
+
+  static bool _sameIssues(
+    List<PerformanceIssue>? a,
+    List<PerformanceIssue>? b,
+  ) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null || a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_sameIssue(a[i], b[i])) return false;
+    }
+    return true;
+  }
 
   @override
   State<IssueCard> createState() => _IssueCardState();

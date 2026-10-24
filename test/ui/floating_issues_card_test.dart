@@ -17,6 +17,8 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
@@ -1330,6 +1332,170 @@ void main() {
       expect(find.text('NEW'), findsOneWidget);
     });
   });
+  group('Unchanged cards keep their widget', () {
+    Widget host(SleuthController c) => MaterialApp(
+      home: Scaffold(
+        body: FloatingIssuesCard(
+          controller: c,
+          onClose: () {},
+          isDebugMode: false,
+        ),
+      ),
+    );
+
+    List<String> recordRebuilds() {
+      final rebuilt = <String>[];
+      debugOnRebuildDirtyWidget = (element, _) {
+        final widget = element.widget;
+        if (widget is IssueCard) rebuilt.add(widget.issue.title);
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = null);
+      return rebuilt;
+    }
+
+    testWidgets('a new issue list rebuilds only the card it changed', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        _pinIssue(id: 'a'),
+        _pinIssue(id: 'b'),
+        _pinIssue(id: 'c'),
+      ];
+      await tester.pumpWidget(host(controller));
+      await tester.pump();
+      final rebuilt = recordRebuilds();
+
+      controller.issuesNotifier.value = [
+        _pinIssue(id: 'a'),
+        _pinIssue(id: 'b').copyWith(title: 'b now'),
+        _pinIssue(id: 'c'),
+      ];
+      await tester.pump();
+      expect(rebuilt, ['b now']);
+      expect(find.text('b now'), findsOneWidget);
+    });
+
+    // A related row asks the list how it opens while the card builds, and
+    // the answer follows the hidden keys and the severity filter. Here the
+    // shown cards stay the same: the effect is collapsed into its cause.
+    for (final (label, change) in <(String, void Function(OverlayUiState))>[
+      ('hiding the effect', (ui) => ui.hide('b')),
+      (
+        'turning its severity off',
+        (ui) => ui.toggleSeverity(IssueSeverity.warning),
+      ),
+    ]) {
+      testWidgets('$label rebuilds the card its related row is on', (
+        tester,
+      ) async {
+        controller.issuesNotifier.value = [
+          _pinIssue(
+            id: 'a',
+            severity: IssueSeverity.critical,
+          ).copyWith(downstreamIds: ['b']),
+          _pinIssue(id: 'b', rootCauseIds: ['a']),
+        ];
+        await tester.pumpWidget(host(controller));
+        await tester.pump();
+        expect(find.text('b'), findsNothing);
+        final rebuilt = recordRebuilds();
+
+        change(controller.overlayUiState);
+        await tester.pump();
+        expect(rebuilt, contains('a'));
+      });
+    }
+
+    // A critical twin of the cause folds the effect into the twin's card,
+    // so the effect leaves the list while the first cause's inputs stay
+    // the same.
+    testWidgets('a change to the cards shown rebuilds the others', (
+      tester,
+    ) async {
+      PerformanceIssue cause(String widget, IssueSeverity severity) =>
+          _pinIssue(id: 'a', severity: severity).copyWith(
+            title: 'a on $widget',
+            widgetName: widget,
+            downstreamIds: ['b'],
+          );
+      final effect = _pinIssue(
+        id: 'b',
+        severity: IssueSeverity.critical,
+        rootCauseIds: ['a'],
+      );
+      controller.issuesNotifier.value = [
+        cause('One', IssueSeverity.warning),
+        effect,
+      ];
+      await tester.pumpWidget(host(controller));
+      await tester.pump();
+      expect(find.text('b'), findsOneWidget);
+      final rebuilt = recordRebuilds();
+
+      controller.issuesNotifier.value = [
+        cause('Two', IssueSeverity.critical),
+        cause('One', IssueSeverity.warning),
+        effect,
+      ];
+      await tester.pump();
+      expect(find.text('b'), findsNothing);
+      expect(rebuilt, contains('a on One'));
+    });
+
+    testWidgets('a Jank tag rebuilds only the card it tags', (tester) async {
+      controller.issuesNotifier.value = [
+        _pinIssue(id: 'a'),
+        _pinIssue(id: 'b'),
+        _pinIssue(id: 'jank_detected'),
+      ];
+      await tester.pumpWidget(host(controller));
+      await tester.pump();
+      final rebuilt = recordRebuilds();
+
+      controller.verdictNotifier.value = FrameVerdict(
+        frameNumber: 1,
+        totalFrameTime: const Duration(milliseconds: 32),
+        uiThreadTime: const Duration(milliseconds: 20),
+        rasterThreadTime: const Duration(milliseconds: 12),
+        suspectedPhase: PipelinePhase.build,
+        reason: 'Build ran long',
+        relatedIssues: [_pinIssue(id: 'a')],
+      );
+      await tester.pump();
+      expect(rebuilt, ['a']);
+      expect(find.text('Jank'), findsOneWidget);
+    });
+
+    testWidgets('a kept card marks its latest report not useful', (
+      tester,
+    ) async {
+      // Both values read 120 ms, so the card keeps its widget.
+      PerformanceIssue measured(double value) => _pinIssue(id: 'a').copyWith(
+        measurement: IssueMeasurement(
+          value: value,
+          unit: MeasurementUnit.milliseconds,
+          warningAt: 100,
+        ),
+      );
+      controller.issuesNotifier.value = [measured(120.2)];
+      await tester.pumpWidget(host(controller));
+      await tester.pump();
+      await tester.tap(find.text('a'));
+      await tester.pumpAndSettle();
+      final rebuilt = recordRebuilds();
+
+      controller.issuesNotifier.value = [measured(120.4)];
+      await tester.pump();
+      expect(rebuilt, isEmpty);
+      await tapVisible(tester, find.bySemanticsLabel('Not useful'));
+      await tester.pump();
+      expect(
+        controller.notUsefulNotifier.value.single.measurement?.value,
+        120.4,
+      );
+    });
+  });
+
   group('Live panels follow the scan pulse', () {
     Widget host(SleuthController c) => MaterialApp(
       home: Scaffold(
