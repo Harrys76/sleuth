@@ -51,6 +51,7 @@ Widget _pumpIssueCard(
   PerformanceIssue issue, {
   bool initiallyExpanded = false,
   RecurrenceTrend? recurrenceTrend,
+  VoidCallback? onAskAi,
 }) {
   return MaterialApp(
     home: Scaffold(
@@ -59,6 +60,7 @@ Widget _pumpIssueCard(
           issue: issue,
           initiallyExpanded: initiallyExpanded,
           recurrenceTrend: recurrenceTrend,
+          onAskAi: onAskAi,
         ),
       ),
     ),
@@ -140,7 +142,13 @@ void main() {
         ),
       );
 
-      expect(find.text('Measured directly from VM timeline'), findsOneWidget);
+      // The reason opens the Evidence row.
+      expect(
+        find.text(
+          'Measured directly from VM timeline. Sleuth rates it confirmed.',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('expanded card with null confidenceReason hides row', (
@@ -177,49 +185,6 @@ void main() {
       );
 
       expect(find.text('Should not be visible when collapsed'), findsNothing);
-    });
-
-    testWidgets('icon matches confidence level', (tester) async {
-      // Test confirmed → check_circle_outline
-      await tester.pumpWidget(
-        _pumpIssueCard(
-          _testIssue(
-            confidence: IssueConfidence.confirmed,
-            confidenceReason: 'Confirmed reason',
-          ),
-          initiallyExpanded: true,
-        ),
-      );
-
-      expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
-
-      // Test likely → help_outline
-      await tester.pumpWidget(
-        _pumpIssueCard(
-          _testIssue(
-            confidence: IssueConfidence.likely,
-            confidenceReason: 'Likely reason',
-          ),
-          initiallyExpanded: true,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byIcon(Icons.help_outline), findsOneWidget);
-
-      // Test possible → info_outline
-      await tester.pumpWidget(
-        _pumpIssueCard(
-          _testIssue(
-            confidence: IssueConfidence.possible,
-            confidenceReason: 'Possible reason',
-          ),
-          initiallyExpanded: true,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byIcon(Icons.info_outline), findsOneWidget);
     });
 
     testWidgets('the meta line reads category and confidence as one '
@@ -429,112 +394,15 @@ void main() {
     });
   });
 
-  group('Ask AI shimmer', () {
-    Widget card() => MaterialApp(
-      home: Scaffold(
-        body: IssueCard(
-          issue: _testIssue(),
-          initiallyExpanded: true,
-          onAskAi: () {},
-        ),
-      ),
-    );
-
-    testWidgets('sweeps while animations are on', (tester) async {
-      await tester.pumpWidget(card());
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(tester.binding.hasScheduledFrame, isTrue);
-    });
-
-    testWidgets('rests under reduce motion', (tester) async {
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(disableAnimations: true);
-      addTearDown(
-        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+  group('Ask AI button', () {
+    testWidgets('draws a still icon: nothing animates', (tester) async {
+      await tester.pumpWidget(
+        _pumpIssueCard(_testIssue(), initiallyExpanded: true, onAskAi: () {}),
       );
-      await tester.pumpWidget(card());
-      // Settles: no repeating ticker.
+      expect(find.bySemanticsLabel('Ask AI'), findsOneWidget);
+      expect(find.byType(ShaderMask), findsNothing);
+      // A repeating animation would keep this from settling.
       await tester.pumpAndSettle();
-      expect(tester.binding.hasScheduledFrame, isFalse);
-      expect(find.bySemanticsLabel('Ask AI about this issue'), findsOneWidget);
-    });
-
-    testWidgets('rests under iOS Reduce Motion', (tester) async {
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(reduceMotion: true);
-      addTearDown(
-        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
-      );
-      await tester.pumpWidget(card());
-      await tester.pumpAndSettle();
-      expect(tester.binding.hasScheduledFrame, isFalse);
-    });
-
-    testWidgets('stops and restarts when Reduce Motion flips', (tester) async {
-      addTearDown(
-        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
-      );
-      await tester.pumpWidget(card());
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(tester.binding.hasScheduledFrame, isTrue);
-
-      // MediaQueryData does not change; the observer picks it up.
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(reduceMotion: true);
-      await tester.pumpAndSettle();
-      expect(tester.binding.hasScheduledFrame, isFalse);
-
-      tester.platformDispatcher.clearAccessibilityFeaturesTestValue();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(tester.binding.hasScheduledFrame, isTrue);
-    });
-
-    testWidgets('link text is a solid token readable on every card fill; '
-        'only the icon shimmers', (tester) async {
-      const label = 'Ask AI'; // visible text; the button's label is longer
-      for (final theme in _presets) {
-        for (final highlighted in [false, true]) {
-          await tester.pumpWidget(
-            MaterialApp(
-              home: Scaffold(
-                body: SleuthTheme(
-                  data: theme,
-                  child: IssueCard(
-                    issue: _testIssue(),
-                    initiallyExpanded: true,
-                    highlighted: highlighted,
-                    onAskAi: () {},
-                  ),
-                ),
-              ),
-            ),
-          );
-          final text = tester.widget<Text>(find.text(label)).style!.color!;
-          final fill = tester.widget<Card>(find.byType(Card)).color!;
-          expect(text, theme.textSecondary);
-          expect(
-            wcagContrast(text, fill),
-            greaterThanOrEqualTo(4.5),
-            reason: '${theme.brightness.name} on $fill',
-          );
-          // A shader over the text would replace its colour.
-          expect(
-            find.ancestor(
-              of: find.text(label),
-              matching: find.byType(ShaderMask),
-            ),
-            findsNothing,
-          );
-          expect(
-            find.ancestor(
-              of: find.byIcon(Icons.auto_awesome),
-              matching: find.byType(ShaderMask),
-            ),
-            findsOneWidget,
-          );
-        }
-      }
     });
   });
 
@@ -959,25 +827,42 @@ void main() {
     });
   });
 
-  group('expanded card actions', () {
-    Future<Map<String, Rect>> pumpActions(
+  group('expanded card buttons', () {
+    const labels = [
+      'Show on screen',
+      'Learn more',
+      'Ask AI',
+      'Copy details',
+      'Hide',
+      'Not useful',
+    ];
+
+    Future<Map<String, Rect>> pumpButtons(
       WidgetTester tester,
       double width,
     ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: Align(
-              alignment: Alignment.topLeft,
-              child: SizedBox(
-                width: width,
-                child: IssueCard(
-                  issue: _testIssue(),
-                  initiallyExpanded: true,
-                  onCopy: () {},
-                  onHide: () {},
-                  onLearnMore: () {},
-                  onAskAi: () {},
+            body: SingleChildScrollView(
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: width,
+                  child: IssueCard(
+                    issue: _testIssue(widgetName: 'FeedTile'),
+                    initiallyExpanded: true,
+                    locatable: true,
+                    onHighlightChanged: (_) {},
+                    onCopy: () {},
+                    onHide: () {},
+                    onLearnMore: () {},
+                    onAskAi: () {},
+                    onNotUsefulChanged: (_) {},
+                  ),
                 ),
               ),
             ),
@@ -985,48 +870,68 @@ void main() {
         ),
       );
       return {
-        for (final label in [
-          'Learn more about this issue',
-          'Ask AI about this issue',
-          'Copy issue details',
-          'Hide this issue',
-        ])
+        for (final label in labels)
           label: tester.getRect(find.bySemanticsLabel(label)),
       };
     }
 
-    // The test font draws every glyph as a square, about twice as wide as
-    // a real font, so the one-row width is wider than a default card.
-    testWidgets('share one row on a wide card: links first, icons last', (
-      tester,
-    ) async {
-      final r = await pumpActions(tester, 400);
-      final learn = r['Learn more about this issue']!;
-      final ask = r['Ask AI about this issue']!;
-      final copy = r['Copy issue details']!;
-      final hide = r['Hide this issue']!;
-      for (final rect in [ask, copy, hide]) {
-        expect(rect.center.dy, closeTo(learn.center.dy, 0.5));
+    testWidgets('run in reading order, each a 48 px hit box', (tester) async {
+      final r = await pumpButtons(tester, 400);
+      for (var i = 0; i < labels.length; i++) {
+        final rect = r[labels[i]]!;
+        expect(rect.height, greaterThanOrEqualTo(48), reason: labels[i]);
+        expect(rect.width, greaterThanOrEqualTo(48), reason: labels[i]);
+        if (i == 0) continue;
+        final before = r[labels[i - 1]]!;
+        // The next button sits to the right on the same row, or on a
+        // later row.
+        expect(
+          rect.top > before.top ||
+              (rect.top == before.top && rect.left >= before.right),
+          isTrue,
+          reason: '${labels[i - 1]} then ${labels[i]}',
+        );
       }
-      expect(learn.left, lessThan(ask.left));
-      expect(ask.right, lessThanOrEqualTo(copy.left));
-      expect(copy.right, lessThanOrEqualTo(hide.left));
     });
 
     testWidgets('wrap on a narrow card without overlapping, each row '
         'starting at the same edge', (tester) async {
-      final r = await pumpActions(tester, 180);
+      final r = await pumpButtons(tester, 180);
       final rects = r.values.toList();
       for (var i = 0; i < rects.length; i++) {
         for (var j = i + 1; j < rects.length; j++) {
           expect(rects[i].overlaps(rects[j]), isFalse);
         }
       }
-      final learn = r['Learn more about this issue']!;
-      final copy = r['Copy issue details']!;
-      expect(copy.top, greaterThan(learn.top));
-      expect(copy.left, closeTo(learn.left, 0.5));
+      final lefts = {for (final rect in rects) rect.left.round()};
+      expect(lefts.length, lessThan(rects.length));
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Not useful is a toggle read as on and off', (tester) async {
+      final changes = <bool>[];
+      Future<void> pump(bool marked) => tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: IssueCard(
+                issue: _testIssue(),
+                initiallyExpanded: true,
+                notUseful: marked,
+                onNotUsefulChanged: changes.add,
+              ),
+            ),
+          ),
+        ),
+      );
+      await pump(false);
+      final node = find.bySemanticsLabel('Not useful');
+      expect(tester.widget<Semantics>(node).properties.toggled, isFalse);
+      await tester.tap(node);
+      await pump(true);
+      expect(tester.widget<Semantics>(node).properties.toggled, isTrue);
+      await tester.tap(node);
+      expect(changes, [true, false]);
     });
   });
 }

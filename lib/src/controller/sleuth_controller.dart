@@ -80,6 +80,7 @@ import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
 import '../utils/framework_types.dart' show isScaffoldElement, isTabBarView;
+import '../utils/measurement_text.dart' show measuredText;
 import '../utils/own_work_log.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
@@ -206,6 +207,14 @@ class SleuthController {
   final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
   final IssueRanker _ranker = const IssueRanker();
   final Map<String, RecurrenceTrend> _recurrenceTrends = {};
+
+  /// When each card ([listKeyFor] and occurrence id) was last in a scan's
+  /// results, with its trend's key and scan cycle, for the expanded card's
+  /// When row. Two occurrences under one stable id keep their own times.
+  /// An entry goes with its trend, or once unseen for as many cycles as a
+  /// trend may stay unseen, since new elements keep adding occurrences.
+  final Map<(String, int?), ({String trendKey, DateTime at, int cycle})>
+  _lastSeenAt = {};
   int _scanCycleIndex = 0;
 
   // Fix verification baseline
@@ -1693,6 +1702,42 @@ class SleuthController {
   Map<String, RecurrenceTrend> get recurrenceTrends =>
       Map.unmodifiable(_recurrenceTrends);
 
+  /// When [issue]'s card, by [listKeyFor] and occurrence id, was last in a
+  /// scan's results, or null when it has not been seen or its trend was
+  /// dropped.
+  DateTime? lastSeenAt(PerformanceIssue issue) =>
+      _lastSeenAt[(listKeyFor(issue), issue.occurrenceId)]?.at;
+
+  /// Cards [lastSeenAt] holds a time for.
+  @visibleForTesting
+  int get lastSeenCountForTest => _lastSeenAt.length;
+
+  /// The debug counts the latest scan passed to its detectors, for the
+  /// expanded card's Why it rebuilds row. Null before the first such scan
+  /// and in runs without debug instrumentation.
+  DebugSnapshot? get lastDebugSnapshot => _lastDebugSnapshot;
+  DebugSnapshot? _lastDebugSnapshot;
+
+  /// The screen [lastDebugSnapshot] counted, as [currentScreen] read then.
+  ({String? route, int? scaffoldHash})? get lastDebugSnapshotScreen =>
+      _lastDebugSnapshot == null ? null : _lastDebugSnapshotScreen;
+  ({String? route, int? scaffoldHash})? _lastDebugSnapshotScreen;
+
+  /// The screen issues reported now are stamped with: the route name and
+  /// the active route session's scaffold hash, which is null on a route
+  /// the config ignores. An issue's `routeName` and `scaffoldHashKey`
+  /// compare against it.
+  /// Whether Sleuth holds the framework's rebuild callback: debug
+  /// callbacks are on, `advanced.rebuildAttribution` is not off, and
+  /// nothing else (DevTools) held the slot first.
+  bool get isRebuildHookInstalled =>
+      _debugCoordinator?.isRebuildInstalled ?? false;
+
+  ({String? route, int? scaffoldHash}) get currentScreen => (
+    route: _currentRouteName(),
+    scaffoldHash: _activeRouteSession?.scaffoldHashKey,
+  );
+
   /// Current scan cycle index (for testing).
   @visibleForTesting
   int get scanCycleIndexForTest => _scanCycleIndex;
@@ -3014,6 +3059,9 @@ class SleuthController {
         );
       }
       selectedHighlightNotifier.value = null;
+      // The counts the cards' Why it rebuilds row read belong to the page
+      // being left.
+      _lastDebugSnapshot = null;
       for (final d in _detectors) {
         if (d is SetStateScopeDetector) d.clearSnapshots();
         // The drained counts are dropped with this scan; the per-widget
@@ -3146,7 +3194,11 @@ class SleuthController {
     _isIteratingDetectors = true;
     try {
       // Pass debug snapshot to detectors
+      // A new page, tab or hot reload drops the previous page's counts.
+      if (evidenceChanged) _lastDebugSnapshot = null;
       if (debugSnapshot != null && !evidenceChanged) {
+        _lastDebugSnapshot = debugSnapshot;
+        _lastDebugSnapshotScreen = currentScreen;
         for (final d in _detectors) {
           if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
         }
@@ -5171,6 +5223,10 @@ class SleuthController {
         ..write('|')
         ..write(i.tabVisitIndex)
         ..write('|')
+        // Two first visits of tabs on one route differ only here, and the
+        // card compares it with the current screen.
+        ..write(i.scaffoldHashKey)
+        ..write('|')
         ..write(i.observationSource?.name)
         ..write('|')
         ..write(i.interactionContext?.name)
@@ -5184,6 +5240,10 @@ class SleuthController {
         ..write(i.rootCauseIds?.join(','))
         ..write('|')
         ..write(i.downstreamIds?.join(','))
+        ..write('|')
+        // As the card's Measured row shows it, not the raw value: a held
+        // rate moves in its last digits while the row reads the same.
+        ..write(measuredText(i))
         ..write('\n');
     }
     return b.toString();
@@ -5326,10 +5386,16 @@ class SleuthController {
   /// Called only from the scan path to keep rates consistent across lifecycles.
   void _updateRecurrence(List<PerformanceIssue> currentIssues) {
     _scanCycleIndex++;
+    final now = DateTime.now();
     final currentIds = <String>{};
     for (final issue in currentIssues) {
       final id = issue.stableId ?? issue.title;
       currentIds.add(id);
+      _lastSeenAt[(listKeyFor(issue), issue.occurrenceId)] = (
+        trendKey: id,
+        at: now,
+        cycle: _scanCycleIndex,
+      );
       final trend = _recurrenceTrends.putIfAbsent(id, RecurrenceTrend.new);
       trend.recordPresent(
         _scanCycleIndex,
@@ -5344,6 +5410,11 @@ class SleuthController {
     }
     // Evict stale entries (unseen for 120+ cycles)
     _recurrenceTrends.removeWhere((_, trend) => trend.isStale(_scanCycleIndex));
+    _lastSeenAt.removeWhere(
+      (_, seen) =>
+          !_recurrenceTrends.containsKey(seen.trendKey) ||
+          _scanCycleIndex - seen.cycle >= RecurrenceTrend.staleThreshold,
+    );
 
     // Update fix baseline absence/presence tracking
     final baseline = _fixBaseline;
@@ -5665,6 +5736,8 @@ class SleuthController {
     _lastScanContext = null;
     _appChildContext = null;
     _recurrenceTrends.clear();
+    _lastSeenAt.clear();
+    _lastDebugSnapshot = null;
     _captureBuffer.clear();
     _phaseEventBuffer.clear();
     _gcEventBuffer.clear();

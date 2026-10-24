@@ -1,13 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart' show CustomSemanticsAction;
+import 'package:flutter/semantics.dart'
+    show CustomSemanticsAction, FocusSemanticEvent;
 
 import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/recurrence_trend.dart';
-import '../utils/issue_metadata_builder.dart';
 import 'focus_ink_well.dart';
+import 'issue_card_details.dart';
 import 'motion.dart';
 import 'severity_icon.dart';
 import 'sleuth_listenable_builder.dart';
@@ -16,10 +17,13 @@ import 'text_scale_clamp.dart';
 
 /// A card displaying a single performance issue.
 ///
-/// - Tap to expand/collapse detail + fix hint.
+/// - Tap to expand or collapse. Expanded, it shows [IssueCardDetails]:
+///   the measured value, where and when the issue was seen, the evidence,
+///   related cards, the fix and labelled buttons.
 /// - The crosshair (when the issue names a widget) outlines the widget on
 ///   screen.
-/// - Long-press the title, or tap Copy when expanded, to copy the details.
+/// - Long-press the title, or tap Copy details when expanded, to copy the
+///   details.
 /// - Hide (when expanded) removes the card from the overlay.
 ///
 /// Uses internal expansion state so that list rebuilds from parent
@@ -36,7 +40,6 @@ class IssueCard extends StatefulWidget {
     this.locatable = false,
     this.highlighted = false,
     this.onHighlightChanged,
-    this.deepInstrumentationActive = false,
     this.jankCorrelated = false,
     this.downstreamIssues,
     this.parentIssues,
@@ -51,6 +54,23 @@ class IssueCard extends StatefulWidget {
     this.collapseEpoch = 0,
     this.isNew = false,
     this.stale = false,
+    this.lastSeenOf,
+    this.relatedLinkOf,
+    this.onOpenRelated,
+    this.onSeeRebuildStats,
+    this.rebuildStatsTotalOf,
+    this.onSeeStartup,
+    this.whyItRebuilds = false,
+    this.rebuildCauseOf,
+    this.rebuildCauseUnavailable,
+    this.onCopyText,
+    this.notUseful = false,
+    this.onNotUsefulChanged,
+    this.revealEpoch = 0,
+    this.revealInline,
+    this.onRevealed,
+    this.focusEpoch = 0,
+    this.onFocused,
   }) : assert(
          suppressedParentCount >= 0,
          'suppressedParentCount must be at least 0. A negative value '
@@ -72,7 +92,8 @@ class IssueCard extends StatefulWidget {
   /// when it returns non-null.
   final RecurrenceTrend? Function()? recurrenceTrendOf;
 
-  /// Fires once per completed scan. Only the recurrence badge listens.
+  /// Fires once per completed scan. The meta line and, while expanded,
+  /// the When and Why it rebuilds rows listen.
   final Listenable? scanTick;
 
   /// Seed value — read once in [initState]. After that, internal state owns it.
@@ -84,10 +105,6 @@ class IssueCard extends StatefulWidget {
   final bool locatable;
   final bool highlighted;
   final ValueChanged<bool>? onHighlightChanged;
-
-  /// When true and the issue source is debug-callback-based, shows fidelity
-  /// annotations distinguishing attribution quality from timing fidelity.
-  final bool deepInstrumentationActive;
 
   /// When true, shows a "JANK" badge in the collapsed header: this issue
   /// can explain the latest jank frame's phase, and jank is still
@@ -142,18 +159,75 @@ class IssueCard extends StatefulWidget {
   /// now".
   final bool stale;
 
+  /// When the issue was last in a scan's results, for the When row.
+  final DateTime? Function()? lastSeenOf;
+
+  /// How each Caused by and Effects row opens; null shows them as text.
+  final RelatedLink Function(PerformanceIssue)? relatedLinkOf;
+
+  /// Opens a related card that [relatedLinkOf] marks [RelatedLink.open].
+  final ValueChanged<PerformanceIssue>? onOpenRelated;
+
+  /// Opens Rebuild stats; null leaves out the link.
+  final VoidCallback? onSeeRebuildStats;
+
+  /// The screen's rebuild count for the Rebuild stats link, read on every
+  /// scan; the link shows while it is above zero.
+  final int? Function()? rebuildStatsTotalOf;
+
+  /// Opens Startup metrics; null leaves out the link.
+  final VoidCallback? onSeeStartup;
+
+  /// Shows the Why it rebuilds row (debug runs, rebuild and setState
+  /// cards).
+  final bool whyItRebuilds;
+
+  /// The latest rebuild split for the row; null when rebuilds are not
+  /// counted, with [rebuildCauseUnavailable] saying why.
+  final RebuildCause? Function()? rebuildCauseOf;
+  final String? rebuildCauseUnavailable;
+
+  /// Copies text from the card (a location, a code block) and confirms.
+  final void Function(String text, String confirmation)? onCopyText;
+
+  /// The user marked the issue not useful.
+  final bool notUseful;
+
+  /// Marks or unmarks the issue; null leaves out the Not useful button.
+  final ValueChanged<bool>? onNotUsefulChanged;
+
+  /// Bumped by the host to open this card from a related row: the card
+  /// expands (the host has already recorded it), scrolls into view and
+  /// takes focus, then calls [onRevealed].
+  final int revealEpoch;
+
+  /// A related issue folded under this card that the reveal opens inline.
+  final PerformanceIssue? revealInline;
+
+  /// Tells the host the reveal started, with the scroll's future: the host
+  /// keeps the list built until it completes, and a rebuilt card does not
+  /// repeat the reveal.
+  final ValueChanged<Future<void>>? onRevealed;
+
+  /// Bumped by the host to move focus to this card without expanding it,
+  /// as after the card above it was hidden. [onFocused] follows.
+  final int focusEpoch;
+  final ValueChanged<Future<void>>? onFocused;
+
   @override
   State<IssueCard> createState() => _IssueCardState();
 }
 
 class _IssueCardState extends State<IssueCard> {
   late bool _expanded;
-  bool _aboutExpanded = false;
+  final FocusNode _focus = FocusNode(debugLabel: 'IssueCard');
 
   @override
   void initState() {
     super.initState();
     _expanded = widget.initiallyExpanded;
+    if (widget.revealEpoch > 0) _reveal();
+    if (widget.focusEpoch > 0) _takeFocus();
   }
 
   @override
@@ -163,8 +237,44 @@ class _IssueCardState extends State<IssueCard> {
     // without reporting back.
     if (oldWidget.collapseEpoch != widget.collapseEpoch && _expanded) {
       _expanded = false;
-      _aboutExpanded = false;
     }
+    if (widget.revealEpoch != oldWidget.revealEpoch && widget.revealEpoch > 0) {
+      _expanded = true;
+      _reveal();
+    }
+    if (widget.focusEpoch != oldWidget.focusEpoch && widget.focusEpoch > 0) {
+      _takeFocus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _reveal() => _bringIntoView(widget.onRevealed);
+
+  void _takeFocus() => _bringIntoView(widget.onFocused);
+
+  /// After the next frame: scrolls the card into view, focuses it and
+  /// moves the screen reader to it. [started] gets the scroll's future, so
+  /// the host keeps the list built until the card is in view.
+  void _bringIntoView(ValueChanged<Future<void>>? started) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final scrolled = ensureVisibleWithMotion(
+        context,
+        context,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+      );
+      _focus.requestFocus();
+      context.findRenderObject()?.sendSemanticsEvent(
+        const FocusSemanticEvent(),
+      );
+      started?.call(scrolled);
+    });
   }
 
   /// Collapses through [_toggle] (so the host drops its expansion entry
@@ -173,14 +283,6 @@ class _IssueCardState extends State<IssueCard> {
     if (_expanded) _toggle();
     widget.onHide?.call();
   }
-
-  /// Badge text follows the system text size up to the chrome limit.
-  TextScaler _badgeScaler(BuildContext context) => clampTextScaler(
-    MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling,
-    max: kChromeMaxTextScale,
-  );
-
-  void _toggleAbout() => setState(() => _aboutExpanded = !_aboutExpanded);
 
   /// Toggle expansion and notify the host.
   ///
@@ -194,10 +296,7 @@ class _IssueCardState extends State<IssueCard> {
   /// exception is [collapseEpoch]: there the host has already cleared
   /// every entry.
   void _toggle() {
-    setState(() {
-      _expanded = !_expanded;
-      if (!_expanded) _aboutExpanded = false;
-    });
+    setState(() => _expanded = !_expanded);
     widget.onExpandedChanged?.call(_expanded);
   }
 
@@ -291,6 +390,7 @@ class _IssueCardState extends State<IssueCard> {
           children: [
             SleuthFocusInkWell(
               onTap: _toggle,
+              focusNode: _focus,
               // The card's Semantics node carries the tap.
               excludeFromSemantics: true,
               borderRadius: BorderRadius.circular(theme.radiusXl),
@@ -398,15 +498,48 @@ class _IssueCardState extends State<IssueCard> {
               : _metaLine(theme, issue),
         ),
 
-        // Expanded detail + fix hint. Each block is its own semantics
-        // node: plain text would merge into the card's button label and
-        // a screen reader would read the whole body as one utterance.
-        if (_expanded)
-          for (final block in _buildExpandedContent(issue, theme))
-            if (block is SizedBox)
-              block
-            else
-              Semantics(container: true, child: block),
+        // The details use the full card width below a divider; only the
+        // header keeps the indent.
+        if (_expanded) ...[
+          SizedBox(height: theme.spacingMd),
+          ExcludeSemantics(
+            child: SizedBox(
+              height: 1,
+              width: double.infinity,
+              child: DecoratedBox(
+                decoration: BoxDecoration(color: theme.cardDivider),
+              ),
+            ),
+          ),
+          IssueCardDetails(
+            issue: issue,
+            width: width,
+            scanTick: widget.scanTick,
+            trendOf: _currentTrend,
+            lastSeenOf: widget.lastSeenOf,
+            parentIssues: widget.parentIssues,
+            suppressedParentCount: widget.suppressedParentCount,
+            downstreamIssues: widget.downstreamIssues,
+            relatedLinkOf: widget.relatedLinkOf,
+            onOpenRelated: widget.onOpenRelated,
+            onSeeRebuildStats: widget.onSeeRebuildStats,
+            rebuildStatsTotalOf: widget.rebuildStatsTotalOf,
+            onSeeStartup: widget.onSeeStartup,
+            whyItRebuilds: widget.whyItRebuilds,
+            rebuildCauseOf: widget.rebuildCauseOf,
+            rebuildCauseUnavailable: widget.rebuildCauseUnavailable,
+            onCopyText: widget.onCopyText,
+            highlighted: widget.highlighted,
+            onShowOnScreen: _showsCrosshair ? widget.onHighlightChanged : null,
+            onLearnMore: widget.onLearnMore,
+            onAskAi: widget.onAskAi,
+            onCopy: widget.onCopy,
+            onHide: widget.onHide == null ? null : _hide,
+            notUseful: widget.notUseful,
+            onNotUsefulChanged: widget.onNotUsefulChanged,
+            openInline: widget.revealInline,
+          ),
+        ],
       ],
     );
   }
@@ -642,550 +775,6 @@ class _IssueCardState extends State<IssueCard> {
         IssueConfidence.possible => 'Possible',
       };
 
-  List<Widget> _buildExpandedContent(
-    PerformanceIssue issue,
-    SleuthThemeData theme,
-  ) {
-    return [
-      SizedBox(height: theme.spacingMd),
-      Text(
-        issue.detail,
-        style: TextStyle(color: theme.textSecondary, fontSize: theme.fontMd),
-      ),
-      if (issue.routeDisplayName != null)
-        Padding(
-          padding: EdgeInsets.only(top: theme.spacingXs),
-          child: Text(
-            'Route: ${issue.routeDisplayName}',
-            style: TextStyle(
-              color: theme.textTertiary,
-              fontSize: theme.fontSm,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ),
-      if (issue.interactionContext != null &&
-          issue.interactionContext != InteractionContext.idle)
-        Padding(
-          padding: EdgeInsets.only(top: theme.spacingXxs),
-          child: Text(
-            'During: ${issue.interactionContext!.displayName}',
-            style: TextStyle(
-              color: theme.textTertiary,
-              fontSize: theme.fontSm,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ),
-      if (issue.widgetName != null && !issue.title.contains(issue.widgetName!))
-        Padding(
-          padding: EdgeInsets.only(top: theme.spacingXxs),
-          child: Text(
-            'Widget: ${issue.widgetName}',
-            style: TextStyle(
-              color: theme.textTertiary,
-              fontSize: theme.fontSm,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ),
-      if (issue.ancestorChain != null &&
-          !issue.detail.contains(issue.ancestorChain!) &&
-          issue.ancestorChain != issue.widgetName)
-        Padding(
-          padding: EdgeInsets.only(top: theme.spacingXxs),
-          child: Text(
-            'Ancestors: ${issue.ancestorChain}',
-            style: TextStyle(
-              color: theme.textTertiary,
-              fontSize: theme.fontSm,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ),
-      if (issue.observationSource != null)
-        Padding(
-          padding: EdgeInsets.only(top: theme.spacingXxs),
-          child: Text(
-            'Source: ${issue.observationSource!.displayName}',
-            style: TextStyle(
-              color: theme.textQuaternary,
-              fontSize: theme.fontXs,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ),
-      // Confidence reasoning (promoted from tooltip to visible text)
-      if (issue.confidenceReason != null)
-        Padding(
-          padding: EdgeInsets.only(top: theme.spacingXs),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                _confidenceIcon(issue.confidence),
-                size: 12,
-                color: theme.textSecondary,
-              ),
-              SizedBox(width: theme.spacingXs),
-              Expanded(
-                child: Text(
-                  issue.confidenceReason!,
-                  style: TextStyle(
-                    color: theme.textSecondary,
-                    fontSize: theme.fontMd,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      // Caused by section (multi-parent causal graph). Renders above
-      // Related effects so users see "what caused this" before "what this
-      // causes" in the chain.
-      if ((widget.parentIssues != null && widget.parentIssues!.isNotEmpty) ||
-          widget.suppressedParentCount > 0)
-        _causedBySection(theme),
-      // Downstream effects section (causal graph)
-      if (widget.downstreamIssues != null &&
-          widget.downstreamIssues!.isNotEmpty)
-        _downstreamSection(theme),
-      // "About this detection" collapsible section, 48 px tall.
-      Semantics(
-        container: true,
-        button: true,
-        expanded: _aboutExpanded,
-        label: 'About this detection',
-        onTap: _toggleAbout,
-        excludeSemantics: true,
-        child: GestureDetector(
-          onTap: _toggleAbout,
-          behavior: HitTestBehavior.opaque,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 48),
-            child: Row(
-              children: [
-                Icon(
-                  _aboutExpanded ? Icons.expand_less : Icons.expand_more,
-                  color: theme.textQuaternary,
-                  size: 14,
-                ),
-                SizedBox(width: theme.spacingXs),
-                Flexible(
-                  child: Text(
-                    'About this detection',
-                    style: TextStyle(
-                      color: theme.textQuaternary,
-                      fontSize: theme.fontXs,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      if (_aboutExpanded)
-        Container(
-          margin: EdgeInsets.only(top: theme.spacingXs),
-          padding: EdgeInsets.all(theme.spacingMd),
-          decoration: BoxDecoration(
-            color: theme.aboutBackground,
-            borderRadius: BorderRadius.circular(theme.radiusMd),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final entry in _aboutContent(issue))
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: '${entry.$1} ',
-                          style: TextStyle(
-                            color: theme.textTertiary,
-                            fontSize: theme.fontXs,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        TextSpan(
-                          text: entry.$2,
-                          style: TextStyle(
-                            color: theme.textTertiary,
-                            fontSize: theme.fontXs,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      if (widget.deepInstrumentationActive &&
-          _isDebugCallbackSource(issue.observationSource))
-        Padding(
-          padding: EdgeInsets.only(top: theme.spacingXxs),
-          child: Wrap(
-            spacing: theme.spacingXs,
-            runSpacing: theme.spacingXxs,
-            children: [
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: theme.spacingXs,
-                  vertical: 1,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.bannerSuccessBg,
-                  borderRadius: BorderRadius.circular(theme.radiusSm),
-                ),
-                child: Text(
-                  'Attribution: high fidelity',
-                  style: TextStyle(
-                    color: theme.bannerSuccessText,
-                    fontSize: theme.fontXs,
-                  ),
-                ),
-              ),
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: theme.spacingXs,
-                  vertical: 1,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.bannerWarningBg,
-                  borderRadius: BorderRadius.circular(theme.radiusSm),
-                ),
-                child: Text(
-                  'Timing: overhead present',
-                  style: TextStyle(
-                    color: theme.bannerWarningText,
-                    fontSize: theme.fontXs,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      SizedBox(height: theme.spacingMd),
-      Container(
-        padding: EdgeInsets.all(theme.spacingMd),
-        decoration: BoxDecoration(
-          color: theme.fixHintBackground,
-          borderRadius: BorderRadius.circular(theme.radiusMd),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _effortBadge(issue, theme),
-            SizedBox(height: theme.spacingXs),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ExcludeSemantics(
-                  child: Text(
-                    '\u{1F4A1}',
-                    style: TextStyle(fontSize: theme.fontBase),
-                  ),
-                ),
-                SizedBox(width: theme.spacingSm),
-                Expanded(
-                  child: Text(
-                    issue.fixHint,
-                    style: TextStyle(
-                      color: theme.fixHintText,
-                      fontSize: theme.fontMd,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      if (widget.onCopy != null ||
-          widget.onHide != null ||
-          widget.onLearnMore != null ||
-          widget.onAskAi != null)
-        Padding(
-          padding: EdgeInsets.only(top: theme.spacingXs),
-          // One row: the links at the start, Copy and Hide at the end. On
-          // a narrow card or at large text the icons take a second row,
-          // and the links wrap onto their own rows, all starting at the
-          // same edge.
-          child: SizedBox(
-            width: double.infinity,
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                if (widget.onLearnMore != null || widget.onAskAi != null)
-                  Wrap(
-                    spacing: theme.spacingLg,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if (widget.onLearnMore != null)
-                        _buildLearnMoreLink(theme),
-                      if (widget.onAskAi != null)
-                        _AskAiShimmerLink(onTap: widget.onAskAi!),
-                    ],
-                  ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (widget.onCopy != null)
-                      _actionIcon(
-                        icon: Icons.copy,
-                        label: 'Copy issue details',
-                        onTap: widget.onCopy!,
-                        theme: theme,
-                      ),
-                    if (widget.onHide != null)
-                      _actionIcon(
-                        icon: Icons.visibility_off_outlined,
-                        label: 'Hide this issue',
-                        onTap: _hide,
-                        theme: theme,
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-    ];
-  }
-
-  /// 48 dp icon action in the expanded card's action row.
-  Widget _actionIcon({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    required SleuthThemeData theme,
-  }) {
-    return Semantics(
-      label: label,
-      button: true,
-      onTap: onTap,
-      container: true,
-      excludeSemantics: true,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Center(child: Icon(icon, color: theme.textTertiary, size: 16)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLearnMoreLink(SleuthThemeData theme) {
-    return _linkHitBox(
-      label: 'Learn more about this issue',
-      onTap: widget.onLearnMore!,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.menu_book_outlined, color: theme.textSecondary, size: 13),
-          SizedBox(width: theme.spacingXs),
-          Flexible(
-            child: Text(
-              // The button's semantics label carries the full name.
-              'Learn more',
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-              style: TextStyle(
-                color: theme.textSecondary,
-                fontSize: theme.fontXs,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _causedBySection(SleuthThemeData theme) {
-    final parents = widget.parentIssues ?? const <PerformanceIssue>[];
-    final suppressed = widget.suppressedParentCount;
-    final totalParents = parents.length + suppressed;
-    final visibleCount = parents.length > 5 ? 5 : parents.length;
-    final overflow = parents.length - visibleCount;
-
-    return Padding(
-      padding: EdgeInsets.only(top: theme.spacingSm),
-      child: Container(
-        padding: EdgeInsets.all(theme.spacingMd),
-        decoration: BoxDecoration(
-          color: theme.aboutBackground,
-          borderRadius: BorderRadius.circular(theme.radiusMd),
-        ),
-        child: Semantics(
-          label:
-              '$totalParents '
-              '${totalParents == 1 ? "cause" : "causes"} for this issue',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Caused by ($totalParents):',
-                style: TextStyle(
-                  color: theme.textSecondary,
-                  fontSize: theme.fontSm,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              SizedBox(height: theme.spacingXs),
-              for (var i = 0; i < visibleCount; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Row(
-                    children: [
-                      _severityIcon(parents[i].severity, theme),
-                      SizedBox(width: theme.spacingXs),
-                      _categoryBadge(parents[i].category, theme),
-                      SizedBox(width: theme.spacingXs),
-                      Expanded(
-                        child: Text(
-                          parents[i].title,
-                          style: TextStyle(
-                            color: theme.textTertiary,
-                            fontSize: theme.fontSm,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (overflow > 0)
-                Padding(
-                  padding: EdgeInsets.only(top: theme.spacingXxs),
-                  child: Text(
-                    'and $overflow more...',
-                    style: TextStyle(
-                      color: theme.textQuaternary,
-                      fontSize: theme.fontXs,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-              if (suppressed > 0)
-                Padding(
-                  padding: EdgeInsets.only(top: theme.spacingXxs),
-                  child: Text(
-                    '($suppressed more not shown)',
-                    style: TextStyle(
-                      color: theme.textQuaternary,
-                      fontSize: theme.fontXs,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _downstreamSection(SleuthThemeData theme) {
-    final downstream = widget.downstreamIssues!;
-    final visibleCount = downstream.length > 5 ? 5 : downstream.length;
-    final overflow = downstream.length - visibleCount;
-
-    return Padding(
-      padding: EdgeInsets.only(top: theme.spacingSm),
-      child: Container(
-        padding: EdgeInsets.all(theme.spacingMd),
-        decoration: BoxDecoration(
-          color: theme.aboutBackground,
-          borderRadius: BorderRadius.circular(theme.radiusMd),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Related effects (${downstream.length}):',
-              style: TextStyle(
-                color: theme.textSecondary,
-                fontSize: theme.fontSm,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: theme.spacingXs),
-            for (var i = 0; i < visibleCount; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Row(
-                  children: [
-                    _severityIcon(downstream[i].severity, theme),
-                    SizedBox(width: theme.spacingXs),
-                    _categoryBadge(downstream[i].category, theme),
-                    SizedBox(width: theme.spacingXs),
-                    Expanded(
-                      child: Text(
-                        downstream[i].title,
-                        style: TextStyle(
-                          color: theme.textTertiary,
-                          fontSize: theme.fontSm,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            if (overflow > 0)
-              Padding(
-                padding: EdgeInsets.only(top: theme.spacingXxs),
-                child: Text(
-                  'and $overflow more...',
-                  style: TextStyle(
-                    color: theme.textQuaternary,
-                    fontSize: theme.fontXs,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<(String, String)> _aboutContent(PerformanceIssue issue) =>
-      IssueMetadataBuilder.entries(issue);
-
-  static String _categoryLabel(IssueCategory category) => switch (category) {
-    IssueCategory.build => 'BUILD',
-    IssueCategory.layout => 'LAYOUT',
-    IssueCategory.paint => 'PAINT',
-    IssueCategory.raster => 'RASTER',
-    IssueCategory.memory => 'MEMORY',
-    IssueCategory.channel => 'CHANNEL',
-    IssueCategory.font => 'FONT',
-    IssueCategory.network => 'NETWORK',
-    IssueCategory.startup => 'STARTUP',
-  };
-
-  Widget _categoryBadge(IssueCategory category, SleuthThemeData theme) {
-    return _badge(
-      theme: theme,
-      accent: theme.categoryColor(category),
-      label: _categoryLabel(category),
-      textScaler: _badgeScaler(context),
-    );
-  }
-
   /// The severity mark, announced as the severity name.
   Widget _severityIcon(
     IssueSeverity severity,
@@ -1236,270 +825,5 @@ class _IssueCardState extends State<IssueCard> {
       TrendDirection.improving => 'improving',
       TrendDirection.intermittent => 'flaky',
     };
-  }
-
-  Widget _effortBadge(PerformanceIssue issue, SleuthThemeData theme) {
-    final (label, color) = _fixEffort(issue, theme);
-    return _badge(
-      theme: theme,
-      accent: color,
-      label: label,
-      textScaler: _badgeScaler(context),
-    );
-  }
-
-  IconData _confidenceIcon(IssueConfidence c) => switch (c) {
-    IssueConfidence.confirmed => Icons.check_circle_outline,
-    IssueConfidence.likely => Icons.help_outline,
-    IssueConfidence.possible => Icons.info_outline,
-  };
-}
-
-/// Badge with [label] on a [SleuthThemeData.badgeFill] of [accent] and a
-/// 1 px [accent] border. Text is [tintedText] (default `textPrimary`) over
-/// a translucent fill, black or white over an opaque one.
-Widget _badge({
-  required SleuthThemeData theme,
-  required Color accent,
-  required String label,
-  Color? tintedText,
-  double? horizontalPadding,
-  double verticalPadding = 0,
-  double? radius,
-  TextScaler? textScaler,
-}) {
-  return DecoratedBox(
-    decoration: BoxDecoration(
-      color: theme.badgeFill(accent),
-      borderRadius: BorderRadius.circular(radius ?? theme.radiusSm),
-      border: Border.all(color: accent),
-    ),
-    child: Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: horizontalPadding ?? theme.spacingXs,
-        vertical: verticalPadding,
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: theme.badgeTextOn(accent, tinted: tintedText),
-          fontSize: theme.fontXxs,
-          fontWeight: FontWeight.bold,
-        ),
-        textScaler: textScaler,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-    ),
-  );
-}
-
-bool _isDebugCallbackSource(ObservationSource? source) =>
-    source == ObservationSource.debugCallback ||
-    source == ObservationSource.debugCallbackAndStructural;
-
-/// Returns (label, color) for the effort badge.
-/// Prefers explicit [FixEffort] from the model; falls back to keyword
-/// inference for legacy issues deserialized without the field.
-(String, Color) _fixEffort(PerformanceIssue issue, SleuthThemeData theme) {
-  final effort = issue.fixEffort;
-  if (effort != null) {
-    return switch (effort) {
-      FixEffort.quick => ('QUICK FIX', theme.effortQuick),
-      FixEffort.medium => ('MEDIUM FIX', theme.effortMedium),
-      FixEffort.involved => ('INVOLVED FIX', theme.effortInvolved),
-    };
-  }
-
-  // Legacy fallback: keyword inference for issues without fixEffort
-  final hint = issue.fixHint.toLowerCase();
-
-  // Quick: simple config/wrapper changes
-  const quickKeywords = [
-    'const constructor',
-    'cachewidth',
-    'cacheheight',
-    'listview.builder',
-    'listview.separated',
-    'shouldrepaint',
-    'repaintboundary',
-    'visibility',
-    'globalkey',
-    'valuekey',
-    'keepalive',
-    'child parameter',
-    'limit custom fonts',
-    'fontloader',
-    'minor jank',
-  ];
-  for (final kw in quickKeywords) {
-    if (hint.contains(kw)) {
-      return ('QUICK FIX', theme.effortQuick);
-    }
-  }
-
-  // Involved: architecture changes
-  const involvedKeywords = [
-    'isolate.run',
-    'compute(',
-    'sksl',
-    'sparse fieldsets',
-    'graphql',
-    'growing steadily',
-    'background isolate',
-  ];
-  for (final kw in involvedKeywords) {
-    if (hint.contains(kw)) {
-      return ('INVOLVED FIX', theme.effortInvolved);
-    }
-  }
-
-  // Default: medium
-  return ('MEDIUM FIX', theme.effortMedium);
-}
-
-/// A text link with a hit box of at least 48 x 48 and one semantics node
-/// labelled [label].
-Widget _linkHitBox({
-  required String label,
-  required VoidCallback onTap,
-  required Widget child,
-}) {
-  return Semantics(
-    label: label,
-    button: true,
-    onTap: onTap,
-    container: true,
-    excludeSemantics: true,
-    child: GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          widthFactor: 1,
-          heightFactor: 1,
-          child: child,
-        ),
-      ),
-    ),
-  );
-}
-
-/// "Ask AI" link: [SleuthThemeData.textSecondary] text beside a sparkle
-/// icon that a purple-blue-pink gradient sweeps across.
-///
-/// The text stays a solid token, readable on every card fill; the
-/// shimmer is decoration on the icon only. Owns its own
-/// [AnimationController] so the shimmer only runs while this widget is
-/// in the tree (card expanded + onAskAi configured), and the icon has
-/// its own [RepaintBoundary] so a tick repaints the icon alone.
-class _AskAiShimmerLink extends StatefulWidget {
-  const _AskAiShimmerLink({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  State<_AskAiShimmerLink> createState() => _AskAiShimmerLinkState();
-}
-
-class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    );
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _syncMotion();
-  }
-
-  /// iOS Reduce Motion does not change [MediaQueryData], so a flip of it
-  /// arrives here rather than through [didChangeDependencies].
-  @override
-  void didChangeAccessibilityFeatures() {
-    if (mounted) _syncMotion();
-  }
-
-  /// `repeat()` is not shortened by the reduce-motion setting, so the
-  /// sweep stops and the gradient rests at its midpoint.
-  void _syncMotion() {
-    if (reducedMotionOf(context)) {
-      _controller.value = 0.5;
-    } else if (!_controller.isAnimating) {
-      _controller.repeat();
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = SleuthTheme.of(context);
-    return _linkHitBox(
-      label: 'Ask AI about this issue',
-      onTap: widget.onTap,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          RepaintBoundary(
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                // The gradient is one icon wide (2 alignment units) and
-                // travels from -3 to +3, so the sweep enters and leaves
-                // off the icon.
-                final dx = _controller.value * 6.0 - 3.0;
-                return ShaderMask(
-                  shaderCallback: (bounds) => LinearGradient(
-                    begin: Alignment(dx, 0),
-                    end: Alignment(dx + 2.0, 0),
-                    colors: [
-                      theme.aiShimmerStart,
-                      theme.aiShimmerMid,
-                      theme.aiShimmerEnd,
-                      theme.aiShimmerStart,
-                    ],
-                    stops: const [0.0, 0.33, 0.66, 1.0],
-                  ).createShader(bounds),
-                  blendMode: BlendMode.srcIn,
-                  child: child,
-                );
-              },
-              child: const Icon(Icons.auto_awesome, size: 13),
-            ),
-          ),
-          SizedBox(width: theme.spacingXs),
-          Flexible(
-            child: Text(
-              // The button's semantics label carries the full name.
-              'Ask AI',
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-              style: TextStyle(
-                color: theme.textSecondary,
-                fontSize: theme.fontXs,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

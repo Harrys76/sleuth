@@ -675,7 +675,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       ancestorChain: snapshot.ancestorChains[typeName],
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
-      extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+      extraTraceArgs: {
+        'lifecyclePhase': ?lifecyclePhase,
+        ...held.latestRateArg,
+      },
       measurement: held.measurement(
         warningAt: _thresholdFor(typeName),
         criticalAt: _thresholdFor(typeName) * debugCriticalMultiplier,

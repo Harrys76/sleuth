@@ -2,6 +2,10 @@ import 'package:flutter/foundation.dart';
 
 import '../models/issue_measurement.dart';
 
+/// Key of [HeldRate.latestRateArg] in `PerformanceIssue.extraTraceArgs`:
+/// the latest window's rate per second, one decimal.
+const String latestRateTraceArg = 'latestRatePerSec';
+
 /// A per-type rate that is currently reported.
 @immutable
 class HeldRate {
@@ -9,6 +13,7 @@ class HeldRate {
     required this.count,
     required this.seconds,
     required this.critical,
+    required this.latestRate,
   });
 
   /// Events behind [rate]: the entering window's count, then the last
@@ -20,7 +25,17 @@ class HeldRate {
 
   final bool critical;
 
+  /// Rate of the latest window alone, which turns a held type critical.
+  final double latestRate;
+
   double get rate => seconds > 0 ? count / seconds : 0;
+
+  /// [latestRate] for `PerformanceIssue.extraTraceArgs` under
+  /// [latestRateTraceArg], so the card can tell a critical the latest
+  /// window reached from one held while the average sits under the line.
+  Map<String, String> get latestRateArg => {
+    latestRateTraceArg: latestRate.toStringAsFixed(1),
+  };
 
   /// [rate] per second over the [seconds] it was counted in, with the
   /// lines it is held against. [RateHysteresis] enters a rate at or above
@@ -109,6 +124,7 @@ class RateHysteresis {
           count: current,
           seconds: seconds,
           critical: rate > criticalAt,
+          latestRate: rate,
         );
         continue;
       }
@@ -128,6 +144,7 @@ class RateHysteresis {
         critical: was.critical
             ? rate >= criticalAt * exitFactor
             : current / seconds > criticalAt,
+        latestRate: current / seconds,
       );
     }
     _held = next;

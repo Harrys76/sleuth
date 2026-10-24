@@ -94,7 +94,7 @@ void main() {
       expect(card, findsOneWidget);
       final link = find.descendant(
         of: card,
-        matching: find.bySemanticsLabel('Ask AI about this issue'),
+        matching: find.bySemanticsLabel('Ask AI'),
       );
       if (link.evaluate().isEmpty) {
         final title = find.descendant(
@@ -290,7 +290,7 @@ void main() {
       ),
     );
     Future<void> askAi() async {
-      final link = find.bySemanticsLabel('Ask AI about this issue');
+      final link = find.bySemanticsLabel('Ask AI');
       if (link.evaluate().isEmpty) {
         await tester.tap(find.text('Rebuilds'));
         await tester.pump(const Duration(milliseconds: 600));
