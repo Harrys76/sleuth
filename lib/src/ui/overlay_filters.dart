@@ -102,13 +102,41 @@ String listKeyOfHideKey(String hideKey) => isCriticalHideKey(hideKey)
     ? hideKey.substring(0, hideKey.length - _criticalHideSuffix.length)
     : hideKey;
 
+/// Widget part of a hide key that names any widget: `base|*` hides the
+/// cards of `base` whatever widget they name, or none.
+const String _anyWidget = '|*';
+
+/// The list key that matches every card of [issue]'s stable id (or title).
+String _anyWidgetKeyFor(PerformanceIssue issue) =>
+    '${issue.stableId ?? issue.title}$_anyWidget';
+
+/// [hideKey] as read from a store written before 1.0. Wrap layout,
+/// excessive RepaintBoundary and custom structural issues gained a widget
+/// name in 1.0, which their list keys now carry, so a key without a widget
+/// name becomes one that matches any widget and keeps hiding those cards.
+String legacyHideKey(String hideKey) {
+  final listKey = listKeyOfHideKey(hideKey);
+  if (listKey.contains('|')) return hideKey;
+  return '$listKey$_anyWidget'
+      '${isCriticalHideKey(hideKey) ? _criticalHideSuffix : ''}';
+}
+
+/// Whether the list part of a hide key, [listKey], names [issue]'s card:
+/// its [listKeyFor], or the any-widget key of its stable id.
+bool hideListKeyMatches(String listKey, PerformanceIssue issue) =>
+    listKey == listKeyFor(issue) || listKey == _anyWidgetKeyFor(issue);
+
 /// Whether [hiddenKeys] hides [issue]: its own [hideKeyFor], or the
-/// critical key of the same card.
+/// critical key of the same card, each also in its any-widget form from
+/// [legacyHideKey].
 bool isHiddenBy(PerformanceIssue issue, Set<String> hiddenKeys) {
   if (hiddenKeys.isEmpty) return false;
   final key = listKeyFor(issue);
+  final any = _anyWidgetKeyFor(issue);
   return hiddenKeys.contains('$key$_criticalHideSuffix') ||
-      (issue.severity != IssueSeverity.critical && hiddenKeys.contains(key));
+      hiddenKeys.contains('$any$_criticalHideSuffix') ||
+      (issue.severity != IssueSeverity.critical &&
+          (hiddenKeys.contains(key) || hiddenKeys.contains(any)));
 }
 
 /// Keys that tell apart the cards of [issues] in their order: the

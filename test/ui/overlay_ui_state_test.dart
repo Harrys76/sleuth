@@ -60,7 +60,9 @@ void main() {
     });
 
     test('only schemaVersion yields defaults', () {
-      final state = OverlayUiState.fromJson({'schemaVersion': 1});
+      final state = OverlayUiState.fromJson({
+        'schemaVersion': OverlayUiState.schemaVersion,
+      });
       expect(state.triggerAnchor, isNull);
       expect(state.cardOffset, isNull);
       expect(state.cardWidth, isNull);
@@ -74,13 +76,13 @@ void main() {
     test('dashboardOpen is session only', () {
       final state = OverlayUiState()..dashboardOpen = true;
       expect(state.toJson().containsKey('dashboardOpen'), isFalse);
-      state.loadJson({'schemaVersion': 1});
+      state.loadJson({'schemaVersion': OverlayUiState.schemaVersion});
       expect(state.dashboardOpen, isTrue);
     });
 
     test('unknown keys are ignored', () {
       final state = OverlayUiState.fromJson({
-        'schemaVersion': 1,
+        'schemaVersion': OverlayUiState.schemaVersion,
         'futureField': {'x': 1},
         'hiddenKeys': ['k'],
       });
@@ -93,7 +95,7 @@ void main() {
       for (final bad in <Map<String, Object?>>[
         {},
         {'schemaVersion': '1'},
-        {'schemaVersion': 2},
+        {'schemaVersion': 3},
         {'schemaVersion': 0},
       ]) {
         expect(() => state.loadJson(bad), throwsFormatException);
@@ -103,7 +105,7 @@ void main() {
 
     test('wrong field types fall back to defaults', () {
       final state = OverlayUiState.fromJson({
-        'schemaVersion': 1,
+        'schemaVersion': OverlayUiState.schemaVersion,
         'triggerAnchor': {'edge': 'top', 'fraction': 0.5},
         'cardOffset': {'dx': 'a', 'dy': 2},
         'cardWidth': -5,
@@ -124,7 +126,7 @@ void main() {
     test('loading keeps only the newest maxHiddenKeys keys', () {
       final keys = [for (var i = 0; i < 250; i++) 'k$i'];
       final state = OverlayUiState.fromJson({
-        'schemaVersion': 1,
+        'schemaVersion': OverlayUiState.schemaVersion,
         'hiddenKeys': keys,
       });
       expect(state.hiddenKeys.length, OverlayUiState.maxHiddenKeys);
@@ -134,7 +136,7 @@ void main() {
 
     test('anchor fraction is clamped to [0, 1]', () {
       final state = OverlayUiState.fromJson({
-        'schemaVersion': 1,
+        'schemaVersion': OverlayUiState.schemaVersion,
         'triggerAnchor': {'edge': 'right', 'fraction': 3.5},
       });
       expect(state.triggerAnchor, (edge: TriggerEdge.right, fraction: 1.0));
@@ -152,7 +154,7 @@ void main() {
           windowState: CardWindowState.normal,
         );
       state.loadJson({
-        'schemaVersion': 1,
+        'schemaVersion': OverlayUiState.schemaVersion,
         'triggerAnchor': {'edge': 'right', 'fraction': 0.9},
         'cardOffset': {'dx': 1, 'dy': 2},
         'cardWidth': 500,
@@ -174,7 +176,7 @@ void main() {
         ..hide('a')
         ..hide('b');
       state.loadJson({
-        'schemaVersion': 1,
+        'schemaVersion': OverlayUiState.schemaVersion,
         'hiddenKeys': ['b', 'x', 'y'],
       });
       expect(state.hiddenKeys.toList(), ['x', 'y', 'a', 'b']);
@@ -183,16 +185,44 @@ void main() {
     test('loadJson places a key stored twice at its later position', () {
       final state = OverlayUiState()
         ..loadJson({
-          'schemaVersion': 1,
+          'schemaVersion': OverlayUiState.schemaVersion,
           'hiddenKeys': ['a', 'b', 'a'],
         });
       expect(state.hiddenKeys.toList(), ['b', 'a']);
     });
 
-    test('loadJson drops positional keep-alive hide keys', () {
+    // Wrap layout, excessive RepaintBoundary and custom structural issues
+    // gained a widget name in 1.0, which their list keys carry.
+    test('loadJson reads a key of a version 1 store as any widget', () {
       final state = OverlayUiState()
         ..loadJson({
           'schemaVersion': 1,
+          'hiddenKeys': [
+            'wrap_layout_bottleneck',
+            'excessive_repaint_boundary!critical',
+            'non_lazy_listview|ListView',
+          ],
+        });
+      expect(state.hiddenKeys.toList(), [
+        'wrap_layout_bottleneck|*',
+        'excessive_repaint_boundary|*!critical',
+        'non_lazy_listview|ListView',
+      ]);
+    });
+
+    test('loadJson keeps the keys of a version 2 store as written', () {
+      final state = OverlayUiState()
+        ..loadJson({
+          'schemaVersion': 2,
+          'hiddenKeys': ['heap_growing'],
+        });
+      expect(state.hiddenKeys.toList(), ['heap_growing']);
+    });
+
+    test('loadJson drops positional keep-alive hide keys', () {
+      final state = OverlayUiState()
+        ..loadJson({
+          'schemaVersion': OverlayUiState.schemaVersion,
           'hiddenKeys': [
             'excessive_keep_alive:0',
             'excessive_keep_alive:12|PageView',
@@ -235,28 +265,39 @@ void main() {
     test('an unknown or missing value loads as system', () {
       expect(
         OverlayUiState.fromJson({
-          'schemaVersion': 1,
+          'schemaVersion': OverlayUiState.schemaVersion,
           'themeMode': 'sepia',
         }).themeMode,
         SleuthThemeMode.system,
       );
       expect(
-        OverlayUiState.fromJson({'schemaVersion': 1, 'themeMode': 3}).themeMode,
+        OverlayUiState.fromJson({
+          'schemaVersion': OverlayUiState.schemaVersion,
+          'themeMode': 3,
+        }).themeMode,
         SleuthThemeMode.system,
       );
       expect(
-        OverlayUiState.fromJson({'schemaVersion': 1}).themeMode,
+        OverlayUiState.fromJson({
+          'schemaVersion': OverlayUiState.schemaVersion,
+        }).themeMode,
         SleuthThemeMode.system,
       );
     });
 
     test('loadJson keeps a theme mode changed since construction', () {
       final state = OverlayUiState()..themeMode = SleuthThemeMode.dark;
-      state.loadJson({'schemaVersion': 1, 'themeMode': 'light'});
+      state.loadJson({
+        'schemaVersion': OverlayUiState.schemaVersion,
+        'themeMode': 'light',
+      });
       expect(state.themeMode, SleuthThemeMode.dark);
 
       final untouched = OverlayUiState()
-        ..loadJson({'schemaVersion': 1, 'themeMode': 'light'});
+        ..loadJson({
+          'schemaVersion': OverlayUiState.schemaVersion,
+          'themeMode': 'light',
+        });
       expect(untouched.themeMode, SleuthThemeMode.light);
     });
 

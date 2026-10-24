@@ -71,8 +71,10 @@ class OverlayUiState extends ChangeNotifier {
       OverlayUiState()..loadJson(json);
 
   /// Version written by [toJson] and the newest version [loadJson]
-  /// accepts.
-  static const int schemaVersion = 1;
+  /// accepts. Version 2 came with 1.0.0: [loadJson] reads the hidden keys
+  /// of version 1 through `legacyHideKey`, since 1.0 added widget names to
+  /// some families' list keys.
+  static const int schemaVersion = 2;
 
   /// Hide keys of keep-alive issues from releases that numbered the
   /// scrollable by position (`excessive_keep_alive:3`). The number named
@@ -340,6 +342,19 @@ class OverlayUiState extends ChangeNotifier {
     'themeMode': _themeMode.name,
   };
 
+  /// Whether a card [legacyKey], a hide key of a version 1 store, hides
+  /// was shown again while the store read was pending: the key itself, or
+  /// a key of the same stable id with a widget name, which the any-widget
+  /// form of [legacyKey] would hide again.
+  bool _shownDuringRead(String legacyKey) {
+    if (_unhiddenKeys.contains(legacyKey)) return true;
+    final base = filters.listKeyOfHideKey(legacyKey);
+    if (base.contains('|')) return false;
+    return _unhiddenKeys.any(
+      (key) => filters.listKeyOfHideKey(key).startsWith('$base|'),
+    );
+  }
+
   /// Applies [json] (from [toJson]) and notifies once. [dashboardOpen]
   /// is left alone.
   ///
@@ -378,7 +393,11 @@ class OverlayUiState extends ChangeNotifier {
     final hidden = <String>[
       if (json['hiddenKeys'] case final List<Object?> keys)
         for (final k in keys)
-          if (k is String && k.isNotEmpty && !_legacyHideKey.hasMatch(k)) k,
+          if (k is String && k.isNotEmpty && !_legacyHideKey.hasMatch(k))
+            // The merge below sees only the migrated key, so a version 1
+            // key whose card was shown again drops out here.
+            if (version >= 2 || !_shownDuringRead(k))
+              version < 2 ? filters.legacyHideKey(k) : k,
     ];
     final keptHidden = hidden.length > maxHiddenKeys
         ? hidden.sublist(hidden.length - maxHiddenKeys)
