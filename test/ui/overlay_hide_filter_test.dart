@@ -8,6 +8,7 @@ import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/hidden_issues_page.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
+import 'package:sleuth/src/ui/overlay_filters.dart' show hideKeysOf;
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
@@ -757,6 +758,14 @@ void main() {
         isHiddenBy(_issue('other'), {'wrap_layout_bottleneck|*'}),
         isFalse,
       );
+    });
+
+    test('removing hideKeysOf shows a card an any-widget key hides', () {
+      final wrap = _issue('wrap_layout_bottleneck', widgetName: 'Wrap');
+      final keys = {'wrap_layout_bottleneck|*', 'other'}
+        ..removeAll(hideKeysOf(wrap));
+      expect(isHiddenBy(wrap, keys), isFalse);
+      expect(keys, {'other'});
     });
 
     testWidgets('the Hidden list names the card an any-widget key hides', (

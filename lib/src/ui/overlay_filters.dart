@@ -95,12 +95,17 @@ String hideKeyFor(PerformanceIssue issue) {
 }
 
 /// The hide keys that hide [issue]: its critical key, and its plain key
-/// below critical. Removing both shows it again.
+/// below critical, each also in its any-widget form from [legacyHideKey].
+/// Removing them all shows it again.
 List<String> hideKeysOf(PerformanceIssue issue) {
   final key = listKeyFor(issue);
+  final any = _anyWidgetKeyFor(issue);
+  final belowCritical = issue.severity != IssueSeverity.critical;
   return [
     '$key$_criticalHideSuffix',
-    if (issue.severity != IssueSeverity.critical) key,
+    '$any$_criticalHideSuffix',
+    if (belowCritical) key,
+    if (belowCritical) any,
   ];
 }
 
