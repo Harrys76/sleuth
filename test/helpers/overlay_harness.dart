@@ -218,8 +218,9 @@ Finder crosshair([String? title]) {
         );
 }
 
-/// Whether the crosshair [finder] finds is on: its widget is outlined.
-bool crosshairOn(WidgetTester tester, Finder finder) =>
+/// Whether the crosshair [finder] finds is still looking for its widget
+/// (its lookup waits for the first scan).
+bool crosshairFinding(WidgetTester tester, Finder finder) =>
     tester
         .widget<Semantics>(
           find
@@ -234,8 +235,8 @@ bool crosshairOn(WidgetTester tester, Finder finder) =>
               .first,
         )
         .properties
-        .toggled ??
-    false;
+        .value ==
+    'Finding';
 
 /// Scrolls [finder] into view, then taps it: an expanded card's buttons
 /// sit below its details, often past the bottom of the list.

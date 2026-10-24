@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/overlay_toast.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 import '../helpers/overlay_harness.dart';
 
@@ -113,6 +114,39 @@ void main() {
         closeTo(withoutKeyboard - 300 / tester.view.devicePixelRatio, 0.5),
       );
       toast.dismiss();
+    });
+
+    testWidgets('spans the width up to 480 px, with its action at the end', (
+      tester,
+    ) async {
+      Future<Rect> toastAt(double width) async {
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.devicePixelRatio = 1;
+        await tester.pumpWidget(host());
+        toast.show('Issue hidden', actionLabel: 'Undo', onAction: () {});
+        await tester.pump();
+        return tester.getRect(
+          find
+              .ancestor(
+                of: find.text('Issue hidden'),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+      }
+
+      addTearDown(tester.view.reset);
+      final phone = await toastAt(390);
+      expect(phone.width, 390 - 2 * 16);
+      expect(
+        tester.getRect(find.text('Undo')).right,
+        greaterThan(phone.right - 48),
+      );
+      final tablet = await toastAt(1000);
+      expect(tablet.width, 480);
+      expect(tablet.center.dx, 500);
+      toast.dismiss();
+      await tester.pump(const Duration(seconds: 5));
     });
 
     testWidgets('dispose cancels the pending timer', (tester) async {
@@ -322,5 +356,28 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text(copied), findsNothing);
     });
+  });
+
+  test('toast text and action read on the toast in every preset', () {
+    for (final theme in [
+      const SleuthThemeData(),
+      const SleuthThemeData.light(),
+      const SleuthThemeData.highContrastDark(),
+      const SleuthThemeData.highContrastLight(),
+      SleuthThemeData.fromSeed(Colors.teal),
+      SleuthThemeData.fromSeed(Colors.teal, brightness: Brightness.dark),
+    ]) {
+      final c = toastColorsOf(theme);
+      expect(
+        SleuthThemeData.contrastRatio(c.text, c.fill),
+        greaterThanOrEqualTo(4.5),
+        reason: '${theme.brightness} text',
+      );
+      expect(
+        SleuthThemeData.contrastRatio(c.action, c.fill),
+        greaterThanOrEqualTo(4.5),
+        reason: '${theme.brightness} action',
+      );
+    }
   });
 }

@@ -7,6 +7,7 @@ import 'package:flutter/semantics.dart'
 import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/recurrence_trend.dart';
+import '../utils/issue_fingerprint.dart';
 import 'focus_ink_well.dart';
 import 'issue_card_details.dart';
 import 'motion.dart';
@@ -21,7 +22,7 @@ import 'text_scale_clamp.dart';
 ///   the measured value, where and when the issue was seen, the evidence,
 ///   related cards, the fix and labelled buttons.
 /// - The crosshair (when the issue names a widget) outlines the widget on
-///   screen.
+///   screen; the host shrinks the card to a bar while it shows.
 /// - Long-press the title, or tap Copy details when expanded, to copy the
 ///   details.
 /// - Hide (when expanded) removes the card from the overlay.
@@ -38,7 +39,7 @@ class IssueCard extends StatefulWidget {
     this.initiallyExpanded = false,
     this.onExpandedChanged,
     this.locatable = false,
-    this.highlighted = false,
+    this.finding = false,
     this.onHighlightChanged,
     this.jankCorrelated = false,
     this.downstreamIssues,
@@ -71,6 +72,9 @@ class IssueCard extends StatefulWidget {
     this.onRevealed,
     this.focusEpoch = 0,
     this.onFocused,
+    this.crosshairFocusEpoch = 0,
+    this.crosshairKeyboardFocus = false,
+    this.onCrosshairFocused,
   }) : assert(
          suppressedParentCount >= 0,
          'suppressedParentCount must be at least 0. A negative value '
@@ -103,7 +107,13 @@ class IssueCard extends StatefulWidget {
   final ValueChanged<bool>? onExpandedChanged;
 
   final bool locatable;
-  final bool highlighted;
+
+  /// The crosshair's lookup is pending, until the next scan: the crosshair
+  /// shows pressed and reads Finding.
+  final bool finding;
+
+  /// Called with true when the crosshair or Show on screen is tapped, and
+  /// with false when one is tapped again while [finding].
   final ValueChanged<bool>? onHighlightChanged;
 
   /// When true, shows a "JANK" badge in the collapsed header: this issue
@@ -214,6 +224,84 @@ class IssueCard extends StatefulWidget {
   final int focusEpoch;
   final ValueChanged<Future<void>>? onFocused;
 
+  /// Bumped by the host to move the screen reader to the crosshair, as
+  /// when the highlight bar it opened closes; keyboard focus goes too when
+  /// [crosshairKeyboardFocus]. [onCrosshairFocused] gets the scroll's
+  /// future, so the host keeps the card built until it is in view.
+  final int crosshairFocusEpoch;
+  final bool crosshairKeyboardFocus;
+  final ValueChanged<Future<void>>? onCrosshairFocused;
+
+  /// Whether [other] draws the same card: [issue] and the related issues
+  /// match by [issueFingerprint] and occurrence, every other value is
+  /// equal, and each callback is set in both or in neither. The card list
+  /// keeps an unchanged card instead of rebuilding it, so its callbacks
+  /// read the host's state when called, and a new field joins this check
+  /// (a test reads the constructor to hold that).
+  bool sameInputsAs(IssueCard other) {
+    bool set(Object? a, Object? b) => (a == null) == (b == null);
+    return key == other.key &&
+        _sameIssue(issue, other.issue) &&
+        identical(recurrenceTrend, other.recurrenceTrend) &&
+        set(recurrenceTrendOf, other.recurrenceTrendOf) &&
+        identical(scanTick, other.scanTick) &&
+        initiallyExpanded == other.initiallyExpanded &&
+        set(onExpandedChanged, other.onExpandedChanged) &&
+        locatable == other.locatable &&
+        finding == other.finding &&
+        set(onHighlightChanged, other.onHighlightChanged) &&
+        jankCorrelated == other.jankCorrelated &&
+        _sameIssues(downstreamIssues, other.downstreamIssues) &&
+        _sameIssues(parentIssues, other.parentIssues) &&
+        suppressedParentCount == other.suppressedParentCount &&
+        set(onLearnMore, other.onLearnMore) &&
+        set(onAskAi, other.onAskAi) &&
+        set(onCopy, other.onCopy) &&
+        set(onHide, other.onHide) &&
+        collapseEpoch == other.collapseEpoch &&
+        isNew == other.isNew &&
+        stale == other.stale &&
+        set(lastSeenOf, other.lastSeenOf) &&
+        set(relatedLinkOf, other.relatedLinkOf) &&
+        set(onOpenRelated, other.onOpenRelated) &&
+        set(onSeeRebuildStats, other.onSeeRebuildStats) &&
+        set(rebuildStatsTotalOf, other.rebuildStatsTotalOf) &&
+        set(onSeeStartup, other.onSeeStartup) &&
+        whyItRebuilds == other.whyItRebuilds &&
+        set(rebuildCauseOf, other.rebuildCauseOf) &&
+        rebuildCauseUnavailable == other.rebuildCauseUnavailable &&
+        set(onCopyText, other.onCopyText) &&
+        notUseful == other.notUseful &&
+        set(onNotUsefulChanged, other.onNotUsefulChanged) &&
+        revealEpoch == other.revealEpoch &&
+        _sameIssue(revealInline, other.revealInline) &&
+        set(onRevealed, other.onRevealed) &&
+        focusEpoch == other.focusEpoch &&
+        set(onFocused, other.onFocused) &&
+        crosshairFocusEpoch == other.crosshairFocusEpoch &&
+        crosshairKeyboardFocus == other.crosshairKeyboardFocus &&
+        set(onCrosshairFocused, other.onCrosshairFocused);
+  }
+
+  static bool _sameIssue(PerformanceIssue? a, PerformanceIssue? b) =>
+      identical(a, b) ||
+      (a != null &&
+          b != null &&
+          a.occurrenceId == b.occurrenceId &&
+          issueFingerprint(a) == issueFingerprint(b));
+
+  static bool _sameIssues(
+    List<PerformanceIssue>? a,
+    List<PerformanceIssue>? b,
+  ) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null || a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_sameIssue(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
   @override
   State<IssueCard> createState() => _IssueCardState();
 }
@@ -221,6 +309,10 @@ class IssueCard extends StatefulWidget {
 class _IssueCardState extends State<IssueCard> {
   late bool _expanded;
   final FocusNode _focus = FocusNode(debugLabel: 'IssueCard');
+  final FocusNode _crosshairFocus = FocusNode(
+    debugLabel: 'IssueCard crosshair',
+  );
+  final GlobalKey _crosshairKey = GlobalKey(debugLabel: 'IssueCard crosshair');
 
   @override
   void initState() {
@@ -228,6 +320,7 @@ class _IssueCardState extends State<IssueCard> {
     _expanded = widget.initiallyExpanded;
     if (widget.revealEpoch > 0) _reveal();
     if (widget.focusEpoch > 0) _takeFocus();
+    if (widget.crosshairFocusEpoch > 0) _focusCrosshair();
   }
 
   @override
@@ -245,12 +338,42 @@ class _IssueCardState extends State<IssueCard> {
     if (widget.focusEpoch != oldWidget.focusEpoch && widget.focusEpoch > 0) {
       _takeFocus();
     }
+    if (widget.crosshairFocusEpoch != oldWidget.crosshairFocusEpoch &&
+        widget.crosshairFocusEpoch > 0) {
+      _focusCrosshair();
+    }
   }
 
   @override
   void dispose() {
     _focus.dispose();
+    _crosshairFocus.dispose();
     super.dispose();
+  }
+
+  /// After the next frame: scrolls the crosshair into view if it is not,
+  /// leaving the list's restored offset alone otherwise, and moves
+  /// keyboard focus, when asked, to it. The screen reader follows once
+  /// the crosshair is in view.
+  void _focusCrosshair() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _crosshairKey.currentContext;
+      if (!mounted || target == null) return;
+      final scrolled = revealWithMotion(
+        context,
+        target,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+      );
+      if (widget.crosshairKeyboardFocus) _crosshairFocus.requestFocus();
+      widget.onCrosshairFocused?.call(scrolled);
+      scrolled.whenComplete(() {
+        if (!mounted) return;
+        _crosshairKey.currentContext?.findRenderObject()?.sendSemanticsEvent(
+          const FocusSemanticEvent(),
+        );
+      });
+    });
   }
 
   void _reveal() => _bringIntoView(widget.onRevealed);
@@ -378,7 +501,7 @@ class _IssueCardState extends State<IssueCard> {
       explicitChildNodes: true,
       child: Card(
         elevation: 0,
-        color: widget.highlighted ? theme.cardHighlighted : theme.cardDefault,
+        color: widget.finding ? theme.cardHighlighted : theme.cardDefault,
         margin: EdgeInsets.only(bottom: theme.spacingSm),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(theme.radiusXl),
@@ -529,7 +652,7 @@ class _IssueCardState extends State<IssueCard> {
             rebuildCauseOf: widget.rebuildCauseOf,
             rebuildCauseUnavailable: widget.rebuildCauseUnavailable,
             onCopyText: widget.onCopyText,
-            highlighted: widget.highlighted,
+            finding: widget.finding,
             onShowOnScreen: _showsCrosshair ? widget.onHighlightChanged : null,
             onLearnMore: widget.onLearnMore,
             onAskAi: widget.onAskAi,
@@ -548,21 +671,21 @@ class _IssueCardState extends State<IssueCard> {
   /// 32 px face is centred on the title's first line, [firstLine] high,
   /// below the card's 10 px padding.
   Widget _crosshair(SleuthThemeData theme, double firstLine) {
-    final on = widget.highlighted;
+    final on = widget.finding;
     final faceTop = (10 + firstLine / 2 - 16).clamp(0.0, 16.0);
     final radius = BorderRadius.circular(theme.radiusLg);
     void toggle() => widget.onHighlightChanged?.call(!on);
     return Semantics(
+      key: _crosshairKey,
       container: true,
       button: true,
-      // Read as on or off, as the checkbox it replaced was, until the
-      // crosshair becomes a one-shot action.
-      toggled: on,
       label: 'Show ${widget.issue.widgetName} on screen',
+      value: on ? 'Finding' : null,
       onTap: toggle,
       excludeSemantics: true,
       child: SleuthFocusInkWell(
         onTap: toggle,
+        focusNode: _crosshairFocus,
         borderRadius: radius,
         builder: (context, showFocus) => SizedBox(
           width: 48,

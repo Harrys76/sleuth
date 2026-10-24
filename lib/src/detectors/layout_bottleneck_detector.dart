@@ -158,7 +158,7 @@ class LayoutBottleneckDetector extends BaseDetector
                     ? IssueSeverity.critical
                     : IssueSeverity.warning,
                 detectorName: 'Layout',
-                detail: 'Wrap with $childCount children, not virtualized',
+                detail: '$childCount children, not virtualized',
               ),
             );
           }

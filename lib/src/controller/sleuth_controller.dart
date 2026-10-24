@@ -78,9 +78,9 @@ import '../vm/cpu_sample_aggregator.dart';
 import '../vm/poll_timings.dart';
 import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
+import '../utils/issue_fingerprint.dart';
 import '../utils/capture_helper.dart';
 import '../utils/framework_types.dart' show isScaffoldElement, isTabBarView;
-import '../utils/measurement_text.dart' show measuredText;
 import '../utils/own_work_log.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
@@ -460,6 +460,9 @@ class SleuthController {
   Timer? _warmupTimer;
   bool _warmupElapsed = false;
 
+  /// The VM link was up at some point this session.
+  bool _everConnected = false;
+
   /// Whether the debug-mode banner was dismissed this session. The
   /// controller keeps it so reopening the dashboard does not show it again.
   bool debugBannerDismissed = false;
@@ -472,7 +475,9 @@ class SleuthController {
   final ValueNotifier<({int generation, List<WidgetHighlight> items})>
   highlightsNotifier = ValueNotifier((generation: 0, items: []));
 
-  /// Whether the highlight overlay is active.
+  /// Whether the flagged-widget markers are on. An issue's outline does
+  /// not turn them on; highlights are collected for it anyway (see
+  /// [_collectingHighlights]).
   final ValueNotifier<bool> highlightEnabledNotifier = ValueNotifier(false);
 
   /// The currently selected/focused highlight (from tapping an issue).
@@ -599,6 +604,22 @@ class SleuthController {
 
   /// The issue whose highlight lookup waits for the first tree scan.
   PerformanceIssue? get pendingIssueSelection => _pendingHighlight?.issue;
+
+  /// The issue whose widget is outlined, from a found lookup until
+  /// [clearSelectedHighlight]. Its element is found again when a publish
+  /// loses it (detached, off screen) and a later one has it back.
+  PerformanceIssue? _highlightTarget;
+
+  /// Severity of the issue whose widget is outlined, which the outline
+  /// takes; null while nothing is outlined.
+  IssueSeverity? get highlightTargetSeverity => _highlightTarget?.severity;
+
+  /// Highlights are collected while the markers are on, and while an
+  /// issue's outline is shown or looked up.
+  bool get _collectingHighlights =>
+      highlightEnabledNotifier.value ||
+      _highlightTarget != null ||
+      _pendingHighlight != null;
 
   // -- Overlay UI state --
 
@@ -821,6 +842,7 @@ class SleuthController {
   void clearSelectedHighlight() {
     selectedHighlightNotifier.value = null;
     _pendingHighlight = null;
+    _highlightTarget = null;
   }
 
   /// Selects the highlight of [issue]: the one measured from the issue's
@@ -831,11 +853,16 @@ class SleuthController {
   /// Before the first tree scan there is nothing to search, so the lookup
   /// returns [HighlightLookup.pending] and runs again after that scan,
   /// reporting its result to [onResolved].
+  ///
+  /// The markers stay as they are. Highlights are collected until
+  /// [clearSelectedHighlight], and a publish that has the issue's element
+  /// again after losing it outlines it again.
   HighlightLookup selectHighlightForIssue(
     PerformanceIssue issue, {
     ValueChanged<HighlightLookup>? onResolved,
   }) {
     _pendingHighlight = null;
+    _highlightTarget = null;
     // Detectors computed their highlights in their last scan, but they are
     // collected only while highlighting is on, which it may just have
     // been switched to.
@@ -859,8 +886,8 @@ class SleuthController {
   HighlightLookup _selectHighlight(PerformanceIssue issue) {
     final match = _highlightOf(issue, highlightsNotifier.value.items);
     if (match == null) return HighlightLookup.notFound;
+    _highlightTarget = issue;
     selectedHighlightNotifier.value = match;
-    highlightEnabledNotifier.value = true;
     return HighlightLookup.found;
   }
 
@@ -1796,7 +1823,7 @@ class SleuthController {
     _lastScanContext = context;
     _runStructuralScans(context);
     _collectHighlights();
-    if (highlightEnabledNotifier.value) _resolvePendingHighlight();
+    _resolvePendingHighlight();
     _aggregateIssues();
     if (_latestIssues.isEmpty) {
       _consecutiveCleanScans++;
@@ -3229,7 +3256,7 @@ class SleuthController {
     _updateRecurrence(_latestIssues);
 
     // Collect widget highlights if overlay is active
-    if (highlightEnabledNotifier.value) {
+    if (_collectingHighlights) {
       _collectHighlights();
 
       _resolvePendingHighlight();
@@ -3571,7 +3598,7 @@ class SleuthController {
   /// whose callback runs an early scan tick. Never walks the tree itself.
   /// No-op until [startTreeScanning] has provided a scan root.
   void refreshHighlights() {
-    if (!highlightEnabledNotifier.value) return;
+    if (!_collectingHighlights) return;
     if (_interactionState == InteractionContext.navigating) return;
     if (_overlayContext == null) return;
     _scheduleScrollIdle();
@@ -3587,12 +3614,12 @@ class SleuthController {
   /// untouched; the next scan tick rebuilds the list from scratch.
   void refreshHighlightRects() {
     if (_disposed || _highlightRectRefreshScheduled) return;
-    if (!highlightEnabledNotifier.value) return;
+    if (!_collectingHighlights) return;
     if (highlightsNotifier.value.items.isEmpty) return;
     _highlightRectRefreshScheduled = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _highlightRectRefreshScheduled = false;
-      if (_disposed || !highlightEnabledNotifier.value) return;
+      if (_disposed || !_collectingHighlights) return;
       final current = highlightsNotifier.value.items;
       if (current.isEmpty) return;
       final items = <WidgetHighlight>[];
@@ -3646,7 +3673,36 @@ class SleuthController {
       }
       selectedHighlightNotifier.value = refreshed;
     }
+    // An outline that lost its element takes it back from a later publish.
+    final target = _highlightTarget;
+    if (target != null && selectedHighlightNotifier.value == null) {
+      selectedHighlightNotifier.value = _ownHighlightOf(target, items);
+    }
   }
+
+  /// [issue]'s highlight among [highlights]: the one with its occurrence
+  /// when it has one, never another widget of the same name, else the
+  /// first with its widget name.
+  static WidgetHighlight? _ownHighlightOf(
+    PerformanceIssue issue,
+    List<WidgetHighlight> highlights,
+  ) {
+    final occurrence = issue.occurrenceId;
+    for (final h in highlights) {
+      if (occurrence != null
+          ? h.occurrenceId == occurrence
+          : h.widgetName == issue.widgetName) {
+        return h;
+      }
+    }
+    return null;
+  }
+
+  /// Publishes [items] as a scan or rect refresh would, for tests that seed
+  /// highlights without detectors.
+  @visibleForTesting
+  void publishHighlightsForTest(List<WidgetHighlight> items) =>
+      _publishHighlights(items);
 
   /// (Re)starts the 300 ms scroll-idle timer. When it fires, a scrolling
   /// state returns to idle and an early scan tick is requested.
@@ -4881,6 +4937,7 @@ class SleuthController {
   }
 
   void _onVmConnectionChanged(bool connected) {
+    if (connected) _everConnected = true;
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
     if (!connected) _cancelDeferredEnrichment();
@@ -4983,6 +5040,7 @@ class SleuthController {
           initAt != null &&
           !_backgroundReconnectActive &&
           _backgroundReconnectAttempt >= attempts,
+      everConnected: _everConnected,
     );
   }
 
@@ -5194,60 +5252,9 @@ class SleuthController {
     }
   }
 
-  /// Joins every field the overlay renders, in rank order. Excludes
-  /// timestamps, ranking scores and trace arguments, which change every tick
-  /// without changing what a reader sees.
-  static String _issuesFingerprint(List<PerformanceIssue> issues) {
-    final b = StringBuffer();
-    for (final i in issues) {
-      b
-        ..write(i.stableId)
-        ..write('|')
-        ..write(i.severity.name)
-        ..write('|')
-        ..write(i.confidence.name)
-        ..write('|')
-        ..write(i.category.name)
-        ..write('|')
-        ..write(i.title)
-        ..write('|')
-        ..write(i.detail)
-        ..write('|')
-        ..write(i.fixHint)
-        ..write('|')
-        ..write(i.widgetName)
-        ..write('|')
-        ..write(i.ancestorChain)
-        ..write('|')
-        ..write(i.routeName)
-        ..write('|')
-        ..write(i.tabVisitIndex)
-        ..write('|')
-        // Two first visits of tabs on one route differ only here, and the
-        // card compares it with the current screen.
-        ..write(i.scaffoldHashKey)
-        ..write('|')
-        ..write(i.observationSource?.name)
-        ..write('|')
-        ..write(i.interactionContext?.name)
-        ..write('|')
-        ..write(i.debugModeDisclaimer)
-        ..write('|')
-        ..write(i.fixEffort?.name)
-        ..write('|')
-        ..write(i.confidenceReason)
-        ..write('|')
-        ..write(i.rootCauseIds?.join(','))
-        ..write('|')
-        ..write(i.downstreamIds?.join(','))
-        ..write('|')
-        // As the card's Measured row shows it, not the raw value: a held
-        // rate moves in its last digits while the row reads the same.
-        ..write(measuredText(i))
-        ..write('\n');
-    }
-    return b.toString();
-  }
+  /// The [issueFingerprint] of each issue, in rank order.
+  static String _issuesFingerprint(List<PerformanceIssue> issues) =>
+      issues.map(issueFingerprint).join('\n');
 
   @visibleForTesting
   void resortRootCauseIdsByCurrentSeverityForTest(

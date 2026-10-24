@@ -17,6 +17,8 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
@@ -24,6 +26,7 @@ import 'package:sleuth/src/persistence/sleuth_state_store.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/rebuild_stats_page.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
+import 'package:sleuth/src/ui/status_lines.dart';
 
 import '../helpers/overlay_harness.dart';
 
@@ -142,21 +145,21 @@ void main() {
 
   // Use specific text to distinguish our banner from the existing
   // debug-mode disclaimer in _WarningBanners.
-  const bannerText = 'timings are';
+  const bannerText = 'Timings run slower';
 
   group('Minimize/maximize/restore', () {
     testWidgets('minimize hides body, shows only header', (tester) async {
       await tester.pumpWidget(pumpCard());
 
       // Body content should be present initially
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
 
       // Tap minimize
       await tester.tap(find.byIcon(Icons.minimize));
       await tester.pump();
 
       // Body content should be gone
-      expect(find.textContaining('No issues detected'), findsNothing);
+      expect(find.byType(SleuthStatusBox), findsNothing);
       // The header stays: its paw and run label.
       expect(find.byIcon(Icons.pets), findsOneWidget);
       // Restore button should appear (replaces minimize/maximize)
@@ -173,7 +176,7 @@ void main() {
       await tester.pump();
 
       // Body content should still be present
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
       // Restore button should appear
       expect(find.byIcon(Icons.filter_none), findsOneWidget);
       expect(find.byIcon(Icons.minimize), findsNothing);
@@ -185,14 +188,14 @@ void main() {
       // Minimize
       await tester.tap(find.byIcon(Icons.minimize));
       await tester.pump();
-      expect(find.textContaining('No issues detected'), findsNothing);
+      expect(find.byType(SleuthStatusBox), findsNothing);
 
       // Restore
       await tester.tap(find.byIcon(Icons.filter_none));
       await tester.pump();
 
       // Body should be back
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
       // Minimize/maximize buttons should be back
       expect(find.byIcon(Icons.minimize), findsOneWidget);
       expect(find.byIcon(Icons.crop_square), findsOneWidget);
@@ -223,17 +226,17 @@ void main() {
       // Minimize
       await tester.tap(find.byIcon(Icons.minimize));
       await tester.pump();
-      expect(find.textContaining('No issues detected'), findsNothing);
+      expect(find.byType(SleuthStatusBox), findsNothing);
 
       // Restore to normal
       await tester.tap(find.byIcon(Icons.filter_none));
       await tester.pump();
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
 
       // Maximize
       await tester.tap(find.byIcon(Icons.crop_square));
       await tester.pump();
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
 
       // Restore to normal again
       await tester.tap(find.byIcon(Icons.filter_none));
@@ -276,14 +279,20 @@ void main() {
     ) async {
       await tester.pumpWidget(pumpCard(isDebugMode: true));
 
-      expect(find.textContaining(bannerText), findsOneWidget);
+      expect(
+        find.textContaining(bannerText, findRichText: true),
+        findsOneWidget,
+      );
       expect(find.byIcon(Icons.warning_amber), findsOneWidget);
     });
 
     testWidgets('tap dismiss hides banner', (tester) async {
       await tester.pumpWidget(pumpCard(isDebugMode: true));
 
-      expect(find.textContaining(bannerText), findsOneWidget);
+      expect(
+        find.textContaining(bannerText, findRichText: true),
+        findsOneWidget,
+      );
 
       // Tap the close icon on the banner (last, since header also has close)
       // The banners scroll when the card is short.
@@ -292,7 +301,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.close).last);
       await tester.pump();
 
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
     });
 
     testWidgets('showDebugModeBanner:false hides banner', (tester) async {
@@ -303,13 +312,13 @@ void main() {
         ),
       );
 
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
     });
 
     testWidgets('isDebugMode:false hides banner', (tester) async {
       await tester.pumpWidget(pumpCard(isDebugMode: false));
 
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
     });
 
     testWidgets('a dismissal lasts for the controller\'s session', (
@@ -323,20 +332,23 @@ void main() {
       await tester.pump();
       await tester.tap(find.byIcon(Icons.close).last);
       await tester.pump();
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
 
       // Closing and reopening the dashboard keeps it dismissed: the
       // controller holds the dismissal for the session.
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       await tester.pumpWidget(pumpCard(isDebugMode: true));
-      expect(find.textContaining(bannerText), findsNothing);
+      expect(find.textContaining(bannerText, findRichText: true), findsNothing);
 
       // A new session shows it again.
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       await tester.pumpWidget(
         pumpCard(isDebugMode: true, config: const SleuthConfig()),
       );
-      expect(find.textContaining(bannerText), findsOneWidget);
+      expect(
+        find.textContaining(bannerText, findRichText: true),
+        findsOneWidget,
+      );
     });
   });
 
@@ -1320,6 +1332,170 @@ void main() {
       expect(find.text('NEW'), findsOneWidget);
     });
   });
+  group('Unchanged cards keep their widget', () {
+    Widget host(SleuthController c) => MaterialApp(
+      home: Scaffold(
+        body: FloatingIssuesCard(
+          controller: c,
+          onClose: () {},
+          isDebugMode: false,
+        ),
+      ),
+    );
+
+    List<String> recordRebuilds() {
+      final rebuilt = <String>[];
+      debugOnRebuildDirtyWidget = (element, _) {
+        final widget = element.widget;
+        if (widget is IssueCard) rebuilt.add(widget.issue.title);
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = null);
+      return rebuilt;
+    }
+
+    testWidgets('a new issue list rebuilds only the card it changed', (
+      tester,
+    ) async {
+      controller.issuesNotifier.value = [
+        _pinIssue(id: 'a'),
+        _pinIssue(id: 'b'),
+        _pinIssue(id: 'c'),
+      ];
+      await tester.pumpWidget(host(controller));
+      await tester.pump();
+      final rebuilt = recordRebuilds();
+
+      controller.issuesNotifier.value = [
+        _pinIssue(id: 'a'),
+        _pinIssue(id: 'b').copyWith(title: 'b now'),
+        _pinIssue(id: 'c'),
+      ];
+      await tester.pump();
+      expect(rebuilt, ['b now']);
+      expect(find.text('b now'), findsOneWidget);
+    });
+
+    // A related row asks the list how it opens while the card builds, and
+    // the answer follows the hidden keys and the severity filter. Here the
+    // shown cards stay the same: the effect is collapsed into its cause.
+    for (final (label, change) in <(String, void Function(OverlayUiState))>[
+      ('hiding the effect', (ui) => ui.hide('b')),
+      (
+        'turning its severity off',
+        (ui) => ui.toggleSeverity(IssueSeverity.warning),
+      ),
+    ]) {
+      testWidgets('$label rebuilds the card its related row is on', (
+        tester,
+      ) async {
+        controller.issuesNotifier.value = [
+          _pinIssue(
+            id: 'a',
+            severity: IssueSeverity.critical,
+          ).copyWith(downstreamIds: ['b']),
+          _pinIssue(id: 'b', rootCauseIds: ['a']),
+        ];
+        await tester.pumpWidget(host(controller));
+        await tester.pump();
+        expect(find.text('b'), findsNothing);
+        final rebuilt = recordRebuilds();
+
+        change(controller.overlayUiState);
+        await tester.pump();
+        expect(rebuilt, contains('a'));
+      });
+    }
+
+    // A critical twin of the cause folds the effect into the twin's card,
+    // so the effect leaves the list while the first cause's inputs stay
+    // the same.
+    testWidgets('a change to the cards shown rebuilds the others', (
+      tester,
+    ) async {
+      PerformanceIssue cause(String widget, IssueSeverity severity) =>
+          _pinIssue(id: 'a', severity: severity).copyWith(
+            title: 'a on $widget',
+            widgetName: widget,
+            downstreamIds: ['b'],
+          );
+      final effect = _pinIssue(
+        id: 'b',
+        severity: IssueSeverity.critical,
+        rootCauseIds: ['a'],
+      );
+      controller.issuesNotifier.value = [
+        cause('One', IssueSeverity.warning),
+        effect,
+      ];
+      await tester.pumpWidget(host(controller));
+      await tester.pump();
+      expect(find.text('b'), findsOneWidget);
+      final rebuilt = recordRebuilds();
+
+      controller.issuesNotifier.value = [
+        cause('Two', IssueSeverity.critical),
+        cause('One', IssueSeverity.warning),
+        effect,
+      ];
+      await tester.pump();
+      expect(find.text('b'), findsNothing);
+      expect(rebuilt, contains('a on One'));
+    });
+
+    testWidgets('a Jank tag rebuilds only the card it tags', (tester) async {
+      controller.issuesNotifier.value = [
+        _pinIssue(id: 'a'),
+        _pinIssue(id: 'b'),
+        _pinIssue(id: 'jank_detected'),
+      ];
+      await tester.pumpWidget(host(controller));
+      await tester.pump();
+      final rebuilt = recordRebuilds();
+
+      controller.verdictNotifier.value = FrameVerdict(
+        frameNumber: 1,
+        totalFrameTime: const Duration(milliseconds: 32),
+        uiThreadTime: const Duration(milliseconds: 20),
+        rasterThreadTime: const Duration(milliseconds: 12),
+        suspectedPhase: PipelinePhase.build,
+        reason: 'Build ran long',
+        relatedIssues: [_pinIssue(id: 'a')],
+      );
+      await tester.pump();
+      expect(rebuilt, ['a']);
+      expect(find.text('Jank'), findsOneWidget);
+    });
+
+    testWidgets('a kept card marks its latest report not useful', (
+      tester,
+    ) async {
+      // Both values read 120 ms, so the card keeps its widget.
+      PerformanceIssue measured(double value) => _pinIssue(id: 'a').copyWith(
+        measurement: IssueMeasurement(
+          value: value,
+          unit: MeasurementUnit.milliseconds,
+          warningAt: 100,
+        ),
+      );
+      controller.issuesNotifier.value = [measured(120.2)];
+      await tester.pumpWidget(host(controller));
+      await tester.pump();
+      await tester.tap(find.text('a'));
+      await tester.pumpAndSettle();
+      final rebuilt = recordRebuilds();
+
+      controller.issuesNotifier.value = [measured(120.4)];
+      await tester.pump();
+      expect(rebuilt, isEmpty);
+      await tapVisible(tester, find.bySemanticsLabel('Not useful'));
+      await tester.pump();
+      expect(
+        controller.notUsefulNotifier.value.single.measurement?.value,
+        120.4,
+      );
+    });
+  });
+
   group('Live panels follow the scan pulse', () {
     Widget host(SleuthController c) => MaterialApp(
       home: Scaffold(

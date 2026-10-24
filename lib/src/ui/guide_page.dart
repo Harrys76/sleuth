@@ -404,7 +404,9 @@ class _GuidePageState extends State<GuidePage>
           '\u{1F50D}',
           'Show on screen',
           'Tap the crosshair on an issue that names a widget to outline '
-              'that widget on screen, in the issue\'s severity color.',
+              'that widget on screen, in the issue\'s severity color. The '
+              'card shrinks to a bar until you tap Back to issues. When the '
+              'widget is not on screen, a toast says so.',
         ),
         _infoTile(
           theme,
@@ -706,8 +708,9 @@ class _GuidePageState extends State<GuidePage>
         _cardStateLegendRow(
           theme,
           theme.cardHighlighted,
-          'Highlighted',
-          'The crosshair is on, so the affected widget is outlined on screen',
+          'Finding',
+          'The crosshair was tapped before the first scan; the widget is '
+              'looked up when the scan ends',
         ),
         _cardStateLegendRow(
           theme,
@@ -903,7 +906,7 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.layers_outlined,
-          'The layers icon in the header toggles highlight borders on all detected widgets.',
+          'The layers icon in the header marks every flagged widget on screen with a corner marker.',
         ),
         _tipRow(
           theme,

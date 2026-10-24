@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -409,7 +412,7 @@ void main() {
   group('Crosshair', () {
     Widget card(
       PerformanceIssue issue, {
-      bool highlighted = false,
+      bool finding = false,
       ValueChanged<bool>? onChanged,
       SleuthThemeData theme = const SleuthThemeData(),
       double width = 320,
@@ -423,7 +426,7 @@ void main() {
               child: IssueCard(
                 issue: issue,
                 locatable: true,
-                highlighted: highlighted,
+                finding: finding,
                 onHighlightChanged: onChanged ?? (_) {},
               ),
             ),
@@ -442,9 +445,8 @@ void main() {
       expect(find.bySemanticsLabel('Show PriceTag on screen'), findsOneWidget);
     });
 
-    testWidgets('is a 48 px target in the card corner that toggles', (
-      tester,
-    ) async {
+    testWidgets('is a 48 px button in the card corner; while finding it '
+        'reads Finding and a second tap cancels', (tester) async {
       final changes = <bool>[];
       await tester.pumpWidget(
         card(_testIssue(widgetName: 'PriceTag'), onChanged: changes.add),
@@ -454,12 +456,10 @@ void main() {
       final cardRect = tester.getRect(find.byType(Card));
       expect(box.size, const Size(48, 48));
       expect(box.topRight, cardRect.topRight);
-      // Off is read as off, not left unstated.
-      final off = tester.getSemantics(target).getSemanticsData();
-      // ignore: deprecated_member_use
-      expect(off.hasFlag(SemanticsFlag.hasToggledState), isTrue);
-      // ignore: deprecated_member_use
-      expect(off.hasFlag(SemanticsFlag.isToggled), isFalse);
+      // An action, not a toggle: the card shrinks to the bar once found.
+      final idle = tester.widget<Semantics>(target).properties;
+      expect(idle.toggled, isNull);
+      expect(idle.value, isNull);
 
       // A tap at the edge of the hit box, outside the 18 px glyph.
       await tester.tapAt(box.topLeft + const Offset(3, 3));
@@ -468,16 +468,11 @@ void main() {
       await tester.pumpWidget(
         card(
           _testIssue(widgetName: 'PriceTag'),
-          highlighted: true,
+          finding: true,
           onChanged: changes.add,
         ),
       );
-      final data = tester.getSemantics(target).getSemanticsData();
-      // `flagsCollection` is not available on the 3.32 floor.
-      // ignore: deprecated_member_use
-      expect(data.hasFlag(SemanticsFlag.hasToggledState), isTrue);
-      // ignore: deprecated_member_use
-      expect(data.hasFlag(SemanticsFlag.isToggled), isTrue);
+      expect(tester.widget<Semantics>(target).properties.value, 'Finding');
       await tester.tap(target);
       expect(changes, [true, false]);
     });
@@ -526,7 +521,7 @@ void main() {
           await tester.pumpWidget(
             card(
               _testIssue(widgetName: 'PriceTag'),
-              highlighted: on,
+              finding: on,
               theme: theme,
             ),
           );
@@ -640,8 +635,14 @@ void main() {
       );
       expect(icon.severity, IssueSeverity.critical);
       expect(find.text('\u{1F534}'), findsNothing);
-      // Its mark keeps 3:1 on the severity fill in every preset.
-      for (final theme in _presets) {
+      // Its mark keeps 3:1 on the severity fill, and its shape (the fill,
+      // or the outline where the fill falls short) 3:1 on the card
+      // surfaces, in every preset.
+      for (final theme in [
+        ..._presets,
+        SleuthThemeData.fromSeed(Colors.teal),
+        SleuthThemeData.fromSeed(Colors.teal, brightness: Brightness.dark),
+      ]) {
         for (final severity in IssueSeverity.values) {
           final fill = theme.severityColor(severity);
           expect(
@@ -649,7 +650,29 @@ void main() {
             greaterThanOrEqualTo(3),
             reason: '${theme.brightness.name} $severity',
           );
+          final edge = SleuthSeverityIcon.edgeOf(theme, severity);
+          // A disc's white ring outlines it unless an edge colour does.
+          final outlines = [
+            ?edge,
+            if (edge == null) fill,
+            if (edge == null && severity != IssueSeverity.warning)
+              const Color(0xFFFFFFFF),
+          ];
+          for (final surface in [theme.cardDefault, theme.cardBackground]) {
+            expect(
+              outlines.map((c) => wcagContrast(c, surface)).reduce(math.max),
+              greaterThanOrEqualTo(3),
+              reason: '${theme.brightness.name} $severity shape',
+            );
+          }
         }
+      }
+      // The dark default keeps its unoutlined fills.
+      for (final severity in IssueSeverity.values) {
+        expect(
+          SleuthSeverityIcon.edgeOf(const SleuthThemeData(), severity),
+          isNull,
+        );
       }
       // No left accent bar: the card has no decoration border.
       expect(
@@ -932,6 +955,69 @@ void main() {
       expect(tester.widget<Semantics>(node).properties.toggled, isTrue);
       await tester.tap(node);
       expect(changes, [true, false]);
+    });
+  });
+
+  group('sameInputsAs', () {
+    // The card list keeps a card whose inputs are unchanged, so a field
+    // the check leaves out would leave its card stale.
+    test('compares every constructor field', () {
+      final source = File('lib/src/ui/issue_card.dart').readAsStringSync();
+      final constructor = RegExp(
+        r'const IssueCard\(\{([^}]*)\}\)',
+      ).firstMatch(source)!.group(1)!;
+      final fields = [
+        for (final m in RegExp(r'this\.(\w+)').allMatches(constructor))
+          m.group(1)!,
+      ];
+      final start = source.indexOf('bool sameInputsAs(IssueCard other) {');
+      final body = source.substring(start, source.indexOf('\n  }\n', start));
+      expect(fields, isNotEmpty);
+      expect([
+        for (final f in fields)
+          if (!body.contains('other.$f')) f,
+      ], isEmpty);
+    });
+
+    test('an issue with the same fingerprint and occurrence is the same', () {
+      final a = IssueCard(
+        issue: _testIssue(title: 'T'),
+        onCopy: () {},
+      );
+      final b = IssueCard(
+        issue: _testIssue(title: 'T'),
+        onCopy: () {},
+      );
+      expect(a.sameInputsAs(b), isTrue);
+      expect(
+        a.sameInputsAs(
+          IssueCard(
+            issue: _testIssue(title: 'U'),
+            onCopy: () {},
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        a.sameInputsAs(
+          IssueCard(
+            issue: _testIssue(title: 'T').copyWith(occurrenceId: 7),
+            onCopy: () {},
+          ),
+        ),
+        isFalse,
+      );
+      expect(a.sameInputsAs(IssueCard(issue: _testIssue(title: 'T'))), isFalse);
+      expect(
+        a.sameInputsAs(
+          IssueCard(
+            issue: _testIssue(title: 'T'),
+            onCopy: () {},
+            stale: true,
+          ),
+        ),
+        isFalse,
+      );
     });
   });
 }
