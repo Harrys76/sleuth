@@ -12,7 +12,6 @@ import '../controller/highlight_lookup.dart';
 import '../controller/sleuth_controller.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
-import '../models/frame_verdict.dart';
 import '../models/widget_highlight.dart';
 import 'issue_card.dart';
 import 'ai_chat_page.dart';
@@ -476,8 +475,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   Map<Object, List<AiChatMessage>> get _chatHistories =>
       widget.controller.aiChatHistories;
 
-  /// Cached jank-correlated issue keys from verdict, updated via listener.
+  /// Keys of the reported issues that carry the Jank tag.
   Set<String> _cachedJankKeys = const {};
+
+  /// Fires when the first held jank cause leaves the controller's hold.
+  Timer? _jankHoldTimer;
 
   double _cardWidth = _defaultCardWidth;
   static const double _defaultCardWidth = 300;
@@ -706,6 +708,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       timer.cancel();
     }
     _newKeyTimers.clear();
+    _jankHoldTimer?.cancel();
     _preTransitionOffset = null;
     _preTransitionWidth = null;
     _preTransitionHeight = null;
@@ -1071,7 +1074,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   void _onVerdictChanged() {
-    final newKeys = _matchingIssueKeys(widget.controller.verdictNotifier.value);
+    final held = widget.controller.heldJankCauses();
+    _jankHoldTimer?.cancel();
+    final wait = held.nextExpiry;
+    _jankHoldTimer = wait == null
+        ? null
+        : Timer(wait, () {
+            if (mounted) _onVerdictChanged();
+          });
+    final newKeys = _matchingIssueKeys(held.keys);
     if (!setEquals(newKeys, _cachedJankKeys)) {
       setState(() => _cachedJankKeys = newKeys);
     }
@@ -1204,22 +1215,22 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
       ..updateAll((key, _) => positions[key]!);
   }
 
-  /// Stable keys from verdict.relatedIssues that match current issuesNotifier.
+  /// Keys of the reported issues among [held], the issues a jank verdict
+  /// named within the jank window. Late frames alternate between phases,
+  /// so a tag that followed only the latest verdict went on and off.
   ///
-  /// The verdict stays after the jank ends, so keys are returned only while
-  /// a jank symptom is reported. The reported list is checked, not the
+  /// Keys are returned only while a jank symptom is reported, so the tag
+  /// leaves with the jank cards. The reported list is checked, not the
   /// visible one: collapsing, hiding or filtering a symptom keeps the tag.
-  Set<String> _matchingIssueKeys(FrameVerdict? verdict) {
-    if (verdict == null || verdict.relatedIssues.isEmpty) return const {};
+  Set<String> _matchingIssueKeys(Set<String> held) {
+    if (held.isEmpty) return const {};
     final current = widget.controller.issuesNotifier.value;
     if (!current.any(isJankSymptom)) return const {};
-    final verdictKeys = <String>{
-      for (final ri in verdict.relatedIssues) ri.stableId ?? ri.title,
+    return {
+      for (final issue in current)
+        if (held.contains(issue.stableId ?? issue.title))
+          issue.stableId ?? issue.title,
     };
-    final currentKeys = <String>{
-      for (final issue in current) issue.stableId ?? issue.title,
-    };
-    return verdictKeys.intersection(currentKeys);
   }
 
   Future<void> _exportToClipboard() async {

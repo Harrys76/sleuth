@@ -80,6 +80,7 @@ import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
 import '../utils/framework_types.dart' show isScaffoldElement, isTabBarView;
+import '../utils/monotonic_clock.dart';
 import '../utils/own_work_log.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
@@ -113,6 +114,9 @@ class SleuthController {
       return true;
     }());
     _compileSuppressions();
+    // Registered first, so the overlay reads the causes of a verdict when
+    // it hears of it.
+    verdictNotifier.addListener(_recordJankCauses);
   }
 
   final SleuthConfig config;
@@ -432,6 +436,48 @@ class SleuthController {
 
   /// Notifies listeners when a new verdict is available.
   final ValueNotifier<FrameVerdict?> verdictNotifier = ValueNotifier(null);
+
+  /// When a verdict last named each issue, by `stableId ?? title`. The
+  /// overlay tags those issues for [FrameTimingDetector.jankWindow] after
+  /// that ([heldJankCauses]). Kept here rather than in the card, so closing
+  /// and reopening the dashboard neither drops a hold nor restarts one.
+  /// Cleared on a route change, when jank starts a new window.
+  final Map<String, DateTime> _jankCauseSeen = {};
+
+  /// Reads [clockOverrideForTest] in tests, else a monotonic clock, so a
+  /// wall-clock jump neither ends nor extends a hold.
+  final DateTime Function() _monotonicNow = monotonicClock();
+  DateTime _jankClock() => clockOverrideForTest?.call() ?? _monotonicNow();
+
+  void _recordJankCauses() {
+    final verdict = verdictNotifier.value;
+    if (verdict == null || verdict.relatedIssues.isEmpty) return;
+    final now = _jankClock();
+    for (final issue in verdict.relatedIssues) {
+      _jankCauseSeen[issue.stableId ?? issue.title] = now;
+    }
+  }
+
+  /// The issues a verdict named within [FrameTimingDetector.jankWindow],
+  /// by `stableId ?? title`, and the time until the first of them leaves
+  /// (null when none is held).
+  ({Set<String> keys, Duration? nextExpiry}) heldJankCauses() {
+    final now = _jankClock();
+    final keys = <String>{};
+    Duration? nextExpiry;
+    final expired = <String>[];
+    for (final MapEntry(:key, :value) in _jankCauseSeen.entries) {
+      final left = FrameTimingDetector.jankWindow - now.difference(value);
+      if (left <= Duration.zero) {
+        expired.add(key);
+        continue;
+      }
+      keys.add(key);
+      if (nextExpiry == null || left < nextExpiry) nextExpiry = left;
+    }
+    expired.forEach(_jankCauseSeen.remove);
+    return (keys: keys, nextExpiry: nextExpiry);
+  }
 
   /// Whether VM service is connected (full mode).
   final ValueNotifier<bool> vmConnectedNotifier = ValueNotifier(false);
@@ -3098,6 +3144,7 @@ class SleuthController {
       // never reach the new session. Raster-dominant frames from a
       // previous route likewise stop counting.
       _frameTiming.markRouteEpoch();
+      _jankCauseSeen.clear();
       if (active != null) {
         for (final d in _detectors) {
           if (d is GpuPressureDetector) d.markRouteEpoch();

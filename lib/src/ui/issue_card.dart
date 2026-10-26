@@ -84,8 +84,8 @@ class IssueCard extends StatefulWidget {
   final bool deepInstrumentationActive;
 
   /// When true, shows a "JANK" badge in the collapsed header: this issue
-  /// can explain the latest jank frame's phase, and jank is still
-  /// reported.
+  /// can explain the phase of a jank frame from the last 10 s, and jank
+  /// is still reported.
   final bool jankCorrelated;
 
   /// When true, applies a temporary amber tint to draw attention to
