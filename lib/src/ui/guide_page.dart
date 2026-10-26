@@ -544,7 +544,8 @@ class _GuidePageState extends State<GuidePage>
             theme.severityCritical,
             tinted: theme.severityCriticalText,
           ),
-          'The issue can explain the latest slow frame, while jank is still reported',
+          'The issue can explain a slow frame from the last 10 seconds on this '
+              'screen, while jank is still reported',
         ),
         _tagLegendRow(
           theme,
@@ -938,7 +939,8 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.flash_on_outlined,
-          'A Jank tag marks an issue that can explain the latest slow frame, while jank is still reported.',
+          'A Jank tag marks an issue that can explain a slow frame from the last '
+          '10 seconds on this screen, while jank is still reported.',
         ),
         _tipRow(
           theme,
