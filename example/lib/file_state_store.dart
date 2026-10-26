@@ -1,20 +1,24 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sleuth/sleuth.dart';
 
 /// Keeps the Sleuth overlay state (trigger position, card geometry,
 /// hidden issues, severity filter) in a JSON file, so it survives app
-/// restarts.
+/// restarts and new installs of the app.
 ///
-/// Uses the system temp directory to avoid a `path_provider` dependency;
-/// the OS may clear it, which only resets the overlay to its defaults. An
-/// app would usually store this under its documents or support directory.
+/// The file goes in the directory [overlayStateDirectory] picks, to avoid
+/// a `path_provider` dependency. An app would usually ask `path_provider`
+/// for its application support directory.
 class FileSleuthStateStore implements SleuthStateStore {
   FileSleuthStateStore([File? file])
-    : _file =
-          file ??
-          File('${Directory.systemTemp.path}/sleuth_overlay_state.json');
+    : _file = file ?? File('${_defaultDirectory.path}/$_fileName');
+
+  static const _fileName = 'sleuth_overlay_state.json';
+
+  static Directory get _defaultDirectory =>
+      overlayStateDirectory(Directory.systemTemp, Platform.operatingSystem);
 
   final File _file;
 
@@ -51,6 +55,7 @@ class FileSleuthStateStore implements SleuthStateStore {
     // Renames are queued, and one older than the newest promoted write is
     // dropped, so a late write never replaces newer state.
     final sequence = ++_started;
+    await _file.parent.create(recursive: true);
     final tmp = File('${_file.path}.$sequence.tmp');
     await tmp.writeAsString(json, flush: true);
     final rename = _renames.then((_) async {
@@ -64,4 +69,26 @@ class FileSleuthStateStore implements SleuthStateStore {
     _renames = rename.catchError((Object _) {});
     await rename;
   }
+}
+
+/// The directory [FileSleuthStateStore] keeps its file in by default, from
+/// the system temp directory [temp] on [operatingSystem]
+/// (`Platform.operatingSystem`).
+///
+/// On Android the temp directory is the app's `code_cache`, which every
+/// install of a new build empties, and on iOS it is the container's `tmp`,
+/// which the OS empties when it needs space. The file goes beside them in
+/// the app's own `files` and `Library/Application Support` directories.
+/// Elsewhere, or when the temp directory is not where these layouts put
+/// it, the temp directory itself is used.
+@visibleForTesting
+Directory overlayStateDirectory(Directory temp, String operatingSystem) {
+  final segments = temp.uri.pathSegments.where((s) => s.isNotEmpty);
+  final name = segments.isEmpty ? null : segments.last;
+  final app = temp.parent.path;
+  return switch ((operatingSystem, name)) {
+    ('android', 'code_cache') => Directory('$app/files'),
+    ('ios', 'tmp') => Directory('$app/Library/Application Support'),
+    _ => temp,
+  };
 }
