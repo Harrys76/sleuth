@@ -70,7 +70,11 @@ list every change.
   overlay no longer uses them, so they left the framework denylist.
 - A new issue list rebuilds only the cards it changes.
 - Cards hidden under 0.38 stay hidden. The stored overlay state moves to
-  `schemaVersion` 2, which 0.38 reads as empty and leaves as it is.
+  `schemaVersion` 2, which 0.38 reads as empty and leaves as it is. The
+  Hidden page names each key by its id and widget.
+- An issue keeps the Jank tag for 10 s after the last late frame that
+  named it on the current route, instead of following only the latest
+  frame.
 
 ### Fixed
 
