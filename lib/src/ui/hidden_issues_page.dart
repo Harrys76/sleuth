@@ -45,6 +45,17 @@ class HiddenIssuesPage extends StatelessWidget {
     final byListKey = <String, PerformanceIssue>{
       for (final i in issues) listKeyFor(i): i,
     };
+    // A key from before 1.0 can name any widget of a stable id; it shows
+    // the first card it hides, else the first card it names.
+    PerformanceIssue? issueOf(String key) {
+      final listKey = listKeyOfHideKey(key);
+      final exact = byListKey[listKey];
+      if (exact != null) return exact;
+      final named = issues.where((i) => hideListKeyMatches(listKey, i));
+      return named.where((i) => isHiddenBy(i, {key})).firstOrNull ??
+          named.firstOrNull;
+    }
+
     // Newest first: the issue just hidden is at the top.
     final keys = hiddenKeys.reversed.toList();
     final patterns = configSuppressions.toList()..sort();
@@ -136,7 +147,7 @@ class HiddenIssuesPage extends StatelessWidget {
                       _emptyLine('Nothing hidden.', theme)
                     else
                       for (final key in keys)
-                        if (byListKey[listKeyOfHideKey(key)] case final issue?)
+                        if (issueOf(key) case final issue?)
                           _HiddenRow(
                             title: issue.title,
                             // A key hidden below critical stops hiding
@@ -145,12 +156,12 @@ class HiddenIssuesPage extends StatelessWidget {
                                 !isCriticalHideKey(key) &&
                                     issue.severity == IssueSeverity.critical
                                 ? 'Shown again: now critical'
-                                : key,
+                                : hideKeyLabel(key),
                             onRestore: () => onRestore(key),
                           )
                         else
                           _HiddenRow(
-                            title: key,
+                            title: hideKeyLabel(key),
                             subtitle: 'Not detected right now',
                             onRestore: () => onRestore(key),
                           ),
@@ -271,13 +282,15 @@ class _HiddenRow extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
+                // Two lines, so a long stable id keeps the widget name
+                // that ends its label.
                 Text(
                   subtitle,
                   style: TextStyle(
                     color: theme.textTertiary,
                     fontSize: theme.fontXs,
                   ),
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],

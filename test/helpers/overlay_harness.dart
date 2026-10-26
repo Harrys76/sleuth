@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/more_menu.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_overlay.dart';
@@ -186,3 +187,45 @@ Future<void> performCustomAction(
   );
   await tester.pump();
 }
+
+/// The expanded issue cards. The pin is no longer drawn; an expanded
+/// card's semantics carry the hint "Pinned while expanded".
+Finder expandedIssueCards() => find.descendant(
+  of: find.byType(IssueCard),
+  matching: find.byWidgetPredicate(
+    (w) =>
+        w is Semantics &&
+        w.properties.expanded == true &&
+        (w.properties.hint?.contains('Pinned while expanded') ?? false),
+  ),
+);
+
+/// The crosshair of the card titled [title], or every crosshair.
+Finder crosshair([String? title]) => title == null
+    ? find.byIcon(Icons.my_location)
+    : find.descendant(
+        of: find.ancestor(
+          of: find.text(title),
+          matching: find.byType(IssueCard),
+        ),
+        matching: find.byIcon(Icons.my_location),
+      );
+
+/// Whether the crosshair [finder] finds is on: its widget is outlined.
+bool crosshairOn(WidgetTester tester, Finder finder) =>
+    tester
+        .widget<Semantics>(
+          find
+              .ancestor(
+                of: finder,
+                matching: find.byWidgetPredicate(
+                  (w) =>
+                      w is Semantics &&
+                      (w.properties.label?.endsWith(' on screen') ?? false),
+                ),
+              )
+              .first,
+        )
+        .properties
+        .toggled ??
+    false;

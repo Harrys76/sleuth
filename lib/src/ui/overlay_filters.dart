@@ -102,21 +102,62 @@ String listKeyOfHideKey(String hideKey) => isCriticalHideKey(hideKey)
     ? hideKey.substring(0, hideKey.length - _criticalHideSuffix.length)
     : hideKey;
 
+/// Widget part of a hide key that names any widget: `base|*` hides the
+/// cards of `base` whatever widget they name, or none.
+const String _anyWidget = '|*';
+
+/// The list key that matches every card of [issue]'s stable id (or title).
+String _anyWidgetKeyFor(PerformanceIssue issue) =>
+    '${issue.stableId ?? issue.title}$_anyWidget';
+
+/// [hideKey] as read from a store written before 1.0. Wrap layout,
+/// excessive RepaintBoundary and custom structural issues gained a widget
+/// name in 1.0, which their list keys now carry, so a key without a widget
+/// name becomes one that matches any widget and keeps hiding those cards.
+String legacyHideKey(String hideKey) {
+  final listKey = listKeyOfHideKey(hideKey);
+  if (listKey.contains('|')) return hideKey;
+  return '$listKey$_anyWidget'
+      '${isCriticalHideKey(hideKey) ? _criticalHideSuffix : ''}';
+}
+
+/// [hideKey] as the Hidden page shows it: the stable id (or title), then
+/// the widget it names, or "every widget" for an any-widget key. The
+/// critical suffix is left out; the page says when a key stops hiding a
+/// card that turned critical.
+String hideKeyLabel(String hideKey) {
+  final listKey = listKeyOfHideKey(hideKey);
+  final bar = listKey.lastIndexOf('|');
+  if (bar < 0) return listKey;
+  final widgetName = listKey.substring(bar + 1);
+  return '${listKey.substring(0, bar)} · '
+      '${widgetName == '*' ? 'every widget' : widgetName}';
+}
+
+/// Whether the list part of a hide key, [listKey], names [issue]'s card:
+/// its [listKeyFor], or the any-widget key of its stable id.
+bool hideListKeyMatches(String listKey, PerformanceIssue issue) =>
+    listKey == listKeyFor(issue) || listKey == _anyWidgetKeyFor(issue);
+
 /// Whether [hiddenKeys] hides [issue]: its own [hideKeyFor], or the
-/// critical key of the same card.
+/// critical key of the same card, each also in its any-widget form from
+/// [legacyHideKey].
 bool isHiddenBy(PerformanceIssue issue, Set<String> hiddenKeys) {
   if (hiddenKeys.isEmpty) return false;
   final key = listKeyFor(issue);
+  final any = _anyWidgetKeyFor(issue);
   return hiddenKeys.contains('$key$_criticalHideSuffix') ||
-      (issue.severity != IssueSeverity.critical && hiddenKeys.contains(key));
+      hiddenKeys.contains('$any$_criticalHideSuffix') ||
+      (issue.severity != IssueSeverity.critical &&
+          (hiddenKeys.contains(key) || hiddenKeys.contains(any)));
 }
 
 /// Keys that tell apart the cards of [issues] in their order: the
 /// [listKeyFor] of each, with `#2`, `#3` added to the second and later
 /// card sharing one (a detector that emits one issue per occurrence
-/// under one stable id and widget). Expansion, the order snapshot and
-/// the highlight selection use these keys, so two such cards keep their
-/// own state.
+/// under one stable id and widget). The card list keys its cards with
+/// these, so two such cards keep their own state; cards frozen while one
+/// is expanded keep the key they had when the zone was captured.
 List<String> occurrenceKeysFor(List<PerformanceIssue> issues) {
   final seen = <String, int>{};
   final keys = <String>[];

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart'
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/severity_icon.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 import '../helpers/contrast_helpers.dart';
@@ -157,7 +158,7 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
     for (final severity in IssueSeverity.values) {
       add(
         'selected ${severity.name} chip border on $s',
-        t.severityTextColor(severity),
+        t.severityGraphicColor(severity),
         surfaces[s]!,
         3,
       );
@@ -178,14 +179,59 @@ List<(String, Color, Color, double)> _pairs(SleuthThemeData t) {
         3,
       );
     }
-    add('run label VM dot on $s', t.severityOkText, surfaces[s]!, 3);
+    add(
+      'run label VM dot on $s',
+      t.severityGraphicColor(IssueSeverity.ok),
+      surfaces[s]!,
+      3,
+    );
     add(
       'focus outline and selected theme segment on $s',
       t.checkboxActive,
       surfaces[s]!,
       3,
     );
-    add('run label no-VM dot on $s', t.severityWarningText, surfaces[s]!, 3);
+    add(
+      'run label no-VM dot on $s',
+      t.severityGraphicColor(IssueSeverity.warning),
+      surfaces[s]!,
+      3,
+    );
+  }
+  // Meta line tags on the card fills.
+  for (final s in ['cardDefault', 'cardHighlighted']) {
+    add(
+      'Jank tag on $s',
+      t.badgeTextOn(t.severityCritical, tinted: t.severityCriticalText),
+      composite(t.badgeFill(t.severityCritical), surfaces[s]!),
+    );
+    add(
+      'New tag on $s',
+      t.badgeTextOn(t.checkboxActive),
+      composite(t.badgeFill(t.checkboxActive), surfaces[s]!),
+    );
+    add(
+      'Not detected right now tag on $s',
+      t.badgeTextOn(t.textSecondary),
+      composite(t.badgeFill(t.textSecondary), surfaces[s]!),
+    );
+    add(
+      'Debug timing tag on $s',
+      t.badgeDbgText,
+      composite(t.badgeDbgBg, surfaces[s]!),
+    );
+    add('crosshair off on $s background', t.textSecondary, surfaces[s]!, 3);
+    add('crosshair off on $s', t.textSecondary, surfaces[s]!, 3);
+  }
+  // The severity icon's mark on its own fill.
+  for (final severity in IssueSeverity.values) {
+    final fill = t.severityColor(severity);
+    add(
+      '${severity.name} icon mark on its fill',
+      SleuthSeverityIcon.markOn(fill),
+      fill,
+      3,
+    );
   }
   add('trigger icon on critical', t.triggerIconColor, t.severityCritical, 3);
   add(
@@ -267,6 +313,52 @@ void main() {
         expect(t.cardDivider, isNot(t.cardDefault));
       });
     }
+
+    test('chips and dots use the fills in dark and mid-tone shades in '
+        'light; the high-contrast presets keep the text shades', () {
+      const light = SleuthThemeData.light();
+      expect(
+        light.severityGraphicColor(IssueSeverity.critical),
+        const Color(0xFFDC2626),
+      );
+      expect(
+        light.severityGraphicColor(IssueSeverity.warning),
+        const Color(0xFFD97706),
+      );
+      expect(
+        light.severityGraphicColor(IssueSeverity.ok),
+        const Color(0xFF059669),
+      );
+      const dark = SleuthThemeData();
+      for (final severity in IssueSeverity.values) {
+        expect(
+          dark.severityGraphicColor(severity),
+          dark.severityColor(severity),
+        );
+      }
+      for (final t in [
+        const SleuthThemeData.highContrastDark(),
+        const SleuthThemeData.highContrastLight(),
+      ]) {
+        for (final severity in IssueSeverity.values) {
+          expect(
+            t.severityGraphicColor(severity),
+            t.severityTextColor(severity),
+          );
+        }
+      }
+      // copyWith keeps and replaces the shades.
+      expect(
+        light.copyWith().severityGraphicColor(IssueSeverity.warning),
+        const Color(0xFFD97706),
+      );
+      expect(
+        light
+            .copyWith(severityWarningGraphic: const Color(0xFFB45309))
+            .severityGraphicColor(IssueSeverity.warning),
+        const Color(0xFFB45309),
+      );
+    });
 
     test('cardBackground is opaque in every preset and fromSeed', () {
       for (final t in [

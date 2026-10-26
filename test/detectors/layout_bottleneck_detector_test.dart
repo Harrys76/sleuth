@@ -539,6 +539,13 @@ void main() {
         expect(wrapIssues.first.title, contains('35'));
         expect(wrapIssues.first.confidence, IssueConfidence.possible);
         expect(wrapIssues.first.category, IssueCategory.layout);
+        // The card's crosshair needs a name; the issue carries its
+        // highlight's name and element.
+        final highlight = detector.highlights.singleWhere(
+          (h) => h.occurrenceId == wrapIssues.first.occurrenceId,
+        );
+        expect(wrapIssues.first.widgetName, 'Wrap');
+        expect(highlight.widgetName, 'Wrap');
       });
 
       testWidgets('no issue for Wrap with <=30 children', (tester) async {

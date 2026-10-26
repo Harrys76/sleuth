@@ -290,6 +290,8 @@ class LayoutBottleneckDetector extends BaseDetector
               'threshold',
           detectedAt: DateTime.now(),
           occurrenceId: wrap.occurrenceId,
+          // The name its highlight carries.
+          widgetName: 'Wrap',
           measurement: IssueMeasurement(
             value: wrap.childCount.toDouble(),
             unit: MeasurementUnit.count,

@@ -58,6 +58,8 @@ void main() {
       expect(issue.stableId, 'slow_startup_ttff');
       expect(issue.severity, IssueSeverity.warning);
       expect(issue.category, IssueCategory.startup);
+      // Timed to the first frame's FrameTiming raster end.
+      expect(issue.observationSource, ObservationSource.frameTiming);
       expect(issue.confidence, IssueConfidence.confirmed);
       expect(issue.title, contains('2000'));
       detector.dispose();

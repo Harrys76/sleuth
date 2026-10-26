@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/recurrence_trend.dart';
+import 'package:sleuth/src/ui/focus_ink_well.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
+import 'package:sleuth/src/ui/severity_icon.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 import '../helpers/contrast_helpers.dart';
@@ -23,6 +27,10 @@ PerformanceIssue _testIssue({
   String title = 'Test Issue',
   String detail = 'Test detail',
   String fixHint = 'Test fix',
+  String? widgetName,
+  ObservationSource? observationSource,
+  IssueMeasurement? measurement,
+  bool debugModeDisclaimer = false,
 }) {
   return PerformanceIssue(
     severity: severity,
@@ -32,6 +40,10 @@ PerformanceIssue _testIssue({
     title: title,
     detail: detail,
     fixHint: fixHint,
+    widgetName: widgetName,
+    observationSource: observationSource,
+    measurement: measurement,
+    debugModeDisclaimer: debugModeDisclaimer,
   );
 }
 
@@ -210,33 +222,21 @@ void main() {
       expect(find.byIcon(Icons.info_outline), findsOneWidget);
     });
 
-    testWidgets('confidence badge uses Semantics instead of Tooltip', (
-      tester,
-    ) async {
+    testWidgets('the meta line reads category and confidence as one '
+        'phrase', (tester) async {
+      final handle = tester.ensureSemantics();
       await tester.pumpWidget(
-        _pumpIssueCard(
-          _testIssue(confidenceReason: 'This is the reason'),
-          initiallyExpanded: false,
-        ),
+        _pumpIssueCard(_testIssue(confidenceReason: 'This is the reason')),
       );
-
-      // Tooltip was removed (crashes in bare Overlay — no _RenderTheaterMarker).
-      // Confidence reason is shown inline when expanded and as a
-      // Semantics label for accessibility.
       expect(find.byType(Tooltip), findsNothing);
-
-      // Verify the Semantics widget carries the reason text.
-      final semanticsFinder = find.byWidgetPredicate(
-        (w) =>
-            w is Semantics &&
-            w.properties.label != null &&
-            w.properties.label!.contains('This is the reason'),
-      );
-      expect(semanticsFinder, findsOneWidget);
+      expect(find.textContaining('Build'), findsOneWidget);
+      expect(find.textContaining('Confirmed'), findsOneWidget);
+      expect(find.bySemanticsLabel('Build, Confirmed'), findsOneWidget);
+      handle.dispose();
     });
   });
 
-  group('Recurrence badge', () {
+  group('Recurrence in the meta line', () {
     testWidgets('stable trend with ratio >= 0.9 shows "persistent"', (
       tester,
     ) async {
@@ -246,7 +246,7 @@ void main() {
         _pumpIssueCard(_testIssue(), recurrenceTrend: trend),
       );
 
-      expect(find.textContaining('Seen'), findsOneWidget);
+      expect(find.textContaining('scans, '), findsOneWidget);
       expect(find.textContaining('persistent'), findsOneWidget);
     });
 
@@ -257,7 +257,7 @@ void main() {
         _pumpIssueCard(_testIssue(), recurrenceTrend: trend),
       );
 
-      expect(find.textContaining('Seen'), findsOneWidget);
+      expect(find.textContaining('scans, '), findsOneWidget);
       expect(find.textContaining('stable'), findsOneWidget);
     });
 
@@ -275,7 +275,7 @@ void main() {
         _pumpIssueCard(_testIssue(), recurrenceTrend: trend),
       );
 
-      expect(find.textContaining('Seen'), findsOneWidget);
+      expect(find.textContaining('scans, '), findsOneWidget);
       expect(find.textContaining('flaky'), findsOneWidget);
     });
 
@@ -287,7 +287,7 @@ void main() {
         _pumpIssueCard(_testIssue(), recurrenceTrend: trend),
       );
 
-      expect(find.textContaining('Seen'), findsNothing);
+      expect(find.textContaining('scans'), findsNothing);
     });
 
     testWidgets('null trend shows no badge', (tester) async {
@@ -295,7 +295,7 @@ void main() {
         _pumpIssueCard(_testIssue(), recurrenceTrend: null),
       );
 
-      expect(find.textContaining('Seen'), findsNothing);
+      expect(find.textContaining('scans'), findsNothing);
     });
 
     testWidgets('worsening trend shows "worsening"', (tester) async {
@@ -312,7 +312,7 @@ void main() {
         _pumpIssueCard(_testIssue(), recurrenceTrend: trend),
       );
 
-      expect(find.textContaining('Seen'), findsOneWidget);
+      expect(find.textContaining('scans, '), findsOneWidget);
       expect(find.textContaining('worsening'), findsOneWidget);
     });
 
@@ -339,173 +339,93 @@ void main() {
         ),
       );
       // The resolver's empty trend wins over the fixed one: no badge.
-      expect(find.textContaining('Seen'), findsNothing);
+      expect(find.textContaining('scans'), findsNothing);
       expect(parentBuilds, 1);
 
       trend.recordPresent(0, severityIndex: 2);
       trend.recordPresent(1, severityIndex: 2);
       tick.value++;
       await tester.pump();
-      expect(find.textContaining('Seen 2/2'), findsOneWidget);
+      expect(find.textContaining('seen 2 of 2 scans'), findsOneWidget);
 
       trend.recordPresent(2, severityIndex: 2);
       tick.value++;
       await tester.pump();
-      expect(find.textContaining('Seen 3/3'), findsOneWidget);
+      expect(find.textContaining('seen 3 of 3 scans'), findsOneWidget);
       expect(parentBuilds, 1);
       tick.dispose();
     });
   });
 
-  group('v0.15.5 freeze-above-on-expand pin indicator', () {
-    testWidgets(
-      'pin icon appears when card is expanded and disappears when collapsed',
-      (tester) async {
-        // Start collapsed → no pin icon in the tree.
-        await tester.pumpWidget(
-          _pumpIssueCard(_testIssue(), initiallyExpanded: false),
-        );
-
-        expect(find.byIcon(Icons.push_pin), findsNothing);
-
-        // Tap the card header to expand → pin icon renders.
-        await tester.tap(find.byType(IssueCard));
-        await tester.pumpAndSettle();
-
-        expect(find.byIcon(Icons.push_pin), findsOneWidget);
-
-        // Tap the title again to collapse → pin icon disappears. (The
-        // card's centre now holds the 48 px "About this detection" row.)
-        await tester.tap(find.text('Test Issue'));
-        await tester.pumpAndSettle();
-
-        expect(find.byIcon(Icons.push_pin), findsNothing);
-      },
+  testWidgets('an expanded card shows the whole title', (tester) async {
+    const title =
+        'A long title that keeps going past two lines on a narrow card so '
+        'that a collapsed card has to ellipsize it near the end';
+    Widget card(bool expanded) => MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            child: SingleChildScrollView(
+              child: IssueCard(
+                key: ValueKey(expanded),
+                issue: _testIssue(title: title),
+                initiallyExpanded: expanded,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
+    await tester.pumpWidget(card(false));
+    final collapsed = tester.renderObject<RenderParagraph>(find.text(title));
+    expect(collapsed.maxLines, 2);
+    expect(collapsed.didExceedMaxLines, isTrue);
 
-    testWidgets(
-      'Semantics node is unconditional, label only populated when expanded',
-      (tester) async {
-        // Collapsed: the Semantics node exists but carries no visible label
-        // and excludes its child's semantics so TalkBack stays silent.
-        await tester.pumpWidget(
-          _pumpIssueCard(_testIssue(), initiallyExpanded: false),
-        );
+    await tester.pumpWidget(card(true));
+    final expanded = tester.renderObject<RenderParagraph>(find.text(title));
+    expect(expanded.maxLines, isNull);
+    expect(expanded.didExceedMaxLines, isFalse);
+  });
 
-        final collapsedPinSemantics = find.byWidgetPredicate(
-          (w) =>
-              w is Semantics &&
-              w.properties.label == '' &&
-              w.excludeSemantics == true,
-        );
-        expect(
-          collapsedPinSemantics,
-          findsOneWidget,
-          reason:
-              'Unconditional Semantics node must exist when collapsed so '
-              'traversal order does not shift when the user toggles expansion.',
-        );
+  group('Pinned while expanded', () {
+    testWidgets('is announced on an expanded card and never drawn', (
+      tester,
+    ) async {
+      String? hint() =>
+          tester.getSemantics(find.byType(IssueCard)).getSemanticsData().hint;
+      await tester.pumpWidget(_pumpIssueCard(_testIssue()));
+      expect(hint(), isEmpty);
+      expect(find.byIcon(Icons.push_pin), findsNothing);
 
-        // Pin label is hidden while collapsed.
-        final pinLabelFinder = find.byWidgetPredicate(
-          (w) =>
-              w is Semantics && w.properties.label == 'Pinned while expanded',
-        );
-        expect(pinLabelFinder, findsNothing);
+      await tester.tap(find.byType(IssueCard));
+      await tester.pumpAndSettle();
+      expect(hint(), 'Pinned while expanded');
+      expect(find.byIcon(Icons.push_pin), findsNothing);
 
-        // Expand → same Semantics node now carries the pin label and surfaces
-        // its child (excludeSemantics flips to false).
-        await tester.tap(find.byType(IssueCard));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('Test Issue'));
+      await tester.pumpAndSettle();
+      expect(hint(), isEmpty);
+    });
 
-        final expandedPinSemantics = find.byWidgetPredicate(
-          (w) =>
-              w is Semantics &&
-              w.properties.label == 'Pinned while expanded' &&
-              w.excludeSemantics == false,
-        );
-        expect(
-          expandedPinSemantics,
-          findsOneWidget,
-          reason:
-              'When expanded the Semantics node must publish the "Pinned while '
-              'expanded" label and stop excluding child semantics.',
-        );
-      },
-    );
-
-    testWidgets('pin icon stays within card bounds at 300dp with all '
-        'header badges present', (tester) async {
-      // A long title truncated with ellipsis plus confidence badge, pin
-      // icon, JANK badge, "↳ N" downstream badge, and Checkbox can
-      // squeeze the pin out of the card bounds on a 300dp wide card
-      // (the default overlay width).
-      //
-      // This test pumps the exact combinatorial tail and asserts that
-      // the pin icon's rect is fully contained inside its ancestor Card.
-      // That's the pin-specific invariant v0.15.5 is responsible for.
-      //
-      // The category and confidence badges sit beside the title only
-      // while the title keeps its minimum width; JANK / downstream badges
-      // wrap on the badge line, so the header never overflows.
-      final rootIssue = _testIssue(
-        title:
-            'Excessive rebuilds detected in a very long widget path that '
-            'would definitely truncate on narrow overlays',
-        severity: IssueSeverity.critical,
-      );
-      final downstream = _testIssue(
-        title: 'Downstream child',
-        severity: IssueSeverity.warning,
-      );
-
+    testWidgets('joins the New hint', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: Center(
-              child: SizedBox(
-                // Default overlay card width — the real user-facing
-                // constraint the pin icon must survive.
-                width: 300,
-                child: IssueCard(
-                  issue: rootIssue,
-                  initiallyExpanded: true,
-                  jankCorrelated: true,
-                  locatable: true,
-                  downstreamIssues: [downstream],
-                ),
+            body: SingleChildScrollView(
+              child: IssueCard(
+                issue: _testIssue(),
+                isNew: true,
+                initiallyExpanded: true,
               ),
             ),
           ),
         ),
       );
-      await tester.pumpAndSettle();
-
-      // No RenderFlex overflow with every header badge present.
-      expect(tester.takeException(), isNull);
-
-      final pinFinder = find.byIcon(Icons.push_pin);
-      expect(pinFinder, findsOneWidget);
-
-      final pinRect = tester.getRect(pinFinder);
-      final cardRect = tester.getRect(find.byType(Card));
       expect(
-        pinRect.width,
-        greaterThan(0),
-        reason: 'Pin icon must render at a non-zero size.',
+        tester.getSemantics(find.byType(IssueCard)).getSemanticsData().hint,
+        'New, Pinned while expanded',
       );
-      expect(
-        cardRect.contains(pinRect.topLeft) &&
-            cardRect.contains(pinRect.bottomRight),
-        isTrue,
-        reason:
-            'Pin icon must be fully inside the card bounds even with '
-            'long title + confidence + JANK + downstream + checkbox in '
-            'the same header row. Pin rect: $pinRect, card rect: $cardRect',
-      );
-
-      // Final safety net: no additional, unexpected exceptions.
-      expect(tester.takeException(), isNull);
     });
   });
 
@@ -574,11 +494,7 @@ void main() {
         'only the icon shimmers', (tester) async {
       const label = 'Ask AI'; // visible text; the button's label is longer
       for (final theme in _presets) {
-        for (final (highlighted, jankFlash) in [
-          (false, false),
-          (true, false),
-          (false, true),
-        ]) {
+        for (final highlighted in [false, true]) {
           await tester.pumpWidget(
             MaterialApp(
               home: Scaffold(
@@ -588,7 +504,6 @@ void main() {
                     issue: _testIssue(),
                     initiallyExpanded: true,
                     highlighted: highlighted,
-                    jankFlash: jankFlash,
                     onAskAi: () {},
                   ),
                 ),
@@ -623,47 +538,25 @@ void main() {
     });
   });
 
-  testWidgets('the highlight checkbox check keeps 3:1 on its fill', (
-    tester,
-  ) async {
-    for (final theme in _presets) {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SleuthTheme(
-              data: theme,
-              child: IssueCard(
-                issue: _testIssue(),
-                locatable: true,
-                highlighted: true,
-              ),
-            ),
-          ),
-        ),
-      );
-      final box = tester.widget<Checkbox>(find.byType(Checkbox));
-      expect(box.activeColor, theme.checkboxActive);
-      expect(
-        wcagContrast(box.checkColor!, box.activeColor!),
-        greaterThanOrEqualTo(3),
-        reason: theme.brightness.name,
-      );
-    }
-  });
-
-  group('Inline category and confidence badges', () {
-    Widget cards(double width, List<PerformanceIssue> issues) => MediaQuery(
-      data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
-      child: MaterialApp(
-        home: Scaffold(
-          body: Center(
+  group('Crosshair', () {
+    Widget card(
+      PerformanceIssue issue, {
+      bool highlighted = false,
+      ValueChanged<bool>? onChanged,
+      SleuthThemeData theme = const SleuthThemeData(),
+      double width = 320,
+    }) => MaterialApp(
+      home: Scaffold(
+        body: SleuthTheme(
+          data: theme,
+          child: Center(
             child: SizedBox(
               width: width,
-              child: Column(
-                children: [
-                  for (final issue in issues)
-                    IssueCard(issue: issue, locatable: true),
-                ],
+              child: IssueCard(
+                issue: issue,
+                locatable: true,
+                highlighted: highlighted,
+                onHighlightChanged: onChanged ?? (_) {},
               ),
             ),
           ),
@@ -671,55 +564,398 @@ void main() {
       ),
     );
 
-    testWidgets('keep their intrinsic width and a fixed right column', (
+    testWidgets('shows only for an issue that names a widget', (tester) async {
+      await tester.pumpWidget(card(_testIssue()));
+      expect(find.byIcon(Icons.my_location), findsNothing);
+      expect(find.byType(Checkbox), findsNothing);
+
+      await tester.pumpWidget(card(_testIssue(widgetName: 'PriceTag')));
+      expect(find.byIcon(Icons.my_location), findsOneWidget);
+      expect(find.bySemanticsLabel('Show PriceTag on screen'), findsOneWidget);
+    });
+
+    testWidgets('is a 48 px target in the card corner that toggles', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(800, 600);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
+      final changes = <bool>[];
       await tester.pumpWidget(
-        cards(480, [
-          _testIssue(title: 'Short'),
+        card(_testIssue(widgetName: 'PriceTag'), onChanged: changes.add),
+      );
+      final target = find.bySemanticsLabel('Show PriceTag on screen');
+      final box = tester.getRect(target);
+      final cardRect = tester.getRect(find.byType(Card));
+      expect(box.size, const Size(48, 48));
+      expect(box.topRight, cardRect.topRight);
+      // Off is read as off, not left unstated.
+      final off = tester.getSemantics(target).getSemanticsData();
+      // ignore: deprecated_member_use
+      expect(off.hasFlag(SemanticsFlag.hasToggledState), isTrue);
+      // ignore: deprecated_member_use
+      expect(off.hasFlag(SemanticsFlag.isToggled), isFalse);
+
+      // A tap at the edge of the hit box, outside the 18 px glyph.
+      await tester.tapAt(box.topLeft + const Offset(3, 3));
+      expect(changes, [true]);
+
+      await tester.pumpWidget(
+        card(
+          _testIssue(widgetName: 'PriceTag'),
+          highlighted: true,
+          onChanged: changes.add,
+        ),
+      );
+      final data = tester.getSemantics(target).getSemanticsData();
+      // `flagsCollection` is not available on the 3.32 floor.
+      // ignore: deprecated_member_use
+      expect(data.hasFlag(SemanticsFlag.hasToggledState), isTrue);
+      // ignore: deprecated_member_use
+      expect(data.hasFlag(SemanticsFlag.isToggled), isTrue);
+      await tester.tap(target);
+      expect(changes, [true, false]);
+    });
+
+    testWidgets('its face is centred on the title\'s first line', (
+      tester,
+    ) async {
+      await tester.pumpWidget(card(_testIssue(widgetName: 'PriceTag')));
+      final face = tester.getCenter(find.byIcon(Icons.my_location));
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.text('Test Issue'),
+      );
+      final line = paragraph
+          .getBoxesForSelection(
+            const TextSelection(baseOffset: 0, extentOffset: 1),
+          )
+          .first
+          .toRect();
+      final titleTop = tester.getTopLeft(find.text('Test Issue')).dy;
+      expect((face.dy - (titleTop + line.center.dy)).abs(), lessThan(1));
+    });
+
+    testWidgets('the title row leaves room for it', (tester) async {
+      await tester.pumpWidget(
+        card(
           _testIssue(
-            title:
-                'A much longer title that has to ellipsize before the '
-                'badges give way',
+            widgetName: 'PriceTag',
+            title: 'A long title that wraps onto its second line here',
           ),
-        ]),
+        ),
       );
-      expect(tester.takeException(), isNull);
-      final confirmed = find.text('CONFIRMED');
-      expect(confirmed, findsNWidgets(2));
-      for (final element in confirmed.evaluate()) {
-        final paragraph = element.renderObject! as RenderParagraph;
-        expect(paragraph.didExceedMaxLines, isFalse);
+      final title = tester.getRect(
+        find.text('A long title that wraps onto its second line here'),
+      );
+      final target = tester.getRect(
+        find.bySemanticsLabel('Show PriceTag on screen'),
+      );
+      expect(title.right, lessThanOrEqualTo(target.left + 10 + 0.5));
+    });
+
+    testWidgets('its glyph keeps 3:1 off and on, in every preset', (
+      tester,
+    ) async {
+      for (final theme in _presets) {
+        for (final on in [false, true]) {
+          await tester.pumpWidget(
+            card(
+              _testIssue(widgetName: 'PriceTag'),
+              highlighted: on,
+              theme: theme,
+            ),
+          );
+          final glyph = tester.widget<Icon>(find.byIcon(Icons.my_location));
+          final cardFill = on ? theme.cardHighlighted : theme.cardDefault;
+          final fill = on
+              ? composite(
+                  theme.checkboxActive.withValues(alpha: 0.22),
+                  cardFill,
+                )
+              : cardFill;
+          expect(
+            wcagContrast(glyph.color!, fill),
+            greaterThanOrEqualTo(3),
+            reason: '${theme.brightness.name} on: $on',
+          );
+        }
       }
-      // Same right edge on both cards: the title takes the slack.
-      expect(
-        tester.getTopRight(confirmed.at(0)).dx,
-        tester.getTopRight(confirmed.at(1)).dx,
+    });
+  });
+
+  group('Collapsed layout', () {
+    Widget cards(double width, double scale, List<PerformanceIssue> issues) =>
+        MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+          child: MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: width,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        for (final issue in issues)
+                          IssueCard(
+                            issue: issue,
+                            locatable: true,
+                            onHighlightChanged: (_) {},
+                            jankCorrelated: true,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets('icon, title and meta line fit at ${scale}x', (tester) async {
+        const title =
+            'A long title that keeps going past two lines on a narrow '
+            'card so it has to ellipsize somewhere near the end';
+        await tester.pumpWidget(
+          cards(320, scale, [_testIssue(title: title, widgetName: 'PriceTag')]),
+        );
+        expect(tester.takeException(), isNull);
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.text(title),
+        );
+        expect(paragraph.maxLines, scale > 1.3 ? 3 : 2);
+        // The icon sits on the title's first line.
+        final icon = tester.getRect(find.byType(SleuthSeverityIcon));
+        final firstLine = paragraph
+            .getBoxesForSelection(
+              const TextSelection(baseOffset: 0, extentOffset: 1),
+            )
+            .first;
+        final titleTop = tester.getTopLeft(find.text(title)).dy;
+        expect(
+          (icon.center.dy - (titleTop + firstLine.toRect().center.dy)).abs(),
+          lessThan(2),
+        );
+        // The meta line starts under the title.
+        expect(
+          tester.getTopLeft(find.textContaining('Build')).dx,
+          tester.getTopLeft(find.text(title)).dx,
+        );
+      });
+    }
+
+    testWidgets('under a one-line title the meta line ends before the '
+        'crosshair', (tester) async {
+      await tester.pumpWidget(
+        cards(320, 1, [_testIssue(title: 'Short', widgetName: 'PriceTag')]),
       );
-      // Beside the title.
-      final title = find.text('Short');
+      // The room the paragraph may fill, not the width its text takes.
+      final meta = find.textContaining('Build');
+      final paragraph = tester.renderObject<RenderParagraph>(
+        // The paragraph itself; the tags' own texts sit inside it.
+        find.descendant(of: meta, matching: find.byType(RichText)).first,
+      );
+      final target = tester.getRect(
+        find.bySemanticsLabel('Show PriceTag on screen'),
+      );
       expect(
-        (tester.getCenter(confirmed.at(0)).dy - tester.getCenter(title).dy)
-            .abs(),
-        lessThan(4),
+        tester.getTopLeft(meta).dx + paragraph.constraints.maxWidth,
+        lessThanOrEqualTo(target.left + 10.5),
       );
     });
 
-    testWidgets('move to the badge line when the title would get narrow', (
+    testWidgets('the severity icon is a filled mark', (tester) async {
+      await tester.pumpWidget(
+        cards(320, 1, [
+          _testIssue(severity: IssueSeverity.critical, title: 'C'),
+        ]),
+      );
+      final icon = tester.widget<SleuthSeverityIcon>(
+        find.byType(SleuthSeverityIcon),
+      );
+      expect(icon.severity, IssueSeverity.critical);
+      expect(find.text('\u{1F534}'), findsNothing);
+      // Its mark keeps 3:1 on the severity fill in every preset.
+      for (final theme in _presets) {
+        for (final severity in IssueSeverity.values) {
+          final fill = theme.severityColor(severity);
+          expect(
+            wcagContrast(SleuthSeverityIcon.markOn(fill), fill),
+            greaterThanOrEqualTo(3),
+            reason: '${theme.brightness.name} $severity',
+          );
+        }
+      }
+      // No left accent bar: the card has no decoration border.
+      expect(
+        find.descendant(
+          of: find.byType(IssueCard),
+          matching: find.byWidgetPredicate(
+            (w) =>
+                w is Container &&
+                w.decoration is BoxDecoration &&
+                (w.decoration! as BoxDecoration).border != null,
+          ),
+        ),
+        findsNothing,
+      );
+    });
+  });
+
+  testWidgets('a press tints the card without a ripple', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: IssueCard(issue: _testIssue())),
+      ),
+    );
+    final well = tester.widget<InkWell>(
+      find.descendant(
+        of: find.byType(IssueCard),
+        matching: find.byType(InkWell),
+      ),
+    );
+    expect(well.splashFactory, NoSplash.splashFactory);
+    expect(
+      well.highlightColor,
+      const SleuthThemeData().textPrimary.withValues(alpha: 0.08),
+    );
+  });
+
+  testWidgets('the card body draws the focus outline in keyboard mode', (
+    tester,
+  ) async {
+    Iterable<SleuthFocusOutline> shown() => tester
+        .widgetList<SleuthFocusOutline>(find.byType(SleuthFocusOutline))
+        .where((o) => o.show);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: IssueCard(
+            issue: _testIssue(widgetName: 'PriceTag'),
+            locatable: true,
+            onHighlightChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    expect(shown(), isEmpty);
+    // Tab reaches the card first, then the crosshair.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    const theme = SleuthThemeData();
+    expect(shown().single.borderRadius, BorderRadius.circular(theme.radiusXl));
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(shown().single.borderRadius, BorderRadius.circular(theme.radiusLg));
+  });
+
+  group('Meta line tags', () {
+    Widget card(
+      PerformanceIssue issue, {
+      bool jank = false,
+      bool isNew = false,
+    }) => MaterialApp(
+      home: Scaffold(
+        body: IssueCard(issue: issue, jankCorrelated: jank, isNew: isNew),
+      ),
+    );
+
+    testWidgets('Jank and New lead the line; New is not read twice', (
       tester,
     ) async {
-      await tester.pumpWidget(cards(300, [_testIssue(title: 'Short')]));
-      expect(tester.takeException(), isNull);
-      final confirmed = find.text('CONFIRMED');
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(card(_testIssue(), jank: true, isNew: true));
       expect(
-        tester.getTopLeft(confirmed).dy,
-        greaterThan(tester.getBottomLeft(find.text('Short')).dy),
+        tester.getTopLeft(find.text('New')).dx,
+        lessThan(tester.getTopLeft(find.text('Jank')).dx),
       );
-      final paragraph = tester.renderObject<RenderParagraph>(confirmed);
-      expect(paragraph.didExceedMaxLines, isFalse);
+      // Both tags come before the words, and the dot stays with the
+      // word before it.
+      final meta = tester.widget<Text>(find.textContaining('Build'));
+      expect(
+        meta.textSpan!.toPlainText(),
+        '\uFFFC\uFFFCBuild\u00A0\u00B7 Confirmed',
+      );
+      expect(find.bySemanticsLabel('Jank, Build, Confirmed'), findsOneWidget);
+      handle.dispose();
+    });
+
+    PerformanceIssue timed({
+      bool debug = true,
+      ObservationSource? source = ObservationSource.vmTimeline,
+      MeasurementUnit unit = MeasurementUnit.milliseconds,
+    }) => _testIssue(
+      debugModeDisclaimer: debug,
+      observationSource: source,
+      measurement: IssueMeasurement(value: 10, unit: unit),
+    );
+
+    testWidgets('Debug timing replaces confidence on a timing issue in a '
+        'debug run', (tester) async {
+      await tester.pumpWidget(card(timed()));
+      expect(find.text('Debug timing'), findsOneWidget);
+      expect(find.textContaining('Confirmed'), findsNothing);
+      // In the confidence slot, after the category.
+      final meta = tester.widget<Text>(find.textContaining('Build'));
+      expect(meta.textSpan!.toPlainText(), 'Build\u00A0\u00B7 \uFFFC');
+    });
+
+    for (final (name, issue) in [
+      ('a profile run', () => timed(debug: false)),
+      ('a structural issue', () => timed(source: ObservationSource.structural)),
+      ('a rate', () => timed(unit: MeasurementUnit.perSecond)),
+      ('a size', () => timed(unit: MeasurementUnit.bytes)),
+      ('no measurement', () => _testIssue(debugModeDisclaimer: true)),
+    ]) {
+      testWidgets('no Debug timing tag for $name', (tester) async {
+        await tester.pumpWidget(card(issue()));
+        expect(find.text('Debug timing'), findsNothing);
+        expect(find.textContaining('Confirmed'), findsOneWidget);
+      });
+    }
+
+    testWidgets('effects count the downstream issues', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: IssueCard(
+              issue: _testIssue(),
+              downstreamIssues: [
+                _testIssue(title: 'a'),
+                _testIssue(title: 'b'),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(find.textContaining('2 effects'), findsOneWidget);
+    });
+
+    testWidgets('Not detected right now reads in every preset', (tester) async {
+      for (final theme in _presets) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SleuthTheme(
+                data: theme,
+                child: IssueCard(issue: _testIssue(), stale: true),
+              ),
+            ),
+          ),
+        );
+        final tag = tester.widget<Text>(find.text('Not detected right now'));
+        expect(tag.style!.color, theme.badgeTextOn(theme.textSecondary));
+        expect(
+          wcagContrast(
+            tag.style!.color!,
+            composite(theme.badgeFill(theme.textSecondary), theme.cardDefault),
+          ),
+          greaterThanOrEqualTo(4.5),
+          reason: theme.brightness.name,
+        );
+      }
+    });
+
+    testWidgets('the per-card debug disclaimer is gone', (tester) async {
+      await tester.pumpWidget(card(_testIssue(debugModeDisclaimer: true)));
+      expect(find.textContaining('Debug mode result'), findsNothing);
     });
   });
 
