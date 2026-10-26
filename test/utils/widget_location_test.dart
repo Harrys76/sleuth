@@ -2,7 +2,7 @@
 // (fires only on subclassing). Remove when analyzer-server recognizes the
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/utils/widget_location.dart';
 
@@ -191,6 +191,35 @@ void main() {
       final rect = getGlobalRect(_FakeRenderObject());
       expect(rect, isNull);
     });
+
+    testWidgets('returns null for a kept-alive tab page that is not showing', (
+      tester,
+    ) async {
+      final tabs = TabController(length: 2, vsync: const TestVSync());
+      addTearDown(tabs.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TabBarView(
+            controller: tabs,
+            children: const [
+              _KeptAlivePage(key: Key('page-0')),
+              _KeptAlivePage(key: Key('page-1')),
+            ],
+          ),
+        ),
+      );
+      tabs.index = 1;
+      await tester.pumpAndSettle();
+
+      // The first page stays built, but its list no longer paints it, so
+      // its global position would come out NaN.
+      final hidden = tester.renderObject(
+        find.byKey(const Key('page-0'), skipOffstage: false),
+      );
+      final shown = tester.renderObject(find.byKey(const Key('page-1')));
+      expect(getGlobalRect(hidden), isNull);
+      expect(getGlobalRect(shown), isNotNull);
+    });
   });
 }
 
@@ -258,4 +287,23 @@ class _FakeRenderObject extends RenderObject {
 
   @override
   Rect get semanticBounds => Rect.zero;
+}
+
+class _KeptAlivePage extends StatefulWidget {
+  const _KeptAlivePage({super.key});
+
+  @override
+  State<_KeptAlivePage> createState() => _KeptAlivePageState();
+}
+
+class _KeptAlivePageState extends State<_KeptAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return const SizedBox.expand();
+  }
 }

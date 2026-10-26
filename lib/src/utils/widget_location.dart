@@ -129,10 +129,16 @@ String? extractPackageNameFromElement(Element element) {
 }
 
 /// Get the global bounding rect for a RenderObject, or null if unavailable.
+///
+/// Also null for a box that is not painted. A sliver list gives a kept-alive
+/// child outside its viewport (a `TabBarView` page that is not showing) a
+/// zero paint transform, so its global position comes out NaN, and a NaN
+/// rect passes every `overlaps` check.
 Rect? getGlobalRect(RenderObject ro) {
   try {
     if (ro is RenderBox && ro.hasSize) {
-      return ro.localToGlobal(Offset.zero) & ro.size;
+      final rect = ro.localToGlobal(Offset.zero) & ro.size;
+      return rect.isFinite ? rect : null;
     }
   } catch (e, s) {
     assert(() {
