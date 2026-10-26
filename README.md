@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.32%2B-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-4%2C761_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-5%2C099_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Sleuth is an in-app performance diagnostics overlay for Flutter. It shows jank, memory leaks, slow network requests, GPU pressure and widget anti-patterns inside your app, and every issue comes with a fix hint.
@@ -26,7 +26,7 @@ Where Sleuth helps more than DevTools:
 - **Structural checks.** It flags problems DevTools does not: non-lazy lists, images decoded above display size, missing `RepaintBoundary`, intrinsic layout and retained stream subscriptions.
 - **Explained issues.** Each card names the widget and its source line (`file.dart:42`), gives a fix hint, and says what evidence it is based on and how confident it is: confirmed, likely or possible.
 - **Causes linked to effects.** 42 causal rules link a root cause to the issues it causes, so a card shows why an issue matters.
-- **Fix verification and trends.** Capture a baseline, apply the fix and compare. Each card's meta line ("seen 12 of 20 scans, persistent") shows whether an issue is getting better or worse across scans.
+- **Fix verification and trends.** Capture a baseline, apply the fix and compare. Each card's meta line ("seen 19 of 20 scans, persistent") shows whether an issue is getting better or worse across scans.
 - **AI help.** Ask the AI provider of your choice about any issue from its card, or let an assistant query the running app through the `sleuth_mcp` sidecar.
 
 What DevTools still does better:
@@ -87,7 +87,7 @@ Both modes run the full overlay, all 21 detectors and the AI chat. They differ i
 | VM timeline (build, layout and paint durations) | Yes | Yes | n/a |
 | Source location in issues (`file.dart:42`) | Yes | Yes, except iOS builds from `flutter build ios` or `ipa` | n/a |
 | Per-widget rebuild and paint issues (`enableDebugCallbacks`) | Yes (opt-in) | No | n/a |
-| Rebuild stats panel with per-widget rebuild counts (`enableDeepDebugInstrumentation`) | No | Yes (opt-in) | n/a |
+| Rebuild stats page (More menu) with per-widget rebuild counts (`enableDeepDebugInstrumentation`) | No | Yes (opt-in) | n/a |
 | Widget dirty-state arguments on timeline events (`DebugInstrumentationConfig.timelineEnrichment`) | Yes (opt-in) | No | n/a |
 
 Use profile mode to measure, and debug mode with `enableDebugCallbacks: true` to find which widget rebuilds or repaints. Then check the timing fix in profile mode. Both instrumentation options add overhead and are off by default:
@@ -95,7 +95,7 @@ Use profile mode to measure, and debug mode with `enableDebugCallbacks: true` to
 ```dart
 SleuthConfig(
   enableDebugCallbacks: true,        // debug: per-widget rebuild and paint counts (widgets your code creates)
-  enableDeepDebugInstrumentation: true, // per-widget build timeline events; in profile mode, the Rebuild stats panel
+  enableDeepDebugInstrumentation: true, // per-widget build timeline events; in profile mode, the Rebuild stats page
 )
 ```
 
@@ -233,7 +233,7 @@ Every detector declares the evidence behind its thresholds, and a CI audit enfor
 ## Limitations
 
 - Sleuth does not replace DevTools heap snapshots or interactive flame charts.
-- Per-widget attribution depends on the mode. Debug mode gives per-widget rebuild and paint counts. Profile mode gives per-widget rebuild counts only in the Rebuild stats panel, and its rebuild and repaint issues measure the share of UI-thread time, not single widgets.
+- Per-widget attribution depends on the mode. Debug mode gives per-widget rebuild and paint counts. Profile mode gives per-widget rebuild counts only on the Rebuild stats page, and its rebuild and repaint issues measure the share of UI-thread time, not single widgets.
 - VM full mode depends on the platform and on how the app was launched.
 - Memory detection watches young-generation GC frequency, heap growth and, when you set a budget, process memory. When the heap grows it adds per-class allocation deltas to the issue, but it does not track individual object leaks or retention paths.
 - CPU attribution of jank frames is off by default (`SleuthConfig(cpuAttribution: true)` turns it on): the VM builds each answer on the app's UI isolate, which froze the UI for about 300 ms per request on an iPhone 12. It samples at about 1 kHz, so functions that run for less than 1 ms may not appear.
@@ -252,7 +252,7 @@ cd example && flutter run --profile --no-dds
 `package:sleuth/sleuth.dart` follows semantic versioning, so a breaking change needs a major release. These are outside that promise and can change in a minor release:
 
 - `package:sleuth/validation.dart`, the capture and validation tooling the example's capture screens use, and main-API members typed with its names (such as `Sleuth.repaintDetector`).
-- Members marked `@experimental` (the capture statics on `Sleuth`) or `@visibleForTesting`.
+- Members marked `@experimental` (the capture statics on `Sleuth`) or `@visibleForTesting`. Their signatures can change in a minor release, but removing one from `Sleuth` or another `sleuth.dart` class waits for a major release, because the CI API diff counts that removal as breaking.
 - New values in `DetectorType`, `IssueCategory`, `ObservationSource`, `PipelinePhase`, `InteractionContext` and `FixEffort`. A `switch` over them needs a default branch.
 
 `ParsedTimelineData` carries `vm_service` types, so a `vm_service` major release means a Sleuth major release. [The API list](https://github.com/Harrys76/sleuth/blob/main/doc/api_1_0_0.md) lists every public name and its library.

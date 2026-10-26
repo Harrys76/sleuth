@@ -54,8 +54,8 @@ list every change.
   A More menu holds Startup, Rebuild stats, Hidden issues, Encyclopedia,
   Guide, Copy snapshot and Theme, and the footer and banners it replaced
   are gone.
-- The collapsed card has a severity mark, a title of up to two lines and
-  one meta line. The expanded card shows the measured value on a gauge,
+- The collapsed card has a severity mark, a title of up to two lines
+  (three at large text sizes) and one meta line. The expanded card shows the measured value on a gauge,
   Where, Route, When, Evidence and Check in rows, the fix with copyable
   code, Why it rebuilds in debug runs, and labelled buttons including
   Not useful.
@@ -64,7 +64,8 @@ list every change.
 - The crosshair outlines a card's widget and shrinks the card to a bar.
   On a card that lists several widgets, Next steps through them.
 - Keyboard navigation inside the card, a 320 px minimum width, toasts in
-  the theme's inverted colours, and outlined light-mode severity marks.
+  the theme's inverted colours, and outlined warning and OK marks in the
+  light themes.
 - An app's own `AnimatedBuilder`, `TweenAnimationBuilder`, `Checkbox` and
   `ShaderMask` rebuilds count in the per-route rebuild counts again. The
   overlay no longer uses them, so they left the framework denylist.

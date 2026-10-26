@@ -80,7 +80,7 @@ disconnects.
 | `detach_app` | Ends the session in any state and stops an attach in progress. You can call it when nothing is attached. |
 | `app_status` | Reports whether a session is attached, which tool connected it, and its device, app and session ids. |
 | `hot_reload` | Hot reloads an app attached with `attach_app(device:)` and keeps its state. Other sessions get `hot_reload_unsupported`. |
-| `diagnose` | Reports the package version and the VM link (`vmConnected`), the frame budget and VM poll timings, and on sleuth 0.38 the timeline stream and event-loop stall counters. Call it first when other tools return nothing. |
+| `diagnose` | Reports the package version and the VM link (`vmConnected`), the frame budget, VM poll timings, and the timeline stream and event-loop stall counters. Call it first when other tools return nothing. |
 | `get_issues` | Returns the current issues in rank order, optionally filtered by `route` or `severityAtLeast`. |
 | `get_snapshot` | Returns the performance snapshot: issues, frame stats, route history, session summary and recurrence trends. |
 | `get_route_health` | Returns the health score, FPS and issue counts for each route. |
@@ -102,8 +102,8 @@ return shape and error code.
   `full: true` for everything, `sections` to pick sections, or
   `diskHandoff: true` to write the whole snapshot to a temp file and get
   its path.
-- **Compact issues.** `get_issues` and `get_snapshot` return 12 fields per
-  issue, including `stableId` and `severity`, and `verbose: true` returns
+- **Compact issues.** `get_issues` and `get_snapshot` return 13 fields per
+  issue, including `stableId`, `severity` and `measurement`, and `verbose: true` returns
   all of them. `get_issues` returns the top 50 and adds `_truncated` and
   `_totalCount` when it drops any. `maxIssueCount` changes the cap, and
   `0` removes it.

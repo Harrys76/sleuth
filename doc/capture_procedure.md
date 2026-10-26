@@ -1676,7 +1676,8 @@ fvm flutter run --profile --no-dds -d <udid> \
 
 `--no-dds` keeps the VM service open to more than one client, so
 Sleuth's own VM client stays connected (VM mode). With DDS the service
-has a single client and Sleuth drops to Basic. Connect any
+has a single client, so Sleuth gets no VM link and the run label reads
+"Profile · no VM". Connect any
 `package:vm_service` client to the printed `ws://.../ws` URI. Leave the
 phone idle for two minutes before the first leg, because build and
 paint durations drift with temperature.

@@ -140,9 +140,9 @@ Sleuth.track(
   ),
 );
 
-// Surfaces and text from your app's colour scheme (severity, category,
-// confidence and source colours stay Sleuth's). Build it once: the overlay
-// compares themes by identity.
+// Surfaces and text from your app's colour scheme (severity and category
+// colours stay Sleuth's). Build it once: the overlay compares themes by
+// identity.
 final sleuthTheme = SleuthThemeData.fromColorScheme(Theme.of(context).colorScheme);
 final seeded = SleuthThemeData.fromSeed(Colors.teal, brightness: Brightness.dark);
 

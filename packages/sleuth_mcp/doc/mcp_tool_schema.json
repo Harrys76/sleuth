@@ -64,7 +64,7 @@
           "required": false,
           "nullable": false,
           "values": ["version_skew_minor", "version_skew_prior_lineage"],
-          "presence": "when the connected app's packageVersion lineage differs from the sidecar pin within accepted bounds"
+          "presence": "when the app's packageVersion is not the pinned version but is accepted: version_skew_minor for another version in the pin's lineage, version_skew_prior_lineage for the 0.38 lineage"
         },
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup or disconnected, or basic with vmConnected false, which means the VM-only detectors are off; the basic text suggests reopening the app and names DDS as one possible cause. A basic session with vmConnected true gets none."}
       },
@@ -485,7 +485,7 @@
         "stableId": {"type": "String", "required": true, "nullable": false, "minLength": 1}
       },
       "data": {
-        "_doc": "Passthrough of ext.sleuth.explain.data. Reads live app state: sleuth 0.37+ fills the route, widget and count text from the first live issue matching the stableId (else its canonical family), with neutral wording when none is live; sleuth 0.36 apps return the raw placeholders ({widgetName}, {routeName}, {count})."
+        "_doc": "Passthrough of ext.sleuth.explain.data. Reads live app state: sleuth 0.37+ fills the route, widget and count text from the first live issue matching the stableId (else its canonical family), with neutral wording when none is live. Older apps return the raw placeholders ({widgetName}, {routeName}, {count}); the sidecar refuses them at connect."
       },
       "shims": [],
       "errors": [

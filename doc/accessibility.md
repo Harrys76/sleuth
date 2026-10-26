@@ -32,7 +32,7 @@ Text tokens meet WCAG AA (4.5:1) on every overlay surface in the dark, light and
 
 ## Reduced motion
 
-Sleuth honours both the Android animator duration scale (`disableAnimations`) and iOS Reduce Motion (`AccessibilityFeatures.reduceMotion`). Page entrances, expand and collapse, scrolls to an entry, the toast fade, severity chips and the rebuild count change at once. An animation that is already running when the setting changes finishes at its old speed.
+Sleuth honours both the Android animator duration scale (`disableAnimations`) and iOS Reduce Motion (`AccessibilityFeatures.reduceMotion`). Page entrances, the More menu, expand and collapse, scrolls to an entry and the toast fade change at once. An animation that is already running when the setting changes finishes at its old speed.
 
 ## Keyboard
 

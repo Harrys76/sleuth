@@ -103,8 +103,10 @@ swaps in a scripted adapter (`lib/fake_ai_adapter.dart`):
 
 The app passes `FileSleuthStateStore` (`lib/file_state_store.dart`) as
 `SleuthConfig.stateStore`, so the trigger edge, card geometry, hidden
-issues and severity filter survive restarts. The file lives in the system
-temp directory, which the OS may clear.
+issues and severity filter survive restarts. On Android and iOS the file
+lives in the app's own `files` or `Library/Application Support`
+directory, so it also survives a new install; elsewhere it uses the
+system temp directory.
 
 The app registers service extensions for driving it from a VM service
 client in debug and profile builds. Each one returns JSON, and a failure

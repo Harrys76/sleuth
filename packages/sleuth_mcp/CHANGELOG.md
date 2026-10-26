@@ -16,7 +16,7 @@ list every change.
 - Compact issues in `get_issues` and `get_snapshot` keep the issue's
   `measurement` object: the number its detector reported, with the
   warning and critical lines.
-- `snapshotMetadataKeys` includes `notUsefulMarks`, the envelope key in
+- `snapshotMetadataKeys` includes `notUsefulMarks`, the `data` key in
   which the app lists the issues marked Not useful in the overlay. The
   sidecar's own projection keeps it like `suppressedCount`, and
   `get_issues` passes it through.

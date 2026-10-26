@@ -915,7 +915,8 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.layers_outlined,
-          'Mark flagged widgets (the layers icon in the header) puts a corner marker on every flagged widget on screen, and hides them again at once.',
+          'Mark flagged widgets (the layers icon in the header) puts a corner '
+          'marker on every flagged widget on screen. Tap it again to hide them.',
         ),
         _tipRow(
           theme,
@@ -956,9 +957,9 @@ class _GuidePageState extends State<GuidePage>
         _tipRow(
           theme,
           Icons.format_size,
-          'Text follows the system size up to 2 times. The header, status '
-          'row and summary chips stop at 1.3 times so the issue list keeps '
-          'its room.',
+          'Text follows the system size up to 2 times. The header, the status '
+          'row with its severity chips, and the trigger stop at 1.3 times so '
+          'the issue list keeps its room.',
         ),
         _tipRow(
           theme,
