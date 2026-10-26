@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:math' as math;
 
+import 'package:meta/meta.dart' show internal;
+
 import 'frame_stats.dart';
 import 'performance_issue.dart';
 
@@ -67,8 +69,14 @@ class RouteSession {
   /// Wall-clock time when this route became the active scan target.
   final DateTime startedAt;
 
+  DateTime? _endedAt;
+
   /// Wall-clock time when navigation away was detected. Null while active.
-  DateTime? endedAt;
+  DateTime? get endedAt => _endedAt;
+
+  /// Ends the session at [at]. The controller calls it on navigation away.
+  @internal
+  void end(DateTime at) => _endedAt = at;
 
   /// Per-route frame stats ring buffer, capacity derived from [fpsTarget]
   /// so 120 Hz devices retain a full 1 s window.
@@ -83,8 +91,14 @@ class RouteSession {
   final Map<String, PerformanceIssue> issueSnapshots =
       _InsertionCappedMap<String, PerformanceIssue>(maxTrackedEntries);
 
+  int _scanCycleCount = 0;
+
   /// Number of scan cycles completed while this route was active.
-  int scanCycleCount = 0;
+  int get scanCycleCount => _scanCycleCount;
+
+  /// Counts one completed scan cycle.
+  @internal
+  void countScanCycle() => _scanCycleCount++;
 
   /// Per-widget-type rebuild counts accumulated during this session
   /// (since v0.15.0). Populated only in profile mode when

@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'package:meta/meta.dart' show experimental;
 
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
@@ -80,6 +81,7 @@ typedef _MeasuredUse = ({
 /// image cache entry, so `ui.Image.isCloneOf`) count it once, against
 /// the largest size any of them needs. The `ui.Image` handles are held
 /// only for the scan that reads them.
+@experimental
 class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   ImageMemoryDetector({
     this.oversizeRatio = 1.5,
@@ -106,7 +108,9 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   final List<UncachedImageInfo> _uncachedImages = [];
-  final List<({Rect rect, RenderObject renderObject, String detail})>
+  final List<
+    ({Rect rect, RenderObject renderObject, int occurrenceId, String detail})
+  >
   _pendingHighlights = [];
 
   /// Pairs measured in the current scan, grouped by decode at its end.
@@ -264,6 +268,7 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
         _pendingHighlights.add((
           rect: rect,
           renderObject: use.renderBox,
+          occurrenceId: identityHashCode(use.imageElement),
           detail:
               '${_providerTypeName(use.provider)}: $sourceName\n'
               'Decoded ${decodedW}x$decodedH px for '
@@ -375,6 +380,8 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
         WidgetHighlight(
           rect: h.rect,
           renderObject: h.renderObject,
+          occurrenceId: h.occurrenceId,
+          stableId: 'uncached_images',
           widgetName: 'Image',
           severity: severity,
           detectorName: 'Image',

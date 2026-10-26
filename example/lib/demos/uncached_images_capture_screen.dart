@@ -6,11 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
-// The detector is not exported; the screen reads its brackets from the
-// detector's own metadata so the bands cannot drift from the audit.
-// ignore: implementation_imports
-import 'package:sleuth/src/detectors/image_memory_detector.dart'
-    show ImageMemoryDetector;
+import 'package:sleuth/validation.dart';
 
 import 'capture_driver.dart';
 

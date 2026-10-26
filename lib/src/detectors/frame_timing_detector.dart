@@ -3,8 +3,8 @@ import 'dart:ui' show FramePhase;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:meta/meta.dart' show experimental;
 
-import '../../sleuth.dart' show Sleuth;
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
@@ -14,6 +14,7 @@ import '../models/frame_stats.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/own_work_log.dart';
 import '../vm/timeline_parser.dart';
+import '../startup/startup_tracker.dart';
 
 /// Detects jank frames using [SchedulerBinding.addTimingsCallback] (fast,
 /// every frame) and optionally augments with exact VM Timeline phase data.
@@ -34,7 +35,7 @@ import '../vm/timeline_parser.dart';
 /// `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` based on whether
 /// the issue EMITTED within
 /// [DetectorThresholds.startupPhaseWindowSeconds] of
-/// [Sleuth.dartEntryMonotonicUs]. The classification reads `Timeline.now`
+/// [StartupTracker.dartEntryMonotonicUs]. The classification reads `Timeline.now`
 /// at emission time — it is **emission-time semantics**, not event-time.
 /// A startup-phase frame whose `addTimingsCallback` delivery is delayed
 /// past the window boundary tags as `'steady'` even when the underlying
@@ -48,7 +49,7 @@ import '../vm/timeline_parser.dart';
 /// classifies against per-event shader timestamp. The two tags are
 /// related but NOT aligned at the boundary.
 ///
-/// Hot restart resets `Sleuth.dartEntryMonotonicUs` (Dart re-initializes
+/// Hot restart resets `StartupTracker.dartEntryMonotonicUs` (Dart re-initializes
 /// statics; `Sleuth.init()` re-runs and writes a fresh anchor). Emissions
 /// for the configured window after each hot restart tag as `'startup'`
 /// even when the prior session was already past the window.
@@ -67,6 +68,7 @@ import '../vm/timeline_parser.dart';
 /// change, so startup frames never count toward jank. The frame buffer
 /// itself is untouched: verdicts, FPS, cache trends and exports keep the
 /// full window.
+@experimental
 class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   FrameTimingDetector({
     int? warningThresholdMs,
@@ -161,7 +163,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Test-only override for the app-start monotonic anchor. When supplied,
   /// `_classifyLifecyclePhase` uses the returned value in place of
-  /// [Sleuth.dartEntryMonotonicUs]. Tests pass
+  /// [StartupTracker.dartEntryMonotonicUs]. Tests pass
   /// `() => Timeline.now - syntheticAgeUs` to pin a deterministic
   /// synthetic age relative to real `Timeline.now`.
   final int? Function()? _appStartForTest;
@@ -265,13 +267,14 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   /// Returns `'startup'` when emission `Timeline.now` falls within the
-  /// startup window after [Sleuth.dartEntryMonotonicUs], `'steady'`
+  /// startup window after [StartupTracker.dartEntryMonotonicUs], `'steady'`
   /// otherwise, or `null` when no app-start anchor is available
   /// (e.g. `Sleuth.init()` not yet called). A null return omits the
   /// `lifecyclePhase` key from `extraTraceArgs` rather than fabricating a
   /// phase value.
   String? _classifyLifecyclePhase() {
-    final appStart = _appStartForTest?.call() ?? Sleuth.dartEntryMonotonicUs;
+    final appStart =
+        _appStartForTest?.call() ?? StartupTracker.dartEntryMonotonicUs;
     if (appStart == null) return null;
     final delta = Timeline.now - appStart;
     // Defensive: a future-timestamped `_appStartForTest` value would

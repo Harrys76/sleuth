@@ -143,3 +143,61 @@ jobs:
           set -o pipefail
           dart doc --dry-run 2>&1 | tee "$RUNNER_TEMP/dartdoc.log"
           grep -Fqx "Found 0 warnings and 0 errors." "$RUNNER_TEMP/dartdoc.log"
+
+  api-diff:
+    name: Public API diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up pinned Flutter
+        uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: 3.47.6
+          cache: true
+
+      # Compares against the newest stable 1.x or later release on pub.dev.
+      # Before 1.0.0 is published there is nothing to compare, and the
+      # remaining steps are skipped. A failed or malformed response fails
+      # the job instead.
+      - name: Find the latest published release
+        id: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          json=$(curl -fsS https://pub.dev/api/packages/sleuth)
+          versions=$(jq -er '.versions[].version' <<<"$json")
+          latest=$(grep -E '^[1-9][0-9]*\.[0-9]+\.[0-9]+$' <<<"$versions" \
+            | sort -V | tail -n 1 || true)
+          echo "version=$latest" >> "$GITHUB_OUTPUT"
+
+      - name: Install dart_apitool
+        if: steps.base.outputs.version != ''
+        run: dart pub global activate dart_apitool 0.23.2
+
+      # package:sleuth/validation.dart is outside the semver promise, so both
+      # trees drop it before the diff. Its types that main-API signatures
+      # still reach are @experimental, which dart_apitool rates as minor
+      # changes, as it does an added enum value. onlyBreakingChanges fails
+      # the job on a breaking change without a major version bump and lets
+      # a minor change through, so a pull request that adds API does not
+      # have to bump the version itself.
+      - name: Diff against the published release
+        if: steps.base.outputs.version != ''
+        shell: bash
+        env:
+          BASE_VERSION: ${{ steps.base.outputs.version }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/api-diff"
+          mkdir -p "$work"
+          (cd "$work" && dart pub unpack "sleuth:$BASE_VERSION" --no-resolve)
+          old="$work/sleuth-$BASE_VERSION"
+          new="$work/new"
+          rsync -a --exclude .git --exclude .dart_tool --exclude build \
+            --exclude example --exclude packages ./ "$new/"
+          rm -f "$old/lib/validation.dart" "$new/lib/validation.dart"
+          dart pub global run dart_apitool:main diff \
+            --old "$old" --new "$new" --version-check-mode onlyBreakingChanges

@@ -1,5 +1,44 @@
 ## Unreleased
 
+### Breaking
+
+- `package:sleuth/sleuth.dart` exports only the names listed in
+  `doc/api_1_0_0.md`, each through a `show` list.
+- Capture and validation tooling moved to the new
+  `package:sleuth/validation.dart`, which is outside the semver promise
+  and whose declarations are `@experimental`:
+  `EvidenceTier`, `DetectorMetadata`, `DetectorMetadataProvider`,
+  `BracketSpec`, `ComponentMetadata`, `ComponentMetadataProvider`,
+  `ProfileCaptureSchema`, `kSleuthPackageVersion`, `PollTimings`,
+  `StreamResourcePollResult`, and the detector types `RepaintDetector`,
+  `MemoryPressureDetector`, `StartupDetector`, `TrackedResourceDetector`,
+  `ImageMemoryDetector`, `GpuPressureDetector` and `FrameTimingDetector`.
+- No longer exported: `ServiceExtensionRegistry`, `FixHintBuilder`,
+  `SessionMarkdownExporter`, `JankCaptureBuffer`, `FrameBudget`,
+  `FrameRateSource`, `resolveFrameBudget`, `RecurrenceTrend`,
+  `RecurrenceEntry`, `TrendDirection`, `buildWidgetHeatMap`,
+  `InteractionContextDisplay`, `ObservationSourceDisplay`,
+  `ConnectionMode` and `kMcpEnvelopeSchemaVersion`.
+- `Sleuth.enrichStartupWithVmData`, `Sleuth.dartEntryMonotonicUs` and
+  `Sleuth.notifyControllerDisposed` are gone; only the package called
+  them. `StartupMetrics.dartEntryMonotonicUs` still carries the Dart entry
+  time.
+- The capture statics on `Sleuth` (`markScenarioBegin`, `exportCaptureJson`,
+  `flushTimelineNow` and the others) and the accessors typed with
+  `validation.dart` types are `@experimental`.
+- `RouteSession.endedAt` and `RouteSession.scanCycleCount` are read-only.
+- `SleuthThemeData` drops the tokens the overlay no longer draws: the
+  confidence, effort and source colours with `confidenceColor`,
+  `effortColor` and `sourceAccentColor`, `sourceAccentWidth`, the VM and
+  FRAME badge pairs, the instrumentation banner pair, the three AI shimmer
+  colours, `aboutBackground`, `cardJankFlash`, `effectsBadge`,
+  `fixHintText`, `disclaimerText`, `highlightLabelText`, `fontXxl`,
+  `fontDisplay` and `focusRingWidth`. `fromColorScheme` no longer maps
+  `errorContainer`.
+- A minor release can add values to `DetectorType`, `IssueCategory`,
+  `ObservationSource`, `PipelinePhase`, `InteractionContext` and
+  `FixEffort`; a `switch` over them needs a default branch.
+
 ### Added
 
 - Issues carry the number their detector reports with the detector's
@@ -125,11 +164,25 @@
   type), so their cards keep the crosshair. Their overlay keys now
   include the name, so such a card hidden under an older release shows
   again.
-- A crosshair replaces the highlight checkbox and shows only for an issue
-  that names a widget, labelled "Show <widget> on screen". Before the
-  first scan it reads "Finding" until the scan looks the widget up, and a
-  second tap cancels. Layout and paint cards without a widget name no
-  longer offer a highlight that could not find anything. The card body
+- A crosshair replaces the highlight checkbox, labelled "Show <widget> on
+  screen". Before the first scan it reads "Finding" until the scan looks
+  the widget up, and a second tap cancels. It shows for an issue that
+  names a widget, and for the issues that list several:
+  `always_repaint_painter`, `missing_repaint_boundary`,
+  `layout_bottleneck`, `uncached_images` and `expensive_gpu_nodes`
+  ("Show this issue's widgets on screen"). Other cards without a widget name no
+  longer offer a highlight that could not find anything.
+- On a card that lists several widgets the crosshair outlines the first
+  one on screen, and the bar shows its place ("1 of 3") with Next, which
+  moves the outline to the next widget and wraps after the last. The
+  shown place changes with Next, not with each scan, so a screen reader
+  does not read the bar again after every scroll. A bar that steps opens
+  with focus on Next, keeps its edge unless the new outline runs under
+  it, and shields its old place for a double tap's span when it moves.
+  When the outlined widget leaves the screen, Next goes to the widget
+  that followed it, and shows while any other widget remains. The detectors tie those highlights to their issue
+  with the new `WidgetHighlight.stableId` and an element identity in
+  `WidgetHighlight.occurrenceId`. The card body
   and the crosshair draw the focus outline in keyboard mode.
 - An expanded card no longer draws the pin icon. Its semantics hint
   reads "Pinned while expanded".
@@ -143,10 +196,7 @@
   denylist and an app's own checkboxes count.
 - The guide's legend describes the new card. The "Jank flash" card
   colour, which the overlay never drew, is gone from it.
-- `badgeDbgBg` and `badgeDbgText` draw the Debug timing tag. The
-  confidence colours, the source accents, `sourceAccentWidth`,
-  `effectsBadge`, `disclaimerText` and `cardJankFlash` are unused by the
-  overlay and kept for custom themes.
+- `badgeDbgBg` and `badgeDbgText` draw the Debug timing tag.
 - The expanded card shows its details below a divider, at the full card
   width. An issue with a measurement opens with a Measured row: the value
   and what it is ("10.0 ms in one build on the UI thread", with the
@@ -242,10 +292,7 @@
   up to the chrome limit, and draws its text in the colour that reads on
   its severity fill. It stays below the highlight bar when
   the bar sits at the top.
-- The effort colours, `aboutBackground`, `fixHintText`,
-  `highlightLabelText` and the three `aiShimmer` colours are unused by the
-  overlay and kept for custom themes. The guide describes the new
-  expanded card and Not useful.
+- The guide describes the new expanded card and Not useful.
 
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase: the issues of the phase's category, `event_loop_stall`

@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart' show experimental;
+
 import 'evidence_tier.dart';
 
 /// One bracket axis declaration for a detector's runtimeVerified evidence.
@@ -15,6 +17,7 @@ import 'evidence_tier.dart';
 /// on [DetectorMetadata.additionalBrackets] for the cross-spec invariants
 /// (uniqueness on `(stableId, severityLabel, observedAxisArgKey)`,
 /// perStableIdTier coverage, orphan-audit iteration).
+@experimental
 class BracketSpec {
   const BracketSpec({
     required this.stableId,
@@ -177,6 +180,7 @@ class BracketSpec {
 /// Prefer constructing instances as `const` so detectors can return them from
 /// [DetectorMetadataProvider.validationMetadata] without allocation at scan
 /// time.
+@experimental
 class DetectorMetadata {
   const DetectorMetadata({
     required this.tier,
@@ -631,8 +635,13 @@ class DetectorMetadata {
 /// the supporting reproducer, profile-mode capture, or cited source
 /// committed alongside the tier raise. `NetworkMonitorDetector` is the
 /// first detector to ship at `reproducerOnly` (v0.16.1).
+@experimental
 mixin DetectorMetadataProvider {
   /// Metadata for this detector. Must be non-null on shipping detectors —
   /// the audit test gates this.
+  ///
+  /// This getter belongs to `package:sleuth/validation.dart` and is outside
+  /// Sleuth's semver promise, also on main-API detectors that override it.
+  @experimental
   DetectorMetadata get validationMetadata;
 }

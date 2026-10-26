@@ -1,6 +1,5 @@
 import 'dart:collection';
 
-import '../../sleuth.dart' show Sleuth;
 import '../models/base_detector.dart';
 import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
@@ -9,6 +8,7 @@ import '../utils/fix_hint_builder.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../vm/timeline_parser.dart';
+import '../startup/startup_tracker.dart';
 
 /// Detects pipeline and shader build jank from VM Timeline events.
 ///
@@ -130,7 +130,8 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   String _classifyShaderWarmup(int shaderTsUs) {
-    final appStart = _appStartForTest?.call() ?? Sleuth.dartEntryMonotonicUs;
+    final appStart =
+        _appStartForTest?.call() ?? StartupTracker.dartEntryMonotonicUs;
     // cold_start takes precedence over keyframe — lifecycle is more specific.
     if (appStart != null) {
       final deltaUs = shaderTsUs - appStart;
@@ -189,7 +190,7 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
         '`CreateShaderLibrary` stay silent, as does an empty Impeller '
         'Metal timeline. `extraTraceArgs.shaderWarmupContext` tells apart '
         'cold_start (within `coldStartShaderWindowSeconds` of '
-        '`Sleuth.dartEntryMonotonicUs`), keyframe (a build event within '
+        '`StartupTracker.dartEntryMonotonicUs`), keyframe (a build event within '
         '`shaderKeyframeWindowMs` before the shader compile) and hot_path '
         '(the fallback). Per-context reproducer tests pin these with a '
         'mocked app-start clock and synthetic `PhaseEvent` fixtures. A '

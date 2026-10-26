@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../sleuth.dart' show Sleuth;
 import '../models/startup_metrics.dart';
 import 'motion.dart';
 import 'sleuth_theme.dart';
+import '../startup/startup_tracker.dart';
 
 /// Full-screen page showing complete startup metrics breakdown and
 /// measurement methodology. Opened by tapping the startup banner in
@@ -57,7 +57,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    final metrics = Sleuth.startupMetrics;
+    final metrics = StartupTracker.metrics;
 
     // Route semantics: screen readers announce the page name. While a
     // page is open, `SleuthOverlay` drops the app's nodes below it.

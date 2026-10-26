@@ -122,6 +122,20 @@ void main() {
 
       expect(detector.highlights, hasLength(2));
       expect(detector.highlights.first.detectorName, 'Painter');
+      // Each highlight names its issue and element, for the crosshair's
+      // steps.
+      expect(
+        detector.highlights.map((h) => h.stableId),
+        everyElement('always_repaint_painter'),
+      );
+      expect(
+        detector.highlights.map((h) => h.occurrenceId).toSet(),
+        hasLength(detector.highlights.length),
+      );
+      expect(
+        detector.highlights.map((h) => h.occurrenceId),
+        everyElement(isNotNull),
+      );
     });
 
     testWidgets('stableId, confidence, and category', (tester) async {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/src/models/frame_budget.dart';
 
 void main() {
   FrameBudget resolve({

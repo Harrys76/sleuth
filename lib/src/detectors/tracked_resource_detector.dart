@@ -23,6 +23,7 @@ import '../validation/evidence_tier.dart';
 /// entries. Tracker holds only weak references, so registration cannot
 /// prevent GC. Cross-isolate registration is a no-op (each isolate has
 /// its own controller).
+@experimental
 class TrackedResourceDetector extends BaseDetector
     with DetectorMetadataProvider {
   TrackedResourceDetector({

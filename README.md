@@ -247,6 +247,16 @@ The example app has 26 demo screens and 14 capture-helper screens; most demos ha
 cd example && flutter run --profile --no-dds
 ```
 
+## API stability
+
+`package:sleuth/sleuth.dart` follows semantic versioning, so a breaking change needs a major release. These are outside that promise and can change in a minor release:
+
+- `package:sleuth/validation.dart`, the capture and validation tooling the example's capture screens use, and main-API members typed with its names (such as `Sleuth.repaintDetector`).
+- Members marked `@experimental` (the capture statics on `Sleuth`) or `@visibleForTesting`.
+- New values in `DetectorType`, `IssueCategory`, `ObservationSource`, `PipelinePhase`, `InteractionContext` and `FixEffort`. A `switch` over them needs a default branch.
+
+`ParsedTimelineData` carries `vm_service` types, so a `vm_service` major release means a Sleuth major release. [The API list](https://github.com/Harrys76/sleuth/blob/main/doc/api_1_0_0.md) lists every public name and its library.
+
 ## License
 
 MIT
