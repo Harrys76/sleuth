@@ -6,7 +6,7 @@ were derived and how to regenerate them when fields change.
 ## Source captures
 
 The nested-shape entries (`recurrenceTrends`, `sessionSummary`,
-`routeSessions` and the `routes` list inside `routeHealth`) come from six
+`routeSessions` and the `routes` list inside `routeHealth`) come from seven
 on-device snapshots in `test/validation/captures/mcp_snapshots/`:
 
 - `snapshot_idle.json`: a fresh launch with no workload.
@@ -18,17 +18,25 @@ on-device snapshots in `test/validation/captures/mcp_snapshots/`:
   produces several `RouteSession` entries.
 - `snapshot_memory.json`: a memory-pressure workload for the
   `memoryTrendSummary` shape.
+- `snapshot_measurement.json`: the CSV Import route on 1.0.0, with a
+  `measurement` on every issue and one `notUsefulMarks` entry, whose
+  `measurement` the schema shapes.
 
 Each capture is the raw `ext.sleuth.snapshot.data` payload, that is, the
-contents of the OK envelope's `data` field. All six report
-`packageVersion: "0.34.0"`, `isDebugMode: false` and
-`isVmConnected: true`.
+contents of the OK envelope's `data` field. All seven report
+`isDebugMode: false` and `isVmConnected: true`.
+`snapshot_measurement.json` reports `packageVersion: "1.0.0"` and the
+other six `"0.34.0"`.
 
 ## Source device
 
 The captures were collected on a real iPhone (iOS 17.5) running the
 example app in profile mode with `SLEUTH_CAPTURE_MODE=true`, attached
-over USB through `iproxy` (libimobiledevice). These snapshots check
+over USB through `iproxy` (libimobiledevice). `snapshot_measurement.json`
+came from an iPhone 12 (iOS 17.5, Flutter 3.47.6) started with
+`flutter run --profile --no-dds` and the same define. The run visits the
+Always-Repaint CustomPainter and CSV Import demos, imports the CSV twice,
+and marks one card Not useful from the overlay. These snapshots check
 payload shape only. The detector-capture audits skip `mcp_snapshots/`, so
 the files do not feed the validation ledger.
 
@@ -41,31 +49,32 @@ under separate scenarios.
 
 `recurrenceTrends.<stableId>` (Map<String, Map>):
 
-- `trend`: String, required. Values seen: `stable` in every capture, and
-  `worsening` in the repaint capture.
+- `trend`: String, required. Values seen: `stable` in every capture,
+  `worsening` in the repaint capture, and `intermittent` in the
+  measurement capture.
 - `totalOccurrences`: int, required.
 - `totalObserved`: int, required.
 - `lastSeenCycle`: int, required. No capture has a null value. The schema
   marks it nullable because the code emits null when the buffer is empty.
 - `severityStats`: Map, optional. Emitted only when the trend has at
   least one present observation. Shape: `{min: int, max: int}`, where 1
-  is ok, 2 is warning and 3 is critical. Every capture has trends with it
-  and trends without it.
+  is ok, 2 is warning and 3 is critical. Every capture has trends with
+  it, and all but the measurement capture also have trends without it.
 
 `sessionSummary` (Map):
 
-- `topIssues`: List<Map>, present in all six captures. Item keys seen:
+- `topIssues`: List<Map>, present in all seven captures. Item keys seen:
   `stableId`, `title`, `severity`, `confidence`, `confidenceReason` and
   `rankingScore` in every capture, and `widgetName` in every capture
-  except the idle one.
-- `frameHistogram`: Map<String, int>, present in all six captures. Its
+  except the idle and measurement ones.
+- `frameHistogram`: Map<String, int>, present in all seven captures. Its
   bucket keys are fixed: `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`,
   `>100ms`.
-- `detectorHitRates`: Map<String, int>, present in all six captures.
-- `memoryTrendSummary`: Map, present in all six captures. Shape:
+- `detectorHitRates`: Map<String, int>, present in all seven captures.
+- `memoryTrendSummary`: Map, present in all seven captures. Shape:
   `{startBytes, endBytes, peakBytes, growthRatePerSec, sampleCount}`.
-- `causalEdges`: List<Map>, present in the repaint and recurrence
-  captures and absent from the other four. Item shape:
+- `causalEdges`: List<Map>, present in the repaint, recurrence and
+  measurement captures and absent from the other four. Item shape:
   `{cause: String, effect: String}`.
 
 Every capture had ranked issues, recorded frames and at least two heap
@@ -122,7 +131,8 @@ Present in some sessions only, or in none of the captures:
   session holds at least two frames.
 
 `widgetHeatMap` (top level): List<Map>, optional. It is present in five
-of the six captures, all except `snapshot_idle.json`. The schema marks it
+of the seven captures, all except `snapshot_idle.json` and
+`snapshot_measurement.json`. The schema marks it
 opaque and leaves the item shape undocumented, because no documented
 consumer relies on its keys yet.
 
