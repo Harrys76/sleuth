@@ -182,6 +182,10 @@ class TrackedResourceDetector extends BaseDetector
   @visibleForTesting
   int get droppedTargetsCount => _droppedTargets;
 
+  /// Whether a resource was ever registered with [track].
+  bool get hasTracked => _hasTracked;
+  bool _hasTracked = false;
+
   /// Diagnostic: count of name buckets evicted by the LRU cap.
   @visibleForTesting
   int get evictedNamesCount => _evictedNames;
@@ -315,6 +319,7 @@ class TrackedResourceDetector extends BaseDetector
       ),
     );
     _finalizer.attach(resource, token, detach: token);
+    _hasTracked = true;
     _enforceLruCap();
     _ensureSweepRunning();
   }

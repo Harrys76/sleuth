@@ -266,6 +266,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             renderObject: ro,
+            occurrenceId: identityHashCode(scrollElement),
             widgetName: widgetName,
             severity: childCount > childThreshold * criticalChildMultiplier
                 ? IssueSeverity.critical
@@ -325,6 +326,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             renderObject: ro,
+            occurrenceId: identityHashCode(sliverElement),
             widgetName: widgetName,
             severity: childCount > childThreshold * criticalChildMultiplier
                 ? IssueSeverity.critical
@@ -404,6 +406,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             renderObject: ro,
+            occurrenceId: identityHashCode(scrollElement),
             widgetName: widgetName,
             severity: severity,
             detectorName: 'Non-lazy',
@@ -498,6 +501,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             renderObject: ro,
+            occurrenceId: identityHashCode(sliverElement),
             widgetName: 'SliverToBoxAdapter',
             severity: childCount > childThreshold * criticalChildMultiplier
                 ? IssueSeverity.critical
@@ -561,6 +565,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             renderObject: ro,
+            occurrenceId: identityHashCode(scrollableElement),
             widgetName: 'SliverFillRemaining',
             severity: IssueSeverity.warning,
             detectorName: 'Sliver Misuse',
@@ -617,6 +622,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             renderObject: ro,
+            occurrenceId: identityHashCode(scrollableElement),
             widgetName: 'SliverToBoxAdapter',
             severity: IssueSeverity.warning,
             detectorName: 'Eager Sliver',
@@ -679,6 +685,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
                 WidgetHighlight(
                   rect: rect,
                   renderObject: ro,
+                  occurrenceId: identityHashCode(scrollElement),
                   widgetName: 'SingleChildScrollView',
                   severity:
                       directChildCount >

@@ -234,6 +234,8 @@ void main() {
         category: IssueCategory.build,
       );
       controller.issuesNotifier.value = [issue];
+      // A scan already ran and outlined nothing.
+      controller.scanTickNotifier.value = 1;
 
       await tester.pumpWidget(buildCard());
 
@@ -263,6 +265,8 @@ void main() {
         category: IssueCategory.build,
       );
       controller.issuesNotifier.value = [issue];
+      // A scan already ran and outlined nothing.
+      controller.scanTickNotifier.value = 1;
 
       await tester.pumpWidget(buildCard());
 

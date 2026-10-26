@@ -5,6 +5,7 @@ import 'capture_buffer.dart';
 import 'frame_stats.dart';
 import 'gc_event_summary.dart';
 import 'heap_sample.dart';
+import 'not_useful_mark.dart';
 import 'performance_issue.dart';
 import 'phase_event.dart';
 import 'platform_channel_summary.dart';
@@ -35,6 +36,7 @@ class SessionSnapshot {
     this.sessionSummary,
     this.startupMetrics,
     this.routeSessions,
+    this.notUsefulMarks,
   });
 
   /// Schema version for forward-compatible parsing.
@@ -121,6 +123,11 @@ class SessionSnapshot {
   /// Null for v1/v2/v3 snapshots or when no route history exists.
   final List<Map<String, dynamic>>? routeSessions;
 
+  /// Issues the user marked as not useful this session. Like
+  /// [suppressedCount] it is written whatever the projection, and only
+  /// when there is a mark.
+  final List<NotUsefulMark>? notUsefulMarks;
+
   /// Serialize to the JSON envelope.
   ///
   /// [include] projects the payload to a subset of [SnapshotSection]s —
@@ -184,6 +191,8 @@ class SessionSnapshot {
           heapSamples!.isNotEmpty)
         'heapSamples': heapSamples!.map((s) => s.toJson()).toList(),
       if (suppressedCount > 0) 'suppressedCount': suppressedCount,
+      if (notUsefulMarks case final marks? when marks.isNotEmpty)
+        'notUsefulMarks': [for (final m in marks) m.toJson()],
       if (inc(SnapshotSection.phaseEvents) &&
           phaseEvents != null &&
           phaseEvents!.isNotEmpty)
@@ -308,6 +317,12 @@ class SessionSnapshot {
           ? (json['routeSessions'] as List<dynamic>)
                 .map((e) => e as Map<String, dynamic>)
                 .toList()
+          : null,
+      notUsefulMarks: json['notUsefulMarks'] is List
+          ? [
+              for (final e in json['notUsefulMarks'] as List)
+                ?NotUsefulMark.fromJson(e),
+            ]
           : null,
     );
   }

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/utils/own_work_log.dart';
 
 void main() {
   group('FloatingIssuesCard export', () {
@@ -54,6 +57,52 @@ void main() {
       expect(clipboardContent, contains('"currentIssues"'));
 
       // Drain the 2s feedback banner timer
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('the copy is recorded as Sleuth\'s own work', (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => null,
+      );
+      await tester.pumpWidget(buildCard());
+      final before = OwnWorkLog.now();
+
+      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.pump();
+      expect(ownWorkLog.overlapUs(before, OwnWorkLog.now()), greaterThan(0));
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('a second tap while a copy runs is ignored', (tester) async {
+      var copies = 0;
+      final release = Completer<void>();
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copies++;
+            await release.future;
+          }
+          return null;
+        },
+      );
+      await tester.pumpWidget(buildCard());
+      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.pump();
+      expect(copies, 1);
+
+      release.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
+      // The copy ended, so a new tap copies again.
+      await tester.pump(const Duration(seconds: 3));
+      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.pump();
+      expect(copies, 2);
       await tester.pump(const Duration(seconds: 3));
     });
 

@@ -1,4 +1,5 @@
 import 'frame_event_correlator.dart';
+import 'jank_relation.dart';
 import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
 import '../models/performance_issue.dart';
@@ -33,6 +34,7 @@ class RenderPipelineAnalyzer {
     } else {
       suspected = uiUs > rasterUs ? PipelinePhase.build : PipelinePhase.raster;
     }
+    final related = relatedToPhase(suspected, relatedIssues);
 
     _lastVerdict = FrameVerdict(
       frameNumber: frameStats.frameNumber,
@@ -45,7 +47,7 @@ class RenderPipelineAnalyzer {
       rasterThreadTime: frameStats.rasterDuration,
       suspectedPhase: suspected,
       reason: _buildBasicReason(frameStats),
-      relatedIssues: relatedIssues,
+      relatedIssues: related,
       isFullMode: false,
     );
 
@@ -128,6 +130,7 @@ class RenderPipelineAnalyzer {
       PipelinePhase.layout: layoutUs,
       PipelinePhase.paint: paintUs,
     });
+    final related = relatedToPhase(suspected, relatedIssues);
 
     // Build reason string
     final reason = _buildFullReason(
@@ -137,7 +140,7 @@ class RenderPipelineAnalyzer {
       paintUs: paintUs,
       rasterUs: rasterUs,
       frameStats: frameStats,
-      relatedIssues: relatedIssues,
+      relatedIssues: related,
     );
 
     _lastVerdict = FrameVerdict(
@@ -154,7 +157,7 @@ class RenderPipelineAnalyzer {
       flushPaintTime: Duration(microseconds: paintUs),
       suspectedPhase: suspected,
       reason: reason,
-      relatedIssues: relatedIssues,
+      relatedIssues: related,
       isFullMode: true,
     );
 
@@ -184,6 +187,7 @@ class RenderPipelineAnalyzer {
       PipelinePhase.layout: layoutUs,
       PipelinePhase.paint: paintUs,
     });
+    final related = relatedToPhase(suspected, relatedIssues);
 
     final reason = _buildCorrelatedReason(
       suspected: suspected,
@@ -193,7 +197,7 @@ class RenderPipelineAnalyzer {
       rasterUs: rasterUs,
       frameStats: frameStats,
       correlation: correlation,
-      relatedIssues: relatedIssues,
+      relatedIssues: related,
     );
 
     _lastVerdict = FrameVerdict(
@@ -210,7 +214,7 @@ class RenderPipelineAnalyzer {
       flushPaintTime: Duration(microseconds: paintUs),
       suspectedPhase: suspected,
       reason: reason,
-      relatedIssues: relatedIssues,
+      relatedIssues: related,
       isFullMode: true,
       isCorrelated: true,
       correlationCoverage: correlation.batchCoverageRatio,

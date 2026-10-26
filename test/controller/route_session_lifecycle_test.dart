@@ -9,6 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/route_session.dart';
 
 /// Config with only frameTiming so structural detectors don't fire.
@@ -142,6 +144,43 @@ void main() {
       expect(controller.routeHistoryNotifier.value.length, 2);
       expect(controller.routeHistoryNotifier.value.first.routeName, '/home');
       expect(controller.routeHistoryNotifier.value.last.routeName, '/settings');
+    });
+
+    testWidgets('a route change drops the held jank causes; a rescan keeps '
+        'them', (tester) async {
+      await tester.pumpWidget(_multiRouteApp());
+      await tester.pumpAndSettle();
+      controller.scanTreeFullPathForTest(_rootContext(tester));
+      controller.verdictNotifier.value = FrameVerdict(
+        frameNumber: 1,
+        totalFrameTime: const Duration(milliseconds: 32),
+        uiThreadTime: const Duration(milliseconds: 20),
+        rasterThreadTime: const Duration(milliseconds: 12),
+        suspectedPhase: PipelinePhase.build,
+        reason: 'Build',
+        relatedIssues: const [
+          PerformanceIssue(
+            severity: IssueSeverity.warning,
+            category: IssueCategory.build,
+            confidence: IssueConfidence.confirmed,
+            title: 'Rebuilds',
+            detail: 'Detail',
+            fixHint: 'Fix',
+            stableId: 'rebuild_activity',
+          ),
+        ],
+      );
+      expect(controller.heldJankCauses().keys, {'rebuild_activity'});
+
+      controller.scanTreeFullPathForTest(_rootContext(tester));
+      expect(controller.heldJankCauses().keys, {'rebuild_activity'});
+
+      tester
+          .state<NavigatorState>(find.byType(Navigator))
+          .pushNamed('/settings');
+      await tester.pumpAndSettle();
+      controller.scanTreeFullPathForTest(_rootContext(tester));
+      expect(controller.heldJankCauses().keys, isEmpty);
     });
 
     testWidgets('consecutive clean scans reset to 0 on route change', (

@@ -1,8 +1,9 @@
 /// Payload-bearing sections of a [SessionSnapshot] JSON envelope that a
 /// consumer can opt out of via projection. Metadata keys
 /// (`schemaVersion`, `exportedAt`, `packageVersion`, `isVmConnected`,
-/// `isDebugMode`, `suppressedCount`) are never projectable — they are
-/// small and required for parsing, so they always serialize.
+/// `isDebugMode`, `suppressedCount`, `notUsefulMarks`) are never
+/// projectable. They are small and required for parsing, so they always
+/// serialize.
 ///
 /// [jsonKey] MUST match the corresponding key in
 /// `SessionSnapshot.toJson` byte-for-byte; the snapshot-sections drift
@@ -41,8 +42,9 @@ enum SnapshotSection {
   }
 
   /// Envelope keys excluded from projection gating — they serialize
-  /// independent of `include`. Most always emit; `suppressedCount` is
-  /// conditional (`> 0`) but is still never gated by a section filter.
+  /// independent of `include`. Most always emit; `suppressedCount` (above
+  /// 0) and `notUsefulMarks` (non-empty) are conditional but never gated
+  /// by a section filter.
   /// The drift test uses this set to skip metadata in the
   /// "every payload key has a section" check.
   static const Set<String> alwaysOnKeys = {
@@ -52,5 +54,6 @@ enum SnapshotSection {
     'isVmConnected',
     'isDebugMode',
     'suppressedCount',
+    'notUsefulMarks',
   };
 }

@@ -24,7 +24,10 @@ import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
 import '../models/ai_chat_adapter.dart';
 import '../vm/service_extension_handlers.dart' show kSleuthPackageVersion;
+import 'coverage_report.dart';
 import 'detector_thresholds.dart';
+import 'highlight_lookup.dart';
+import 'run_state.dart';
 import '../debug/debug_instrumentation_config.dart';
 import '../debug/debug_instrumentation_coordinator.dart';
 import '../debug/debug_snapshot.dart';
@@ -52,6 +55,7 @@ import '../detectors/startup_detector.dart';
 import '../../sleuth.dart' show Sleuth;
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
+import '../models/not_useful_mark.dart';
 import '../models/gc_event_summary.dart';
 import '../models/heap_sample.dart';
 import '../models/capture_buffer.dart';
@@ -76,6 +80,7 @@ import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
 import '../utils/framework_types.dart' show isScaffoldElement, isTabBarView;
+import '../utils/monotonic_clock.dart';
 import '../utils/own_work_log.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
@@ -109,6 +114,9 @@ class SleuthController {
       return true;
     }());
     _compileSuppressions();
+    // Registered first, so the overlay reads the causes of a verdict when
+    // it hears of it.
+    verdictNotifier.addListener(_recordJankCauses);
   }
 
   final SleuthConfig config;
@@ -429,8 +437,69 @@ class SleuthController {
   /// Notifies listeners when a new verdict is available.
   final ValueNotifier<FrameVerdict?> verdictNotifier = ValueNotifier(null);
 
+  /// When a verdict last named each issue, by `stableId ?? title`. The
+  /// overlay tags those issues for [FrameTimingDetector.jankWindow] after
+  /// that ([heldJankCauses]). Kept here rather than in the card, so closing
+  /// and reopening the dashboard neither drops a hold nor restarts one.
+  /// Cleared on a route change, when jank starts a new window.
+  final Map<String, DateTime> _jankCauseSeen = {};
+
+  /// Reads [clockOverrideForTest] in tests, else a monotonic clock, so a
+  /// wall-clock jump neither ends nor extends a hold.
+  final DateTime Function() _monotonicNow = monotonicClock();
+  DateTime _jankClock() => clockOverrideForTest?.call() ?? _monotonicNow();
+
+  void _recordJankCauses() {
+    final verdict = verdictNotifier.value;
+    if (verdict == null || verdict.relatedIssues.isEmpty) return;
+    final now = _jankClock();
+    for (final issue in verdict.relatedIssues) {
+      _jankCauseSeen[issue.stableId ?? issue.title] = now;
+    }
+  }
+
+  /// The issues a verdict named within [FrameTimingDetector.jankWindow],
+  /// by `stableId ?? title`, and the time until the first of them leaves
+  /// (null when none is held).
+  ({Set<String> keys, Duration? nextExpiry}) heldJankCauses() {
+    final now = _jankClock();
+    final keys = <String>{};
+    Duration? nextExpiry;
+    final expired = <String>[];
+    for (final MapEntry(:key, :value) in _jankCauseSeen.entries) {
+      final left = FrameTimingDetector.jankWindow - now.difference(value);
+      if (left <= Duration.zero) {
+        expired.add(key);
+        continue;
+      }
+      keys.add(key);
+      if (nextExpiry == null || left < nextExpiry) nextExpiry = left;
+    }
+    expired.forEach(_jankCauseSeen.remove);
+    return (keys: keys, nextExpiry: nextExpiry);
+  }
+
   /// Whether VM service is connected (full mode).
   final ValueNotifier<bool> vmConnectedNotifier = ValueNotifier(false);
+
+  /// Coverage of the built-in checks. Updated when the VM link changes and
+  /// when the first resource is tracked.
+  final ValueNotifier<CoverageReport> coverageNotifier = ValueNotifier(
+    const CoverageReport({}),
+  );
+
+  /// Start-up phase and VM link state, for the overlay's status line.
+  final ValueNotifier<SleuthRunState> runStateNotifier = ValueNotifier(
+    const SleuthRunState(),
+  );
+
+  /// Moves [runStateNotifier] out of warm-up. Set only while warming up.
+  Timer? _warmupTimer;
+  bool _warmupElapsed = false;
+
+  /// Whether the debug-mode banner was dismissed this session. The
+  /// controller keeps it so reopening the dashboard does not show it again.
+  bool debugBannerDismissed = false;
 
   /// Widget highlights for the visual overlay.
   /// Record bundles a generation counter with the list — the counter increments
@@ -511,9 +580,62 @@ class SleuthController {
   /// Number of issues hidden by the suppression list after the last aggregation.
   final ValueNotifier<int> suppressedCountNotifier = ValueNotifier(0);
 
-  /// Issue waiting to be highlighted after the next tree scan populates
-  /// the highlights list. Set by the UI when highlights aren't ready yet.
-  PerformanceIssue? pendingIssueSelection;
+  /// Most marks [markNotUseful] keeps; a new mark evicts the oldest.
+  static const int maxNotUsefulMarks = 200;
+
+  /// Session marks by list key, oldest first.
+  final Map<String, NotUsefulMark> _notUseful = {};
+
+  /// The issues marked as not useful this session, oldest first. Session
+  /// only: not written to [overlayUiState] or the state store.
+  final ValueNotifier<List<NotUsefulMark>> notUsefulNotifier = ValueNotifier(
+    const [],
+  );
+
+  /// Marks [issue] as not useful under its list key, replacing an earlier
+  /// mark of the same key.
+  void markNotUseful(PerformanceIssue issue) {
+    if (_disposed) return;
+    final key = listKeyFor(issue);
+    _notUseful.remove(key);
+    _notUseful[key] = NotUsefulMark.fromIssue(
+      issue,
+      key: key,
+      markedAt: DateTime.now(),
+    );
+    while (_notUseful.length > maxNotUsefulMarks) {
+      _notUseful.remove(_notUseful.keys.first);
+    }
+    notUsefulNotifier.value = List.unmodifiable(_notUseful.values);
+  }
+
+  /// Removes the mark stored under [key], if any.
+  void clearNotUseful(String key) {
+    if (_disposed || _notUseful.remove(key) == null) return;
+    notUsefulNotifier.value = List.unmodifiable(_notUseful.values);
+  }
+
+  /// Whether [issue] is marked as not useful.
+  bool isNotUseful(PerformanceIssue issue) =>
+      _notUseful.containsKey(listKeyFor(issue));
+
+  /// The marks for an export, each with [NotUsefulMark.live] set from the
+  /// issues reported now. Null when there is no mark.
+  List<NotUsefulMark>? notUsefulMarksForExport() {
+    if (_notUseful.isEmpty) return null;
+    final reported = {for (final i in _latestIssues) listKeyFor(i)};
+    return [
+      for (final m in _notUseful.values) m.withLive(reported.contains(m.key)),
+    ];
+  }
+
+  /// An issue whose highlight lookup waits for the first tree scan, with
+  /// the callback that gets the result.
+  ({PerformanceIssue issue, ValueChanged<HighlightLookup>? onResolved})?
+  _pendingHighlight;
+
+  /// The issue whose highlight lookup waits for the first tree scan.
+  PerformanceIssue? get pendingIssueSelection => _pendingHighlight?.issue;
 
   // -- Overlay UI state --
 
@@ -735,60 +857,69 @@ class SleuthController {
   /// Clear the selected highlight.
   void clearSelectedHighlight() {
     selectedHighlightNotifier.value = null;
-    pendingIssueSelection = null;
+    _pendingHighlight = null;
   }
 
-  /// Select the best matching highlight for a given issue.
-  /// Returns true if a match was found.
-  bool selectHighlightForIssue(PerformanceIssue issue) {
-    // Eagerly collect highlights if empty — detectors already computed them
-    // during their last scanTree(), but _collectHighlights() only runs when
-    // highlightEnabled was true at scan time. On the first checkbox tap,
-    // highlighting was just enabled so highlights haven't been gathered yet.
-    if (highlightsNotifier.value.items.isEmpty) {
-      _collectHighlights();
+  /// Selects the highlight of [issue]: the one measured from the issue's
+  /// own element when both carry an occurrence identity, else the first
+  /// with the issue's widget name. A highlight of another widget is never
+  /// chosen in its place.
+  ///
+  /// Before the first tree scan there is nothing to search, so the lookup
+  /// returns [HighlightLookup.pending] and runs again after that scan,
+  /// reporting its result to [onResolved].
+  HighlightLookup selectHighlightForIssue(
+    PerformanceIssue issue, {
+    ValueChanged<HighlightLookup>? onResolved,
+  }) {
+    _pendingHighlight = null;
+    // Detectors computed their highlights in their last scan, but they are
+    // collected only while highlighting is on, which it may just have
+    // been switched to.
+    if (highlightsNotifier.value.items.isEmpty) _collectHighlights();
+    if (highlightsNotifier.value.items.isEmpty && scanTickNotifier.value == 0) {
+      _pendingHighlight = (issue: issue, onResolved: onResolved);
+      return HighlightLookup.pending;
     }
-    final highlights = highlightsNotifier.value.items;
-    if (highlights.isEmpty) return false;
-
-    // Try exact match on widgetName first
-    if (issue.widgetName != null) {
-      for (final h in highlights) {
-        if (h.widgetName == issue.widgetName) {
-          selectedHighlightNotifier.value = h;
-          highlightEnabledNotifier.value = true;
-          return true;
-        }
-      }
-    }
-
-    // Map issue category to likely detector names
-    final detectorNames = detectorNamesForCategory(issue.category);
-    for (final name in detectorNames) {
-      for (final h in highlights) {
-        if (h.detectorName == name) {
-          selectedHighlightNotifier.value = h;
-          highlightEnabledNotifier.value = true;
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return _selectHighlight(issue);
   }
 
-  static List<String> detectorNamesForCategory(IssueCategory category) {
-    return switch (category) {
-      IssueCategory.layout => ['Layout'],
-      IssueCategory.build => ['Non-lazy', 'setState', 'Rebuild'],
-      IssueCategory.paint => ['Painter', 'Repaint'],
-      IssueCategory.raster => ['GPU'],
-      IssueCategory.memory => ['Image', 'KeepAlive'],
-      IssueCategory.channel => [],
-      IssueCategory.font => [],
-      IssueCategory.network => [],
-      IssueCategory.startup => ['Startup'],
-    };
+  /// Runs a lookup that waited for this scan's highlights.
+  void _resolvePendingHighlight() {
+    final pending = _pendingHighlight;
+    if (pending == null) return;
+    _pendingHighlight = null;
+    final result = _selectHighlight(pending.issue);
+    pending.onResolved?.call(result);
+  }
+
+  HighlightLookup _selectHighlight(PerformanceIssue issue) {
+    final match = _highlightOf(issue, highlightsNotifier.value.items);
+    if (match == null) return HighlightLookup.notFound;
+    selectedHighlightNotifier.value = match;
+    highlightEnabledNotifier.value = true;
+    return HighlightLookup.found;
+  }
+
+  static WidgetHighlight? _highlightOf(
+    PerformanceIssue issue,
+    List<WidgetHighlight> highlights,
+  ) {
+    final occurrence = issue.occurrenceId;
+    if (occurrence != null) {
+      // An issue that names its element takes that element's highlight
+      // or none: a sibling with the same name belongs to another issue.
+      for (final h in highlights) {
+        if (h.occurrenceId == occurrence) return h;
+      }
+      return null;
+    }
+    final name = issue.widgetName;
+    if (name == null) return null;
+    for (final h in highlights) {
+      if (h.widgetName == name) return h;
+    }
+    return null;
   }
 
   /// Whether running in debug mode.
@@ -1014,6 +1145,8 @@ class SleuthController {
     if (!connected && !_disposed) {
       _scheduleBackgroundReconnect();
     }
+    _refreshCoverage();
+    _refreshRunState();
   }
 
   /// Schedule the next background reconnect attempt with exponential backoff.
@@ -1035,10 +1168,12 @@ class SleuthController {
     // or `flutter attach` started DDS, which keeps the service as its only
     // client), there is no point retrying forever.
     if (_backgroundReconnectAttempt >= _backgroundReconnectDelays.length) {
+      _refreshRunState();
       return;
     }
 
     _backgroundReconnectActive = true;
+    _refreshRunState();
     final delay = _backgroundReconnectDelays[_backgroundReconnectAttempt];
     _backgroundReconnectTimer?.cancel();
     _backgroundReconnectTimer = Timer(delay, () async {
@@ -1297,6 +1432,7 @@ class SleuthController {
     ];
     _detectorsReady = true;
     _reresolveFrameBudget(force: true);
+    _refreshCoverage();
   }
 
   // -- Frame budget --
@@ -1490,6 +1626,7 @@ class SleuthController {
   void initializeDetectorsForTest() {
     _initializeDetectors();
     _installDebugInstrumentation();
+    _refreshCoverage();
   }
 
   /// Inject a detector into the live `_detectors` list so tests can exercise
@@ -1540,6 +1677,15 @@ class SleuthController {
   /// Inspect the background-reconnect attempt counter (for tests).
   @visibleForTesting
   int get backgroundReconnectAttemptForTest => _backgroundReconnectAttempt;
+
+  /// Recomputes [runStateNotifier], as the controller does after its own
+  /// state changes.
+  @visibleForTesting
+  void refreshRunStateForTest() => _refreshRunState();
+
+  /// Whether the warm-up timer behind [runStateNotifier] is running.
+  @visibleForTesting
+  bool get warmupTimerActiveForTest => _warmupTimer != null;
 
   /// Whether a background reconnect timer is currently scheduled.
   @visibleForTesting
@@ -1640,6 +1786,7 @@ class SleuthController {
     _lastScanContext = context;
     _runStructuralScans(context);
     _collectHighlights();
+    if (highlightEnabledNotifier.value) _resolvePendingHighlight();
     _aggregateIssues();
     if (_latestIssues.isEmpty) {
       _consecutiveCleanScans++;
@@ -1749,6 +1896,15 @@ class SleuthController {
   TrackedResourceDetector? get trackedResourceDetector {
     if (!_detectorsReady) return null;
     return _trackedResource;
+  }
+
+  /// Tracks [resource] under [name], and refreshes [coverageNotifier] when
+  /// it is the session's first tracked resource.
+  void trackResource(String name, Object resource) {
+    if (!_detectorsReady) return;
+    final had = _trackedResource.hasTracked;
+    _trackedResource.track(name, resource);
+    if (!had && _trackedResource.hasTracked) _refreshCoverage();
   }
 
   /// Capture-pipeline wrapper around
@@ -2006,6 +2162,7 @@ class SleuthController {
       sessionSummary: summary.isNotEmpty ? summary : null,
       startupMetrics: Sleuth.startupMetrics,
       routeSessions: routeSessions,
+      notUsefulMarks: notUsefulMarksForExport(),
     );
   }
 
@@ -2987,6 +3144,7 @@ class SleuthController {
       // never reach the new session. Raster-dominant frames from a
       // previous route likewise stop counting.
       _frameTiming.markRouteEpoch();
+      _jankCauseSeen.clear();
       if (active != null) {
         for (final d in _detectors) {
           if (d is GpuPressureDetector) d.markRouteEpoch();
@@ -3058,11 +3216,7 @@ class SleuthController {
     if (highlightEnabledNotifier.value) {
       _collectHighlights();
 
-      // Fulfill pending issue selection now that highlights are populated
-      if (pendingIssueSelection != null) {
-        selectHighlightForIssue(pendingIssueSelection!);
-        pendingIssueSelection = null;
-      }
+      _resolvePendingHighlight();
     } else if (highlightsNotifier.value.items.isNotEmpty) {
       _highlightGeneration++;
       highlightsNotifier.value = (generation: _highlightGeneration, items: []);
@@ -3440,6 +3594,7 @@ class SleuthController {
             detectorName: h.detectorName,
             detail: h.detail,
             renderObject: ro,
+            occurrenceId: h.occurrenceId,
           ),
         );
       }
@@ -3458,10 +3613,17 @@ class SleuthController {
     highlightsNotifier.value = (generation: _highlightGeneration, items: items);
     final selected = selectedHighlightNotifier.value;
     if (selected != null) {
+      // A selection with an element identity follows that element only, so
+      // the outline neither jumps to a sibling of the same type nor moves
+      // to one when the element goes.
+      final occurrence = selected.occurrenceId;
       WidgetHighlight? refreshed;
       for (final h in items) {
-        if (h.detectorName == selected.detectorName &&
-            h.widgetName == selected.widgetName) {
+        final same = occurrence != null
+            ? h.occurrenceId == occurrence
+            : h.detectorName == selected.detectorName &&
+                  h.widgetName == selected.widgetName;
+        if (same) {
           refreshed = h;
           break;
         }
@@ -4754,6 +4916,58 @@ class SleuthController {
     for (final d in _detectors) {
       d.vmConnected = connected;
     }
+    _refreshCoverage();
+    _refreshRunState();
+  }
+
+  void _refreshCoverage() {
+    if (!_detectorsReady || _disposed) return;
+    final lifecycles = {for (final d in _detectors) d.type: d.lifecycle};
+    final debug = kDebugMode ? _debugCoordinator : null;
+    coverageNotifier.value = CoverageReport.compute(
+      enabled: config.enabledDetectors,
+      lifecycleOf: (type) => lifecycles[type],
+      vmConnected: isVmConnected,
+      profilePlatformChannels: config.profilePlatformChannels,
+      resourcesTracked: _trackedResource.hasTracked,
+      debugFeedsRebuild: debug?.isRebuildInstalled ?? false,
+      debugFeedsRepaint: debug?.isPaintInstalled ?? false,
+    );
+  }
+
+  void _refreshRunState() {
+    if (_disposed) return;
+    final initAt = _initializedAt;
+    var phase = SleuthRunPhase.starting;
+    if (initAt != null) {
+      final remaining =
+          config.frameTimingWarmupDuration - DateTime.now().difference(initAt);
+      if (_warmupElapsed || remaining <= Duration.zero) {
+        phase = SleuthRunPhase.running;
+      } else {
+        phase = SleuthRunPhase.warmingUp;
+        _warmupTimer ??= Timer(remaining, () {
+          _warmupTimer = null;
+          _warmupElapsed = true;
+          _refreshRunState();
+        });
+      }
+    }
+    final connected = isVmConnected;
+    final attempts = _backgroundReconnectDelays.length;
+    runStateNotifier.value = SleuthRunState(
+      phase: phase,
+      vmConnected: connected,
+      reconnectAttempt: !connected && _backgroundReconnectActive
+          ? _backgroundReconnectAttempt + 1
+          : null,
+      maxReconnectAttempts: attempts,
+      stoppedRetrying:
+          !connected &&
+          initAt != null &&
+          !_backgroundReconnectActive &&
+          _backgroundReconnectAttempt >= attempts,
+    );
   }
 
   String? _currentRouteName() {
@@ -5481,6 +5695,8 @@ class SleuthController {
     _backgroundReconnectTimer?.cancel();
     _backgroundReconnectTimer = null;
     _backgroundReconnectActive = false;
+    _warmupTimer?.cancel();
+    _warmupTimer = null;
     _overlayContext = null;
     _lastScanContext = null;
     _appChildContext = null;
@@ -5541,10 +5757,14 @@ class SleuthController {
     frameStatsNotifier.dispose();
     verdictNotifier.dispose();
     vmConnectedNotifier.dispose();
+    coverageNotifier.dispose();
+    runStateNotifier.dispose();
     highlightsNotifier.dispose();
     highlightEnabledNotifier.dispose();
     selectedHighlightNotifier.dispose();
     suppressedCountNotifier.dispose();
+    _notUseful.clear();
+    notUsefulNotifier.dispose();
     routeHistoryNotifier.dispose();
     overlayUiState.dispose();
     aiChatHistories.clear();

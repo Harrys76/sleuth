@@ -105,8 +105,8 @@ void main() {
       expect(verdict.reason, isNot(contains('Vsync')));
     });
 
-    test('relatedIssues are attached from current detector state', () {
-      // Feed enough janky frames to trigger FrameTimingDetector's own jank issue
+    test('relatedIssues leave out the jank symptoms themselves', () {
+      // Enough janky frames for FrameTimingDetector's own jank issues.
       for (var i = 0; i < 10; i++) {
         controller.addFrameForTest(
           makeFrame(uiMs: 40, rasterMs: 8, frameNumber: i + 1),
@@ -115,10 +115,16 @@ void main() {
 
       final verdict = controller.verdictNotifier.value;
       expect(verdict, isNotNull);
+      expect(verdict!.suspectedPhase, PipelinePhase.build);
+      controller.aggregateIssuesForTest();
       expect(
-        verdict!.relatedIssues,
-        isNotEmpty,
-        reason: 'Sustained jank should produce FrameTimingDetector issues',
+        controller.issuesNotifier.value.map((i) => i.stableId),
+        contains('sustained_jank'),
+      );
+      expect(
+        verdict.relatedIssues,
+        isEmpty,
+        reason: 'A jank symptom does not explain its own late frames',
       );
     });
 
