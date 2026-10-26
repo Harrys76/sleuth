@@ -158,9 +158,13 @@ void main() {
         reported.occurrenceId,
       );
 
+      // The outline takes the severity of the issue it was found for.
+      expect(controller.highlightTargetSeverity, IssueSeverity.warning);
+
       // After a scan a widget it did not outline is not found at once, and
       // a later scan selects nothing for it.
       controller.clearSelectedHighlight();
+      expect(controller.highlightTargetSeverity, isNull);
       expect(
         controller.selectHighlightForIssue(
           issue('Missing'),
@@ -173,6 +177,53 @@ void main() {
       );
       expect(results, [HighlightLookup.found]);
       expect(controller.selectedHighlightNotifier.value, isNull);
+    });
+
+    testWidgets('with the markers off, scans collect highlights for an '
+        'outline and stop once it is cleared', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final root = tester.element(find.byType(MaterialApp));
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        title: 'SingleChildScrollView',
+        detail: '',
+        fixHint: '',
+        widgetName: 'SingleChildScrollView',
+      );
+      expect(controller.highlightEnabledNotifier.value, isFalse);
+      final results = <HighlightLookup>[];
+      expect(
+        controller.selectHighlightForIssue(issue, onResolved: results.add),
+        HighlightLookup.pending,
+      );
+
+      controller.scanTreeFullPathForTest(root);
+      expect(results, [HighlightLookup.found]);
+      expect(controller.highlightEnabledNotifier.value, isFalse);
+
+      // The outline keeps the scans collecting.
+      controller.scanTreeFullPathForTest(root);
+      expect(controller.highlightsNotifier.value.items, isNotEmpty);
+      expect(controller.selectedHighlightNotifier.value, isNotNull);
+
+      controller.clearSelectedHighlight();
+      controller.scanTreeFullPathForTest(root);
+      expect(controller.highlightsNotifier.value.items, isEmpty);
     });
 
     testWidgets('a pending lookup without a callback still selects', (
@@ -659,20 +710,17 @@ void main() {
       expect(controller.pendingIssueSelection, isNull);
     });
 
-    test('sets highlightEnabledNotifier to true on match', () {
+    test('a match leaves the markers off', () {
       controller.highlightEnabledNotifier.value = false;
-      controller.highlightsNotifier.value = (
-        generation: 1,
-        items: [
-          const WidgetHighlight(
-            rect: Rect.fromLTWH(0, 0, 100, 100),
-            widgetName: 'MyWidget',
-            severity: IssueSeverity.warning,
-            detectorName: 'Test',
-            detail: 'test detail',
-          ),
-        ],
-      );
+      controller.publishHighlightsForTest(const [
+        WidgetHighlight(
+          rect: Rect.fromLTWH(0, 0, 100, 100),
+          widgetName: 'MyWidget',
+          severity: IssueSeverity.warning,
+          detectorName: 'Test',
+          detail: 'test detail',
+        ),
+      ]);
 
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
@@ -684,8 +732,45 @@ void main() {
         widgetName: 'MyWidget',
       );
 
-      controller.selectHighlightForIssue(issue);
-      expect(controller.highlightEnabledNotifier.value, isTrue);
+      expect(controller.selectHighlightForIssue(issue), HighlightLookup.found);
+      expect(controller.highlightEnabledNotifier.value, isFalse);
+    });
+
+    test('an outline takes its own element back after losing it, and '
+        'never a twin', () {
+      WidgetHighlight at(double top, int occurrence) => WidgetHighlight(
+        rect: Rect.fromLTWH(0, top, 100, 40),
+        widgetName: 'Row',
+        severity: IssueSeverity.warning,
+        detectorName: 'Layout',
+        occurrenceId: occurrence,
+      );
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.layout,
+        confidence: IssueConfidence.likely,
+        title: 'Row',
+        detail: '',
+        fixHint: '',
+        widgetName: 'Row',
+        occurrenceId: 2,
+      );
+      controller.publishHighlightsForTest([at(0, 1), at(50, 2)]);
+      expect(controller.selectHighlightForIssue(issue), HighlightLookup.found);
+      expect(controller.selectedHighlightNotifier.value?.occurrenceId, 2);
+
+      // Its element detached; a twin of the same name stays unoutlined.
+      controller.publishHighlightsForTest([at(0, 1)]);
+      expect(controller.selectedHighlightNotifier.value, isNull);
+
+      // Back on screen at a new place.
+      controller.publishHighlightsForTest([at(0, 1), at(300, 2)]);
+      expect(controller.selectedHighlightNotifier.value?.rect.top, 300);
+
+      // Once cleared, a later publish outlines nothing.
+      controller.clearSelectedHighlight();
+      controller.publishHighlightsForTest([at(300, 2)]);
+      expect(controller.selectedHighlightNotifier.value, isNull);
     });
 
     test('clearSelectedHighlight resets state', () {

@@ -13,12 +13,13 @@ import 'package:sleuth/src/ui/overlay_filters.dart'
     show hideKeyLabel, hideKeysOf;
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
+import 'package:sleuth/src/ui/status_lines.dart';
 
 import '../helpers/contrast_helpers.dart';
 import '../helpers/overlay_harness.dart'
     show
         crosshair,
-        crosshairOn,
+        crosshairFinding,
         expandedIssueCards,
         moreMenuRow,
         openFromMoreMenu,
@@ -254,10 +255,13 @@ void main() {
       await tester.pump();
 
       expect(
-        find.textContaining('Widget not currently visible'),
+        find.text(
+          "Couldn't find Lay on screen. It may be scrolled away or not "
+          'built yet.',
+        ),
         findsOneWidget,
       );
-      expect(crosshairOn(tester, crosshair()), isFalse);
+      expect(crosshairFinding(tester, crosshair()), isFalse);
       expect(controller.pendingIssueSelection, isNull);
       expect(controller.selectedHighlightNotifier.value, isNull);
       await drainToasts(tester);
@@ -932,11 +936,11 @@ void main() {
       expect(find.text('Title lay'), findsOneWidget);
       expect(find.text('Not detected right now'), findsOneWidget);
       expect(crosshair(), findsNothing);
-      expect(find.textContaining('No issues detected'), findsNothing);
+      expect(find.byType(SleuthStatusBox), findsNothing);
 
       await expand(tester, 'lay');
       expect(find.text('Title lay'), findsNothing);
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
     });
 
     testWidgets('it turns live again when the issue comes back', (
@@ -1083,16 +1087,15 @@ void main() {
         rows.where((r) => r.top < list.bottom && r.bottom > list.top).length,
         greaterThanOrEqualTo(2),
       );
-      // Tests run in debug mode, which adds the debug-mode warning banner;
-      // without it (profile builds) both rows fit entirely.
-      final debugBanner = tester.getSize(
-        find.byWidgetPredicate(
-          (w) => w.runtimeType.toString() == '_WarningBanners',
-        ),
-      );
+      // A debug run adds the debug banner; without it (profile builds)
+      // both rows fit entirely.
+      final banner = find.byType(SleuthDebugBanner);
+      final bannerHeight = banner.evaluate().isEmpty
+          ? 0.0
+          : tester.getSize(banner).height;
       expect(
         rows[1].bottom - list.top,
-        lessThanOrEqualTo(list.height + debugBanner.height),
+        lessThanOrEqualTo(list.height + bannerHeight),
       );
     });
 
@@ -1321,7 +1324,7 @@ void main() {
 
       // Shown again, the card is no longer ticked.
       await tapChip(tester, 'warning');
-      expect(crosshairOn(tester, crosshair()), isFalse);
+      expect(crosshairFinding(tester, crosshair()), isFalse);
       await drainToasts(tester);
     });
 
@@ -1493,7 +1496,7 @@ void main() {
   group('Empty states', () {
     testWidgets('no issues detected', (tester) async {
       await pumpCard(tester);
-      expect(find.textContaining('No issues detected'), findsOneWidget);
+      expect(find.byType(SleuthStatusBox), findsOneWidget);
     });
 
     testWidgets('nothing matches the severity filter; Reset', (tester) async {

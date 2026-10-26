@@ -213,7 +213,8 @@ void main() {
       // Banner should appear
       expect(
         find.text(
-          'Widget not currently visible. Navigate to the screen where this issue occurs.',
+          "Couldn't find MyImage on screen. It may be scrolled away or not "
+          'built yet.',
         ),
         findsOneWidget,
       );
@@ -241,7 +242,7 @@ void main() {
 
       // Banner visible
       expect(
-        find.textContaining('Widget not currently visible'),
+        find.textContaining("Couldn't find MyImage on screen"),
         findsOneWidget,
       );
 
@@ -249,7 +250,10 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
       await tester.pump(const Duration(milliseconds: 300));
 
-      expect(find.textContaining('Widget not currently visible'), findsNothing);
+      expect(
+        find.textContaining("Couldn't find MyImage on screen"),
+        findsNothing,
+      );
       // Semantics on would triple the display time.
     }, semanticsEnabled: false);
   });

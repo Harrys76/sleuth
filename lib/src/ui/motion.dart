@@ -117,26 +117,71 @@ Future<void> ensureVisibleWithMotion(
   BuildContext target, {
   required Duration duration,
   required Curve curve,
+  ScrollPositionAlignmentPolicy alignmentPolicy =
+      ScrollPositionAlignmentPolicy.explicit,
 }) {
-  if (reducedMotionOf(context)) return Scrollable.ensureVisible(target);
+  if (reducedMotionOf(context)) {
+    return Scrollable.ensureVisible(target, alignmentPolicy: alignmentPolicy);
+  }
   var running = true;
   final watch = _MotionWatch(
     context,
     isRunning: () => running && target.mounted,
     // A zero-duration call jumps and ends the running one.
-    settle: () => Scrollable.ensureVisible(target),
+    settle: () =>
+        Scrollable.ensureVisible(target, alignmentPolicy: alignmentPolicy),
   );
   final scrolled =
       Scrollable.ensureVisible(
         target,
         duration: duration,
         curve: curve,
+        alignmentPolicy: alignmentPolicy,
       ).whenComplete(() {
         running = false;
         _ReducedMotionWatcher.instance.unwatch(watch);
       });
   _ReducedMotionWatcher.instance.watch(target, watch);
   return scrolled;
+}
+
+/// Scrolls [target] only as far as it takes to show it in its vertical
+/// [Scrollable], with [ensureVisibleWithMotion]: a target already in view
+/// stays where it is.
+Future<void> revealWithMotion(
+  BuildContext context,
+  BuildContext target, {
+  required Duration duration,
+  required Curve curve,
+}) {
+  final box = target.findRenderObject();
+  final viewport = Scrollable.maybeOf(target)?.context.findRenderObject();
+  if (box is! RenderBox ||
+      viewport is! RenderBox ||
+      !box.attached ||
+      !viewport.attached ||
+      !box.hasSize) {
+    return Future<void>.value();
+  }
+  final rect = MatrixUtils.transformRect(
+    box.getTransformTo(viewport),
+    Offset.zero & box.size,
+  );
+  final ScrollPositionAlignmentPolicy policy;
+  if (rect.top < 0) {
+    policy = ScrollPositionAlignmentPolicy.keepVisibleAtStart;
+  } else if (rect.bottom > viewport.size.height) {
+    policy = ScrollPositionAlignmentPolicy.keepVisibleAtEnd;
+  } else {
+    return Future<void>.value();
+  }
+  return ensureVisibleWithMotion(
+    context,
+    target,
+    duration: duration,
+    curve: curve,
+    alignmentPolicy: policy,
+  );
 }
 
 void _finish(AnimationController controller) {

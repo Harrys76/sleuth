@@ -104,8 +104,11 @@
 - The collapsed issue card is flat, with no source bar on its left edge.
   A severity mark replaces the emoji: a disc or triangle filled with the
   severity colour, with a white or near-black mark inside at 3:1 or more
-  against the fill; the discs carry a white ring. The title runs to 2
-  lines (3 above 1.3x text), or in full while the card is expanded.
+  against the fill; the discs carry a white ring. Where neither the fill
+  nor the ring reaches 3:1 on the card (the light presets' warning and OK
+  marks), the shape is outlined in a darker shade of its colour. The
+  title runs to 2 lines (3 above 1.3x text), or in full while the card is
+  expanded.
 - One meta line under the title replaces the badges: category,
   confidence, "seen X of Y scans, label" and "N effects", led by the Jank
   and New tags. New shows for 2 seconds in place of the wider accent.
@@ -123,10 +126,11 @@
   include the name, so such a card hidden under an older release shows
   again.
 - A crosshair replaces the highlight checkbox and shows only for an issue
-  that names a widget, labelled "Show <widget> on screen" and read as on
-  or off. Layout and paint cards without a widget name no longer offer a
-  highlight that could not find anything. The card body and the
-  crosshair draw the focus outline in keyboard mode.
+  that names a widget, labelled "Show <widget> on screen". Before the
+  first scan it reads "Finding" until the scan looks the widget up, and a
+  second tap cancels. Layout and paint cards without a widget name no
+  longer offer a highlight that could not find anything. The card body
+  and the crosshair draw the focus outline in keyboard mode.
 - An expanded card no longer draws the pin icon. Its semantics hint
   reads "Pinned while expanded".
 - An expanded card stays until it is collapsed, even when its issue stops
@@ -195,9 +199,53 @@
   types out, and says when rebuilds are not counted: the callbacks are
   off, `advanced.rebuildAttribution` is off, or DevTools holds the
   rebuild callback.
-- The effort colours, `aboutBackground`, `fixHintText` and the three
-  `aiShimmer` colours are unused by the overlay and kept for custom
-  themes. The guide describes the new expanded card and Not useful.
+- Status lines replace "No issues detected". Starting; Warming up, with
+  a progress bar; No VM link, with the checks off and partly off counted
+  from the session's coverage, a copyable `flutter run --profile --no-dds`
+  and a Guide link; No issues found, with the checks on and the opt-in
+  checks off; VM link lost, with the reconnect attempt; and stopped
+  retrying, with Reconnect. With cards listed, an expanded card whose
+  issue is gone included, only a lost link takes a line above them, and
+  the status row names the state when it counts no card. Each line is a
+  live region: its label names the state (stopped retrying has its own)
+  and its value holds the numbers, so the warm-up countdown does not
+  repeat it.
+- One debug banner replaces the debug-mode and instrumentation banners.
+  Its text stops growing at the chrome limit, dismissing it lasts for the
+  session, and focus then moves to the severity chips.
+- The trigger shows its count in debug runs too; the warning badge is
+  gone.
+- While an issue's widget is outlined, the card shrinks to a bar at the
+  screen edge away from the widget: "Showing <widget>", or "<widget> is
+  off screen" once it scrolls away, detaches or sits behind the keyboard,
+  until a later scan finds that element again. Back to issues, system
+  back and Escape (also while an app text field has focus) bring the
+  card back as it was (window state, size and list offset) with focus on
+  the crosshair. The bar's close ends the outline with the dashboard.
+  When the issue is no longer reported the card comes back and a toast
+  says so. The bar is never stored. Outlines follow a rotation or a
+  keyboard at once instead of at the next scan, and the outline's label
+  stays below the status bar.
+- An outline no longer turns the flagged-widget markers on: while the
+  bar is up only the issue's widget is outlined, unless the markers were
+  already on. Sleuth collects highlights while an outline is shown or
+  looked up, and finds the issue's own element again after it detaches.
+- The header's markers toggle is named "Mark flagged widgets" and read as
+  on or off. It turns the markers alone on and off, never an outline or
+  a lookup, and turning it off hides them at once instead of at the next
+  scan.
+- Toasts use the theme's text and card colours swapped, regular 12 px
+  text and a bold action label in the accent at 4.5:1, and span the
+  screen up to 480 px.
+- The outline's label sizes to its text, up to 350 px wide and two
+  lines whatever the width of the widget it names, follows the text scale
+  up to the chrome limit, and draws its text in the colour that reads on
+  its severity fill. It stays below the highlight bar when
+  the bar sits at the top.
+- The effort colours, `aboutBackground`, `fixHintText`,
+  `highlightLabelText` and the three `aiShimmer` colours are unused by the
+  overlay and kept for custom themes. The guide describes the new
+  expanded card and Not useful.
 
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase: the issues of the phase's category, `event_loop_stall`
@@ -208,7 +256,8 @@
 - Highlighting an issue outlines only its own widget: the element it was
   reported for, else the first widget with its name. Another widget of
   the same category is no longer outlined in its place. When the widget
-  is not on screen the card unticks, and no outline appears later.
+  is not on screen a toast says "Couldn't find <widget> on screen. It may
+  be scrolled away or not built yet.", and no outline appears later.
 - Copying the snapshot from the overlay counts as Sleuth's own work, so
   it is left out of the next frame's start delay. A second tap during a
   copy is ignored.

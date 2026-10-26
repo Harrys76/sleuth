@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
-import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 
 import '../helpers/overlay_harness.dart'
-    show crosshair, crosshairOn, expandedIssueCards, openMoreMenu, tapVisible;
+    show
+        crosshair,
+        crosshairFinding,
+        expandedIssueCards,
+        openMoreMenu,
+        tapVisible;
 
 /// An issue with detector id [id] reported on [widget]; the title names
 /// the widget so the two cards can be told apart.
@@ -73,8 +77,8 @@ void main() {
   Finder checkboxOf(String name) =>
       find.descendant(of: cardOf(name), matching: crosshair());
 
-  bool? checked(WidgetTester tester, String name) =>
-      crosshairOn(tester, checkboxOf(name));
+  bool finding(WidgetTester tester, String name) =>
+      crosshairFinding(tester, checkboxOf(name));
 
   Future<void> hideVia(WidgetTester tester, String name) async {
     await tapVisible(
@@ -202,42 +206,35 @@ void main() {
     expect(find.byType(IssueCard), findsNWidgets(2));
   });
 
-  testWidgets('the highlight selects one card; hiding the other keeps it, '
-      'hiding the selected one clears it', (tester) async {
+  testWidgets('a lookup marks one card Finding; hiding the other keeps it, '
+      'hiding that card ends it', (tester) async {
     controller.issuesNotifier.value = [
       _issue('dup', widget: 'A', category: IssueCategory.layout),
       _issue('dup', widget: 'B', category: IssueCategory.layout),
     ];
     await pumpCard(tester);
+    // No scan has run, so the lookup waits.
     await tester.tap(checkboxOf('A'));
     await tester.pump();
     expect(controller.pendingIssueSelection?.widgetName, 'A');
-    // The scan resolves the pending selection to A's widget.
-    controller.selectedHighlightNotifier.value = const WidgetHighlight(
-      rect: Rect.fromLTWH(0, 0, 10, 10),
-      widgetName: 'A',
-      severity: IssueSeverity.warning,
-      detectorName: 'LayoutDetector',
-    );
-    await tester.pump();
-    expect(checked(tester, 'A'), isTrue);
-    expect(checked(tester, 'B'), isFalse);
+    expect(finding(tester, 'A'), isTrue);
+    expect(finding(tester, 'B'), isFalse);
 
     await tapTitle(tester, 'B');
     await hideVia(tester, 'B');
-    expect(controller.selectedHighlightNotifier.value, isNotNull);
-    expect(checked(tester, 'A'), isTrue);
+    expect(controller.pendingIssueSelection?.widgetName, 'A');
+    expect(finding(tester, 'A'), isTrue);
 
     await tester.tap(find.text('Undo'));
     await tester.pump();
-    expect(checked(tester, 'B'), isFalse);
+    expect(finding(tester, 'B'), isFalse);
 
     await tapTitle(tester, 'A');
     await hideVia(tester, 'A');
     expect(controller.selectedHighlightNotifier.value, isNull);
     expect(controller.pendingIssueSelection, isNull);
     expect(find.text('Title A'), findsNothing);
-    expect(checked(tester, 'B'), isFalse);
+    expect(finding(tester, 'B'), isFalse);
     expect(tester.takeException(), isNull);
     await drainToasts(tester);
   });

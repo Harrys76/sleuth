@@ -19,17 +19,18 @@ import '../helpers/overlay_harness.dart';
 /// Builds of [FloatingIssuesCard] and of all [IssueCard]s over 50 ticks.
 typedef _Builds = ({int card, int issueCards});
 
-/// Recorded with the 1.0.0 header, status row, More menu and collapsed
-/// card (Flutter 3.47.6, 390 x 844 view). A title change rebuilds each
-/// card the list has built, the ones on screen plus the cache extent: 8
-/// collapsed or 6 with three expanded. The collapsed card has no 48 px
-/// checkbox setting its height, so more of them fit than before the
-/// redesign (5 per change then).
+/// Recorded with the 1.0.0 header, status row, More menu, collapsed card
+/// and the one debug banner (Flutter 3.47.6, 390 x 844 view). A card
+/// keeps its widget while its inputs are unchanged, so a title change
+/// rebuilds the one card it changed: 1 per change collapsed, and none with
+/// three expanded, where the changed card sits below the built range. The
+/// card before the redesign rebuilt every card the list had built, 5 per
+/// change on this view.
 const _budgets = <String, _Builds>{
   'collapsed, no change': (card: 0, issueCards: 0),
-  'collapsed, title change': (card: 0, issueCards: 400),
+  'collapsed, title change': (card: 0, issueCards: 50),
   'three expanded, no change': (card: 0, issueCards: 0),
-  'three expanded, title change': (card: 0, issueCards: 300),
+  'three expanded, title change': (card: 0, issueCards: 50),
 };
 
 const _ticks = 50;

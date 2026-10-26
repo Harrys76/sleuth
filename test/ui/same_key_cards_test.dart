@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/ai_chat_adapter.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
-import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
@@ -399,7 +398,7 @@ void main() {
       expect(tester.widget<IssueCard>(cardOf('b')).stale, isFalse);
     });
 
-    testWidgets('a kept card\'s crosshair stays on through later updates', (
+    testWidgets('a kept card stays Finding through later updates', (
       tester,
     ) async {
       controller.issuesNotifier.value = [
@@ -413,26 +412,19 @@ void main() {
       ];
       await tester.pump();
 
+      // No scan has run, so the lookup waits.
       final target = find.descendant(of: cardOf('b'), matching: crosshair());
       await tester.tap(target);
       await tester.pump();
-      controller.selectedHighlightNotifier.value = const WidgetHighlight(
-        rect: Rect.fromLTWH(0, 0, 10, 10),
-        widgetName: 'Row',
-        severity: IssueSeverity.warning,
-        detectorName: 'LayoutDetector',
-        occurrenceId: 2,
-      );
-      await tester.pump();
-      expect(crosshairOn(tester, target), isTrue);
+      expect(crosshairFinding(tester, target), isTrue);
 
-      // A later report of the same issue keeps the selection.
+      // A later report of the same issue keeps the lookup.
       controller.issuesNotifier.value = [
         _issue('b', id: 'layout', widget: 'Row', occurrence: 2),
       ];
       await tester.pump();
-      expect(crosshairOn(tester, target), isTrue);
-      expect(controller.selectedHighlightNotifier.value, isNotNull);
+      expect(crosshairFinding(tester, target), isTrue);
+      expect(controller.pendingIssueSelection?.occurrenceId, 2);
       await tester.pump(const Duration(seconds: 5));
     });
 
@@ -536,8 +528,8 @@ void main() {
       expect(find.text('Detail b'), findsNothing);
     });
 
-    testWidgets('ticking the highlight on one of the pair leaves the other '
-        'unticked', (tester) async {
+    testWidgets('a lookup on one of the pair marks only that card '
+        'Finding', (tester) async {
       controller.issuesNotifier.value = [
         _issue(
           'a',
@@ -557,16 +549,9 @@ void main() {
           find.descendant(of: cardOf(name), matching: crosshair());
       await tester.tap(checkboxOf('a'));
       await tester.pump();
-      controller.selectedHighlightNotifier.value = const WidgetHighlight(
-        rect: Rect.fromLTWH(0, 0, 10, 10),
-        widgetName: 'Row',
-        severity: IssueSeverity.warning,
-        detectorName: 'LayoutDetector',
-      );
-      await tester.pump();
 
-      expect(crosshairOn(tester, checkboxOf('a')), isTrue);
-      expect(crosshairOn(tester, checkboxOf('b')), isFalse);
+      expect(crosshairFinding(tester, checkboxOf('a')), isTrue);
+      expect(crosshairFinding(tester, checkboxOf('b')), isFalse);
     });
 
     testWidgets('Ask AI on the second of two same-id cards opens a chat '

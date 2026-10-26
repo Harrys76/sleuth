@@ -69,7 +69,7 @@ class IssueCardDetails extends StatefulWidget {
     this.rebuildCauseOf,
     this.rebuildCauseUnavailable,
     this.onCopyText,
-    this.highlighted = false,
+    this.finding = false,
     this.onShowOnScreen,
     this.onLearnMore,
     this.onAskAi,
@@ -113,7 +113,9 @@ class IssueCardDetails extends StatefulWidget {
   /// Copies text and confirms with the given toast.
   final void Function(String text, String confirmation)? onCopyText;
 
-  final bool highlighted;
+  /// The widget's lookup is pending: Show on screen reads Finding, and a
+  /// second tap cancels it.
+  final bool finding;
   final ValueChanged<bool>? onShowOnScreen;
   final VoidCallback? onLearnMore;
   final VoidCallback? onAskAi;
@@ -868,8 +870,9 @@ class _IssueCardDetailsState extends State<IssueCardDetails> {
           _ActionButton(
             icon: Icons.my_location,
             label: 'Show on screen',
-            toggled: widget.highlighted,
-            onTap: () => widget.onShowOnScreen!(!widget.highlighted),
+            pressed: widget.finding,
+            value: widget.finding ? 'Finding' : null,
+            onTap: () => widget.onShowOnScreen!(!widget.finding),
           ),
         if (widget.onLearnMore != null)
           _ActionButton(
@@ -1113,6 +1116,8 @@ class _ActionButton extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.toggled,
+    this.pressed = false,
+    this.value,
   });
 
   final IconData icon;
@@ -1122,16 +1127,23 @@ class _ActionButton extends StatelessWidget {
   /// Non-null for a toggle, read as on or off.
   final bool? toggled;
 
+  /// Drawn as on without being a toggle, as while a lookup runs.
+  final bool pressed;
+
+  /// The semantics value, read after the label.
+  final String? value;
+
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     final radius = BorderRadius.circular(theme.radiusLg);
-    final on = toggled ?? false;
+    final on = toggled ?? pressed;
     return Semantics(
       container: true,
       button: true,
       toggled: toggled,
       label: label,
+      value: value,
       onTap: onTap,
       excludeSemantics: true,
       child: SleuthFocusInkWell(

@@ -10,6 +10,8 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/recurrence_trend.dart';
 import 'package:sleuth/src/models/startup_metrics.dart';
 import 'package:sleuth/src/ui/ai_chat_page.dart';
+import 'package:sleuth/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/ui/status_lines.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
@@ -96,6 +98,49 @@ void main() {
         );
         expect(node.label, 'Frame rate pending');
         expect(node.rect.size, tester.getSize(find.text('— fps')));
+        handle.dispose();
+      });
+    }
+  });
+
+  group('Status row label', () {
+    testWidgets('the empty-list label has its own node', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpOverlay(tester);
+      await openDashboard(tester, controller);
+
+      final label = find.descendant(
+        of: find.byType(FloatingIssuesCard),
+        matching: find.text(
+          statusRowLabel(statusKindOf(controller.runStateNotifier.value)),
+        ),
+      );
+      expect(label, findsOneWidget);
+      expect(tester.getSemantics(label).rect.size, tester.getSize(label));
+      handle.dispose();
+    });
+
+    for (final withIssues in [true, false]) {
+      testWidgets('no label lands on a screen-sized node '
+          '(${withIssues ? 'chips' : 'no issues'})', (tester) async {
+        final handle = tester.ensureSemantics();
+        final controller = await pumpOverlay(tester);
+        if (withIssues) controller.issuesNotifier.value = mixedOverlayIssues();
+        await openDashboard(tester, controller);
+
+        final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+        final labelled = <String>[];
+        bool visit(SemanticsNode node) {
+          if (node.rect.size == screen && node.label.isNotEmpty) {
+            labelled.add(node.label);
+          }
+          node.visitChildren(visit);
+          return true;
+        }
+
+        final owner = tester.binding.renderViews.first.owner!.semanticsOwner!;
+        visit(owner.rootSemanticsNode!);
+        expect(labelled, isEmpty);
         handle.dispose();
       });
     }

@@ -64,7 +64,7 @@ void main() {
       }
 
       // Card colours
-      expect(find.text('Highlighted'), findsOneWidget);
+      expect(find.text('Finding'), findsOneWidget);
       expect(find.text('Jank flash'), findsNothing);
     });
 

@@ -1,8 +1,13 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import 'highlight_bar.dart';
 import 'sleuth_theme.dart';
+import 'text_scale_clamp.dart';
 
 /// Two-mode highlight overlay:
 ///
@@ -15,15 +20,38 @@ class HighlightOverlay extends StatelessWidget {
     super.key,
     required this.highlights,
     required this.selectedHighlight,
+    required this.markersEnabled,
+    this.outlineSeverity,
   });
 
   final ValueNotifier<({int generation, List<WidgetHighlight> items})>
   highlights;
   final ValueNotifier<WidgetHighlight?> selectedHighlight;
 
+  /// The corner markers draw while this is true. The list is emptied only
+  /// at the next scan, so turning them off hides them here at once.
+  final ValueListenable<bool> markersEnabled;
+
+  /// The severity of the issue the outline belongs to, read when the
+  /// selection changes. The outline takes its colour, so a critical card's
+  /// widget is not outlined in a widget's own warning colour. Null keeps
+  /// the highlight's severity.
+  final IssueSeverity? Function()? outlineSeverity;
+
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
+    // Drawn outside the card, so the label clamps the app's text scale to
+    // the chrome limit itself.
+    final textScaler = clampTextScaler(
+      MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling,
+      min: kOverlayMinTextScale,
+      max: kChromeMaxTextScale,
+    );
+    // The label stays below a notch or status bar, and below the
+    // highlight bar when the bar sits at the top.
+    final topInset = MediaQuery.maybeViewPaddingOf(context)?.top ?? 0;
+    final keyboardHeight = MediaQuery.maybeViewInsetsOf(context)?.bottom ?? 0;
     // Painted labels are a visual aid; screen readers reach the issue
     // through its card.
     return ExcludeSemantics(
@@ -33,24 +61,36 @@ class HighlightOverlay extends StatelessWidget {
               ({int generation, List<WidgetHighlight> items})
             >(
               valueListenable: highlights,
-              builder: (_, payload, _) =>
-                  ValueListenableBuilder<WidgetHighlight?>(
-                    valueListenable: selectedHighlight,
-                    builder: (_, selected, _) {
-                      if (payload.items.isEmpty && selected == null) {
-                        return const SizedBox.shrink();
-                      }
-                      return CustomPaint(
-                        painter: _HighlightPainter(
-                          highlights: payload.items,
-                          generation: payload.generation,
-                          selected: selected,
-                          theme: theme,
-                        ),
-                        size: Size.infinite,
-                      );
-                    },
-                  ),
+              builder: (_, payload, _) => ValueListenableBuilder<bool>(
+                valueListenable: markersEnabled,
+                builder: (_, markers, _) =>
+                    ValueListenableBuilder<WidgetHighlight?>(
+                      valueListenable: selectedHighlight,
+                      builder: (_, selected, _) {
+                        final items = markers
+                            ? payload.items
+                            : const <WidgetHighlight>[];
+                        if (items.isEmpty && selected == null) {
+                          return const SizedBox.shrink();
+                        }
+                        return CustomPaint(
+                          painter: _HighlightPainter(
+                            highlights: items,
+                            generation: payload.generation,
+                            selected: selected,
+                            outlineSeverity: selected == null
+                                ? null
+                                : outlineSeverity?.call(),
+                            theme: theme,
+                            textScaler: textScaler,
+                            topInset: topInset,
+                            keyboardHeight: keyboardHeight,
+                          ),
+                          size: Size.infinite,
+                        );
+                      },
+                    ),
+              ),
             ),
       ),
     );
@@ -62,15 +102,27 @@ class _HighlightPainter extends CustomPainter {
     required this.highlights,
     required this.generation,
     this.selected,
+    this.outlineSeverity,
     required this.theme,
+    required this.textScaler,
+    required this.topInset,
+    required this.keyboardHeight,
   });
 
   final List<WidgetHighlight> highlights;
   final int generation;
   final WidgetHighlight? selected;
+  final IssueSeverity? outlineSeverity;
   final SleuthThemeData theme;
+  final TextScaler textScaler;
+  final double topInset;
+  final double keyboardHeight;
 
   static const _markerSize = 8.0;
+
+  /// Widest the outline label's text runs before it wraps, whatever the
+  /// width of the widget it names.
+  static const _labelMaxWidth = 350.0;
 
   Color _colorFor(IssueSeverity severity) => switch (severity) {
     IssueSeverity.critical => theme.severityCritical,
@@ -117,7 +169,16 @@ class _HighlightPainter extends CustomPainter {
 
   /// Full border + label for the selected/focused widget.
   void _drawSelectedBorder(Canvas canvas, Size size, WidgetHighlight h) {
-    final color = _colorFor(h.severity);
+    // Off screen, the bar says so; a dimmed screen and a label pinned to
+    // its edge would point at a widget the screen cannot show.
+    final shown = Rect.fromLTRB(
+      0,
+      0,
+      size.width,
+      math.max(0.0, size.height - keyboardHeight),
+    );
+    if (!h.rect.overlaps(shown)) return;
+    final color = _colorFor(outlineSeverity ?? h.severity);
 
     // Dim the rest of the screen using path difference (v9.14).
     // Replaces saveLayer + BlendMode.clear — no offscreen GPU buffer.
@@ -143,42 +204,87 @@ class _HighlightPainter extends CustomPainter {
       borderPaint,
     );
 
-    // Label
+    // Label: sized to its text, up to two lines, in the severity colour
+    // with the text colour that reads on it.
+    final margin = theme.spacingXs;
+    final padX = theme.spacingMd;
+    final padY = theme.spacingXxs;
     final label =
         '${h.detectorName}: ${h.widgetName}'
         '${h.detail != null ? ', ${h.detail}' : ''}';
-    final textSpan = TextSpan(
-      text: label,
-      style: TextStyle(
-        color: theme.highlightLabelText,
-        fontSize: theme.fontSm,
-        fontWeight: FontWeight.bold,
-        height: 1.2,
+    final textPainter =
+        TextPainter(
+          text: TextSpan(
+            text: label,
+            style: TextStyle(
+              color: SleuthThemeData.onColor(color),
+              fontSize: theme.fontMd,
+              height: 1.2,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          textScaler: textScaler,
+          maxLines: 2,
+          ellipsis: '\u2026',
+        )..layout(
+          maxWidth: math.max(
+            0.0,
+            math.min(_labelMaxWidth, size.width - 2 * margin - 2 * padX),
+          ),
+        );
+
+    final labelWidth = textPainter.width + 2 * padX;
+    final labelHeight = textPainter.height + 2 * padY;
+    final labelLeft = clampDouble(
+      h.rect.left,
+      margin,
+      math.max(margin, size.width - labelWidth - margin),
+    );
+    // Below the status bar, and below the highlight bar when it sits at
+    // the top (the card places it by the same rule).
+    final visible = Rect.fromLTRB(
+      0,
+      0,
+      size.width,
+      math.max(0.0, size.height - keyboardHeight),
+    );
+    final chromeScale = clampDouble(
+      textScaler.scale(14) / 14,
+      1,
+      kChromeMaxTextScale,
+    );
+    final minTop =
+        topInset +
+        margin +
+        (highlightBarAtTop(h.rect, visible)
+            ? theme.spacingMd + highlightBarHeight(chromeScale)
+            : 0);
+    final labelTop = clampDouble(
+      h.rect.top - labelHeight - margin,
+      minTop,
+      math.max(minTop, size.height - labelHeight - margin),
+    );
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(labelLeft, labelTop, labelWidth, labelHeight),
+        Radius.circular(theme.radiusMd),
       ),
+      Paint()..color = color,
     );
-    final textPainter = TextPainter(
-      text: textSpan,
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: (h.rect.width + 100).clamp(120, 350));
-
-    final labelLeft = h.rect.left.clamp(
-      4.0,
-      size.width - textPainter.width - 12,
-    );
-    final labelTop = (h.rect.top - 22).clamp(4.0, size.height - 18);
-
-    final labelRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(labelLeft, labelTop, textPainter.width + 10, 18),
-      const Radius.circular(4),
-    );
-
-    canvas.drawRRect(labelRect, Paint()..color = color);
-    textPainter.paint(canvas, Offset(labelLeft + 5, labelTop + 2));
+    textPainter
+      ..paint(canvas, Offset(labelLeft + padX, labelTop + padY))
+      ..dispose();
   }
 
   @override
   bool shouldRepaint(_HighlightPainter old) =>
       old.generation != generation ||
       !identical(old.selected, selected) ||
-      !identical(old.theme, theme);
+      old.outlineSeverity != outlineSeverity ||
+      !identical(old.theme, theme) ||
+      old.textScaler != textScaler ||
+      old.topInset != topInset ||
+      old.keyboardHeight != keyboardHeight ||
+      !identical(old.highlights, highlights);
 }
