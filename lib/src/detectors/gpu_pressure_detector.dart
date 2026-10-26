@@ -8,6 +8,7 @@ import '../models/base_detector.dart';
 import '../models/frame_stats.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/blur_sigma.dart';
@@ -437,11 +438,13 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       }
     }
     var bestSpan = timed.sublist(bestLeft, bestLeft + bestCount);
+    var timedSpan = true;
     // Untimed frames never outlive a scan, so they all arrived since the
     // previous one.
     if (untimed.length > bestCount) {
       bestCount = untimed.length;
       bestSpan = untimed;
+      timedSpan = false;
     }
     if (bestCount < minRasterDominantFrames) return null;
 
@@ -459,6 +462,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       medianRatio: median,
       critical: bestCount >= criticalRasterDominantFrames,
       identityUs: _ringHasIdentity[last] ? _ringIdentityUs[last] : null,
+      timed: timedSpan,
     );
   }
 
@@ -645,6 +649,15 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
             if (vmMissed) 'vmWorstRasterUs': vmWorstUs.toString(),
             'lifecyclePhase': 'steady',
           },
+          measurement: IssueMeasurement(
+            value: frameLeg.qualifyingCount.toDouble(),
+            unit: MeasurementUnit.frames,
+            warningAt: minRasterDominantFrames.toDouble(),
+            criticalAt: criticalRasterDominantFrames.toDouble(),
+            window: frameLeg.timed
+                ? const Duration(microseconds: _spanUs)
+                : null,
+          ),
           confidenceReason: vmMissed
               ? '$_frameLegReason, confirmed by the VM timeline raster timing'
               : _frameLegReason,
@@ -677,6 +690,14 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: DateTime.now(),
+          // Counted in one VM poll, not in a one-second span, so the
+          // measurement carries no window.
+          measurement: IssueMeasurement(
+            value: vmMissedInBatch.toDouble(),
+            unit: MeasurementUnit.frames,
+            warningAt: minRasterDominantFrames.toDouble(),
+            criticalAt: criticalRasterDominantFrames.toDouble(),
+          ),
           confidenceReason: 'Measured directly from VM timeline raster timing',
         ),
       );
@@ -870,6 +891,7 @@ class _FrameLegResult {
     required this.medianRatio,
     required this.critical,
     required this.identityUs,
+    required this.timed,
   });
 
   /// Dominant frames in the qualifying one-second span.
@@ -884,4 +906,8 @@ class _FrameLegResult {
 
   /// `rasterFinishUs ?? vsyncStartUs` of the last qualifying frame.
   final int? identityUs;
+
+  /// Whether the qualifying frames had timestamps, so a one-second span
+  /// was judged; untimed frames are counted as one group.
+  final bool timed;
 }

@@ -4,6 +4,7 @@ import 'package:meta/meta.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../models/base_detector.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/own_work_log.dart';
@@ -834,6 +835,11 @@ class StreamResourceDetector extends BaseDetector
         'dedupIdentitySeq': _emissionSeq.toString(),
       },
       confidenceReason: 'Allocation profile diff while heap_growing also fired',
+      measurement: IssueMeasurement(
+        value: top.delta.toDouble(),
+        unit: MeasurementUnit.count,
+        warningAt: minDelta.toDouble(),
+      ),
     );
     _issues
       ..clear()

@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -34,6 +35,15 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
   /// A list with more than this many times [childThreshold] children is
   /// critical.
   static const int criticalChildMultiplier = 3;
+
+  /// A child count with the non-lazy alert line and critical line.
+  IssueMeasurement _childMeasurement(int count) => IssueMeasurement(
+    value: count.toDouble(),
+    unit: MeasurementUnit.count,
+    warningAt: childThreshold.toDouble(),
+    criticalAt: (childThreshold * criticalChildMultiplier).toDouble(),
+    strict: true,
+  );
 
   /// `non_lazy_shrinkwrap` is critical above this many children.
   static const shrinkWrapCriticalChildCount = 100;
@@ -294,6 +304,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
         occurrenceId: identityHashCode(scrollElement),
+        measurement: _childMeasurement(childCount),
       ),
     );
   }
@@ -353,6 +364,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
         occurrenceId: identityHashCode(sliverElement),
+        measurement: _childMeasurement(childCount),
       ),
     );
   }
@@ -413,6 +425,15 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         confidence: IssueConfidence.possible,
         confidenceReason:
             'Structural scan only. The scan found a shrinkWrap list in a Flex',
+        measurement: childCount == null
+            ? null
+            : IssueMeasurement(
+                value: childCount.toDouble(),
+                unit: MeasurementUnit.count,
+                warningAt: shrinkWrapMinChildCount.toDouble(),
+                criticalAt: shrinkWrapCriticalChildCount.toDouble(),
+                strict: true,
+              ),
         title:
             '$widgetName(shrinkWrap: true) inside $flexName: '
             '$built children built eagerly',
@@ -517,6 +538,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
         occurrenceId: identityHashCode(sliverElement),
+        measurement: _childMeasurement(childCount),
       ),
     );
   }
@@ -699,6 +721,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
                   'Structural scan only. The scan found a non-lazy list pattern',
               detectedAt: DateTime.now(),
               occurrenceId: identityHashCode(scrollElement),
+              measurement: _childMeasurement(directChildCount),
             ),
           );
         }

@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:meta/meta.dart';
 
 import '../models/base_detector.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../validation/detector_metadata.dart';
@@ -540,6 +541,12 @@ class TrackedResourceDetector extends BaseDetector
         confidenceReason:
             'User-registered Sleuth.track instances exceed the concurrent '
             'threshold.',
+        measurement: IssueMeasurement(
+          value: liveCount.toDouble(),
+          unit: MeasurementUnit.count,
+          warningAt: effectiveMax.toDouble(),
+          strict: true,
+        ),
       );
     } else {
       bucket.concurrentFirstCrossMicros = null;
@@ -607,6 +614,11 @@ class TrackedResourceDetector extends BaseDetector
       confidenceReason:
           'User-registered Sleuth.track instance has not been finalised '
           'within the long-lived threshold.',
+      measurement: IssueMeasurement(
+        value: ageSeconds.toDouble(),
+        unit: MeasurementUnit.seconds,
+        warningAt: effectiveLongLived.toDouble(),
+      ),
     );
   }
 

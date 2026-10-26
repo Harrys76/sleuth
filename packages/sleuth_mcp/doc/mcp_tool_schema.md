@@ -2,7 +2,7 @@
 
 This file describes the return shapes of the 14 MCP tools that `sleuth_mcp` exposes. AI clients, and CI scripts that use `sleuth_check`, can rely on these shapes within `schemaVersion: 2`.
 
-**Compact issues (`schemaVersion: 2`).** By default `get_issues` and `get_snapshot` trim each issue to `severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason` and `rootCauseIds`, copying only the keys that are present. Pass `verbose: true` for the full issue, which has up to 26 keys. Compaction removes fields only and keeps `stableId` and `severity`, so `compare_snapshots` and `check_budgets` work on compact snapshots.
+**Compact issues (`schemaVersion: 2`).** By default `get_issues` and `get_snapshot` trim each issue to `severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason` and `rootCauseIds`, copying only the keys that are present. Pass `verbose: true` for the full issue, which has up to 27 keys, including the optional `measurement` object (`value`, `unit`, `warningAt`, `criticalAt`, `windowMs`, `warningStrict`, `criticalStrict`). Compaction removes fields only and keeps `stableId` and `severity`, so `compare_snapshots` and `check_budgets` work on compact snapshots.
 
 [`mcp_tool_schema.json`](mcp_tool_schema.json) is the source of truth, and the audit test parses it. This markdown is a readable copy.
 

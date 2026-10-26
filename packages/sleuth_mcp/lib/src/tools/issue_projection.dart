@@ -1,6 +1,6 @@
 /// Compact-issue projection shared by `get_issues` and `get_snapshot`.
 ///
-/// The app emits each issue with ~22 fields, most of them internal
+/// The app emits each issue with up to 27 keys, most of them internal
 /// provenance an MCP client never acts on. These helpers trim to the
 /// actionable subset (default) so responses stay readable + cheap, while a
 /// `verbose` flag preserves the full shape.

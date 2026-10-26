@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../models/base_detector.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../network/request_record.dart';
 import '../utils/fix_hint_builder.dart';
@@ -331,6 +332,12 @@ class NetworkMonitorDetector extends BaseDetector
         // Stopwatch) against this detector-side measurement so a regression
         // in HTTP-duration computation cannot certify the wrong magnitude.
         extraTraceArgs: {'observedDurationMs': worstMs.toString()},
+        measurement: IssueMeasurement(
+          value: worstMs.toDouble(),
+          unit: MeasurementUnit.milliseconds,
+          warningAt: slowThresholdMs.toDouble(),
+          criticalAt: criticalSlowThresholdMs.toDouble(),
+        ),
         confidenceReason: 'Measured directly from HTTP interception',
       ),
     );
@@ -393,6 +400,11 @@ class NetworkMonitorDetector extends BaseDetector
         detectedAt: detectedAt,
         dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
         extraTraceArgs: {'observedResponseBytes': worstBytes.toString()},
+        measurement: IssueMeasurement(
+          value: worstBytes.toDouble(),
+          unit: MeasurementUnit.bytes,
+          warningAt: largeResponseBytes.toDouble(),
+        ),
         confidenceReason: 'Measured directly from HTTP interception',
       ),
     );
@@ -453,6 +465,13 @@ class NetworkMonitorDetector extends BaseDetector
         detectedAt: detectedAt,
         dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
         extraTraceArgs: {'observedRequestCount': peakCount.toString()},
+        measurement: IssueMeasurement(
+          value: peakCount.toDouble(),
+          unit: MeasurementUnit.count,
+          warningAt: frequencyLimit.toDouble(),
+          window: const Duration(milliseconds: _frequencyWindowMs),
+          strict: true,
+        ),
         confidenceReason: 'Measured directly from HTTP interception',
       ),
     );
@@ -544,6 +563,13 @@ class NetworkMonitorDetector extends BaseDetector
         detectedAt: detectedAt,
         dedupIdentityMicros: _lastErrorIdentityMicros,
         extraTraceArgs: {'observedErrorCount': peakCount.toString()},
+        measurement: IssueMeasurement(
+          value: peakCount.toDouble(),
+          unit: MeasurementUnit.count,
+          warningAt: errorSpikeThreshold.toDouble(),
+          criticalAt: errorSpikeCriticalThreshold.toDouble(),
+          window: const Duration(milliseconds: _frequencyWindowMs),
+        ),
         confidenceReason: 'Measured directly from HTTP interception',
       ),
     );
@@ -650,6 +676,13 @@ class NetworkMonitorDetector extends BaseDetector
           detectedAt: detectedAt,
           dedupIdentityMicros: _lastSamePathIdentityMicros,
           extraTraceArgs: {'observedClusterSize': maxCluster.toString()},
+          measurement: IssueMeasurement(
+            value: maxCluster.toDouble(),
+            unit: MeasurementUnit.count,
+            warningAt: _duplicateThreshold.toDouble(),
+            criticalAt: _criticalDuplicateThreshold.toDouble(),
+            window: const Duration(milliseconds: _duplicateWindowMs),
+          ),
           confidenceReason:
               'Request timing correlation and same-path clustering (query '
               'stripped)',

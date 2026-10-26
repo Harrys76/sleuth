@@ -2,7 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/heap_floor_tracker.dart';
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/models/heap_sample.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+
+import '../helpers/measurement_matchers.dart';
 
 const _mb = 1000000;
 
@@ -85,6 +88,14 @@ void main() {
         'observedFloorSlopeBytesPerSec': '700000',
         'floorPointCount': '3',
       });
+      expectMeasurement(
+        issue,
+        value: 700000,
+        unit: MeasurementUnit.bytesPerSecond,
+        warningAt: r.detector.growthThresholdBytesPerSec.toDouble(),
+        tolerance: 1e-3,
+      );
+      expectSeverityMatchesMeasurement(issue, strict: true);
       expect(r.detector.isHeapGrowingActive(), isTrue);
       expect(r.detector.floorVerdict.state, HeapFloorState.growing);
     });

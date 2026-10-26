@@ -4,6 +4,7 @@ import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../models/phase_event.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
@@ -257,12 +258,22 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       // as a string per `extraTraceArgs` contract (VM timeline args are
       // string-keyed string-valued).
       extraTraceArgs: {'observedDurationMs': ms.toString()},
+      measurement: _measurement(durationUs),
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
       sourceRoute: _sourceRouteProvider(),
       interactionContext: _interactionContextProvider?.call(),
     );
   }
+
+  /// The build duration with the lines it was judged against.
+  IssueMeasurement _measurement(int durationUs) => IssueMeasurement(
+    value: durationUs / 1000,
+    unit: MeasurementUnit.milliseconds,
+    warningAt: _lagThresholdUs / 1000,
+    criticalAt: _lagThresholdUs * criticalMultiplier / 1000,
+    strict: true,
+  );
 
   /// Issue for a batch that carries build durations without timestamps.
   /// The batch's newest event timestamp (when known) identifies it for
@@ -296,6 +307,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       // Same observed-axis stamping as the enriched path so the audit
       // gate's cross-check applies to fallback emissions too.
       extraTraceArgs: {'observedDurationMs': ms.toString()},
+      measurement: _measurement(durationUs),
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
       sourceRoute: _sourceRouteProvider(),

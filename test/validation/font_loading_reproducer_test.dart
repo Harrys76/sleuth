@@ -17,7 +17,9 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sleuth/src/detectors/font_loading_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '_helpers/structural_reproducer_harness.dart';
 
 void main() {
@@ -40,6 +42,13 @@ void main() {
           ),
         );
         expect(issues, hasStableId('runtime_font_loading'));
+        // A structural pattern with no number: no measurement.
+        expect(
+          issues
+              .firstWhere((i) => i.stableId == 'runtime_font_loading')
+              .measurement,
+          isNull,
+        );
       },
     );
 
@@ -109,6 +118,14 @@ void main() {
           ),
         );
         expect(issues, hasStableId('multiple_custom_fonts'));
+        // Two families against the maxFamilies line; no critical line.
+        expectMeasurement(
+          issues.firstWhere((i) => i.stableId == 'multiple_custom_fonts'),
+          value: 2,
+          unit: MeasurementUnit.count,
+          warningAt: detector.maxFamilies.toDouble(),
+          strict: true,
+        );
       },
     );
 

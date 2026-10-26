@@ -44,7 +44,29 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/listview_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+
+import '../helpers/measurement_matchers.dart';
+
+/// [issue] measures [count] children against the non-lazy lines of
+/// [detector]: its child threshold and that times the critical multiplier.
+void _expectChildMeasurement(
+  PerformanceIssue issue,
+  ListviewDetector detector,
+  int count,
+) {
+  expectMeasurement(
+    issue,
+    value: count.toDouble(),
+    unit: MeasurementUnit.count,
+    warningAt: detector.childThreshold.toDouble(),
+    criticalAt:
+        (detector.childThreshold * ListviewDetector.criticalChildMultiplier)
+            .toDouble(),
+  );
+  expectSeverityMatchesMeasurement(issue, strict: true);
+}
 
 void main() {
   group('ListviewDetector reproducer — non_lazy_listview', () {
@@ -109,6 +131,7 @@ void main() {
           .toList();
       expect(issues, hasLength(1));
       expect(issues.single.title, contains('6 children'));
+      _expectChildMeasurement(issues.single, detector, 6);
     });
 
     testWidgets('20 children (well above, > 3×threshold) fires critical', (
@@ -137,6 +160,7 @@ void main() {
       expect(issues, hasLength(1));
       // 20 > 5×3 = 15 so severity escalates to critical.
       expect(issues.single.severity.name, 'critical');
+      _expectChildMeasurement(issues.single, detector, 20);
     });
 
     testWidgets('ListView.builder (lazy) does NOT fire at any count', (
@@ -204,6 +228,39 @@ void main() {
           .toList();
       expect(issues, hasLength(1));
       expect(issues.single.title, contains('6 children'));
+      _expectChildMeasurement(issues.single, detector, 6);
+    });
+
+    testWidgets('SliverToBoxAdapter + Column(16 children) is critical and '
+        'measured at 16', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            width: 200,
+            height: 400,
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: List.generate(
+                      16,
+                      (i) => SizedBox(height: 40, child: Text('$i')),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      final issue = detector.issues.singleWhere(
+        (i) => i.stableId == 'sliver_to_box_adapter_large',
+      );
+      expect(issue.severity, IssueSeverity.critical);
+      _expectChildMeasurement(issue, detector, 16);
     });
 
     testWidgets(
@@ -287,6 +344,8 @@ void main() {
           .where((i) => i.stableId == 'sliver_fill_remaining_scrollable')
           .toList();
       expect(issues, hasLength(1));
+      // A structural pattern with no number: no measurement.
+      expect(issues.single.measurement, isNull);
     });
 
     testWidgets(
@@ -373,6 +432,7 @@ void main() {
           .toList();
       expect(issues, hasLength(1));
       expect(issues.single.title, contains('6 children'));
+      _expectChildMeasurement(issues.single, detector, 6);
     });
 
     testWidgets('GridView.builder (lazy) does NOT fire at any count', (
@@ -440,6 +500,7 @@ void main() {
           .toList();
       expect(issues, hasLength(1));
       expect(issues.single.title, contains('6 children'));
+      _expectChildMeasurement(issues.single, detector, 6);
     });
 
     testWidgets(
@@ -515,6 +576,7 @@ void main() {
           .toList();
       expect(issues, hasLength(1));
       expect(issues.single.title, contains('6 children'));
+      _expectChildMeasurement(issues.single, detector, 6);
     });
 
     testWidgets(
@@ -652,6 +714,8 @@ void main() {
           .where((i) => i.stableId == 'sliver_to_box_adapter_shrinkwrap')
           .toList();
       expect(issues, hasLength(1));
+      // A structural pattern with no number: no measurement.
+      expect(issues.single.measurement, isNull);
     });
 
     testWidgets('shrinkWrap: false inside SliverToBoxAdapter does NOT fire', (
@@ -780,6 +844,7 @@ void main() {
             .toList();
         expect(issues, hasLength(1));
         expect(issues.single.title, contains('6 children'));
+        _expectChildMeasurement(issues.single, detector, 6);
       },
     );
 
@@ -840,6 +905,32 @@ void main() {
         Column(children: [ListView(shrinkWrap: true, children: rows(25))]),
       );
       expect(shrinkWrapIssues().single.severity, IssueSeverity.warning);
+      expectMeasurement(
+        shrinkWrapIssues().single,
+        value: 25,
+        unit: MeasurementUnit.count,
+        warningAt: ListviewDetector.shrinkWrapMinChildCount.toDouble(),
+        criticalAt: ListviewDetector.shrinkWrapCriticalChildCount.toDouble(),
+      );
+    });
+
+    testWidgets('a builder that ends without an itemCount fires with no '
+        'measurement', (tester) async {
+      await scan(
+        tester,
+        Column(
+          children: [
+            ListView.builder(
+              shrinkWrap: true,
+              itemBuilder: (_, i) => i < 30 ? const SizedBox(height: 2) : null,
+            ),
+          ],
+        ),
+      );
+      // The delegate has no child count, so the title says "all" and
+      // there is no number to measure.
+      expect(shrinkWrapIssues().single.title, contains('all children'));
+      expect(shrinkWrapIssues().single.measurement, isNull);
     });
 
     testWidgets('20 children (at the gate) silent', (tester) async {
@@ -876,6 +967,14 @@ void main() {
         ),
       );
       expect(shrinkWrapIssues().single.severity, IssueSeverity.critical);
+      expectMeasurement(
+        shrinkWrapIssues().single,
+        value: 101,
+        unit: MeasurementUnit.count,
+        warningAt: ListviewDetector.shrinkWrapMinChildCount.toDouble(),
+        criticalAt: ListviewDetector.shrinkWrapCriticalChildCount.toDouble(),
+      );
+      expectSeverityMatchesMeasurement(shrinkWrapIssues().single, strict: true);
     });
 
     testWidgets('100 builder items warning', (tester) async {
@@ -892,6 +991,9 @@ void main() {
         ),
       );
       expect(shrinkWrapIssues().single.severity, IssueSeverity.warning);
+      // 100 sits on the critical line; the detector compares strictly
+      // greater, so it stays a warning.
+      expectSeverityMatchesMeasurement(shrinkWrapIssues().single, strict: true);
     });
 
     testWidgets('no Flex ancestor silent', (tester) async {

@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/issue_measurement.dart';
+
 /// A per-type rate that is currently reported.
 @immutable
 class HeldRate {
@@ -19,6 +21,32 @@ class HeldRate {
   final bool critical;
 
   double get rate => seconds > 0 ? count / seconds : 0;
+
+  /// [rate] per second over the [seconds] it was counted in, with the
+  /// lines it is held against. [RateHysteresis] enters a rate at or above
+  /// its threshold and makes it critical only above the critical line;
+  /// [warningStrict] marks callers whose threshold enters only above it.
+  ///
+  /// [critical] can disagree with where [rate] sits against the lines, in
+  /// either direction. A held type turns critical on the latest window's
+  /// rate while [rate] averages two windows, and a critical one stays
+  /// critical until the average falls below [RateHysteresis.exitFactor]
+  /// times the critical line.
+  IssueMeasurement measurement({
+    required double warningAt,
+    double? criticalAt,
+    bool warningStrict = false,
+  }) => IssueMeasurement(
+    value: rate,
+    unit: MeasurementUnit.perSecond,
+    warningAt: warningAt,
+    criticalAt: criticalAt,
+    window: Duration(
+      microseconds: (seconds * Duration.microsecondsPerSecond).round(),
+    ),
+    warningStrict: warningStrict,
+    criticalStrict: true,
+  );
 }
 
 /// Keeps per-type debug rates from flipping on and off between scans.

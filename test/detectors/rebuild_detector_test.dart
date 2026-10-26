@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/phase_event.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
+import '../helpers/measurement_matchers.dart';
 import '../helpers/rebuild_capture_helpers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
@@ -373,6 +375,20 @@ void main() {
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.widgetName, 'MyWidget');
         expect(detector.issues.first.confidence, IssueConfidence.confirmed);
+        expectMeasurement(
+          detector.issues.first,
+          value: 20,
+          unit: MeasurementUnit.perSecond,
+          warningAt: detector.rebuildsPerSecThreshold.toDouble(),
+          criticalAt:
+              detector.rebuildsPerSecThreshold *
+              RebuildDetector.debugCriticalMultiplier.toDouble(),
+          window: const Duration(seconds: 1),
+        );
+        expectSeverityMatchesMeasurement(
+          detector.issues.first,
+          criticalStrict: true,
+        );
       });
 
       test('normalizes to per-second rate using elapsed microseconds', () {
@@ -388,6 +404,12 @@ void main() {
         // 10 rebuilds in 0.5s = 20/sec, exceeds threshold
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.title, contains('20/sec'));
+        // The rate keeps the half-second window it was counted in.
+        expect(detector.issues.first.measurement!.value, closeTo(20, 1e-9));
+        expect(
+          detector.issues.first.measurement!.window,
+          const Duration(milliseconds: 500),
+        );
       });
 
       test('per-widget-type attribution in issue detail and widgetName', () {
@@ -436,6 +458,97 @@ void main() {
         detector.evaluateNow();
 
         expect(detector.issues.first.severity, IssueSeverity.critical);
+        expectMeasurement(
+          detector.issues.first,
+          value: 35,
+          unit: MeasurementUnit.perSecond,
+          warningAt: detector.rebuildsPerSecThreshold.toDouble(),
+          criticalAt:
+              detector.rebuildsPerSecThreshold *
+              RebuildDetector.debugCriticalMultiplier.toDouble(),
+          window: const Duration(seconds: 1),
+        );
+        expectSeverityMatchesMeasurement(
+          detector.issues.first,
+          criticalStrict: true,
+        );
+      });
+
+      test('a held rate goes critical on the latest window while its value '
+          'averages two', () {
+        void window(int count) {
+          detector.updateDebugSnapshot(
+            DebugSnapshot(
+              rebuildCounts: {'MyWidget': count},
+              totalPaintCount: 0,
+              elapsed: const Duration(seconds: 1),
+            ),
+          );
+          detector.evaluateNow();
+        }
+
+        window(12);
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+        window(40);
+        final issue = detector.issues.single;
+        expect(issue.severity, IssueSeverity.critical);
+        // 40 in the latest second is above the line of 30; the title and
+        // the value report the two-second average, 26/sec.
+        expect(issue.title, contains('(26/sec)'));
+        expectMeasurement(
+          issue,
+          value: 26,
+          unit: MeasurementUnit.perSecond,
+          warningAt: detector.rebuildsPerSecThreshold.toDouble(),
+          criticalAt:
+              detector.rebuildsPerSecThreshold *
+              RebuildDetector.debugCriticalMultiplier.toDouble(),
+          window: const Duration(seconds: 2),
+          criticalStrict: true,
+        );
+      });
+
+      test('a warning can carry a value above the critical line', () {
+        void window(int count) {
+          detector.updateDebugSnapshot(
+            DebugSnapshot(
+              rebuildCounts: {'MyWidget': count},
+              totalPaintCount: 0,
+              elapsed: const Duration(seconds: 1),
+            ),
+          );
+          detector.evaluateNow();
+        }
+
+        window(100);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+        window(2);
+        expect(detector.issues.single.severity, IssueSeverity.critical);
+        // (2 + 40) / 2 = 21 is under 0.75 times the line of 30, so the
+        // critical hold ends although this window alone is 40.
+        window(40);
+        expect(detector.issues.single.severity, IssueSeverity.warning);
+        // 30 in the latest second is not above 30, so the rate stays a
+        // warning while its two-second average, 35/sec, is above the line.
+        window(30);
+        final issue = detector.issues.single;
+        expect(issue.severity, IssueSeverity.warning);
+        expect(issue.title, contains('(35/sec)'));
+        expectMeasurement(
+          issue,
+          value: 35,
+          unit: MeasurementUnit.perSecond,
+          warningAt: detector.rebuildsPerSecThreshold.toDouble(),
+          criticalAt:
+              detector.rebuildsPerSecThreshold *
+              RebuildDetector.debugCriticalMultiplier.toDouble(),
+          window: const Duration(seconds: 2),
+          criticalStrict: true,
+        );
+        expect(
+          issue.measurement!.value,
+          greaterThan(issue.measurement!.criticalAt!),
+        );
       });
     });
 
@@ -613,6 +726,13 @@ void main() {
 
         expect(detector.issues.single.stableId, 'stateful_density');
         expect(detector.issues.single.title, contains('11 instances'));
+        expectMeasurement(
+          detector.issues.single,
+          value: 11,
+          unit: MeasurementUnit.count,
+          warningAt: detector.statefulDensityThreshold.toDouble(),
+          strict: false,
+        );
       });
 
       testWidgets('9 instances stay silent with rebuildsPerSecThreshold 1', (
@@ -1095,6 +1215,20 @@ void main() {
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.detail, contains('builder widget'));
       expect(detector.issues.first.widgetName, 'StreamBuilder');
+      // A builder widget alerts at 3 times the per-type threshold, and its
+      // critical line is that times the critical multiplier.
+      final builderLine =
+          (detector.rebuildsPerSecThreshold *
+                  RebuildDetector.builderThresholdMultiplier)
+              .toDouble();
+      expectMeasurement(
+        detector.issues.first,
+        value: 35,
+        unit: MeasurementUnit.perSecond,
+        warningAt: builderLine,
+        criticalAt: builderLine * RebuildDetector.debugCriticalMultiplier,
+        window: const Duration(seconds: 1),
+      );
     });
 
     test('FutureBuilder at 25/sec not flagged', () {
@@ -1294,6 +1428,14 @@ void main() {
       expect(issues.single.detail, contains('BUILD scopes'));
       expect(issues.single.detail, contains('window of about 1 s'));
       expect(issues.single.fixHint, contains('11.0% of UI-thread time'));
+      expectMeasurement(
+        issues.single,
+        value: 11,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.buildTimePercentThreshold,
+        criticalAt: detector.buildTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
+      );
     });
 
     test('31.0 % over 1 000 ms is critical', () {
@@ -1302,6 +1444,39 @@ void main() {
       expect(issues, hasLength(1));
       expect(issues.single.severity, IssueSeverity.critical);
       expect(issues.single.extraTraceArgs?['observedBuildPercent'], '31.0');
+      expectMeasurement(
+        issues.single,
+        value: 31,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.buildTimePercentThreshold,
+        criticalAt: detector.buildTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
+      );
+      expectSeverityMatchesMeasurement(issues.single, strict: true);
+    });
+
+    test('a held critical card carries the current, lower share', () {
+      closeWindow(310000);
+      expect(activity().single.severity, IssueSeverity.critical);
+      // 15 % is a warning on its own, under 0.8 times the 30 % critical
+      // line for only one window, so the card stays critical. Its
+      // measurement is this window's share, which matches its title.
+      closeWindow(150000);
+      final issue = activity().single;
+      expect(issue.severity, IssueSeverity.critical);
+      expect(issue.title, contains('15.0% of UI time'));
+      expectMeasurement(
+        issue,
+        value: 15,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.buildTimePercentThreshold,
+        criticalAt: detector.buildTimePercentThreshold * 3,
+        window: const Duration(seconds: 1),
+      );
+      expect(
+        issue.measurement!.value,
+        lessThan(issue.measurement!.criticalAt!),
+      );
     });
 
     test('exactly 3× the threshold stays warning (strict >)', () {
@@ -1317,6 +1492,14 @@ void main() {
       closeWindow(154000, windowMs: 1400);
       expect(detector.lastObservedBuildPercent, closeTo(11.0, 1e-9));
       expect(activity().single.extraTraceArgs?['observedBuildPercent'], '11.0');
+      expectMeasurement(
+        activity().single,
+        value: 11,
+        unit: MeasurementUnit.percent,
+        warningAt: detector.buildTimePercentThreshold,
+        criticalAt: detector.buildTimePercentThreshold * 3,
+        window: const Duration(milliseconds: 1400),
+      );
     });
 
     test('custom threshold gates warning and 3× critical', () {

@@ -22,9 +22,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/network/http_monitor.dart';
 import 'package:sleuth/src/network/request_record.dart';
+
+import '../helpers/measurement_matchers.dart';
 
 /// How the Layer 2 consumer drains the response body. Each mode exercises
 /// a different `StreamSubscription` code path the v0.16.1 fix covers:
@@ -92,6 +95,14 @@ void main() {
           .toList();
       expect(slow, hasLength(1));
       expect(slow.first.severity, IssueSeverity.warning);
+      expectMeasurement(
+        slow.first,
+        value: 1000,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: detector.slowThresholdMs.toDouble(),
+        criticalAt: detector.criticalSlowThresholdMs.toDouble(),
+      );
+      expectSeverityMatchesMeasurement(slow.first);
     });
 
     test('2999 ms — below critical, warning stays', () {
@@ -104,6 +115,14 @@ void main() {
       detector.processRecord(record(durationMs: 3000));
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
+      expectMeasurement(
+        detector.issues.first,
+        value: 3000,
+        unit: MeasurementUnit.milliseconds,
+        warningAt: detector.slowThresholdMs.toDouble(),
+        criticalAt: detector.criticalSlowThresholdMs.toDouble(),
+      );
+      expectSeverityMatchesMeasurement(detector.issues.first);
     });
 
     test('3001 ms — above critical, severity stays critical', () {
@@ -804,6 +823,13 @@ void main() {
         hasLength(1),
         reason: 'responseBytes == largeResponseBytes must fire (>=).',
       );
+      expectMeasurement(
+        atIssues.single,
+        value: limit.toDouble(),
+        unit: MeasurementUnit.bytes,
+        warningAt: limit.toDouble(),
+      );
+      expectSeverityMatchesMeasurement(atIssues.single);
       d.dispose();
       // 2× threshold: fires
       d = NetworkMonitorDetector(
@@ -844,6 +870,17 @@ void main() {
         hasLength(1),
         reason: 'recordsList.length > frequencyLimit must fire.',
       );
+      final frequency = d.issues.singleWhere(
+        (i) => i.stableId == 'request_frequency',
+      );
+      expectMeasurement(
+        frequency,
+        value: (limit + 1).toDouble(),
+        unit: MeasurementUnit.count,
+        warningAt: limit.toDouble(),
+        window: const Duration(seconds: 5),
+      );
+      expectSeverityMatchesMeasurement(frequency, strict: true);
       d.dispose();
       // 2× limit: fires
       d = NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
@@ -983,6 +1020,19 @@ void main() {
         hasLength(1),
         reason: 'errorRecords.length == 3 must fire.',
       );
+      final warnSpike = d.issues.singleWhere(
+        (i) => i.stableId == 'http_error_spike',
+      );
+      expectMeasurement(
+        warnSpike,
+        value: 3,
+        unit: MeasurementUnit.count,
+        warningAt: NetworkMonitorDetector.errorSpikeThreshold.toDouble(),
+        criticalAt: NetworkMonitorDetector.errorSpikeCriticalThreshold
+            .toDouble(),
+        window: const Duration(seconds: 5),
+      );
+      expectSeverityMatchesMeasurement(warnSpike);
       d.dispose();
       // Ten errors fire as critical (peakCount >= 10).
       d = NetworkMonitorDetector(clock: () => fakeNow);
@@ -995,6 +1045,16 @@ void main() {
         IssueSeverity.critical,
         reason: 'peakCount >= 10 must escalate to critical.',
       );
+      expectMeasurement(
+        crit,
+        value: 10,
+        unit: MeasurementUnit.count,
+        warningAt: NetworkMonitorDetector.errorSpikeThreshold.toDouble(),
+        criticalAt: NetworkMonitorDetector.errorSpikeCriticalThreshold
+            .toDouble(),
+        window: const Duration(seconds: 5),
+      );
+      expectSeverityMatchesMeasurement(crit);
       d.dispose();
     });
 
@@ -1034,6 +1094,17 @@ void main() {
         reason: '3 same-URL records >= _duplicateThreshold must fire.',
       );
       expect(warn.first.severity, IssueSeverity.warning);
+      // The same-path lines are private constants: 3 and 10 requests in
+      // 500 ms.
+      expectMeasurement(
+        warn.first,
+        value: 3,
+        unit: MeasurementUnit.count,
+        warningAt: 3,
+        criticalAt: 10,
+        window: const Duration(milliseconds: 500),
+      );
+      expectSeverityMatchesMeasurement(warn.first);
       d.dispose();
       // 10 same-URL records: fires critical
       d = NetworkMonitorDetector(clock: () => fakeNow);
@@ -1052,6 +1123,15 @@ void main() {
             'maxCluster >= _criticalDuplicateThreshold must '
             'escalate to critical.',
       );
+      expectMeasurement(
+        crit,
+        value: 10,
+        unit: MeasurementUnit.count,
+        warningAt: 3,
+        criticalAt: 10,
+        window: const Duration(milliseconds: 500),
+      );
+      expectSeverityMatchesMeasurement(crit);
       d.dispose();
     });
 

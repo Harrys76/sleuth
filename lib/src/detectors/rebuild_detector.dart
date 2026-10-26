@@ -8,6 +8,7 @@ import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../models/phase_event.dart';
+import '../models/issue_measurement.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -198,6 +199,9 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// >0 = a window completed with build time (may produce issues).
   double? _pendingVmWindowPercent;
 
+  /// Measured length of the window behind [_pendingVmWindowPercent].
+  int _pendingVmWindowUs = 0;
+
   /// null = no new snapshot delivered since last evaluate.
   /// A snapshot with 0 counts means activity stopped (should clear issues).
   DebugSnapshot? _pendingDebugSnapshot;
@@ -375,6 +379,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       // phase time than the window holds.
       final percent = (_buildTimeUs / elapsedUs * 100).clamp(0.0, 100.0);
       _pendingVmWindowPercent = percent;
+      _pendingVmWindowUs = elapsedUs;
       _lastObservedBuildPercent = percent;
       // Stage enrichment atomically with the window share
       _stagedEnrichedNames = _pendingEnrichedNames.isNotEmpty
@@ -671,6 +676,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
       extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+      measurement: held.measurement(
+        warningAt: _thresholdFor(typeName),
+        criticalAt: _thresholdFor(typeName) * debugCriticalMultiplier,
+      ),
       confidenceReason: 'Measured directly from debug callback rebuild counter',
     );
   }
@@ -746,6 +755,14 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         'observedBuildPercent': formatted,
         'lifecyclePhase': ?lifecyclePhase,
       },
+      measurement: IssueMeasurement(
+        value: percent,
+        unit: MeasurementUnit.percent,
+        warningAt: buildTimePercentThreshold,
+        criticalAt: buildTimePercentThreshold * 3,
+        window: Duration(microseconds: _pendingVmWindowUs),
+        strict: true,
+      ),
       confidenceReason: 'Measured directly from VM timeline BUILD durations',
     );
   }
@@ -789,6 +806,11 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
         extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
+        measurement: IssueMeasurement(
+          value: totalStateful.toDouble(),
+          unit: MeasurementUnit.count,
+          warningAt: statefulDensityThreshold.toDouble(),
+        ),
         confidenceReason:
             'Structural scan only. Connect the VM for higher confidence',
       ),

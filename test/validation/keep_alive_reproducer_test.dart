@@ -15,8 +15,11 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:sleuth/sleuth.dart' show IssueConfidence, IssueSeverity;
+import 'package:sleuth/sleuth.dart'
+    show IssueConfidence, IssueSeverity, MeasurementUnit;
 import 'package:sleuth/src/detectors/keep_alive_detector.dart';
+
+import '../helpers/measurement_matchers.dart';
 
 /// Page that opts in to AutomaticKeepAlive.
 class _KeepAlivePage extends StatefulWidget {
@@ -112,6 +115,44 @@ void main() {
         final first = keepAliveIssues.first;
         expect(first.severity, IssueSeverity.critical);
         expect(first.confidence, IssueConfidence.possible);
+        expectMeasurement(
+          first,
+          value: 4,
+          unit: MeasurementUnit.count,
+          warningAt: detector.threshold.toDouble(),
+          criticalAt: detector.threshold * 2.0,
+        );
+      },
+    );
+
+    testWidgets(
+      'excessive_keep_alive: 4 kept-alive pages above threshold=2 but not '
+      'above twice it is a warning measured at 4',
+      (tester) async {
+        final detector = KeepAliveDetector(threshold: 2);
+        final controller = PageController();
+        addTearDown(controller.dispose);
+        await _buildAndVisitPageView(
+          tester,
+          controller,
+          pageCount: 4,
+          keepAliveFlags: const [true, true, true, true],
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        final issue = detector.issues.singleWhere(
+          (i) => (i.stableId ?? '').startsWith('excessive_keep_alive'),
+        );
+        expect(issue.severity, IssueSeverity.warning);
+        expectMeasurement(
+          issue,
+          value: 4,
+          unit: MeasurementUnit.count,
+          warningAt: detector.threshold.toDouble(),
+          criticalAt: detector.threshold * 2.0,
+        );
+        // The detector compares strictly greater, so 4 at the critical
+        // line of 4 stays a warning.
+        expectSeverityMatchesMeasurement(issue, strict: true);
       },
     );
 

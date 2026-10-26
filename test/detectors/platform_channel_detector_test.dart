@@ -1,9 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
+import 'package:sleuth/src/models/issue_measurement.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 import 'package:vm_service/vm_service.dart' show TimelineEvent;
 
+import '../helpers/measurement_matchers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
@@ -44,6 +46,38 @@ void main() {
         detector.issues.first.observationSource,
         ObservationSource.vmTimeline,
       );
+      expectMeasurement(
+        detector.issues.first,
+        value: 25,
+        unit: MeasurementUnit.perSecond,
+        warningAt: detector.callsPerSecThreshold.toDouble(),
+        criticalAt:
+            (detector.callsPerSecThreshold *
+                    PlatformChannelDetector.criticalMultiplier)
+                .toDouble(),
+      );
+      expectSeverityMatchesMeasurement(detector.issues.first, strict: true);
+    });
+
+    test('a configured threshold sets both measurement lines', () {
+      detector = PlatformChannelDetector(
+        callsPerSecThreshold: 10,
+        clock: () => fakeNow,
+      );
+      detector.processTimelineData(platformChannelData(channelEventCount: 15));
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+
+      final issue = detector.issues.single;
+      expect(issue.severity, IssueSeverity.warning);
+      expectMeasurement(
+        issue,
+        value: 15,
+        unit: MeasurementUnit.perSecond,
+        warningAt: 10,
+        criticalAt: 20,
+        strict: true,
+      );
     });
 
     test('critical when calls/sec exceed 2x threshold after flush', () {
@@ -53,6 +87,17 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
+      expectMeasurement(
+        detector.issues.first,
+        value: 45,
+        unit: MeasurementUnit.perSecond,
+        warningAt: detector.callsPerSecThreshold.toDouble(),
+        criticalAt:
+            (detector.callsPerSecThreshold *
+                    PlatformChannelDetector.criticalMultiplier)
+                .toDouble(),
+      );
+      expectSeverityMatchesMeasurement(detector.issues.first, strict: true);
     });
 
     test('consecutive overloads during cooldown retain prior issue identity '
@@ -65,6 +110,8 @@ void main() {
       expect(detector.issues, hasLength(1));
       final firstFireIdentity = detector.issues.first.dedupIdentityMicros;
       expect(firstFireIdentity, isNotNull);
+      final firstMeasurement = detector.issues.first.measurement;
+      expect(firstMeasurement, isNotNull);
 
       // Subsequent windows ALSO exceed threshold. Cooldown semantics
       // suppress fresh emission and retain the prior issue so the
@@ -88,6 +135,11 @@ void main() {
               'cooldown cycle $i: dedup identity preserved across '
               'suppressed cycles so composite-key dedup collapses '
               'consecutive overloads to one trace record',
+        );
+        expect(
+          detector.issues.first.measurement,
+          firstMeasurement,
+          reason: 'cooldown cycle $i: the re-shown issue keeps its measurement',
         );
       }
 
