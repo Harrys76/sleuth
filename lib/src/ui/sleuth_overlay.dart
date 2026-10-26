@@ -41,8 +41,8 @@ import 'text_scale_clamp.dart';
 ///
 /// Text in the overlay follows the system text scale between 0.8x and
 /// 2.0x; the app below keeps the unclamped scale. The theme resolves in
-/// this order: the header toggle's light or dark
-/// [OverlayUiState.themeMode], `Sleuth.updateTheme`, `SleuthConfig.theme`,
+/// this order: Light or Dark picked under Theme in the More menu
+/// ([OverlayUiState.themeMode]), `Sleuth.updateTheme`, `SleuthConfig.theme`,
 /// then the platform brightness, with the high-contrast presets when the
 /// platform asks for high contrast.
 class SleuthOverlay extends StatefulWidget {

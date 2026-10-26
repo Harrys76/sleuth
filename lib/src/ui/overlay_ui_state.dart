@@ -27,7 +27,8 @@ enum CardWindowState {
   maximized,
 }
 
-/// Theme mode picked with the overlay header's theme toggle.
+/// Theme mode picked with Theme in the overlay's More menu: Auto, Light or
+/// Dark.
 enum SleuthThemeMode {
   /// Follows `Sleuth.updateTheme`, then `SleuthConfig.theme`, then the
   /// platform brightness and high-contrast setting.
@@ -298,7 +299,7 @@ class OverlayUiState extends ChangeNotifier {
 
   // ── Theme ─────────────────────────────────────────────────────────────
 
-  /// Theme mode chosen with the header toggle. [SleuthThemeMode.light] and
+  /// Theme mode chosen with Theme in the More menu. [SleuthThemeMode.light] and
   /// [SleuthThemeMode.dark] take precedence over a `Sleuth.updateTheme`
   /// override and `SleuthConfig.theme`; `Sleuth.updateTheme` with a theme
   /// sets [SleuthThemeMode.system].

@@ -500,8 +500,8 @@ class SleuthThemeData {
 
   /// Whether this is a dark or a light theme: the presets set it to match
   /// their surfaces and [SleuthThemeData.fromColorScheme] to the scheme's
-  /// surface. Descriptive only; the overlay reads nothing from it. The
-  /// header toggle icon follows the stored theme mode, and the
+  /// surface. Descriptive only; the overlay reads nothing from it. Theme
+  /// in the More menu shows the stored theme mode, and the
   /// high-contrast preset is picked from that mode or the platform
   /// brightness.
   final Brightness brightness;
