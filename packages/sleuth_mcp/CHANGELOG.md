@@ -20,6 +20,11 @@ list every change.
   which the app lists the issues marked Not useful in the overlay. The
   sidecar's own projection keeps it like `suppressedCount`, and
   `get_issues` passes it through.
+- The `triage_performance`, `audit_memory` and `release_check` prompts
+  tell the model to quote each issue's `measurement` against its warning
+  or critical line, and how to match `notUsefulMarks` to issues. The
+  triage lists marked issues last, the memory audit sets them aside, and
+  the release gate keeps them in its verdict.
 - The schema copy documents `notUsefulMarks` and the issue `measurement`
   shape.
 

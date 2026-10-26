@@ -124,7 +124,10 @@ stableId) and `sleuth://causal-graph` (the rules that link causes to
 effects) are cached per app session. The prompts `triage_performance`,
 `audit_memory` and `release_check` tell the client's model which tools to
 call in order, and end with ranked fixes, memory fixes, or a PASS, FAIL or
-NOT RUN verdict.
+NOT RUN verdict. They have the model quote each issue's measured value
+against its warning or critical line and handle the issues the developer
+marked Not useful in the overlay: listed last in the triage, set aside in
+the memory audit, and still counted by the release gate.
 
 ## Attaching
 

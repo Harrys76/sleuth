@@ -28,7 +28,7 @@ cd example && fvm flutter test            # Cookbook smoke, demo and capture-scr
 fvm dart run tool/demo_walk.dart ws://<host>:<port>/<auth>/ws [--android <serial>] [--only "Title|Title"]
 
 # MCP sidecar (packages/sleuth_mcp/)
-cd packages/sleuth_mcp && dart test       # Sidecar tests (658 tests)
+cd packages/sleuth_mcp && dart test       # Sidecar tests (659 tests)
 cd packages/sleuth_mcp && dart analyze    # Sidecar static analysis
 ```
 
@@ -77,7 +77,7 @@ test/
 
 ## Current state
 
-**v1.0.0** (current): redesigned overlay, issue measurements, Not useful marks and the 1.0 public API on top of the 0.38.0 detectors. Sidecar `sleuth_mcp` 0.10.0 (pins 1.0.0, lineage = major from 1.0, accepts 0.38; `compare_snapshots` adds `versionWarning` `sleuth_version_differs:` when the two releases differ, build metadata ignored). Release notes `doc/release_notes/1.0.0.md`; plan `doc/plan_overlay_1_0_0.md`.
+**v1.0.0** (current): redesigned overlay, issue measurements, Not useful marks and the 1.0 public API on top of the 0.38.0 detectors. Sidecar `sleuth_mcp` 0.10.0 (pins 1.0.0, lineage = major from 1.0, accepts 0.38; `compare_snapshots` adds `versionWarning` `sleuth_version_differs:` when the two releases differ, build metadata ignored; the three prompts have the model quote `measurement` and match `notUsefulMarks` keys, listing marked issues last in the triage, setting them aside in the memory audit and keeping them in the release gate's verdict). Release notes `doc/release_notes/1.0.0.md`; plan `doc/plan_overlay_1_0_0.md`.
 
 **v1.0.0 API**: `lib/sleuth.dart` exports with `show` lists only (62 names + `Sleuth`); `lib/validation.dart` holds `EvidenceTier`, `DetectorMetadata`(+Provider), `BracketSpec`, `ComponentMetadata`(+Provider), `ProfileCaptureSchema`, `PollTimings`, `StreamResourcePollResult`, `kSleuthPackageVersion` and Repaint/MemoryPressure/Startup/TrackedResource/ImageMemory/GpuPressure/FrameTiming detectors, all `@experimental` (example `analysis_options.yaml` ignores `experimental_member_use`); 15 internal names hidden (tests import `src/`). `StartupTracker` (`lib/src/startup/`) owns startup state (`metrics`, `dartEntryMonotonicUs`, `enrichWithVmData`); `ActiveController.current` / `release` replace `Sleuth._controller` / `notifyControllerDisposed`. Capture statics on `Sleuth` `@experimental`, test statics `@visibleForTesting`. `RouteSession.end()` / `countScanCycle()` `@internal`. Theme: 29 unread tokens + `confidenceColor`/`effortColor`/`sourceAccentColor` removed. Growing enums documented. `test/validation/public_api_test.dart` pins names against `test/validation/_fixtures/public_api_1_0_0.txt` (80 names); CI `api-diff` job: `dart pub unpack` newest 1.x, drop `lib/validation.dart` from both trees, `dart_apitool` 0.23.2 `--version-check-mode onlyBreakingChanges` (fails only a breaking change without a major bump; `fully` also failed minor changes) (added enum value = minor `CF02`; removing an `@experimental` top-level is still breaking), skips before 1.0.0 is on pub.dev, fails on a pub.dev error. API table `doc/api_1_0_0.md`.
 

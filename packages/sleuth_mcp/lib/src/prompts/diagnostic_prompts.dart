@@ -36,7 +36,12 @@ const _triagePerformance = DiagnosticPrompt(
       'You are triaging a Flutter app\'s runtime performance using the '
       'Sleuth MCP tools. Work through these steps:\n'
       '1. Call `get_issues` for the current issues. They arrive ranked, '
-      'most important first.\n'
+      'most important first. An issue\'s `measurement`, when present, holds '
+      'the measured `value` and `unit` and the `warningAt` and `criticalAt` '
+      'lines it is judged against. `notUsefulMarks` lists the issues the '
+      'developer marked Not useful in the overlay; a mark\'s `key` is the '
+      'issue\'s `stableId`, plus `|` and the `widgetName` when the issue '
+      'names a widget.\n'
       '2. Call `get_snapshot` with sections ["frameStatsSummary", '
       '"sessionSummary", "recurrenceTrends", "routeSessions"] for frame '
       'stats, the frame-time histogram, the memory trend, issues that are '
@@ -45,7 +50,9 @@ const _triagePerformance = DiagnosticPrompt(
       '3. For the most severe issue, call `explain_issue` with its stableId '
       'to get the cause and fix guidance.\n'
       'Then summarize the top problems, their likely causes, the '
-      'worst-scoring route, and concrete fixes, ordered by severity.',
+      'worst-scoring route, and concrete fixes, ordered by severity. Quote '
+      'each problem\'s measured value against its warning or critical line. '
+      'List the issues marked Not useful last, under their own heading.',
 );
 
 const _auditMemory = DiagnosticPrompt(
@@ -61,12 +68,17 @@ const _auditMemory = DiagnosticPrompt(
       'Sleuth MCP tools. Work through these steps:\n'
       '1. Call `get_issues` and keep only the memory issues: heap growth, '
       'retained streams, and tracked resources that live too long or have '
-      'too many live instances.\n'
-      '2. For each memory issue, call `explain_issue` with its stableId for '
-      'the cause and fix.\n'
+      'too many live instances. Set aside the issues listed in '
+      '`notUsefulMarks`, which the developer marked Not useful in the '
+      'overlay; a mark\'s `key` is the issue\'s `stableId`, plus `|` and '
+      'the `widgetName` when the issue names a widget.\n'
+      '2. For each memory issue you kept, call `explain_issue` with its '
+      'stableId for the cause and fix.\n'
       'Then recommend concrete fixes, such as disposing controllers and '
-      'streams, bounding caches and untracking resources. Ignore frame and '
-      'jank issues.',
+      'streams, bounding caches and untracking resources. Quote each '
+      'issue\'s `measurement` (the growth rate or count against its '
+      'warning line) when it has one. Name the issues set aside as Not '
+      'useful at the end. Ignore frame and jank issues.',
 );
 
 const _releaseCheck = DiagnosticPrompt(
@@ -88,7 +100,11 @@ const _releaseCheck = DiagnosticPrompt(
       '`coverage_degraded` means the app has no VM service link, so the '
       'memory, CPU and repaint detectors never ran. Report NOT RUN with the '
       'error\'s remedy and stop. Never report PASS in that case.\n'
-      '3. Call `get_issues` and list any critical-severity issues.\n'
+      '3. Call `get_issues` and list any critical-severity issues, with '
+      'each one\'s measured value against its critical line when it has a '
+      '`measurement`. An issue listed in `notUsefulMarks` (marked Not '
+      'useful in the overlay) still counts: name the mark next to it, but '
+      'keep it in the verdict.\n'
       'Then report a clear PASS or FAIL verdict. Name the budget violations '
       'and the critical issues to resolve before release.',
 );
