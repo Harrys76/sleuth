@@ -16,7 +16,8 @@ const _adapter = AiChatAdapter(sendMessage: _reply);
 
 Stream<String> _reply(AiChatRequest request) => Stream.value('ok');
 
-/// Overlay on a 320 x 568 view with a 220 px card and the mixed issue set.
+/// Overlay on a 320 x 568 view with the narrowest card it allows (288 px:
+/// the screen minus 16 px margins) and the mixed issue set.
 Future<SleuthController> _pumpSmall(
   WidgetTester tester,
   double scale, {
@@ -76,12 +77,6 @@ Future<void> _tapFinder(WidgetTester tester, Finder finder) async {
 Future<void> _tapLabel(WidgetTester tester, String label) =>
     _tapFinder(tester, find.bySemanticsLabel(label));
 
-/// The [Semantics] widget labelled [label], for a node that merges its
-/// children's text into its label.
-Finder _semanticsWidget(String label) => find.byWidgetPredicate(
-  (w) => w is Semantics && w.properties.label == label,
-);
-
 /// Startup metrics with every section of the startup page filled.
 final _startupMetrics = StartupMetrics(
   dartEntryTimestamp: DateTime(2026),
@@ -112,7 +107,7 @@ const _rebuildCounts = {
 
 void main() {
   for (final scale in [1.3, 2.0]) {
-    group('at ${scale}x on a 220 px card', () {
+    group('at ${scale}x on a 320 px screen', () {
       testWidgets('card, expanded issues and every page lay out', (
         tester,
       ) async {
@@ -141,9 +136,11 @@ void main() {
         await tester.tap(find.text(issues.first.title));
         await _settle(tester, 'expand root');
 
-        // FPS explainer.
-        await _tapLabel(tester, 'Show FPS explainer');
-        await _settle(tester, 'FPS explainer');
+        // The More menu, closed again with back.
+        await openMoreMenu(tester);
+        await _settle(tester, 'More menu');
+        await systemBack(tester);
+        await _settle(tester, 'back from More menu');
 
         // Learn more -> encyclopedia, Ask AI -> chat.
         await _tapFinder(
@@ -165,9 +162,9 @@ void main() {
         await systemBack(tester);
         await _settle(tester, 'back from AI chat');
 
-        // Footer pages.
+        // Pages in the More menu.
         for (final label in ['Encyclopedia', 'Guide']) {
-          await _tapLabel(tester, label);
+          await openFromMoreMenu(tester, label);
           await _settle(tester, label);
           await systemBack(tester);
           await _settle(tester, 'back from $label');
@@ -176,7 +173,7 @@ void main() {
         // Hide one, then the Hidden list.
         controller.overlayUiState.hide('slow_request');
         await _settle(tester, 'hidden');
-        await _tapLabel(tester, '1 hidden. Show hidden issues');
+        await openFromMoreMenu(tester, 'Hidden issues');
         await _settle(tester, 'hidden page');
         await systemBack(tester);
         await _settle(tester, 'back from hidden page');
@@ -189,7 +186,7 @@ void main() {
         addTearDown(Sleuth.resetStartupForTest);
         final controller = await _pumpSmall(tester, scale);
         // A scan opens the app route's session; its rebuild counts feed
-        // the rebuild-stats banner.
+        // the More menu's Rebuild stats row.
         controller.scanTreeFullPathForTest(
           tester.element(
             find.ancestor(
@@ -205,10 +202,7 @@ void main() {
         controller.issuesNotifier.value = mixedOverlayIssues();
         await _settle(tester, 'open');
 
-        await _tapFinder(
-          tester,
-          _semanticsWidget('Startup metrics, tap for details'),
-        );
+        await openFromMoreMenu(tester, 'Startup');
         await _settle(tester, 'startup metrics');
         expect(find.byType(StartupMetricsPage), findsOneWidget);
         // Every section, down to the methodology at the bottom.
@@ -224,16 +218,7 @@ void main() {
         await systemBack(tester);
         await _settle(tester, 'back from startup metrics');
 
-        final total = _rebuildCounts.values.reduce((a, b) => a + b);
-        await _tapFinder(
-          tester,
-          find.text('Rebuilds: $total across ${_rebuildCounts.length} widgets'),
-        );
-        await _settle(tester, 'rebuild banner expanded');
-        await _tapFinder(
-          tester,
-          _semanticsWidget('See all ${_rebuildCounts.length} rebuilds'),
-        );
+        await openFromMoreMenu(tester, 'Rebuild stats');
         await _settle(tester, 'rebuild stats');
         expect(find.byType(RebuildStatsPage), findsOneWidget);
         await tester.scrollUntilVisible(
@@ -386,16 +371,10 @@ void main() {
         )
         .height;
 
-    testWidgets('a landscape phone keeps the footer and grip on screen', (
-      tester,
-    ) async {
+    testWidgets('a landscape phone keeps the grip on screen', (tester) async {
       await pumpView(tester, const Size(640, 360));
       expect(tester.takeException(), isNull);
       expect(cardHeight(tester), lessThanOrEqualTo(340));
-      expect(
-        tester.getRect(find.bySemanticsLabel('Guide')).bottom,
-        lessThanOrEqualTo(360),
-      );
       expect(
         tester.getRect(find.bySemanticsLabel('Resize card')).bottom,
         lessThanOrEqualTo(360),
@@ -413,12 +392,16 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       expect(
-        tester.getRect(find.bySemanticsLabel('Guide')).bottom,
+        tester
+            .getRect(
+              find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
+            )
+            .bottom,
         lessThanOrEqualTo(647 - 260),
       );
     });
 
-    testWidgets('a maximized card keeps header, summary bar and footer', (
+    testWidgets('a maximized card keeps header, status row and a list row', (
       tester,
     ) async {
       await pumpView(
@@ -428,8 +411,9 @@ void main() {
         windowState: CardWindowState.maximized,
       );
       expect(tester.takeException(), isNull);
-      // Header 48 + footer 49 + the summary bar's 48 px hit height.
-      expect(cardHeight(tester), 48 + 49 + 48);
+      // Header 48, the status row's 48 px at 1.3x plus its divider, and
+      // a 48 px list row.
+      expect(cardHeight(tester), 48 + 48 * 1.3 + 1 + 48);
     });
 
     testWidgets('resizing stores the unscaled minimum', (tester) async {
@@ -464,28 +448,21 @@ void main() {
         const Size(400, 800),
         windowState: CardWindowState.maximized,
       );
-      final data = tester
-          .getSemantics(find.bySemanticsLabel('Resize card'))
-          .getSemanticsData();
-      expect(data.customSemanticsActionIds ?? const <int>[], isEmpty);
+      // The grip draws its dots only.
+      expect(find.bySemanticsLabel('Resize card'), findsNothing);
       handle.dispose();
     });
 
-    testWidgets('the issue count stays at the right edge of the status row', (
+    testWidgets('the frame rate stays at the right edge of the status row', (
       tester,
     ) async {
       await _pumpSmall(tester, 1.3);
-      final count = find.text('${mixedOverlayIssues().length} issues');
+      final fps = find.textContaining('fps');
       final card = tester.getRect(
         find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
       );
-      // The count does not fit beside the FPS group and the mode badge.
-      expect(
-        tester.getTopLeft(count).dy,
-        greaterThan(tester.getBottomLeft(find.text('FRAME')).dy),
-      );
       // Status row padding is 12.
-      expect(tester.getRect(count).right, closeTo(card.right - 12, 0.5));
+      expect(tester.getRect(fps).right, closeTo(card.right - 12, 0.5));
       expect(tester.takeException(), isNull);
     });
   });

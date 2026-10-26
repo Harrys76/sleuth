@@ -48,7 +48,7 @@ void main() {
       await openDashboard(tester, controller);
       expect(_labels(tester), contains('app'));
 
-      await tester.tap(find.bySemanticsLabel('Guide'));
+      await openFromMoreMenu(tester, 'Guide');
       await tester.pumpAndSettle();
       expect(find.text('Sleuth Guide'), findsOneWidget);
       expect(_labels(tester), isNot(contains('app')));
@@ -57,6 +57,48 @@ void main() {
       expect(_labels(tester), contains('app'));
       handle.dispose();
     });
+
+    testWidgets('the More menu blocks the app and the card body below it', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpOverlay(tester);
+      controller.issuesNotifier.value = mixedOverlayIssues();
+      await openDashboard(tester, controller);
+      final title = controller.issuesNotifier.value.first.title;
+      expect(_labels(tester), containsAll(['app', title]));
+
+      await openMoreMenu(tester);
+      final labels = _labels(tester);
+      expect(labels, isNot(contains('app')));
+      expect(labels, isNot(contains(title)));
+      expect(labels, contains('Guide'));
+
+      await systemBack(tester);
+      expect(_labels(tester), containsAll(['app', title]));
+      handle.dispose();
+    });
+  });
+
+  group('Status row', () {
+    // A screen reader reads the frame rate where it is drawn, not as a
+    // node the size of the screen.
+    for (final withIssues in [true, false]) {
+      testWidgets('the frame rate has its own node '
+          '(${withIssues ? 'chips' : 'no issues'})', (tester) async {
+        final handle = tester.ensureSemantics();
+        final controller = await pumpOverlay(tester);
+        if (withIssues) controller.issuesNotifier.value = mixedOverlayIssues();
+        await openDashboard(tester, controller);
+
+        final node = tester.getSemantics(
+          find.bySemanticsLabel('Frame rate pending'),
+        );
+        expect(node.label, 'Frame rate pending');
+        expect(node.rect.size, tester.getSize(find.text('— fps')));
+        handle.dispose();
+      });
+    }
   });
 
   group('Card header and grip', () {
@@ -92,21 +134,36 @@ void main() {
           expect(node.hasAction(action), isFalse, reason: '$action');
         }
       }
-      expect(_data(tester, header).value, '300 by 400 points, at 40, 100');
-      expect(_data(tester, grip).value, '300 by 400 points');
+      // The stored 300 px width is raised to the 320 px minimum.
+      expect(_data(tester, header).value, '320 by 400 points, at 40, 100');
+      expect(_data(tester, grip).value, '320 by 400 points');
 
       await performCustomAction(tester, grip, 'Taller');
-      expect(_data(tester, grip).value, '300 by 448 points');
+      expect(_data(tester, grip).value, '320 by 448 points');
       await performCustomAction(tester, header, 'Move to top left');
-      expect(_data(tester, header).value, '300 by 448 points, at 0, 0');
+      expect(_data(tester, header).value, '320 by 448 points, at 0, 0');
       handle.dispose();
     });
 
-    testWidgets('the theme toggle has a value and no hint', (tester) async {
+    testWidgets('More reads as a collapsed button, then expanded', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
       await pumpCard(tester);
-      final toggle = _data(tester, find.bySemanticsLabel('Toggle theme'));
-      expect(toggle.value, 'System');
-      expect(toggle.hint, isEmpty);
+      final more = find.bySemanticsLabel('More');
+      expect(_hasFlag(tester, more.first, SemanticsFlag.isButton), isTrue);
+      expect(_hasFlag(tester, more.first, SemanticsFlag.isExpanded), isFalse);
+      expect(_data(tester, more.first).hint, isEmpty);
+
+      await openMoreMenu(tester);
+      final button = find.byWidgetPredicate(
+        (w) =>
+            w is Semantics &&
+            w.properties.label == 'More' &&
+            w.properties.button == true,
+      );
+      expect(_hasFlag(tester, button, SemanticsFlag.isExpanded), isTrue);
+      handle.dispose();
     });
 
     testWidgets('the minimized count reads as issues', (tester) async {
@@ -136,21 +193,23 @@ void main() {
     });
   });
 
-  group('Startup banner', () {
+  group('Startup row', () {
     tearDown(Sleuth.resetStartupForTest);
 
-    testWidgets('is a 48 px target', (tester) async {
+    testWidgets('is a 48 px target that reads its value', (tester) async {
       Sleuth.setStartupMetricsForTest(
         StartupMetrics(dartEntryTimestamp: DateTime(2026), ttffMs: 420),
       );
       final controller = await pumpOverlay(tester);
       await openDashboard(tester, controller);
-      final banner = find.byWidgetPredicate(
+      await openMoreMenu(tester);
+      final row = find.byWidgetPredicate(
         (w) =>
             w is Semantics &&
-            w.properties.label == 'Startup metrics, tap for details',
+            w.properties.label ==
+                'Startup, time to first frame 420 milliseconds',
       );
-      expect(tester.getSize(banner).height, greaterThanOrEqualTo(48));
+      expect(tester.getSize(row).height, greaterThanOrEqualTo(48));
     });
   });
 

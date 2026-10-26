@@ -517,8 +517,8 @@ class SleuthController {
       ValueNotifier(null);
 
   /// Runtime theme override. Takes precedence over [config.theme] and
-  /// auto-detection when non-null; the header toggle's Light or Dark
-  /// takes precedence over it.
+  /// auto-detection when non-null; Light or Dark picked under Theme in
+  /// the More menu takes precedence over it.
   final ValueNotifier<SleuthThemeData?> _themeOverride =
       ValueNotifier<SleuthThemeData?>(null);
 
@@ -526,10 +526,9 @@ class SleuthController {
   /// auto-detect.
   ValueListenable<SleuthThemeData?> get themeOverride => _themeOverride;
 
-  /// Update the overlay theme at runtime. A non-null [theme] also sets the
-  /// header toggle to System so the theme shows; picking Light or Dark
-  /// in the header afterwards takes precedence until System is picked
-  /// again. An app that calls this at every startup therefore does not
+  /// Update the overlay theme at runtime. A non-null [theme] also sets
+  /// Theme in the More menu to Auto so the theme shows; picking Light or
+  /// Dark there afterwards takes precedence until Auto is picked again. An app that calls this at every startup therefore does not
   /// keep a saved Light or Dark choice across launches. Pass `null` to
   /// revert to the config theme or auto-detection.
   void updateTheme(SleuthThemeData? theme) {
@@ -933,6 +932,17 @@ class SleuthController {
       return true;
     }());
     return result;
+  }
+
+  /// Whether this run counts rebuilds per route for Rebuild stats: a
+  /// profile run with [SleuthConfig.enableDeepDebugInstrumentation] whose
+  /// timeline drain is installed or waiting for the scheduler to go idle.
+  /// Debug runs count rebuilds for the detectors only.
+  bool get countsRouteRebuilds {
+    final coordinator = _debugCoordinator;
+    if (coordinator == null) return false;
+    return coordinator.isProfileModeInstalled ||
+        (!kDebugMode && config.enableDeepDebugInstrumentation);
   }
 
   /// Whether any heavy debug profiling flags are actually active.
@@ -5962,10 +5972,10 @@ class SleuthConfig {
   /// brightness when `MediaQuery.highContrastOf` is true. If no
   /// [MediaQuery] is available (rare), defaults to dark.
   ///
-  /// Precedence: the header toggle's Light or Dark mode
+  /// Precedence: Light or Dark picked under Theme in the More menu
   /// (`OverlayUiState.themeMode`) > `Sleuth.updateTheme` > this theme >
-  /// auto-selection. Choosing Light or Dark in the header replaces this
-  /// theme with the Sleuth preset; choosing System restores it.
+  /// auto-selection. Choosing Light or Dark there replaces this theme with
+  /// the Sleuth preset; choosing Auto restores it.
   ///
   /// ```dart
   /// // Force light theme
@@ -6139,8 +6149,8 @@ class SleuthConfig {
   /// Sleuth installs a `FlutterTimeline.debugCollect()` drain that records
   /// per-widget rebuild counts and attributes them to the active
   /// `RouteSession`'s `rebuildCountsByType` map. These counts power the
-  /// always-on `_RebuildStatsBanner` panel on the floating issues card
-  /// and the "See all N →" drilldown page (`RebuildStatsPage`).
+  /// More menu's Rebuild stats row on the floating issues card and its
+  /// drilldown page (`RebuildStatsPage`).
   /// **Note:** profile-mode counts include initial widget inflations as
   /// well as `setState`-driven rebuilds (the Flutter framework emits the
   /// same `BUILD` timeline scope for both), so route entry shows

@@ -19,14 +19,16 @@ import '../helpers/overlay_harness.dart';
 /// Builds of [FloatingIssuesCard] and of all [IssueCard]s over 50 ticks.
 typedef _Builds = ({int card, int issueCards});
 
-/// Recorded before the 1.0.0 card redesign (Flutter 3.47.6, 800 x 600
-/// test surface). A title change rebuilds only the cards the list shows: 4
-/// collapsed or 2 with three expanded.
+/// Recorded with the 1.0.0 header, status row and More menu (Flutter
+/// 3.47.6, 390 x 844 view). A title change rebuilds each card the list has
+/// built, the ones on screen plus the cache extent: 6 per change. The card
+/// before the redesign built 5 here, because its chrome left the list less
+/// room.
 const _budgets = <String, _Builds>{
   'collapsed, no change': (card: 0, issueCards: 0),
-  'collapsed, title change': (card: 0, issueCards: 200),
-  'three expanded, no change': (card: 1, issueCards: 0),
-  'three expanded, title change': (card: 1, issueCards: 100),
+  'collapsed, title change': (card: 0, issueCards: 300),
+  'three expanded, no change': (card: 0, issueCards: 0),
+  'three expanded, title change': (card: 0, issueCards: 300),
 };
 
 const _ticks = 50;
@@ -89,7 +91,17 @@ void main() {
     WidgetTester tester, {
     required bool expandThree,
   }) async {
-    final controller = await pumpOverlay(tester);
+    // A phone-sized view (iPhone 12 points); on a short surface the
+    // debug-mode banners leave the list too little room to expand three
+    // cards.
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // No real scan runs, so the seeded issues stay for the whole run.
+    final controller = await pumpOverlay(
+      tester,
+      config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+    );
     controller.seedIssuesForTest(_issues());
     await openDashboard(tester, controller);
     if (expandThree) {
@@ -98,12 +110,19 @@ void main() {
           card.issue.title,
       ].take(3);
       for (final title in titles) {
-        await tester.ensureVisible(find.text(title));
+        // An earlier expansion can push the card out of view.
+        await tester.ensureVisible(find.text(title, skipOffstage: false));
+        await tester.pump();
         await tester.tap(find.text(title));
         await tester.pump();
       }
       expect(find.byType(IssueCard), findsWidgets);
     }
+    // ignore: avoid_print
+    print(
+      '  open: ${find.byType(IssueCard).evaluate().length} cards on screen, '
+      '${controller.issuesNotifier.value.length} issues',
+    );
     // Lets the new-card accents and the expansion animations finish.
     await tester.pump(const Duration(seconds: 3));
     return controller;

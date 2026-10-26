@@ -15,7 +15,8 @@
 > 1. `cd example && fvm flutter run --profile --no-dds -d "iPhone 12" \
 >      --dart-define=SLEUTH_CAPTURE_MODE=true \
 >      --dart-define=SLEUTH_CAPTURE_DEVICE="iPhone 12"`. This installs
->    and starts the app. The status row shows VM+ once Sleuth connects.
+>    and starts the app. The header run label reads "· VM" once Sleuth
+>    connects.
 > 2. If you launched without `--no-dds`, quit `flutter run` (`q`). DDS
 >    stops with it.
 > 3. In that case, reopen the app from the iPhone home screen. No DDS

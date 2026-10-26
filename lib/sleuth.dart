@@ -15,7 +15,7 @@
 /// ## Features
 /// - 21 performance detectors (VM-powered, hybrid, structural, and runtime)
 /// - Actionable fix hints for every issue
-/// - In-app overlay with live FPS chart and issue dashboard
+/// - In-app overlay with the frame rate and an issue dashboard
 /// - Debug mode warning (run with --profile for accurate data)
 /// - Completely disabled in release builds
 ///
@@ -23,9 +23,9 @@
 ///
 /// The overlay auto-detects dark/light mode from the system brightness and
 /// uses the high-contrast presets when the platform asks for high
-/// contrast. The header toggle cycles System, Light and Dark (persisted in
-/// `OverlayUiState.themeMode`). To force a specific theme or customize
-/// colors:
+/// contrast. Theme in the overlay's More menu picks Auto, Light or Dark
+/// (persisted in `OverlayUiState.themeMode`). To force a specific theme or
+/// customize colors:
 ///
 /// ```dart
 /// // Light theme for light-background apps
@@ -1060,9 +1060,9 @@ class Sleuth {
   /// Update the overlay theme at runtime.
   ///
   /// Passing a [SleuthThemeData] overrides the config theme and
-  /// auto-detection, and sets the header toggle to System so the theme
-  /// shows. Picking Light or Dark in the header takes precedence over it;
-  /// picking System shows it again. Passing `null` reverts to the config
+  /// auto-detection, and sets Theme in the More menu to Auto so the theme
+  /// shows. Picking Light or Dark there takes precedence over it; picking
+  /// Auto shows it again. Passing `null` reverts to the config
   /// theme or auto-detection. Pass the same instance on every call (a
   /// const preset or a theme built once): the overlay compares themes by
   /// identity.

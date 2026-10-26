@@ -39,6 +39,7 @@ import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 /// and the denylist fails the audit: classify it here only when it is not
 /// a widget.
 const _nonWidgetTypes = <String>{
+  'ActivateIntent',
   'Alignment',
   'AlwaysStoppedAnimation',
   'AnimationController',
@@ -60,7 +61,6 @@ const _nonWidgetTypes = <String>{
   'GlobalKey',
   'HttpException',
   'InputDecoration',
-  'IntTween',
   'Interval',
   'LinearGradient',
   'LinkedHashSet',
@@ -74,7 +74,6 @@ const _nonWidgetTypes = <String>{
   'RegExp',
   'RoundedRectangleBorder',
   'ScrollController',
-  'Size',
   'StringBuffer',
   'TextEditingController',
   'TextPainter',
@@ -342,6 +341,22 @@ final b = Row(children: [Icon(x)]);
             'The overlay must use a Sleuth-named class instead of these '
             'widgets (see SleuthListenableBuilder):\n  $used',
       );
+    });
+
+    test('the framework section does not grow', () {
+      final overlayClasses = <String>{
+        for (final entry in uiSources.entries)
+          for (final match in _overlayClassRegex.allMatches(entry.value))
+            match.group(1)!,
+      };
+      final framework = {
+        for (final entry
+            in DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList)
+          if (!entry.startsWith('_') && !overlayClasses.contains(entry)) entry,
+      };
+      // Each framework widget the overlay uses is one an app's own use of
+      // can no longer be counted. The overlay may drop entries, never add.
+      expect(framework.length, lessThanOrEqualTo(52), reason: '$framework');
     });
 
     test('every framework entry in the denylist still corresponds to a UI '

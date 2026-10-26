@@ -84,7 +84,7 @@ void main() {
     ) async {
       final controller = await pumpOverlay(tester);
       await openDashboard(tester, controller);
-      await tester.tap(find.bySemanticsLabel('Guide'));
+      await openFromMoreMenu(tester, 'Guide');
       await tester.pumpAndSettle();
       expect(find.byType(GuidePage), findsOneWidget);
 

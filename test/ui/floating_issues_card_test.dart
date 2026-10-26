@@ -2,8 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/sleuth.dart' show Sleuth, StartupMetrics;
+import 'package:sleuth/src/ui/focus_ink_well.dart';
+import 'package:sleuth/src/ui/more_menu.dart';
+import 'package:sleuth/src/ui/startup_metrics_page.dart';
+import 'package:sleuth/src/ui/hidden_issues_page.dart';
+import 'package:sleuth/src/ui/issue_encyclopedia_page.dart';
+import 'package:sleuth/src/ui/guide_page.dart';
+import 'package:sleuth/src/ui/issue_card.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
@@ -16,7 +25,6 @@ import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/rebuild_stats_page.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
-import '../helpers/contrast_helpers.dart';
 import '../helpers/overlay_harness.dart';
 
 PerformanceIssue _pinIssue({
@@ -43,7 +51,14 @@ PerformanceIssue _pinIssue({
 /// `_scanTreeInner` drain → merge block runs against synthetic
 /// `flutterTimeline`-source data without needing profile-mode compilation.
 class _FakeCoordinator extends DebugInstrumentationCoordinator {
-  _FakeCoordinator() : super(installRebuild: false, installPaint: false);
+  _FakeCoordinator({this.profileMode = false})
+    : super(installRebuild: false, installPaint: false);
+
+  /// Stands in for an installed profile-mode timeline drain.
+  final bool profileMode;
+
+  @override
+  bool get isProfileModeInstalled => profileMode;
 
   DebugSnapshot nextSnapshot = const DebugSnapshot(
     rebuildCounts: {},
@@ -142,8 +157,8 @@ void main() {
 
       // Body content should be gone
       expect(find.textContaining('No issues detected'), findsNothing);
-      // Header title should still be there
-      expect(find.text('Sleuth'), findsOneWidget);
+      // The header stays: its paw and run label.
+      expect(find.byIcon(Icons.pets), findsOneWidget);
       // Restore button should appear (replaces minimize/maximize)
       expect(find.byIcon(Icons.filter_none), findsOneWidget);
       expect(find.byIcon(Icons.minimize), findsNothing);
@@ -325,30 +340,9 @@ void main() {
     });
   });
 
-  group('Rebuild stats banner (always-on entry point)', () {
-    // The banner is the SOLE data-discovery path for rebuild stats since
-    // v0.15.2 — the previous `rebuild_hotspot_summary` rollup IssueCard
-    // (and the always-on chip above the issue list) was removed in
-    // v0.15.2 because (a) the panel covers both the data and the signal,
-    // (b) an always-pinned IssueCard collided with issue ranker reorders,
-    // and (c) profile-mode counts include first builds (inflations), which
-    // made route entry look like a warning storm in the issues list.
-    //
-    // The panel must therefore render whenever the active RouteSession
-    // has rebuild attribution, regardless of volume, so low-volume routes
-    // are still reachable through `RebuildStatsPage` via the inline
-    // "See all N →" drilldown link.
-    //
-    // Tests use the fake-coordinator + scanTreeFullPathForTest pattern
-    // from `test/controller/rebuild_stats_scan_test.dart` to inject
-    // synthetic `flutterTimeline`-source counts through the real
-    // `_scanTreeInner` drain → merge path. The first scan creates the
-    // active session and drops merged counts (no session at merge time);
-    // the second scan then merges into the now-active session.
-
-    // Lightweight pump for banner tests — the scan loop needs a Scaffold
-    // above the floating card for `_findVisiblePageContext` to succeed.
-    Widget pumpCardForBanner(SleuthController c, {SleuthThemeData? theme}) {
+  group('More menu', () {
+    // Scans need a Scaffold above the card for `_findVisiblePageContext`.
+    Widget pumpMenuCard(SleuthController c, {VoidCallback? onAppTap}) {
       final card = FloatingIssuesCard(
         controller: c,
         onClose: () {},
@@ -356,22 +350,42 @@ void main() {
       );
       return MaterialApp(
         home: Scaffold(
-          body: theme == null ? card : SleuthTheme(data: theme, child: card),
+          body: Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onAppTap,
+                ),
+              ),
+              card,
+            ],
+          ),
         ),
       );
     }
 
-    Future<void> primeAndMergeCounts(
+    SleuthController scanningController() {
+      controller.dispose();
+      final c = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+        ),
+      )..initializeDetectorsForTest();
+      controller = c;
+      return c;
+    }
+
+    /// The first scan creates the active route session; the second merges
+    /// [counts] into it.
+    Future<void> mergeCounts(
       WidgetTester tester,
       SleuthController c,
       _FakeCoordinator fake,
       Map<String, int> counts,
     ) async {
-      // First scan — creates the active route session. Merge runs before
-      // route detection, so any counts on this scan land on a `null`
-      // session and are dropped. Feed an empty snapshot.
       c.scanTreeFullPathForTest(tester.element(find.byType(MaterialApp)));
-      // Second scan merges synthetic counts into the now-active session.
       fake.nextSnapshot = DebugSnapshot(
         rebuildCounts: counts,
         totalPaintCount: 0,
@@ -382,494 +396,376 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets(
-      'banner is hidden when active session has zero rebuild counts',
-      (tester) async {
-        controller.dispose();
-        controller = SleuthController(
-          config: const SleuthConfig(
-            treeScanInterval: Duration(seconds: 1),
-            enabledDetectors: {DetectorType.frameTiming},
-          ),
-        );
-        controller.initializeDetectorsForTest();
-        controller.debugCoordinatorForTest = _FakeCoordinator();
+    testWidgets('empty rows read as such and are disabled', (tester) async {
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
 
-        await tester.pumpWidget(pumpCardForBanner(controller));
-        await tester.pumpAndSettle();
-
-        // No scan run → no active session → banner hidden.
-        expect(find.byIcon(Icons.repeat), findsNothing);
-        expect(find.textContaining('Rebuilds:'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'banner appears with total + widget count once attribution lands',
-      (tester) async {
-        controller.dispose();
-        controller = SleuthController(
-          config: const SleuthConfig(
-            treeScanInterval: Duration(seconds: 1),
-            enabledDetectors: {DetectorType.frameTiming},
-          ),
-        );
-        controller.initializeDetectorsForTest();
-        final fake = _FakeCoordinator();
-        controller.debugCoordinatorForTest = fake;
-
-        await tester.pumpWidget(pumpCardForBanner(controller));
-        await tester.pumpAndSettle();
-
-        await primeAndMergeCounts(tester, controller, fake, {
-          'ProductCard': 12,
-          'PriceTag': 5,
-        });
-
-        expect(find.byIcon(Icons.repeat), findsOneWidget);
-        // 17 total across 2 widget types — the chip is the data-discovery
-        // path so it surfaces both numbers, not just the headline total.
-        expect(find.text('Rebuilds: 17 across 2 widgets'), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'banner uses singular "widget" when only one widget type has counts',
-      (tester) async {
-        controller.dispose();
-        controller = SleuthController(
-          config: const SleuthConfig(
-            treeScanInterval: Duration(seconds: 1),
-            enabledDetectors: {DetectorType.frameTiming},
-          ),
-        );
-        controller.initializeDetectorsForTest();
-        final fake = _FakeCoordinator();
-        controller.debugCoordinatorForTest = fake;
-
-        await tester.pumpWidget(pumpCardForBanner(controller));
-        await tester.pumpAndSettle();
-
-        await primeAndMergeCounts(tester, controller, fake, {'SoloCard': 3});
-
-        expect(find.text('Rebuilds: 3 across 1 widget'), findsOneWidget);
-      },
-    );
-
-    testWidgets('banner renders for low-volume routes (always-on contract)', (
-      tester,
-    ) async {
-      // v0.15.2 always-on contract: the panel must render whenever the
-      // active session has ANY rebuild attribution, no matter how small.
-      // Pre-v0.15.2 the `rebuild_hotspot_summary` rollup IssueCard was
-      // gated on a sustained rate (≥ 20 builds/sec + ≥ 30 total + ≥ 1.5s
-      // duration), so a handful of rebuilds on a quiet route had no UI
-      // surface at all. The inline panel replaced that gating: it shows
-      // up the moment counts exist, and the drilldown link is the only
-      // entry point users have for low-volume routes. This test pins
-      // that "no minimum" contract so a future rate-floor regression
-      // can't silently re-introduce a discoverability gap.
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
-
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
-
-      // 4 rebuilds total — pre-v0.15.2 this was below every rollup gate
-      // (rate, count, and duration). The panel must still render.
-      await primeAndMergeCounts(tester, controller, fake, {'TinyCard': 4});
-
-      expect(find.text('Rebuilds: 4 across 1 widget'), findsOneWidget);
-    });
-
-    testWidgets('the header row is at least 48 px tall', (tester) async {
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
-
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
-      await primeAndMergeCounts(tester, controller, fake, {'TinyCard': 4});
-
-      final header = find.bySemanticsLabel(
-        RegExp(r'^Rebuilds: 4 across 1 widget'),
-      );
-      expect(tester.getSize(header).height, greaterThanOrEqualTo(48));
-    });
-
-    testWidgets('the collapsed pause indicator is not announced twice', (
-      tester,
-    ) async {
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
-
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
-      await primeAndMergeCounts(tester, controller, fake, {'TinyCard': 4});
-
-      final header = find.text('Rebuilds: 4 across 1 widget');
-      await tester.ensureVisible(header);
-      await tester.tap(header);
-      await tester.pump();
-      await tester.ensureVisible(find.byIcon(Icons.pause));
-      await tester.tap(find.byIcon(Icons.pause));
-      await tester.pump();
-      await tester.tap(header);
-      await tester.pump();
-
-      // Collapsed and paused: the header label says so; the icon is
-      // silent.
       expect(
-        find.bySemanticsLabel(RegExp(r'paused, collapsed')),
+        find.bySemanticsLabel('Startup, Not measured yet'),
         findsOneWidget,
       );
+      // A debug run counts rebuilds for the detectors only.
+      expect(find.bySemanticsLabel('Rebuild stats, Off'), findsOneWidget);
+      // No hidden issues: no row.
+      expect(moreMenuRow('Hidden issues'), findsNothing);
+      await tester.tap(moreMenuRow('Startup'));
+      await tester.pump();
+      expect(find.byType(StartupMetricsPage), findsNothing);
+      expect(find.byType(SleuthMoreMenu), findsOneWidget);
+    });
+
+    testWidgets('Rebuild stats waits for counts in a run that counts them', (
+      tester,
+    ) async {
+      final c = scanningController();
+      c.debugCoordinatorForTest = _FakeCoordinator(profileMode: true);
+      await tester.pumpWidget(pumpMenuCard(c));
+      await openMoreMenu(tester);
+
       expect(
-        tester.widget<Icon>(find.byIcon(Icons.pause)).semanticLabel,
-        isNull,
+        find.bySemanticsLabel('Rebuild stats, No counts yet'),
+        findsOneWidget,
       );
     });
 
-    for (final (name, theme) in [
-      ('dark', const SleuthThemeData()),
-      ('light', const SleuthThemeData.light()),
-      ('highContrastDark', const SleuthThemeData.highContrastDark()),
-      ('highContrastLight', const SleuthThemeData.highContrastLight()),
-    ]) {
-      testWidgets('$name: the collapsed pause indicator keeps 3:1 on the '
-          'banner', (tester) async {
-        controller.dispose();
-        controller = SleuthController(
-          config: const SleuthConfig(
-            treeScanInterval: Duration(seconds: 1),
-            enabledDetectors: {DetectorType.frameTiming},
-          ),
-        );
-        controller.initializeDetectorsForTest();
-        final fake = _FakeCoordinator();
-        controller.debugCoordinatorForTest = fake;
-
-        await tester.pumpWidget(pumpCardForBanner(controller, theme: theme));
-        await tester.pumpAndSettle();
-        await primeAndMergeCounts(tester, controller, fake, {'TinyCard': 4});
-
-        final header = find.text('Rebuilds: 4 across 1 widget');
-        await tester.ensureVisible(header);
-        await tester.tap(header);
-        await tester.pump();
-        await tester.ensureVisible(find.byIcon(Icons.pause));
-        await tester.tap(find.byIcon(Icons.pause));
-        await tester.pump();
-        await tester.tap(header);
-        await tester.pump();
-
-        final pause = find.byIcon(Icons.pause);
-        final icon = tester.widget<Icon>(pause).color!;
-        // The banner's tint, the nearest filled box behind the icon.
-        final tint = tester
-            .widgetList<DecoratedBox>(
-              find.ancestor(of: pause, matching: find.byType(DecoratedBox)),
-            )
-            .map((box) => box.decoration)
-            .whereType<BoxDecoration>()
-            .firstWhere((d) => d.color != null)
-            .color!;
-        for (final host in const [Color(0xFF000000), Color(0xFFFFFFFF)]) {
-          final banner = composite(tint, composite(theme.cardBackground, host));
-          expect(
-            wcagContrast(composite(icon, banner), banner),
-            greaterThanOrEqualTo(3),
-            reason: 'over $host',
-          );
-        }
-      });
-    }
-
-    testWidgets('panel is collapsed by default — top rows are hidden', (
-      tester,
-    ) async {
-      // v0.15.2 UX knob #2: the panel starts collapsed. Header is the
-      // only row visible until the user expands it. This pins the
-      // "minimal noise when nothing surprising is happening" contract.
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
+    testWidgets('Rebuild stats shows the total read at open and opens its '
+        'page on that snapshot', (tester) async {
+      final c = scanningController();
       final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
-
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
-
-      await primeAndMergeCounts(tester, controller, fake, {
-        'ProductCard': 12,
-        'PriceTag': 5,
+      c.debugCoordinatorForTest = fake;
+      await tester.pumpWidget(pumpMenuCard(c));
+      await mergeCounts(tester, c, fake, {
+        'ProductCard': 2000,
+        'PriceTag': 389,
       });
 
-      // Header summary is visible…
-      expect(find.text('Rebuilds: 17 across 2 widgets'), findsOneWidget);
-      // …but the per-widget rows + drilldown link are not.
-      expect(find.textContaining('ProductCard'), findsNothing);
-      expect(find.textContaining('See all'), findsNothing);
-      // Collapsed chevron is shown (expand_more, not expand_less).
-      expect(find.byIcon(Icons.expand_more), findsOneWidget);
-      expect(find.byIcon(Icons.expand_less), findsNothing);
-    });
+      await openMoreMenu(tester);
+      expect(find.bySemanticsLabel('Rebuild stats, 2,389'), findsOneWidget);
 
-    testWidgets('tapping the header expands top-3 rows + footer link', (
-      tester,
-    ) async {
-      // v0.15.2 UX knob #1: top-N = 3. The expanded panel shows the
-      // three highest-count widget types, the inflation footnote, and
-      // the "See all N →" drilldown link.
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
-
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
-
-      await primeAndMergeCounts(tester, controller, fake, {
-        'ProductCard': 20,
-        'PriceTag': 10,
-        'Avatar': 5,
-        'BadgeChip': 2, // 4th — must NOT be shown inline.
-      });
-
-      // Tap the collapsed header to expand.
-      await tester.ensureVisible(find.text('Rebuilds: 37 across 4 widgets'));
-      await tester.pump();
-      await tester.tap(find.text('Rebuilds: 37 across 4 widgets'));
-      await tester.pump();
-
-      // Top-3 widget rows are now visible…
-      expect(find.text('ProductCard'), findsOneWidget);
-      expect(find.text('PriceTag'), findsOneWidget);
-      expect(find.text('Avatar'), findsOneWidget);
-      // …but the 4th widget is NOT inlined.
-      expect(find.text('BadgeChip'), findsNothing);
-      // Inflation footnote is rendered…
-      expect(find.text('includes inflations'), findsOneWidget);
-      // …and the drilldown link uses the full hotspot count (4).
-      expect(find.text('See all 4'), findsOneWidget);
-      // Chevron flipped.
-      expect(find.byIcon(Icons.expand_less), findsOneWidget);
-      expect(find.byIcon(Icons.expand_more), findsNothing);
-    });
-
-    testWidgets(
-      'tapping "See all" link pushes the RebuildStatsPage drilldown',
-      (tester) async {
-        // The drilldown is reached via expand → tap link, NOT via tap on
-        // the header (which now toggles expansion). This test pins that
-        // wiring end-to-end through the same snapshot-and-push code path
-        // the v0.15.0/v0.15.1 rollup IssueCard used before removal.
-        //
-        // Needs ≥ 4 widget types because since v0.15.2 the card hides the
-        // redundant "See all N →" link when widgetCount ≤ topN = 3 (the
-        // inline rows already show every widget in that case, so a drilldown
-        // would surface nothing new).
-        controller.dispose();
-        controller = SleuthController(
-          config: const SleuthConfig(
-            treeScanInterval: Duration(seconds: 1),
-            enabledDetectors: {DetectorType.frameTiming},
-          ),
-        );
-        controller.initializeDetectorsForTest();
-        final fake = _FakeCoordinator();
-        controller.debugCoordinatorForTest = fake;
-
-        await tester.pumpWidget(pumpCardForBanner(controller));
-        await tester.pumpAndSettle();
-
-        await primeAndMergeCounts(tester, controller, fake, {
-          'ProductCard': 7,
-          'PriceTag': 3,
-          'Avatar': 2,
-          'Footer': 1,
-        });
-
-        // Drilldown not yet visible.
-        expect(find.byType(RebuildStatsPage), findsNothing);
-
-        // Expand the panel.
-        await tester.ensureVisible(find.text('Rebuilds: 13 across 4 widgets'));
-        await tester.pump();
-        await tester.tap(find.text('Rebuilds: 13 across 4 widgets'));
-        await tester.pump();
-
-        // Now tap the "See all 4 →" link.
-        // The banners scroll when the card is short.
-        await tester.ensureVisible(find.text('See all 4'));
-        await tester.pump();
-        await tester.tap(find.text('See all 4'));
-        await tester.pump();
-
-        // Drilldown is now mounted.
-        expect(find.byType(RebuildStatsPage), findsOneWidget);
-      },
-    );
-
-    testWidgets('expanded panel shows pause icon — tap freezes counts', (
-      tester,
-    ) async {
-      // The pause/resume toggle freezes the rendered counts so the user
-      // can read a stable snapshot while live attribution continues to
-      // accumulate. Frozen counts ignore subsequent merges until Resume
-      // (or auto-resume on route change) clears the freeze.
-      //
-      // We need ≥ 4 widget types in the panel so that the inline panel
-      // renders the "See all N →" drilldown link (since v0.15.2 the link is
-      // suppressed when widgetCount ≤ topN = 3 because the inline rows
-      // already show everything). Without ≥ 4 the panel↔drilldown
-      // contract assertion below could not exercise the snapshot path.
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
-
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
-
-      await primeAndMergeCounts(tester, controller, fake, {
-        'ProductCard': 8,
-        'PriceTag': 4,
-        'Avatar': 2,
-        'Footer': 1,
-      });
-
-      await tester.ensureVisible(find.text('Rebuilds: 15 across 4 widgets'));
-      await tester.pump();
-      await tester.tap(find.text('Rebuilds: 15 across 4 widgets'));
-      await tester.pump();
-
-      // Pause icon is visible only while expanded.
-      expect(find.byIcon(Icons.pause), findsOneWidget);
-      expect(find.byIcon(Icons.play_arrow), findsNothing);
-
-      await tester.ensureVisible(find.byIcon(Icons.pause));
-      await tester.pump();
-      await tester.tap(find.byIcon(Icons.pause));
-      await tester.pump();
-
-      // Pause flipped to play_arrow (Resume).
-      expect(find.byIcon(Icons.pause), findsNothing);
-      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
-
-      // Header still shows the frozen total even after a fresh merge.
-      // Drive a second merge that would change the live total — the
-      // frozen view must NOT update.
+      // A scan while the menu is open leaves its value alone.
       fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'ProductCard': 5},
+        rebuildCounts: {'ProductCard': 11},
         totalPaintCount: 0,
         elapsed: Duration(milliseconds: 500),
         source: RebuildCountSource.flutterTimeline,
       );
-      controller.scanTreeFullPathForTest(
-        tester.element(find.byType(MaterialApp)),
-      );
+      c.scanTreeFullPathForTest(tester.element(find.byType(MaterialApp)));
       await tester.pump();
+      expect(find.bySemanticsLabel('Rebuild stats, 2,389'), findsOneWidget);
 
-      // Frozen at 15, not 20 (15 + 5 from the new merge).
-      expect(find.text('Rebuilds: 15 across 4 widgets'), findsOneWidget);
-      expect(find.text('Rebuilds: 20 across 4 widgets'), findsNothing);
-
-      // Panel ↔ drilldown contract. While paused, tapping the
-      // "See all N →" link must open RebuildStatsPage against the
-      // FROZEN counts, not the live `session.rebuildCountsByType`.
-      // Pre-fix the drilldown snapshot was read from `session` at tap
-      // time, so a paused panel showing 15 would push a drilldown
-      // showing 20. This assertion pins
-      // the fix end-to-end through the full
-      // banner.onTap → _onSeeAllRebuildsTap(overrideCounts) → push
-      // path.
-      await tester.ensureVisible(find.text('See all 4'));
+      await tester.tap(moreMenuRow('Rebuild stats'));
       await tester.pump();
-      await tester.tap(find.text('See all 4'));
-      await tester.pumpAndSettle();
+      expect(find.byType(SleuthMoreMenu), findsNothing);
       expect(find.byType(RebuildStatsPage), findsOneWidget);
-
-      // Both the panel (still mounted under the drilldown) and the
-      // drilldown render `×8`-style text, so we must scope all finds
-      // to the drilldown subtree to assert the contract precisely.
-      Finder inDrilldown(Finder f) =>
-          find.descendant(of: find.byType(RebuildStatsPage), matching: f);
-
-      // Drilldown header summary chips: 15 total, 4 distinct types
-      // (matches the FROZEN snapshot, not the live total of 20).
-      expect(inDrilldown(find.text('15')), findsOneWidget);
-      expect(inDrilldown(find.text('20')), findsNothing);
-      // The live ProductCard count would be 13 (8 + 5); the frozen
-      // count is 8, so the drilldown row for ProductCard must read ×8.
-      expect(inDrilldown(find.text('\u00d78')), findsOneWidget);
-      expect(inDrilldown(find.text('\u00d713')), findsNothing);
     });
 
-    testWidgets('banner is hidden while the card is minimized', (tester) async {
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
+    testWidgets('Startup shows TTFF and opens Startup metrics', (tester) async {
+      addTearDown(Sleuth.resetStartupForTest);
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(dartEntryTimestamp: DateTime(2026), ttffMs: 200.4),
+      );
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      // Shown as "TTFF 200 ms", read out in words.
+      expect(find.text('TTFF 200 ms'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Startup, time to first frame 200 milliseconds'),
+        findsOneWidget,
+      );
+      await tester.tap(moreMenuRow('Startup'));
+      await tester.pump();
+      expect(find.byType(StartupMetricsPage), findsOneWidget);
+    });
+
+    testWidgets('Hidden issues appears with a count and opens the list', (
+      tester,
+    ) async {
+      controller.overlayUiState
+        ..hide('a')
+        ..hide('b');
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      expect(find.bySemanticsLabel('Hidden issues, 2'), findsOneWidget);
+      await tester.ensureVisible(moreMenuRow('Hidden issues'));
+      await tester.tap(moreMenuRow('Hidden issues'));
+      await tester.pump();
+      expect(find.byType(HiddenIssuesPage), findsOneWidget);
+    });
+
+    for (final (row, page) in [
+      ('Encyclopedia', IssueEncyclopediaPage),
+      ('Guide', GuidePage),
+    ]) {
+      testWidgets('$row closes the menu and opens its page; closing the '
+          'page returns focus to More', (tester) async {
+        await tester.pumpWidget(pumpMenuCard(controller));
+        await openFromMoreMenu(tester, row);
+        expect(find.byType(SleuthMoreMenu), findsNothing);
+        expect(find.byType(page), findsOneWidget);
+
+        final state = tester.state<State<FloatingIssuesCard>>(
+          find.byType(FloatingIssuesCard),
+        );
+        expect((state as OverlayLayerHost).closeInnermostLayer(), isTrue);
+        await tester.pump();
+        await tester.pump();
+        expect(find.byType(page), findsNothing);
+        final more = Focus.of(tester.element(find.byIcon(Icons.more_horiz)));
+        expect(more.hasPrimaryFocus, isTrue);
+      });
+    }
+
+    testWidgets('Copy snapshot closes the menu and copies', (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
         ),
       );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openFromMoreMenu(tester, 'Copy snapshot');
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+      expect(copied, contains('"currentIssues"'));
+      expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 3));
+    });
 
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
+    testWidgets('a theme segment applies in place with no toast', (
+      tester,
+    ) async {
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      await tester.ensureVisible(find.bySemanticsLabel('Auto theme'));
+      await tester.pump();
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Auto theme')),
+        matchesSemantics(
+          label: 'Auto theme',
+          isButton: true,
+          isInMutuallyExclusiveGroup: true,
+          hasCheckedState: true,
+          isChecked: true,
+          hasTapAction: true,
+        ),
+      );
+      await tester.tap(find.bySemanticsLabel('Dark theme'));
+      await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.dark);
+      // The menu stays open and no toast reports the change.
+      expect(find.byType(SleuthMoreMenu), findsOneWidget);
+      expect(find.textContaining('Theme:'), findsNothing);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Dark theme')),
+        matchesSemantics(
+          label: 'Dark theme',
+          isButton: true,
+          isInMutuallyExclusiveGroup: true,
+          hasCheckedState: true,
+          isChecked: true,
+          hasTapAction: true,
+        ),
+      );
+    });
 
-      await primeAndMergeCounts(tester, controller, fake, {'Card': 6});
-      expect(find.byIcon(Icons.repeat), findsOneWidget);
+    testWidgets('the scrim takes the tap that closes the menu', (tester) async {
+      var appTaps = 0;
+      controller.issuesNotifier.value = [_pinIssue(id: 'under_scrim')];
+      await tester.pumpWidget(
+        pumpMenuCard(
+          controller,
+          onAppTap: () {
+            appTaps++;
+          },
+        ),
+      );
+      await openMoreMenu(tester);
+      // On the card beside the panel: the tap closes the menu, nothing
+      // else.
+      final card = tester.getRect(find.byType(IssueCard));
+      final panel = tester.getRect(find.byType(SleuthMoreMenu));
+      expect(card.right, greaterThan(panel.right + 10));
+      await tester.tapAt(Offset(panel.right + 5, card.center.dy));
+      await tester.pump();
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+      // The card did not expand: its detail is not shown.
+      expect(find.text('Detail'), findsNothing);
+      expect(appTaps, 0);
+    });
 
-      // Minimize the card — the entire body (including all banners) is
-      // suppressed. The chip should disappear with the rest of the body.
+    testWidgets('a tap on the app closes the menu and reaches the app', (
+      tester,
+    ) async {
+      var appTaps = 0;
+      await tester.pumpWidget(
+        pumpMenuCard(
+          controller,
+          onAppTap: () {
+            appTaps++;
+          },
+        ),
+      );
+      await openMoreMenu(tester);
+      await tester.tapAt(const Offset(5, 590));
+      await tester.pump();
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+      expect(appTaps, 1);
+    });
+
+    testWidgets('minimize and a header drag close the menu', (tester) async {
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      await tester.drag(find.byIcon(Icons.pets), const Offset(-30, 40));
+      await tester.pump();
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+
+      await openMoreMenu(tester);
       await tester.tap(find.byIcon(Icons.minimize));
       await tester.pump();
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+    });
 
-      expect(find.byIcon(Icons.repeat), findsNothing);
-      expect(find.textContaining('Rebuilds:'), findsNothing);
+    testWidgets('keyboard focus moves into the menu and back to More', (
+      tester,
+    ) async {
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      final panelScope = FocusScope.of(tester.element(moreMenuRow('Guide')));
+      expect(panelScope.hasFocus, isTrue);
+
+      // Escape closes the menu before the card.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+      expect(find.byType(FloatingIssuesCard), findsOneWidget);
+      expect(
+        Focus.of(tester.element(find.byIcon(Icons.more_horiz))).hasPrimaryFocus,
+        isTrue,
+      );
+    });
+
+    testWidgets('opening focuses the first enabled row, and Enter opens it', (
+      tester,
+    ) async {
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      // Startup and Rebuild stats have nothing to show and are disabled.
+      expect(
+        Focus.of(tester.element(moreMenuRow('Encyclopedia'))).hasPrimaryFocus,
+        isTrue,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(IssueEncyclopediaPage), findsOneWidget);
+      expect(find.byType(SleuthMoreMenu), findsNothing);
+    });
+
+    testWidgets('the focused row is outlined only while the keyboard drives '
+        'focus', (tester) async {
+      Iterable<SleuthFocusOutline> shown() => tester
+          .widgetList<SleuthFocusOutline>(find.byType(SleuthFocusOutline))
+          .where((o) => o.show);
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      // Opened by touch: focus moved, no outline.
+      expect(shown(), isEmpty);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(shown(), hasLength(1));
+      final focused = FocusManager.instance.primaryFocus!.context!;
+      expect(
+        focused.findAncestorWidgetOfExactType<SleuthMoreMenu>(),
+        isNotNull,
+      );
+      expect(shown().single.color, const SleuthThemeData().checkboxActive);
+    });
+
+    testWidgets('the selected theme segment is outlined and filled; the '
+        'others show outlined icons', (tester) async {
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      await tester.ensureVisible(moreMenuRow('Theme'));
+      await tester.pump();
+      expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+
+      await tester.tap(find.bySemanticsLabel('Dark theme'));
+      await tester.pump();
+      expect(find.byIcon(Icons.dark_mode), findsOneWidget);
+      expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
+      final segment = tester.widget<DecoratedBox>(
+        find
+            .ancestor(
+              of: find.byIcon(Icons.dark_mode),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      final border = (segment.decoration as BoxDecoration).border! as Border;
+      expect(border.top.width, 1.5);
+      expect(
+        border.top.color,
+        SleuthTheme.of(
+          tester.element(find.byIcon(Icons.dark_mode)),
+        ).checkboxActive,
+      );
+    });
+
+    testWidgets('on iOS the selected theme segment reads as selected', (
+      tester,
+    ) async {
+      await tester.pumpWidget(pumpMenuCard(controller));
+      await openMoreMenu(tester);
+      // `flagsCollection` is not available on the 3.32 floor.
+      bool selected(String label) => tester
+          .getSemantics(find.bySemanticsLabel(label))
+          // ignore: deprecated_member_use
+          .hasFlag(SemanticsFlag.isSelected);
+      expect(selected('Auto theme'), isTrue);
+      expect(selected('Dark theme'), isFalse);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('the panel fits the card and the More button reads its '
+        'state', (tester) async {
+      await tester.pumpWidget(pumpMenuCard(controller));
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('More')),
+        matchesSemantics(
+          label: 'More',
+          isButton: true,
+          hasExpandedState: true,
+          hasTapAction: true,
+        ),
+      );
+      await openMoreMenu(tester);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('More').first),
+        matchesSemantics(
+          label: 'More',
+          isButton: true,
+          hasExpandedState: true,
+          isExpanded: true,
+          hasTapAction: true,
+        ),
+      );
+      final card = tester.getRect(find.byType(Material).first);
+      final panel = tester.getRect(find.byType(SleuthMoreMenu));
+      expect(panel.width, lessThanOrEqualTo(236));
+      expect(panel.left, greaterThanOrEqualTo(card.left));
+      expect(panel.right, lessThanOrEqualTo(card.right));
+      expect(panel.bottom, lessThanOrEqualTo(card.bottom));
     });
   });
 
@@ -1454,48 +1350,6 @@ void main() {
       ),
     );
 
-    testWidgets('rebuild banner updates on ticks that leave issues unchanged', (
-      tester,
-    ) async {
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
-      var notifications = 0;
-      controller.issuesNotifier.addListener(() => notifications++);
-
-      await tester.pumpWidget(host(controller));
-      final root = tester.element(find.byType(MaterialApp));
-      controller.scanTreeFullPathForTest(root);
-      fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'ProductCard': 3},
-        totalPaintCount: 0,
-        elapsed: Duration(milliseconds: 500),
-        source: RebuildCountSource.flutterTimeline,
-      );
-      controller.scanTreeFullPathForTest(root);
-      await tester.pump();
-      expect(find.text('Rebuilds: 3 across 1 widget'), findsOneWidget);
-      final notificationsBefore = notifications;
-
-      fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'ProductCard': 4},
-        totalPaintCount: 0,
-        elapsed: Duration(milliseconds: 500),
-        source: RebuildCountSource.flutterTimeline,
-      );
-      controller.scanTreeFullPathForTest(root);
-      await tester.pump();
-
-      expect(notifications, notificationsBefore);
-      expect(find.text('Rebuilds: 7 across 1 widget'), findsOneWidget);
-    });
-
     testWidgets(
       'recurrence badge updates on ticks that leave issues unchanged',
       (tester) async {
@@ -1525,11 +1379,29 @@ void main() {
     );
   });
 
-  group('Header theme toggle', () {
+  group('Theme in the More menu', () {
     SleuthThemeData theme(WidgetTester tester) =>
         tester.widget<SleuthTheme>(find.byType(SleuthTheme)).data;
 
-    testWidgets('cycles System, Light, Dark with a toast and persists', (
+    /// Taps the [name] segment, opening the menu first when it is closed.
+    Future<void> pickTheme(WidgetTester tester, String name) async {
+      if (find.byType(SleuthMoreMenu).evaluate().isEmpty) {
+        await openMoreMenu(tester);
+      }
+      final segment = find.bySemanticsLabel('$name theme');
+      await tester.ensureVisible(segment);
+      await tester.pump();
+      await tester.tap(segment);
+      await tester.pump();
+    }
+
+    bool isOn(WidgetTester tester, String name) => tester
+        .getSemantics(find.bySemanticsLabel('$name theme'))
+        // `flagsCollection` is not available on the 3.32 floor.
+        // ignore: deprecated_member_use
+        .hasFlag(SemanticsFlag.isChecked);
+
+    testWidgets('sets Light, Dark and Auto in place and persists', (
       tester,
     ) async {
       final store = InMemorySleuthStateStore();
@@ -1543,11 +1415,10 @@ void main() {
       controller.updateTheme(const SleuthThemeData.highContrastLight());
       await tester.pump();
 
-      final toggle = find.bySemanticsLabel('Toggle theme');
-      expect(tester.getSemantics(toggle).value, 'System');
+      await openMoreMenu(tester);
+      expect(isOn(tester, 'Auto'), isTrue);
 
-      await tester.tap(toggle);
-      await tester.pump();
+      await pickTheme(tester, 'Light');
       expect(controller.overlayUiState.themeMode, SleuthThemeMode.light);
       // The override stays; Light takes precedence over it.
       expect(
@@ -1555,37 +1426,28 @@ void main() {
         same(const SleuthThemeData.highContrastLight()),
       );
       expect(identical(theme(tester), const SleuthThemeData.light()), isTrue);
-      expect(find.text('Theme: Light'), findsOneWidget);
-      expect(tester.getSemantics(toggle).value, 'Light');
+      expect(isOn(tester, 'Light'), isTrue);
+      expect(find.textContaining('Theme:'), findsNothing);
 
-      await tester.tap(toggle);
-      await tester.pump();
+      await pickTheme(tester, 'Dark');
       expect(controller.overlayUiState.themeMode, SleuthThemeMode.dark);
       expect(identical(theme(tester), const SleuthThemeData()), isTrue);
-      expect(find.text('Theme: Dark'), findsOneWidget);
 
-      await tester.tap(toggle);
-      await tester.pump();
+      await pickTheme(tester, 'Auto');
       expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
-      expect(find.text('Theme: System'), findsOneWidget);
-      // System shows the app's override again.
+      // Auto shows the app's override again.
       expect(
         identical(theme(tester), const SleuthThemeData.highContrastLight()),
         isTrue,
       );
 
-      await tester.tap(toggle);
+      await pickTheme(tester, 'Light');
       await tester.pump(const Duration(seconds: 3));
       final saved = jsonDecode(store.json!) as Map<String, Object?>;
       expect(saved['themeMode'], 'light');
     });
-  });
 
-  group('Header theme toggle precedence', () {
-    SleuthThemeData theme(WidgetTester tester) =>
-        tester.widget<SleuthTheme>(find.byType(SleuthTheme)).data;
-
-    testWidgets('Light then System brings the override back', (tester) async {
+    testWidgets('Light then Auto brings the override back', (tester) async {
       const override = SleuthThemeData.highContrastDark();
       final controller = await pumpOverlay(
         tester,
@@ -1596,22 +1458,16 @@ void main() {
       await tester.pump();
       expect(identical(theme(tester), override), isTrue);
 
-      final toggle = find.bySemanticsLabel('Toggle theme');
-      await tester.tap(toggle);
-      await tester.pump();
+      await pickTheme(tester, 'Light');
       expect(controller.overlayUiState.themeMode, SleuthThemeMode.light);
       expect(identical(theme(tester), const SleuthThemeData.light()), isTrue);
 
-      // Light -> Dark -> System.
-      await tester.tap(toggle);
-      await tester.pump();
-      await tester.tap(toggle);
-      await tester.pump();
+      await pickTheme(tester, 'Auto');
       expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
       expect(identical(theme(tester), override), isTrue);
     });
 
-    testWidgets('updateTheme while Dark switches the toggle to System', (
+    testWidgets('updateTheme while Dark switches the menu to Auto', (
       tester,
     ) async {
       const override = SleuthThemeData.highContrastLight();
@@ -1627,12 +1483,10 @@ void main() {
       await tester.pump();
       expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
       expect(identical(theme(tester), override), isTrue);
-      expect(
-        tester.getSemantics(find.bySemanticsLabel('Toggle theme')).value,
-        'System',
-      );
-      // The icon follows the mode, not the theme's brightness.
-      expect(find.byIcon(Icons.brightness_auto), findsOneWidget);
+      await openMoreMenu(tester);
+      await tester.ensureVisible(find.bySemanticsLabel('Auto theme'));
+      await tester.pump();
+      expect(isOn(tester, 'Auto'), isTrue);
 
       // Clearing the override leaves the mode alone.
       controller.updateTheme(null);
@@ -1641,17 +1495,21 @@ void main() {
       expect(identical(theme(tester), const SleuthThemeData()), isTrue);
     });
 
-    testWidgets('the toggle icon follows the mode', (tester) async {
+    testWidgets('the segment that is on follows the mode', (tester) async {
       final controller = await pumpOverlay(
         tester,
         platformBrightness: Brightness.dark,
         themeMode: SleuthThemeMode.light,
       );
       await openDashboard(tester, controller);
-      expect(find.byIcon(Icons.light_mode), findsOneWidget);
+      await openMoreMenu(tester);
+      await tester.ensureVisible(find.bySemanticsLabel('Light theme'));
+      await tester.pump();
+      expect(isOn(tester, 'Light'), isTrue);
       controller.overlayUiState.themeMode = SleuthThemeMode.dark;
       await tester.pump();
-      expect(find.byIcon(Icons.dark_mode), findsOneWidget);
+      expect(isOn(tester, 'Dark'), isTrue);
+      expect(isOn(tester, 'Light'), isFalse);
     });
   });
 
@@ -1659,7 +1517,7 @@ void main() {
     testWidgets('closes the open page, then the card', (tester) async {
       final controller = await pumpOverlay(tester);
       await openDashboard(tester, controller);
-      await tester.tap(find.bySemanticsLabel('Guide'));
+      await openFromMoreMenu(tester, 'Guide');
       await tester.pumpAndSettle();
       expect(find.text('Sleuth Guide'), findsOneWidget);
 
@@ -1743,7 +1601,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await openDashboard(tester, controller);
-      await tester.tap(find.bySemanticsLabel('Guide'));
+      await openFromMoreMenu(tester, 'Guide');
       await tester.pumpAndSettle();
       expect(find.text('Sleuth Guide'), findsOneWidget);
 

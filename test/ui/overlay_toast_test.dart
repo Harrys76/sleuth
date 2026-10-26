@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/overlay_toast.dart';
@@ -215,6 +216,27 @@ void main() {
   });
 
   group('Toast duration scale', () {
+    const copied = 'Snapshot copied to clipboard';
+
+    /// Copies the snapshot from the More menu, which shows a 2 s toast.
+    Future<void> copySnapshot(WidgetTester tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await openMoreMenu(tester);
+      await tester.ensureVisible(moreMenuRow('Copy snapshot'));
+      await tester.pump();
+      await tester.tap(moreMenuRow('Copy snapshot'));
+      await tester.pump();
+    }
+
     testWidgets('durationScale stretches every display time', (tester) async {
       await tester.pumpWidget(host());
       toast.durationScale = 3;
@@ -239,12 +261,11 @@ void main() {
         config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
       );
       await openDashboard(tester, controller);
-      await tester.tap(find.byIcon(Icons.brightness_auto));
-      await tester.pump();
-      expect(find.text('Theme: Light'), findsOneWidget);
+      await copySnapshot(tester);
+      expect(find.text(copied), findsOneWidget);
       await tester.pump(const Duration(seconds: 2));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Theme: Light'), findsNothing);
+      expect(find.text(copied), findsNothing);
     }, semanticsEnabled: false);
 
     testWidgets('the card triples toasts and holds Undo while semantics is '
@@ -258,13 +279,12 @@ void main() {
       await openDashboard(tester, controller);
       expect(SemanticsBinding.instance.semanticsEnabled, isTrue);
 
-      await tester.tap(find.bySemanticsLabel('Toggle theme'));
-      await tester.pump();
+      await copySnapshot(tester);
       await tester.pump(const Duration(seconds: 5));
-      expect(find.text('Theme: Light'), findsOneWidget);
+      expect(find.text(copied), findsOneWidget);
       await tester.pump(const Duration(seconds: 2));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Theme: Light'), findsNothing);
+      expect(find.text(copied), findsNothing);
 
       await tester.tap(find.text(issue.title));
       await tester.pump();
@@ -295,13 +315,12 @@ void main() {
         config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
       );
       await openDashboard(tester, controller);
-      await tester.tap(find.bySemanticsLabel('Toggle theme'));
-      await tester.pump();
+      await copySnapshot(tester);
       await tester.pump(const Duration(seconds: 5));
-      expect(find.text('Theme: Light'), findsOneWidget);
+      expect(find.text(copied), findsOneWidget);
       await tester.pump(const Duration(seconds: 2));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Theme: Light'), findsNothing);
+      expect(find.text(copied), findsNothing);
     });
   });
 }

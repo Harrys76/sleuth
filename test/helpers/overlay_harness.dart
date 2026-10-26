@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/more_menu.dart';
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_overlay.dart';
 
@@ -76,6 +77,31 @@ Future<void> openDashboard(
   SleuthController controller,
 ) async {
   controller.overlayUiState.dashboardOpen = true;
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+}
+
+/// Opens the card's More menu and lets its fade finish.
+Future<void> openMoreMenu(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.more_horiz));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 250));
+}
+
+/// The More menu's row labelled [label].
+Finder moreMenuRow(String label) => find.descendant(
+  of: find.byType(SleuthMoreMenu),
+  matching: find.text(label),
+);
+
+/// Opens the More menu and taps its [label] row, then lets the page that
+/// opens settle.
+Future<void> openFromMoreMenu(WidgetTester tester, String label) async {
+  await openMoreMenu(tester);
+  // The panel scrolls when the card is short.
+  await tester.ensureVisible(moreMenuRow(label));
+  await tester.pump();
+  await tester.tap(moreMenuRow(label));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
 }

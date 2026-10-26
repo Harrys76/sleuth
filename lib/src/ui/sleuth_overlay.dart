@@ -41,8 +41,8 @@ import 'text_scale_clamp.dart';
 ///
 /// Text in the overlay follows the system text scale between 0.8x and
 /// 2.0x; the app below keeps the unclamped scale. The theme resolves in
-/// this order: the header toggle's light or dark
-/// [OverlayUiState.themeMode], `Sleuth.updateTheme`, `SleuthConfig.theme`,
+/// this order: Light or Dark picked under Theme in the More menu
+/// ([OverlayUiState.themeMode]), `Sleuth.updateTheme`, `SleuthConfig.theme`,
 /// then the platform brightness, with the high-contrast presets when the
 /// platform asks for high contrast.
 class SleuthOverlay extends StatefulWidget {
@@ -78,6 +78,11 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   /// semantics are dropped so a screen reader stays on the page.
   final ValueNotifier<bool> _fullScreenLayerOpen = ValueNotifier(false);
 
+  /// True while a full-screen layer or the card's More menu is open; the
+  /// app's semantics are dropped below the overlay. The menu leaves the
+  /// app's focus alone: it keeps keyboard focus in its own panel.
+  final ValueNotifier<bool> _appSemanticsBlocked = ValueNotifier(false);
+
   /// Key of the [ExcludeFocus] around the app; it keeps the app's subtree
   /// in place and tells app focus from overlay focus.
   final GlobalKey _appFocusKey = GlobalKey(debugLabel: 'Sleuth app focus');
@@ -90,6 +95,11 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   /// The app's primary focus when the exclusion began, restored when it
   /// ends.
   FocusNode? _appFocusBeforeLayer;
+
+  /// The app's primary focus when the More menu took keyboard focus,
+  /// given back when the dashboard closes. Closing the menu itself sends
+  /// focus to the More button instead.
+  FocusNode? _appFocusBeforeMenu;
   bool _focusSyncScheduled = false;
 
   @override
@@ -149,8 +159,26 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   /// a layer is open ([_watchAppNavigation]). Never cleared from here.
   void _onLayersChanged() {
     final Object? host = _cardKey.currentState;
-    _fullScreenLayerOpen.value =
-        _layerOpen && host is OverlayLayerHost && host.openLayerDepth > 0;
+    final layers = _layerOpen && host is OverlayLayerHost;
+    _fullScreenLayerOpen.value = layers && host.openLayerDepth > 0;
+    _appSemanticsBlocked.value =
+        layers && (host.openLayerDepth > 0 || host.menuOpen);
+    // Reported from the card's build, before the menu's scope takes
+    // focus, so the app's node is still the primary focus here. Each
+    // opening records the app node focused now; with focus already in the
+    // overlay (More, after an earlier close), the node recorded before
+    // stays.
+    if (layers && host.menuOpen) {
+      final focus = FocusManager.instance.primaryFocus;
+      if (focus != null && _isAppFocus(focus)) _appFocusBeforeMenu = focus;
+    }
+    // With a page still excluding the app's focus, [_restoreAppFocus]
+    // gives the node back once the exclusion ends.
+    if (!_layerOpen && _appFocusBeforeMenu != null && !_appFocusExcluded) {
+      final node = _appFocusBeforeMenu;
+      _appFocusBeforeMenu = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _giveFocusBack(node));
+    }
     _scheduleFocusSync();
     _requestFrameworkBack();
     _watchAppNavigation();
@@ -196,9 +224,18 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   void _restoreAppFocus() {
     // Excluded again: the node waits for the next close.
     if (!mounted || _appFocusExcluded) return;
-    final node = _appFocusBeforeLayer;
+    // A page opened from the More menu: the menu took the app's focus
+    // first.
+    final node = _appFocusBeforeLayer ?? _appFocusBeforeMenu;
     _appFocusBeforeLayer = null;
-    if (node == null) return;
+    _appFocusBeforeMenu = null;
+    _giveFocusBack(node);
+  }
+
+  /// Focuses [node] again when it is still in the tree and focusable and
+  /// the app has not taken focus itself.
+  void _giveFocusBack(FocusNode? node) {
+    if (!mounted || node == null) return;
     final nodeContext = node.context;
     if (nodeContext == null ||
         !nodeContext.mounted ||
@@ -461,7 +498,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
                 // Above the overlay's Localizations, whose semantics node
                 // would stop a BlockSemantics placed inside the card.
                 child: _AppSemanticsBlocker(
-                  blocking: _fullScreenLayerOpen,
+                  blocking: _appSemanticsBlocked,
                   child: _clampTextScale(
                     context,
                     Localizations(
@@ -594,6 +631,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
   void dispose() {
     OverlayOwnership.unregister(context as Element, _appFocusKey);
     _fullScreenLayerOpen.dispose();
+    _appSemanticsBlocked.dispose();
     widget.controller.themeOverride.removeListener(_onThemeChanged);
     widget.controller.overlayUiState.removeListener(_onUiStateChanged);
     WidgetsBinding.instance.removeObserver(this);

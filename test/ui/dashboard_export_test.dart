@@ -7,6 +7,8 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/utils/own_work_log.dart';
 
+import '../helpers/overlay_harness.dart';
+
 void main() {
   group('FloatingIssuesCard export', () {
     late SleuthController controller;
@@ -20,6 +22,15 @@ void main() {
       controller.dispose();
     });
 
+    /// Taps Copy snapshot in the More menu.
+    Future<void> copySnapshot(WidgetTester tester) async {
+      await openMoreMenu(tester);
+      await tester.ensureVisible(moreMenuRow('Copy snapshot'));
+      await tester.pump();
+      await tester.tap(moreMenuRow('Copy snapshot'));
+      await tester.pump();
+    }
+
     Widget buildCard() {
       return MaterialApp(
         home: Scaffold(
@@ -28,10 +39,11 @@ void main() {
       );
     }
 
-    testWidgets('export button is present in header', (tester) async {
+    testWidgets('Copy snapshot is in the More menu', (tester) async {
       await tester.pumpWidget(buildCard());
-
-      expect(find.byIcon(Icons.ios_share), findsOneWidget);
+      expect(find.byIcon(Icons.ios_share), findsNothing);
+      await openMoreMenu(tester);
+      expect(moreMenuRow('Copy snapshot'), findsOneWidget);
     });
 
     testWidgets('tapping export copies JSON to clipboard', (tester) async {
@@ -49,8 +61,7 @@ void main() {
       );
 
       await tester.pumpWidget(buildCard());
-      await tester.tap(find.byIcon(Icons.ios_share));
-      await tester.pump();
+      await copySnapshot(tester);
 
       expect(clipboardContent, isNotNull);
       expect(clipboardContent, contains('"capturedFrames"'));
@@ -68,8 +79,7 @@ void main() {
       await tester.pumpWidget(buildCard());
       final before = OwnWorkLog.now();
 
-      await tester.tap(find.byIcon(Icons.ios_share));
-      await tester.pump();
+      await copySnapshot(tester);
       expect(ownWorkLog.overlapUs(before, OwnWorkLog.now()), greaterThan(0));
       await tester.pump(const Duration(seconds: 3));
     });
@@ -88,10 +98,8 @@ void main() {
         },
       );
       await tester.pumpWidget(buildCard());
-      await tester.tap(find.byIcon(Icons.ios_share));
-      await tester.pump();
-      await tester.tap(find.byIcon(Icons.ios_share));
-      await tester.pump();
+      await copySnapshot(tester);
+      await copySnapshot(tester);
       expect(copies, 1);
 
       release.complete();
@@ -100,10 +108,37 @@ void main() {
       expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
       // The copy ended, so a new tap copies again.
       await tester.pump(const Duration(seconds: 3));
-      await tester.tap(find.byIcon(Icons.ios_share));
-      await tester.pump();
+      await copySnapshot(tester);
       expect(copies, 2);
       await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('a failed copy offers Try again, which copies', (tester) async {
+      var fail = true;
+      var copies = 0;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            if (fail) throw PlatformException(code: 'denied');
+            copies++;
+          }
+          return null;
+        },
+      );
+
+      await tester.pumpWidget(buildCard());
+      await copySnapshot(tester);
+      await tester.pump();
+      expect(find.text("Couldn't copy snapshot"), findsOneWidget);
+
+      fail = false;
+      await tester.tap(find.text('Try again'));
+      await tester.pump();
+      await tester.pump();
+      expect(copies, 1);
+      expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 15));
     });
 
     testWidgets('feedback banner appears on export tap', (tester) async {
@@ -113,8 +148,7 @@ void main() {
       );
 
       await tester.pumpWidget(buildCard());
-      await tester.tap(find.byIcon(Icons.ios_share));
-      await tester.pump();
+      await copySnapshot(tester);
 
       expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
 
@@ -129,8 +163,7 @@ void main() {
       );
 
       await tester.pumpWidget(buildCard());
-      await tester.tap(find.byIcon(Icons.ios_share));
-      await tester.pump();
+      await copySnapshot(tester);
       expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
 
       // Advance past the 2-second delay and the 200 ms fade-out.
