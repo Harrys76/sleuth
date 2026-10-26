@@ -21,6 +21,7 @@ const Set<String> compactIssueKeys = {
   'sourceRoute',
   'confidenceReason',
   'rootCauseIds',
+  'measurement',
 };
 
 /// Trims one full issue map to [compactIssueKeys]. Only copies keys that are

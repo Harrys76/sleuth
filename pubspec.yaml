@@ -1,6 +1,6 @@
 name: sleuth
 description: "In-app performance diagnostics overlay for Flutter. Surfaces jank, memory leaks, slow networks, GPU pressure, and widget anti-patterns. Every issue ships with a fix hint."
-version: 0.38.0
+version: 1.0.0
 homepage: https://github.com/Harrys76/sleuth
 repository: https://github.com/Harrys76/sleuth
 issue_tracker: https://github.com/Harrys76/sleuth/issues
@@ -17,9 +17,9 @@ platforms:
 screenshots:
   - description: 'Sleuth, an in-app performance diagnostics overlay for Flutter.'
     path: doc/screenshots/cover.png
-  - description: 'Live issue list in the dark theme, ranked by severity and confidence, with severity filter chips and recurrence badges.'
+  - description: 'The issue list in the dark theme, with the run label, severity chips, and a meta line per card for category, confidence and how often the issue was seen.'
     path: doc/screenshots/overlay-dark.png
-  - description: 'The light theme, with one card expanded to show what was measured, where, and the two issues that caused it.'
+  - description: 'The light theme, with one card expanded to its measured value against the warning and critical lines, its evidence, and the two issues that caused it.'
     path: doc/screenshots/overlay-light.png
 
 environment:

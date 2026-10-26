@@ -1,11 +1,32 @@
-## Unreleased
+## 0.10.0
 
-- `snapshotMetadataKeys` includes `notUsefulMarks`, the envelope key in
-  which newer apps list the issues marked Not useful in the overlay. The
-  sidecar's own projection keeps it like `suppressedCount`.
+Pins sleuth 1.0.0, accepts 0.38 apps with a warning and refuses 0.37
+apps. Publish it together with sleuth 1.0.0. The
+[full release notes](https://github.com/Harrys76/sleuth/blob/main/packages/sleuth_mcp/doc/release_notes/0.10.0.md)
+list every change.
+
+- From 1.0.0 a lineage is the app's major version (`versionLineage`
+  returns `1` for `1.4.2`), because sleuth 1.x follows semver. Any 1.x
+  app connects, with `version_skew_minor` when it is not the pinned
+  version. Below 1.0.0 the lineage stays `major.minor`.
+- `compare_snapshots` adds `versionWarning` when the two snapshots come
+  from different releases of one lineage, such as 1.0.0 and 1.2.0. A
+  release can add detectors, move thresholds or fix false positives, so
+  part of the diff may come from the upgrade.
+- Compact issues in `get_issues` and `get_snapshot` keep the issue's
+  `measurement` object: the number its detector reported, with the
+  warning and critical lines.
+- `snapshotMetadataKeys` includes `notUsefulMarks`, the `data` key in
+  which the app lists the issues marked Not useful in the overlay. The
+  sidecar's own projection keeps it like `suppressedCount`, and
+  `get_issues` passes it through.
+- The `triage_performance`, `audit_memory` and `release_check` prompts
+  tell the model to quote each issue's `measurement` against its warning
+  or critical line, and how to match `notUsefulMarks` to issues. The
+  triage lists marked issues last, the memory audit sets them aside, and
+  the release gate keeps them in its verdict.
 - The schema copy documents `notUsefulMarks` and the issue `measurement`
-  shape, and the tool schema describes the `measurement` object of a
-  verbose issue.
+  shape.
 
 ## 0.9.0
 

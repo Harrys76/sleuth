@@ -22,7 +22,7 @@
     "The error envelopes describe how the sidecar handlers behave today. Each handler returns ToolCallResult.text(...) with `isError: true` and one text content that carries the message string. The codes in `errors[].code` appear verbatim as the prefix of that text. There is no central typed error class yet, which is known debt.",
     "Passthrough tools call bridge.callExtension and return the ext.sleuth.* envelope unchanged. Each shim is documented on its own so the audit can check its behavior: the get_issues severityAtLeast filter, the compact-issue projection on get_issues and get_snapshot, the get_snapshot default projection and disk handoff, and the launchModeAdvisory stamp.",
     "The nested snapshot and route-session shapes are in mcp_schema.{json,md}. This file documents only how the tools wrap them.",
-    "schemaVersion 2 adds the compact-issue projection. By default get_issues and get_snapshot trim each issue to the actionable subset (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds). Pass verbose:true for the full shape of up to 27 keys, which includes the optional measurement object (value, unit, warningAt, criticalAt, windowMs, warningStrict, criticalStrict). Compaction removes fields only and keeps the diff key (stableId and severity), so compare_snapshots and check_budgets work on compact snapshots.",
+    "schemaVersion 2 adds the compact-issue projection. By default get_issues and get_snapshot trim each issue to the actionable subset (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds, measurement). The optional measurement object (value, unit, warningAt, criticalAt, windowMs, warningStrict, criticalStrict) is part of the compact set. Pass verbose:true for the full shape of up to 27 keys. Compaction removes fields only and keeps the diff key (stableId and severity), so compare_snapshots and check_budgets work on compact snapshots.",
     "Structured content applies to every tool rather than to one tool's shape. A client that negotiates MCP protocol 2025-06-18 or later also gets a top-level `structuredContent` field on every successful tools/call result. It holds the same JSON as the text content block, as an object. Clients on older protocol versions get the text content only. Error results (isError:true) never carry structuredContent. The field is additive and changes no per-tool data, args or errors shape below, so schemaVersion stays 2.",
     "toolAnnotations locks three MCP annotation hints per tool: destructiveHint, idempotentHint and openWorldHint. readOnlyHint comes from readOnlyTools and is not repeated here. Only non-default hints are listed. openWorldHint is true for tools whose output reflects external or runtime state: the live-app readers get_snapshot, get_issues, get_route_health, explain_issue, diagnose and check_budgets, and list_devices, which lists the host's devices. It is false for self-contained tools: compare_snapshots diffs its input locally, and app_status reports the server's own status. destructiveHint is true for detach_app, because it ends the session and deletes disk-handoff files. Read-only tools omit destructiveHint and idempotentHint, which the spec ignores unless readOnlyHint is false. Annotations are advisory descriptor metadata, not a return or args shape, so schemaVersion stays 2.",
     "serverErrors lists the errors McpServer returns for any tools/call before or around the handler: argument validation against the tool's inputSchema (missing_required_arg, arg_unknown, arg_type_mismatch, arg_enum_violation, arg_min_length_violation) and dispatch failures. They share the per-tool error envelope (isError:true, code as the message prefix) and apply to every tool, so per-tool `errors` lists only handler-level codes. The audit checks every literal error prefix in the handler and server source against these lists.",
@@ -64,7 +64,7 @@
           "required": false,
           "nullable": false,
           "values": ["version_skew_minor", "version_skew_prior_lineage"],
-          "presence": "when the connected app's packageVersion lineage differs from the sidecar pin within accepted bounds"
+          "presence": "when the app's packageVersion is not the pinned version but is accepted: version_skew_minor for another version in the pin's lineage, version_skew_prior_lineage for the 0.38 lineage"
         },
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup or disconnected, or basic with vmConnected false, which means the VM-only detectors are off; the basic text suggests reopening the app and names DDS as one possible cause. A basic session with vmConnected true gets none."}
       },
@@ -281,14 +281,15 @@
         "fpsDelta": {"type": "double", "required": true, "nullable": true, "presence": "null when either snapshot lacked frameStatsSummary.averageFps/actualFps"},
         "beforeFps": {"type": "double", "required": true, "nullable": true},
         "afterFps": {"type": "double", "required": true, "nullable": true},
-        "coverageWarning": {"type": "String", "required": false, "nullable": false, "presence": "when neither snapshot had a VM service link (both report isVmConnected false); text starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover"}
+        "coverageWarning": {"type": "String", "required": false, "nullable": false, "presence": "when neither snapshot had a VM service link (both report isVmConnected false); text starts `vm_detectors_not_observed:` and names the VM-only stableIds the diff cannot cover"},
+        "versionWarning": {"type": "String", "required": false, "nullable": false, "presence": "when the two packageVersion values name different releases of one lineage (build metadata ignored), such as 1.0.0 and 1.2.0; text starts `sleuth_version_differs:` and names both versions, because a release can add detectors, move thresholds or fix false positives"}
       },
       "errors": [
         {"code": "arg_before_not_object", "doc": "the `before` arg is not a Map", "messagePrefix": "arg \"before\" must be object"},
         {"code": "arg_after_not_object", "doc": "the `after` arg is not a Map", "messagePrefix": "arg \"after\" must be object"},
         {"code": "arg_capped_issues_uncomparable", "doc": "one or both snapshots were projected with maxIssueCount. A truncated top-N issue window cannot be diffed, because an issue that left the window looks the same as one that resolved", "messagePrefix": "arg_capped_issues_uncomparable:"},
         {"code": "arg_section_mismatch", "doc": "the two snapshots were projected to different sections or different pagination limits", "messagePrefix": "arg_section_mismatch:"},
-        {"code": "arg_lineage_mismatch", "doc": "the two snapshots' packageVersion values fall in different sleuth major.minor lineages, or either is missing or not semver; detector ids and defaults change between lineages", "messagePrefix": "arg_lineage_mismatch:"},
+        {"code": "arg_lineage_mismatch", "doc": "the two snapshots' packageVersion values fall in different sleuth lineages (the major from 1.0.0, major.minor below it), or either is missing or not semver; detector ids and defaults change between lineages", "messagePrefix": "arg_lineage_mismatch:"},
         {"code": "arg_snapshot_in_warmup", "doc": "one or both snapshots were taken while Sleuth was still warming up (connectionMode warmup, or the warmup launchModeAdvisory that get_snapshot adds), so their issue lists may be incomplete; take that snapshot again after a few seconds", "messagePrefix": "arg_snapshot_in_warmup:"},
         {"code": "arg_coverage_mismatch", "doc": "only one snapshot had a VM service link (the other reports isVmConnected false), or either lacks a boolean isVmConnected; VM-only detector issues would read as resolved or new. Coverage reads isVmConnected only, so a basic session with a VM link counts as covered.", "messagePrefix": "arg_coverage_mismatch:"},
         {"code": "snapshot_schema_drift", "doc": "a snapshot lacks or mistypes currentIssues, currentIssues[].stableId/severity, or frameStatsSummary averageFps/actualFps", "messagePrefix": "snapshot "}
@@ -405,7 +406,7 @@
         },
         {
           "name": "compact_issues",
-          "doc": "Unless verbose:true, the sidecar trims every data.currentIssues entry to the compact key set (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds), copying only keys that are present. It runs on both the inline and the disk-handoff path and builds a fresh map, so the bridge envelope is never changed. It does nothing when `sections` left out currentIssues, or when currentIssues is absent or not a list. It keeps stableId and severity, so compare_snapshots and check_budgets still work on compact snapshots."
+          "doc": "Unless verbose:true, the sidecar trims every data.currentIssues entry to the compact key set (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds, measurement), copying only keys that are present. It runs on both the inline and the disk-handoff path and builds a fresh map, so the bridge envelope is never changed. It does nothing when `sections` left out currentIssues, or when currentIssues is absent or not a list. It keeps stableId and severity, so compare_snapshots and check_budgets still work on compact snapshots."
         },
         {
           "name": "disk_handoff",
@@ -446,7 +447,7 @@
         "severityAtLeast": {"type": "String", "required": false, "nullable": false, "presence": "echo stamped only when the severity filter was applied"},
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "stamped in data when connectionMode is warmup or disconnected, or basic with no VM service link; warns the issue list is incomplete because the VM-only detectors are off. See the launch_mode_advisory shim for where the VM flag comes from."}
       },
-      "compactIssueKeys": ["severity", "category", "confidence", "title", "detail", "fixHint", "stableId", "widgetName", "routeName", "sourceRoute", "confidenceReason", "rootCauseIds"],
+      "compactIssueKeys": ["severity", "category", "confidence", "title", "detail", "fixHint", "stableId", "widgetName", "routeName", "sourceRoute", "confidenceReason", "rootCauseIds", "measurement"],
       "shims": [
         {
           "name": "severity_filter",
@@ -484,7 +485,7 @@
         "stableId": {"type": "String", "required": true, "nullable": false, "minLength": 1}
       },
       "data": {
-        "_doc": "Passthrough of ext.sleuth.explain.data. Reads live app state: sleuth 0.37+ fills the route, widget and count text from the first live issue matching the stableId (else its canonical family), with neutral wording when none is live; sleuth 0.36 apps return the raw placeholders ({widgetName}, {routeName}, {count})."
+        "_doc": "Passthrough of ext.sleuth.explain.data. Reads live app state: sleuth 0.37+ fills the route, widget and count text from the first live issue matching the stableId (else its canonical family), with neutral wording when none is live. Older apps return the raw placeholders ({widgetName}, {routeName}, {count}); the sidecar refuses them at connect."
       },
       "shims": [],
       "errors": [

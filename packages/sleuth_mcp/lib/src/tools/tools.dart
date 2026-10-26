@@ -894,8 +894,7 @@ final Map<String, BuiltInTool> builtInTools = {
           'Returns the encyclopedia entry for a stableId. Parametric '
           'stableIds also resolve. On sleuth 0.37 and later, the app fills '
           'the route, widget and count text from the matching live issue, '
-          'or uses neutral wording when none is live. Sleuth 0.36 apps '
-          'return raw placeholders such as {widgetName} and {routeName}.',
+          'or uses neutral wording when none is live.',
       inputSchema: {
         'type': 'object',
         'properties': {

@@ -132,7 +132,7 @@ void main() {
         expect(data.containsKey(section), isFalse, reason: section);
       }
       expect(data.containsKey('currentIssues'), isTrue);
-      expect(data['packageVersion'], '0.38.0');
+      expect(data['packageVersion'], '1.0.0');
       expect(data['_projectionApplied'], 'by_sidecar_fallback');
       expect(
         data['_projectedSections'],

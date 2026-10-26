@@ -796,6 +796,21 @@ void main() {
       }
     });
 
+    test('prompts that read get_issues use the measurement and the Not '
+        'useful marks', () {
+      for (final prompt in builtInPrompts.values) {
+        if (!prompt.usesTools.contains('get_issues')) continue;
+        final name = prompt.descriptor.name;
+        expect(prompt.text, contains('`measurement`'), reason: name);
+        expect(prompt.text, contains('`notUsefulMarks`'), reason: name);
+      }
+      // The release gate keeps marked issues in its verdict.
+      expect(
+        builtInPrompts['release_check']!.text,
+        contains('keep it in the verdict'),
+      );
+    });
+
     test('prompt usesTools matches registered tools + text (drift guard)', () {
       final registered = {...builtInTools.keys, ...lifecycleTools(server).keys};
       for (final prompt in builtInPrompts.values) {

@@ -22,7 +22,7 @@ event-loop and time-share detectors need.
 | # | Screen | Detectors triggered | Category |
 |---|--------|--------------------|----------|
 | 1 | High-Level setState | SetStateScope; Rebuild in debug builds at 10 or more taps a second | Build |
-| 2 | Rebuild Hotspot (Dashboard) | Rebuild Stats banner (profile); Rebuild (debug) | Build |
+| 2 | Rebuild Hotspot (Dashboard) | Rebuild stats in the More menu (profile); Rebuild (debug) | Build |
 | 3 | Non-Lazy ListView | ListView | Build |
 | 4 | Shrink-wrapped Sections | ListView (two cards, one per list) | Build |
 | 5 | CSV Import | HeavyCompute | Build |
@@ -103,8 +103,10 @@ swaps in a scripted adapter (`lib/fake_ai_adapter.dart`):
 
 The app passes `FileSleuthStateStore` (`lib/file_state_store.dart`) as
 `SleuthConfig.stateStore`, so the trigger edge, card geometry, hidden
-issues and severity filter survive restarts. The file lives in the system
-temp directory, which the OS may clear.
+issues and severity filter survive restarts. On Android and iOS the file
+lives in the app's own `files` or `Library/Application Support`
+directory, so it also survives a new install; elsewhere it uses the
+system temp directory.
 
 The app registers service extensions for driving it from a VM service
 client in debug and profile builds. Each one returns JSON, and a failure
@@ -122,8 +124,8 @@ of the app.
 | `ext.sleuthDemo.scroll` | Scrolls by `pixels` (default 600) over `ms` (default 600; `0` jumps), `axis=horizontal` for a horizontal list; picks the largest on-screen scrollable outside the demo's instructions; returns `{from, to}`, or `{error: timeout}` with `at` when the scroll does not finish |
 | `ext.sleuthDemo.fling` | `dx`, `dy` (logical px), optional `ms`; drags and releases on that scrollable |
 | `ext.sleuthDemo.orientation` | `value` = `portrait` \| `landscape` \| `all`; waits for the view to change and returns its size with `settled` |
-| `ext.sleuthDemo.theme` | `mode` = `system` \| `light` \| `dark`; sets the overlay's theme mode |
-| `ext.sleuthDemo.overlay` | `action` = `open` \| `close` \| `hide` (first visible card; returns its key) \| `undo` (most recently hidden key) \| `restoreAll` \| `toggleSeverity` (`severity` = `critical` \| `warning` \| `ok`) \| `setTheme` (`preset` = `hc_dark` \| `hc_light` \| `seed:<argb>` \| `none`); returns the state below |
+| `ext.sleuthDemo.theme` | `mode` = `system` (Auto) \| `light` \| `dark`; sets the overlay's theme mode |
+| `ext.sleuthDemo.overlay` | `action` = `open` \| `close` \| `hide` (first visible card; returns its key) \| `undo` (most recently hidden key) \| `restoreAll` \| `toggleSeverity` (`severity` = `critical` \| `warning` \| `ok`) \| `setTheme` (`preset` = `hc_dark` \| `hc_light` \| `seed:<argb>` \| `none`) \| `menu` (taps More, adds `menuOpen`) \| `notUseful` (taps Not useful on the expanded card on screen, adds `notUseful`, or `no_expanded_card`); returns the state below |
 | `ext.sleuthDemo.overlayState` | Persisted overlay state plus `dashboardOpen`, `uiStateReady` and `visibleIssueCount` |
 | `ext.sleuthDemo.clipboard` | Returns `{text}`, the current clipboard text |
 | `ext.sleuthDemo.a11y` | Platform accessibility settings, the overlay's text scale, overflow reports and the labelled semantics nodes |

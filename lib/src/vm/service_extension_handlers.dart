@@ -18,7 +18,7 @@ const int kMcpEnvelopeSchemaVersion = 1;
 
 /// Stamped on `ext.sleuth.diagnose`. Keep in sync with `pubspec.yaml`.
 @experimental
-const String kSleuthPackageVersion = '0.38.0';
+const String kSleuthPackageVersion = '1.0.0';
 
 typedef ExtensionHandler =
     FutureOr<Map<String, Object?>> Function(
