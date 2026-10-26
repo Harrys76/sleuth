@@ -121,6 +121,19 @@ String legacyHideKey(String hideKey) {
       '${isCriticalHideKey(hideKey) ? _criticalHideSuffix : ''}';
 }
 
+/// [hideKey] as the Hidden page shows it: the stable id (or title), then
+/// the widget it names, or "every widget" for an any-widget key. The
+/// critical suffix is left out; the page says when a key stops hiding a
+/// card that turned critical.
+String hideKeyLabel(String hideKey) {
+  final listKey = listKeyOfHideKey(hideKey);
+  final bar = listKey.lastIndexOf('|');
+  if (bar < 0) return listKey;
+  final widgetName = listKey.substring(bar + 1);
+  return '${listKey.substring(0, bar)} · '
+      '${widgetName == '*' ? 'every widget' : widgetName}';
+}
+
 /// Whether the list part of a hide key, [listKey], names [issue]'s card:
 /// its [listKeyFor], or the any-widget key of its stable id.
 bool hideListKeyMatches(String listKey, PerformanceIssue issue) =>

@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
@@ -8,6 +9,7 @@ import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/hidden_issues_page.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
+import 'package:sleuth/src/ui/overlay_filters.dart' show hideKeyLabel;
 import 'package:sleuth/src/ui/overlay_ui_state.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
@@ -774,6 +776,75 @@ void main() {
       );
       expect(find.text('Title wrap_layout_bottleneck'), findsOneWidget);
       expect(find.text('Not detected right now'), findsNothing);
+      expect(
+        find.text('wrap_layout_bottleneck · every widget'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('|*'), findsNothing);
+    });
+
+    test('a hide key reads as its id and widget, or every widget', () {
+      expect(
+        hideKeyLabel('wrap_layout_bottleneck|*'),
+        'wrap_layout_bottleneck · every widget',
+      );
+      expect(
+        hideKeyLabel('wrap_layout_bottleneck|*!critical'),
+        'wrap_layout_bottleneck · every widget',
+      );
+      expect(hideKeyLabel('jank|Feed!critical'), 'jank · Feed');
+      expect(hideKeyLabel('heavy_compute'), 'heavy_compute');
+      expect(hideKeyLabel('heavy_compute!critical'), 'heavy_compute');
+    });
+
+    testWidgets('a key with nothing detected is listed by its label', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HiddenIssuesPage(
+            hiddenKeys: const ['raster_hot_spot|*', 'jank|Feed!critical'],
+            issues: const [],
+            configSuppressions: const {},
+            suppressedCount: 0,
+            onRestore: (_) {},
+            onRestoreAll: () {},
+            onClose: () {},
+          ),
+        ),
+      );
+      expect(find.text('raster_hot_spot · every widget'), findsOneWidget);
+      expect(find.text('jank · Feed'), findsOneWidget);
+      expect(find.text('Not detected right now'), findsNWidgets(2));
+      expect(find.textContaining('|'), findsNothing);
+      expect(find.textContaining('!critical'), findsNothing);
+    });
+
+    testWidgets('a long id keeps its widget name on a second line', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      // Two lines wide in the test font at this width.
+      const id = 'tooltip_usage::Cookbook tooltip 01';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HiddenIssuesPage(
+            hiddenKeys: const ['$id|Tooltip'],
+            issues: [_issue(id, widgetName: 'Tooltip')],
+            configSuppressions: const {},
+            suppressedCount: 0,
+            onRestore: (_) {},
+            onRestoreAll: () {},
+            onClose: () {},
+          ),
+        ),
+      );
+      final label = tester.renderObject<RenderParagraph>(
+        find.text('$id · Tooltip'),
+      );
+      expect(label.didExceedMaxLines, isFalse);
     });
 
     testWidgets('an any-widget key names a card it still hides', (

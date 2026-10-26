@@ -156,12 +156,12 @@ class HiddenIssuesPage extends StatelessWidget {
                                 !isCriticalHideKey(key) &&
                                     issue.severity == IssueSeverity.critical
                                 ? 'Shown again: now critical'
-                                : key,
+                                : hideKeyLabel(key),
                             onRestore: () => onRestore(key),
                           )
                         else
                           _HiddenRow(
-                            title: key,
+                            title: hideKeyLabel(key),
                             subtitle: 'Not detected right now',
                             onRestore: () => onRestore(key),
                           ),
@@ -282,13 +282,15 @@ class _HiddenRow extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
+                // Two lines, so a long stable id keeps the widget name
+                // that ends its label.
                 Text(
                   subtitle,
                   style: TextStyle(
                     color: theme.textTertiary,
                     fontSize: theme.fontXs,
                   ),
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
