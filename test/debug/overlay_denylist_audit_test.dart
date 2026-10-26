@@ -40,7 +40,6 @@ import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 /// a widget.
 const _nonWidgetTypes = <String>{
   'ActivateIntent',
-  'Alignment',
   'AlwaysStoppedAnimation',
   'AnimationController',
   'Border',
@@ -62,7 +61,6 @@ const _nonWidgetTypes = <String>{
   'HttpException',
   'InputDecoration',
   'Interval',
-  'LinearGradient',
   'LinkedHashSet',
   'Locale',
   'ObjectKey',
@@ -91,11 +89,15 @@ const _nonWidgetTypes = <String>{
 /// own rebuilds of it from the profile drain, so the overlay uses
 /// Sleuth-named equivalents instead and these names stay off the list.
 const _appOwnedFrameworkWidgets = <String>{
+  'AnimatedBuilder',
   'AnimatedContainer',
   'AnimatedSwitcher',
+  'Checkbox',
   'CustomSingleChildLayout',
   'ListenableBuilder',
   'MergeSemantics',
+  'ShaderMask',
+  'TweenAnimationBuilder',
 };
 
 /// Regex matching a class definition that extends a widget base class.
@@ -357,7 +359,7 @@ final b = Row(children: [Icon(x)]);
       };
       // Each framework widget the overlay uses is one an app's own use of
       // can no longer be counted. The overlay may drop entries, never add.
-      expect(framework.length, lessThanOrEqualTo(51), reason: '$framework');
+      expect(framework.length, lessThanOrEqualTo(49), reason: '$framework');
     });
 
     test('every framework entry in the denylist still corresponds to a UI '

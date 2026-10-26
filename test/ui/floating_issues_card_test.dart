@@ -1238,16 +1238,14 @@ void main() {
       await tester.pumpWidget(pumpFreezeCard(controller));
       await tester.pumpAndSettle();
 
-      final confirmedBefore = find
-          .textContaining('confirmed')
-          .evaluate()
-          .length;
+      expect(find.text('1 critical'), findsOneWidget);
+      expect(find.text('1 warning'), findsOneWidget);
 
       await tester.tap(find.text('A'));
       await tester.pump();
 
-      final confirmedAfter = find.textContaining('confirmed').evaluate().length;
-      expect(confirmedAfter, confirmedBefore);
+      expect(find.text('1 critical'), findsOneWidget);
+      expect(find.text('1 warning'), findsOneWidget);
     });
 
     testWidgets('dispose clears the frozen zone — remount with same controller '

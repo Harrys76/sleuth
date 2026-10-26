@@ -111,17 +111,14 @@ void animateScrollTo(
 
 /// [Scrollable.ensureVisible] for [target] over [duration], at once under
 /// reduced motion at [context]. A run still going when reduced motion
-/// turns on jumps to its end.
-void ensureVisibleWithMotion(
+/// turns on jumps to its end. The future completes when the scroll ends.
+Future<void> ensureVisibleWithMotion(
   BuildContext context,
   BuildContext target, {
   required Duration duration,
   required Curve curve,
 }) {
-  if (reducedMotionOf(context)) {
-    Scrollable.ensureVisible(target);
-    return;
-  }
+  if (reducedMotionOf(context)) return Scrollable.ensureVisible(target);
   var running = true;
   final watch = _MotionWatch(
     context,
@@ -129,15 +126,17 @@ void ensureVisibleWithMotion(
     // A zero-duration call jumps and ends the running one.
     settle: () => Scrollable.ensureVisible(target),
   );
-  Scrollable.ensureVisible(
-    target,
-    duration: duration,
-    curve: curve,
-  ).whenComplete(() {
-    running = false;
-    _ReducedMotionWatcher.instance.unwatch(watch);
-  });
+  final scrolled =
+      Scrollable.ensureVisible(
+        target,
+        duration: duration,
+        curve: curve,
+      ).whenComplete(() {
+        running = false;
+        _ReducedMotionWatcher.instance.unwatch(watch);
+      });
   _ReducedMotionWatcher.instance.watch(target, watch);
+  return scrolled;
 }
 
 void _finish(AnimationController controller) {

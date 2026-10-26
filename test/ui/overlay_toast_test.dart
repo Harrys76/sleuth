@@ -288,7 +288,7 @@ void main() {
 
       await tester.tap(find.text(issue.title));
       await tester.pump();
-      final hide = find.bySemanticsLabel('Hide this issue');
+      final hide = find.bySemanticsLabel('Hide');
       await tester.ensureVisible(hide);
       await tester.pumpAndSettle();
       await tester.tap(hide);

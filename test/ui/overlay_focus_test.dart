@@ -432,7 +432,7 @@ void main() {
       final title = 'Rebuilds in Widget${shown.last}';
       await tester.tap(find.text(title));
       await tester.pump();
-      final learnMore = find.bySemanticsLabel('Learn more about this issue');
+      final learnMore = find.bySemanticsLabel('Learn more');
       await tester.ensureVisible(learnMore);
       await tester.pumpAndSettle();
       final offset = position().pixels;

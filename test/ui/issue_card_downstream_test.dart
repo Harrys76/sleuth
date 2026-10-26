@@ -88,7 +88,7 @@ void main() {
       expect(find.text('Excessive rebuilds: MyWidget'), findsOneWidget);
 
       // Section header
-      expect(find.text('Related effects (2):'), findsOneWidget);
+      expect(find.text('EFFECTS (2)'), findsOneWidget);
     });
 
     testWidgets('downstream not visible when collapsed', (tester) async {
@@ -102,7 +102,7 @@ void main() {
       );
 
       // Section header should not be visible
-      expect(find.text('Related effects (2):'), findsNothing);
+      expect(find.text('EFFECTS (2)'), findsNothing);
     });
 
     testWidgets('max 5 downstream shown with overflow text', (tester) async {
@@ -138,7 +138,7 @@ void main() {
       expect(find.text('Downstream issue 6'), findsNothing);
 
       // Overflow text
-      expect(find.text('and 2 more...'), findsOneWidget);
+      expect(find.text('and 2 more'), findsOneWidget);
     });
   });
 }

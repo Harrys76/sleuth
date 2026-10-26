@@ -802,7 +802,7 @@ void main() {
         ),
       );
 
-      expect(find.bySemanticsLabel('Ask AI about this issue'), findsOneWidget);
+      expect(find.bySemanticsLabel('Ask AI'), findsOneWidget);
     });
 
     testWidgets('Ask AI link hidden when onAskAi is null', (tester) async {
@@ -817,7 +817,7 @@ void main() {
         ),
       );
 
-      expect(find.bySemanticsLabel('Ask AI about this issue'), findsNothing);
+      expect(find.bySemanticsLabel('Ask AI'), findsNothing);
     });
 
     testWidgets('tapping Ask AI calls callback', (tester) async {
@@ -834,7 +834,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       expect(tapped, isTrue);
     });
   });
@@ -854,11 +854,9 @@ void main() {
       await openDashboard(tester, controller);
       await tester.tap(find.text('Rebuilds'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.ensureVisible(
-        find.bySemanticsLabel('Ask AI about this issue'),
-      );
+      await tester.ensureVisible(find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
 
       expect(find.byType(AiChatPage), findsOneWidget);
@@ -1967,11 +1965,9 @@ void main() {
       await openDashboard(tester, controller);
       await tester.tap(find.text('Rebuilds'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.ensureVisible(
-        find.bySemanticsLabel('Ask AI about this issue'),
-      );
+      await tester.ensureVisible(find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
 
       expect(find.textContaining('Context: '), findsOneWidget);
@@ -2229,11 +2225,9 @@ void main() {
       await openDashboard(tester, controller);
       await tester.tap(find.text('Rebuilds'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.ensureVisible(
-        find.bySemanticsLabel('Ask AI about this issue'),
-      );
+      await tester.ensureVisible(find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.byType(AiChatPage), findsOneWidget);
       return controller;
@@ -2261,11 +2255,9 @@ void main() {
       await openDashboard(tester, controller);
       await tester.tap(find.text('Rebuilds'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.ensureVisible(
-        find.bySemanticsLabel('Ask AI about this issue'),
-      );
+      await tester.ensureVisible(find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.text('Why?'), findsOneWidget);
       expect(find.text('Because it rebuilds.'), findsOneWidget);
@@ -2300,11 +2292,9 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(stream.hasListener, isFalse);
 
-      await tester.ensureVisible(
-        find.bySemanticsLabel('Ask AI about this issue'),
-      );
+      await tester.ensureVisible(find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.text('Because (stopped)'), findsOneWidget);
       expect(find.text('Reply did not finish'), findsNothing);
@@ -2370,11 +2360,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Rebuilds'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.ensureVisible(
-        find.bySemanticsLabel('Ask AI about this issue'),
-      );
+      await tester.ensureVisible(find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.byType(AiChatPage), findsOneWidget);
 
@@ -2418,11 +2406,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       // The card stayed expanded while its issue was gone.
       expect(find.text('Not detected right now'), findsNothing);
-      await tester.ensureVisible(
-        find.bySemanticsLabel('Ask AI about this issue'),
-      );
+      await tester.ensureVisible(find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.tap(find.bySemanticsLabel('Ask AI about this issue'));
+      await tapVisible(tester, find.bySemanticsLabel('Ask AI'));
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.text('Because it rebuilds.'), findsOneWidget);
     });

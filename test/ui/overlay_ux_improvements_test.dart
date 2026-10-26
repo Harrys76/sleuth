@@ -42,127 +42,100 @@ Widget _buildCard(PerformanceIssue issue, {bool initiallyExpanded = false}) {
 }
 
 void main() {
-  group('Widget name ordering (3.8.1)', () {
-    testWidgets('widgetName shown before ancestorChain when both present', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _buildCard(
-          _testIssue(
-            widgetName: 'MyImage',
-            ancestorChain: 'MyPage > Column > MyImage',
-            title: 'Large Image',
+  group('Fix block', () {
+    Future<void> pumpFix(
+      WidgetTester tester,
+      PerformanceIssue issue, {
+      List<(String, String)>? copies,
+    }) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: IssueCard(
+              issue: issue,
+              initiallyExpanded: true,
+              onCopyText: copies == null
+                  ? null
+                  : (text, confirmation) => copies.add((text, confirmation)),
+            ),
           ),
-          initiallyExpanded: true,
         ),
-      );
+      ),
+    );
 
-      expect(find.text('Widget: MyImage'), findsOneWidget);
-      expect(find.text('Ancestors: MyPage > Column > MyImage'), findsOneWidget);
+    for (final (effort, label) in [
+      (FixEffort.quick, 'FIX · QUICK'),
+      (FixEffort.medium, 'FIX · MEDIUM EFFORT'),
+      (FixEffort.involved, 'FIX · INVOLVED'),
+    ]) {
+      testWidgets('the label names a ${effort.name} fix', (tester) async {
+        await pumpFix(tester, _testIssue().copyWith(fixEffort: effort));
+        expect(find.text(label), findsOneWidget);
+      });
+    }
+
+    testWidgets('without an effort the label says Fix alone', (tester) async {
+      await pumpFix(tester, _testIssue());
+      expect(find.text('FIX'), findsOneWidget);
     });
 
-    testWidgets('widgetName shown alone when no ancestorChain', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(
-          _testIssue(widgetName: 'MyWidget', title: 'Some Issue'),
-          initiallyExpanded: true,
-        ),
-      );
-
-      expect(find.text('Widget: MyWidget'), findsOneWidget);
-      expect(find.textContaining('Ancestors:'), findsNothing);
-    });
-
-    testWidgets('ancestorChain hidden when equal to widgetName', (
+    testWidgets('code after a colon sits in a code block with Copy code', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        _buildCard(
-          _testIssue(
-            widgetName: 'MyWidget',
-            ancestorChain: 'MyWidget',
-            title: 'Some Issue',
-          ),
-          initiallyExpanded: true,
+      final copies = <(String, String)>[];
+      await pumpFix(
+        tester,
+        _testIssue(
+          fixHint:
+              'Move it off the UI isolate:\n'
+              'final result = await Isolate.run(() => parse(data));\n'
+              'Or split the work.',
         ),
+        copies: copies,
       );
+      expect(find.text('Move it off the UI isolate:'), findsOneWidget);
+      expect(
+        find.text('final result = await Isolate.run(() => parse(data));'),
+        findsOneWidget,
+      );
+      expect(find.text('Or split the work.'), findsOneWidget);
+      expect(find.text('Dart'), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('Copy code'));
+      expect(copies, [
+        ('final result = await Isolate.run(() => parse(data));', 'Code copied'),
+      ]);
+    });
 
-      expect(find.text('Widget: MyWidget'), findsOneWidget);
-      // Ancestors line suppressed because it matches widgetName
-      expect(find.textContaining('Ancestors:'), findsNothing);
+    testWidgets('a command is labelled Terminal', (tester) async {
+      await pumpFix(
+        tester,
+        _testIssue(fixHint: 'Run in profile mode:\nflutter run --profile'),
+      );
+      expect(find.text('Terminal'), findsOneWidget);
     });
   });
 
-  group('Effort indicators (3.8.5)', () {
-    testWidgets('Quick effort badge for ListView.builder keyword', (
-      tester,
-    ) async {
+  group('Evidence and Check in', () {
+    testWidgets('Evidence gives the reason and the confidence', (tester) async {
       await tester.pumpWidget(
         _buildCard(
           _testIssue(
-            fixHint:
-                'Use ListView.builder() to lazily build visible items only.',
-          ),
+            confidence: IssueConfidence.likely,
+          ).copyWith(confidenceReason: 'Rebuild evidence and a subtree scan'),
           initiallyExpanded: true,
         ),
       );
-
-      expect(find.text('QUICK FIX'), findsOneWidget);
-    });
-
-    testWidgets('Involved effort badge for Isolate keyword', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(
-          _testIssue(
-            fixHint:
-                'Move heavy work to a background isolate using Isolate.run().',
-          ),
-          initiallyExpanded: true,
+      expect(
+        find.text(
+          'Rebuild evidence and a subtree scan. Sleuth rates it likely, not '
+          'confirmed.',
         ),
+        findsOneWidget,
       );
-
-      expect(find.text('INVOLVED FIX'), findsOneWidget);
+      expect(find.text('About this detection'), findsNothing);
     });
 
-    testWidgets('Medium effort badge as default', (tester) async {
-      await tester.pumpWidget(
-        _buildCard(
-          _testIssue(fixHint: 'Consider refactoring this code path.'),
-          initiallyExpanded: true,
-        ),
-      );
-
-      expect(find.text('MEDIUM FIX'), findsOneWidget);
-    });
-
-    testWidgets('Explicit fixEffort takes precedence over keyword inference', (
-      tester,
-    ) async {
-      // fixHint contains "ListView.builder" (quick keyword) but model says involved
-      await tester.pumpWidget(
-        _buildCard(
-          PerformanceIssue(
-            severity: IssueSeverity.warning,
-            category: IssueCategory.build,
-            confidence: IssueConfidence.possible,
-            title: 'Test',
-            detail: 'Detail',
-            fixHint: 'Use ListView.builder() for this list.',
-            stableId: 'test',
-            fixEffort: FixEffort.involved,
-          ),
-          initiallyExpanded: true,
-        ),
-      );
-
-      // Model fixEffort (involved) wins over keyword (quick)
-      expect(find.text('INVOLVED FIX'), findsOneWidget);
-      expect(find.text('QUICK FIX'), findsNothing);
-    });
-  });
-
-  group('About this detection (3.8.4)', () {
-    testWidgets('About section toggle visible when card expanded', (
+    testWidgets('without a reason Evidence names the data source', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -171,33 +144,25 @@ void main() {
           initiallyExpanded: true,
         ),
       );
-
-      expect(find.text('About this detection'), findsOneWidget);
-      // Content not shown yet
-      expect(find.textContaining('Based on:'), findsNothing);
+      expect(
+        find.text('From the VM timeline. Sleuth rates it confirmed.'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('About section shows content on tap', (tester) async {
+    testWidgets('Check in names the DevTools view for the category', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _buildCard(
-          _testIssue(
-            observationSource: ObservationSource.vmTimeline,
-            confidence: IssueConfidence.confirmed,
-            category: IssueCategory.build,
-          ),
+          _testIssue(category: IssueCategory.raster),
           initiallyExpanded: true,
         ),
       );
-
-      // Tap "About this detection"
-      await tester.tap(find.text('About this detection'));
-      await tester.pumpAndSettle();
-
-      // All content rows should appear
-      expect(find.textContaining('Based on:'), findsOneWidget);
-      expect(find.textContaining('Confidence:'), findsOneWidget);
-      expect(find.textContaining('Accuracy:'), findsOneWidget);
-      expect(find.textContaining('Verify with:'), findsOneWidget);
+      expect(
+        find.text('DevTools › Performance › Raster Stats'),
+        findsOneWidget,
+      );
     });
   });
 

@@ -1,43 +1,39 @@
-import 'package:flutter/foundation.dart';
-
 import '../models/performance_issue.dart';
 
-/// Builds the "About this detection" metadata entries shown in both the
-/// inline card section and the full-screen detail page.
-///
-/// Extracted to avoid duplicating the confidence/accuracy/verifyWith logic
-/// across [IssueCard] and [IssueDetailPage].
+/// The Evidence and Check in rows of an expanded issue card.
 class IssueMetadataBuilder {
   IssueMetadataBuilder._();
 
-  /// Returns a list of (label, value) pairs for the given [issue].
-  static List<(String, String)> entries(PerformanceIssue issue) {
-    final source = issue.observationSource?.displayName ?? 'heuristic analysis';
-    final confidenceExplanation = switch (issue.confidence) {
-      IssueConfidence.confirmed => 'Directly observed at runtime',
-      IssueConfidence.likely => 'Runtime signal and structural evidence',
+  /// What the detector observed and how sure it is: the detector's
+  /// confidence reason, or the data source when it gave none, then the
+  /// confidence as a sentence of its own, since a reason can end in advice
+  /// ("Enable debug callbacks for paint evidence").
+  static String evidence(PerformanceIssue issue) {
+    final reason = issue.confidenceReason?.trim();
+    final basis = reason != null && reason.isNotEmpty
+        ? reason.endsWith('.')
+              ? reason.substring(0, reason.length - 1)
+              : reason
+        : 'From the ${issue.observationSource?.displayName ?? 'overlay heuristics'}';
+    final confidence = switch (issue.confidence) {
+      IssueConfidence.confirmed => 'confirmed',
+      IssueConfidence.likely => 'likely, not confirmed',
       IssueConfidence.possible =>
-        'Structural pattern only, no runtime confirmation',
+        'possible, since no runtime signal confirmed it',
     };
-    final accuracyNote = kDebugMode
-        ? 'Debug mode adds overhead. Verify in profile mode'
-        : 'Profile mode, so timing data matches production';
-    final verifyWith = switch (issue.category) {
-      IssueCategory.build ||
-      IssueCategory.layout => 'DevTools > Performance > Frame Analysis',
-      IssueCategory.paint ||
-      IssueCategory.raster => 'DevTools > Performance > Raster Stats',
-      IssueCategory.memory => 'DevTools > Memory > Allocation Tracking',
-      IssueCategory.channel => 'DevTools > Network > Platform Channels',
-      IssueCategory.network => 'DevTools > Network',
-      IssueCategory.font => 'DevTools > Performance > Timeline Events',
-      IssueCategory.startup => 'DevTools > Performance > App Startup',
-    };
-    return [
-      ('Based on:', source),
-      ('Confidence:', '${issue.confidence.name}. $confidenceExplanation'),
-      ('Accuracy:', accuracyNote),
-      ('Verify with:', verifyWith),
-    ];
+    return '$basis. Sleuth rates it $confidence.';
   }
+
+  /// Where in DevTools to confirm the issue.
+  static String checkIn(PerformanceIssue issue) => switch (issue.category) {
+    IssueCategory.build ||
+    IssueCategory.layout => 'DevTools › Performance › Frame Analysis',
+    IssueCategory.paint ||
+    IssueCategory.raster => 'DevTools › Performance › Raster Stats',
+    IssueCategory.memory => 'DevTools › Memory',
+    IssueCategory.channel => 'DevTools › Performance › Timeline Events',
+    IssueCategory.network => 'DevTools › Network',
+    IssueCategory.font => 'DevTools › Performance › Timeline Events',
+    IssueCategory.startup => 'DevTools › Performance › Timeline Events',
+  };
 }

@@ -1,6 +1,7 @@
 import '../models/performance_issue.dart';
 import 'ai_session_context.dart';
 import 'issue_explanation_builder.dart';
+import 'measurement_text.dart';
 
 /// Builds AI system prompts from issue context and generates starter questions.
 ///
@@ -56,6 +57,8 @@ class AiContextBuilder {
     buf.writeln('Severity: ${issue.severity.name}');
     buf.writeln('Category: ${issue.category.name}');
     buf.writeln('Confidence: ${issue.confidence.name}');
+    final measured = measuredSentence(issue);
+    if (measured != null) buf.writeln(measured);
     buf.writeln('Detail: ${issue.detail}');
     buf.writeln('Suggested fix: ${issue.fixHint}');
     if (issue.widgetName != null) {
