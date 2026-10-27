@@ -1,83 +1,99 @@
 ## 1.0.0
 
 A redesigned overlay, issues that carry the number behind them, and a
-public API under semantic versioning. Use it with `sleuth_mcp` 0.10.0,
-because sidecar 0.9.0 refuses 1.0.0 apps. The
+public API that follows semantic versioning from this release. The
+matching sidecar is `sleuth_mcp` 0.10.0. Publish both together, because
+sidecar 0.9.0 refuses 1.0.0 apps. The
 [full release notes](https://github.com/Harrys76/sleuth/blob/main/doc/release_notes/1.0.0.md)
 list every change.
 
 ### Breaking
 
-After upgrading, run `dart fix --apply`. It adds the `validation.dart`
-import for the names that moved there and deletes the removed
-`SleuthThemeData` arguments. Before Flutter 3.35 it adds the import only
-for `kSleuthPackageVersion`.
-
 - `package:sleuth/sleuth.dart` exports only the names listed in
-  `doc/api_1_0_0.md`. It no longer exports fifteen internal names, among
-  them `FixHintBuilder`, `SessionMarkdownExporter` and `ConnectionMode`.
-- Capture and validation tooling moved to `package:sleuth/validation.dart`,
-  which is `@experimental` and outside the semver promise. Import it for
-  `DetectorMetadata`, `BracketSpec`, `EvidenceTier`, `ProfileCaptureSchema`,
-  `PollTimings` and `kSleuthPackageVersion`. It also exports seven detector
-  types for the capture screens, such as `RepaintDetector`.
-- `Sleuth.enrichStartupWithVmData`, `Sleuth.dartEntryMonotonicUs` and
-  `Sleuth.notifyControllerDisposed` are gone.
-  `StartupMetrics.dartEntryMonotonicUs` still has the Dart entry time. The
-  capture statics on `Sleuth` are `@experimental`.
-- `RouteSession.endedAt` and `scanCycleCount` are read-only.
-  `SleuthThemeData` drops 29 tokens the overlay no longer draws and the
-  `confidenceColor`, `effortColor` and `sourceAccentColor` helpers.
+  `doc/api_1_0_0.md`, each through a `show` list, and follows semantic
+  versioning.
+- Capture and validation tooling moved to the new
+  `package:sleuth/validation.dart`, which is outside the semver promise.
+  Import it for `DetectorMetadata`, `BracketSpec`, `EvidenceTier`,
+  `ProfileCaptureSchema`, `PollTimings`, `kSleuthPackageVersion` and the
+  detector types the capture screens use, such as `RepaintDetector`.
+- Fifteen internal names are no longer exported, among them
+  `FixHintBuilder`, `SessionMarkdownExporter`, `JankCaptureBuffer`,
+  `FrameBudget` and `ConnectionMode`. `Sleuth.enrichStartupWithVmData`,
+  `Sleuth.dartEntryMonotonicUs` and `Sleuth.notifyControllerDisposed` are
+  gone, and the capture statics on `Sleuth` are `@experimental`.
+- `RouteSession.endedAt` and `scanCycleCount` are read-only, and
+  `SleuthThemeData` drops 29 tokens and 3 helpers the overlay no longer
+  draws.
 - A minor release can add values to `DetectorType`, `IssueCategory`,
   `ObservationSource`, `PipelinePhase`, `InteractionContext` and
   `FixEffort`, so a `switch` over them needs a default branch.
 - `FrameVerdict.relatedIssues` lists only the issues that can explain the
   verdict's phase.
+- Highlighting an issue outlines only its own widget, never another
+  widget of the same category.
 
 ### Added
 
-- `PerformanceIssue.measurement`, an `IssueMeasurement`, holds the number
-  a detector reported, with its warning and critical lines, on 43 issue
-  families. Issue JSON gains an optional `measurement`.
+- `PerformanceIssue.measurement` (`IssueMeasurement`, `MeasurementUnit`)
+  holds the number a detector reported, with its warning and critical
+  lines, on 43 issue families. Issue JSON gains an optional
+  `measurement`.
 - The overlay's Not useful button marks an issue for the session, and
   snapshots and `ext.sleuth.issues` list the marks in `notUsefulMarks`.
-- `DebugSnapshot` gains `forcedRebuildsOf`, `WidgetHighlight` gains
-  `occurrenceId` and `stableId`, and `SleuthThemeData` gains `cardDivider`
-  and `severityGraphicColor`.
-- A CI job fails a breaking API change that lacks a major version bump.
+- `DebugSnapshot.forcedRebuildsOf`, `WidgetHighlight.occurrenceId` and
+  `WidgetHighlight.stableId`, `SleuthThemeData.cardDivider` and
+  `SleuthThemeData.severityGraphicColor`.
+- A test that pins the public names, and a CI job that diffs the API
+  against the latest published 1.x release and fails on a breaking change
+  without a major version bump.
 
 ### Overlay
 
-- A run label such as "Profile · VM" replaces the VM+, FRAME and DBG
-  badges, and a More menu replaces the footer and banners.
-- A collapsed card shows a severity mark, the title and one meta line. An
-  expanded card adds the measured value on a gauge, where and when Sleuth
-  saw the issue, its evidence, the fix with copyable code, and Why it
-  rebuilds in debug runs.
-- Status lines such as Warming up, No VM link and No issues found replace
-  "No issues detected".
-- The crosshair outlines only the issue's own widget and shrinks the card
-  to a bar. On a card that lists several widgets, the Next button steps
-  through them.
-- Per-route rebuild counts include an app's own `AnimatedBuilder`,
-  `TweenAnimationBuilder`, `Checkbox` and `ShaderMask` again, because the
-  overlay no longer uses them.
+- A run label ("Profile · VM") replaces the VM+, FRAME and DBG badges.
+  A More menu holds Startup, Rebuild stats, Hidden issues, Encyclopedia,
+  Guide, Copy snapshot and Theme, and the footer and banners it replaced
+  are gone.
+- The collapsed card has a severity mark, a title of up to two lines
+  (three at large text sizes) and one meta line. The expanded card shows the measured value on a gauge,
+  Where, Route, When, Evidence and Check in rows, the fix with copyable
+  code, Why it rebuilds in debug runs, and labelled buttons including
+  Not useful.
+- Status lines replace "No issues detected": Starting, Warming up, No VM
+  link, No issues found and VM link lost. One debug banner replaces two.
+- The crosshair outlines a card's widget and shrinks the card to a bar.
+  On a card that lists several widgets, Next steps through them.
+- Keyboard navigation inside the card, a 320 px minimum width, toasts in
+  the theme's inverted colours, and outlined warning and OK marks in the
+  light themes.
+- An app's own `AnimatedBuilder`, `TweenAnimationBuilder`, `Checkbox` and
+  `ShaderMask` rebuilds count in the per-route rebuild counts again. The
+  overlay no longer uses them, so they left the framework denylist.
+- A new issue list rebuilds only the cards it changes.
 - Cards hidden under 0.38 stay hidden. The stored overlay state moves to
-  `schemaVersion` 2, which 0.38 reads as empty and does not overwrite.
-- The Jank tag stays on an issue for 10 s after the last late frame that
-  named it on the current route.
+  `schemaVersion` 2, which 0.38 reads as empty and leaves as it is. The
+  Hidden page names each key by its id and widget.
+- An issue keeps the Jank tag for 10 s after the last late frame that
+  named it on the current route, instead of following only the latest
+  frame.
 
 ### Fixed
 
 - Ancestor chains, fix hints and the card's Where row name each widget's
-  own `file:line`, not the first place Sleuth saw its type.
-- Widgets on a kept-alive page that is not showing, such as another
-  `TabBarView` tab, get no outline. Neither do widgets a scroll view clips
-  away, and an outline covers only the part of a widget that shows.
-  Before, stepping through a card's widgets could start on a hidden one
-  and count widgets the screen did not show.
+  own `file:line`. A widget type built in several places reported the
+  first place Sleuth saw.
+- Widgets on a kept-alive page that is not showing, such as another tab
+  of a `TabBarView`, get no outline or marker. Their position read as NaN,
+  so stepping through a card's widgets could start on one, say "Showing",
+  and count every tab's widgets.
+- A widget that a scroll view clips away, such as a list row scrolled
+  under the app bar, gets no outline or marker, and an outline covers only
+  the part of a widget that shows. A list builds rows past its edge, so a
+  card's outline could start on a hidden row and count rows the screen did
+  not show. A flipped or scaled widget is outlined where it shows.
 - `Sleuth.track` adds nothing to a release build. Its early `return child`
-  kept about 0.6 MB of unused Flutter framework code in release apps.
+  left about 0.6 MB of Flutter framework code in release apps on Android
+  and iOS, although none of it ran.
 
 ## 0.38.0
 

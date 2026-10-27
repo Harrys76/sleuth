@@ -257,8 +257,6 @@ cd example && flutter run --profile --no-dds
 
 `ParsedTimelineData` carries `vm_service` types, so a `vm_service` major release means a Sleuth major release. [The API list](https://github.com/Harrys76/sleuth/blob/main/doc/api_1_0_0.md) lists every public name and its library.
 
-After upgrading to a new major release, run `dart fix --apply`. `lib/fix_data.yaml` covers the changes that have a direct replacement. For 1.0.0, `dart fix` adds the `validation.dart` import for the names that moved there and deletes the removed `SleuthThemeData` arguments.
-
 ## License
 
 MIT
