@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import '../utils/widget_location.dart' show getGlobalRect;
 import 'base_detector.dart';
 import 'issue_measurement.dart';
 import 'performance_issue.dart';
@@ -190,11 +191,11 @@ abstract class SimpleStructuralDetector extends BaseDetector {
     );
 
     final ro = element.renderObject;
-    if (ro is RenderBox && ro.hasSize && ro.attached) {
-      final offset = ro.localToGlobal(Offset.zero);
+    final rect = ro != null && ro.attached ? getGlobalRect(ro) : null;
+    if (ro != null && rect != null) {
       _highlights.add(
         WidgetHighlight(
-          rect: offset & ro.size,
+          rect: rect,
           renderObject: ro,
           occurrenceId: identityHashCode(element),
           widgetName: widgetName,

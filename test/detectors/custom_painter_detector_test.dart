@@ -98,6 +98,29 @@ void main() {
       expect(detector.issues.first.title, contains('2 found'));
     });
 
+    testWidgets('a kept-alive tab page that is not showing gets no '
+        'highlight', (tester) async {
+      final tabs = TabController(length: 2, vsync: const TestVSync());
+      addTearDown(tabs.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TabBarView(
+            controller: tabs,
+            children: const [_KeptAlivePainterPage(), _KeptAlivePainterPage()],
+          ),
+        ),
+      );
+      tabs.index = 1;
+      await tester.pumpAndSettle();
+      detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+      // Both painters are reported, but only the shown page's has a place
+      // on screen to outline.
+      expect(detector.issues, isNotEmpty);
+      expect(detector.highlights, hasLength(1));
+      expect(detector.highlights.single.rect.isFinite, isTrue);
+    });
+
     testWidgets('highlights produced per always-repaint painter', (
       tester,
     ) async {
@@ -694,6 +717,28 @@ void main() {
 }
 
 /// Painter that always returns true from shouldRepaint(self).
+class _KeptAlivePainterPage extends StatefulWidget {
+  const _KeptAlivePainterPage();
+
+  @override
+  State<_KeptAlivePainterPage> createState() => _KeptAlivePainterPageState();
+}
+
+class _KeptAlivePainterPageState extends State<_KeptAlivePainterPage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return CustomPaint(
+      painter: _AlwaysRepaintPainter(),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
 class _AlwaysRepaintPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {}

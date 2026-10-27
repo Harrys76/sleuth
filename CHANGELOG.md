@@ -82,6 +82,10 @@ list every change.
 - Ancestor chains, fix hints and the card's Where row name each widget's
   own `file:line`. A widget type built in several places reported the
   first place Sleuth saw.
+- Widgets on a kept-alive page that is not showing, such as another tab
+  of a `TabBarView`, get no outline or marker. Their position read as NaN,
+  so stepping through a card's widgets could start on one, say "Showing",
+  and count every tab's widgets.
 
 ## 0.38.0
 

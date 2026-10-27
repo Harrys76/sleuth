@@ -101,6 +101,28 @@ void main() {
       expect(detector.issues.single.measurement, measured);
     });
 
+    testWidgets('a kept-alive tab page that is not showing reports without '
+        'a highlight', (tester) async {
+      final tabs = TabController(length: 2, vsync: const TestVSync());
+      addTearDown(tabs.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TabBarView(
+            controller: tabs,
+            children: const [_KeptAlivePlaceholder(), _KeptAlivePlaceholder()],
+          ),
+        ),
+      );
+      tabs.index = 1;
+      await tester.pumpAndSettle();
+      final detector = _PlaceholderDetector();
+      detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+      expect(detector.issues, hasLength(2));
+      expect(detector.highlights, hasLength(1));
+      expect(detector.highlights.single.rect.isFinite, isTrue);
+    });
+
     testWidgets('issues and highlights clear between scans', (tester) async {
       await tester.pumpWidget(
         const Directionality(
@@ -267,5 +289,24 @@ class _ThrowingDetector extends SimpleStructuralDetector {
   void finalizeScan() {
     finalizeCalled = true;
     super.finalizeScan();
+  }
+}
+
+class _KeptAlivePlaceholder extends StatefulWidget {
+  const _KeptAlivePlaceholder();
+
+  @override
+  State<_KeptAlivePlaceholder> createState() => _KeptAlivePlaceholderState();
+}
+
+class _KeptAlivePlaceholderState extends State<_KeptAlivePlaceholder>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return const Placeholder();
   }
 }
