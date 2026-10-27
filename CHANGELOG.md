@@ -8,6 +8,11 @@ list every change.
 
 ### Breaking
 
+After upgrading, run `dart fix --apply`. It adds the `validation.dart`
+import for the names that moved there and deletes the removed
+`SleuthThemeData` arguments. Before Flutter 3.35 it adds the import only
+for `kSleuthPackageVersion`.
+
 - `package:sleuth/sleuth.dart` exports only the names listed in
   `doc/api_1_0_0.md`. Fifteen internal names left it, among them
   `FixHintBuilder`, `SessionMarkdownExporter` and `ConnectionMode`.
