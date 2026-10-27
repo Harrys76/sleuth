@@ -12,6 +12,7 @@ fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
 fvm dart doc --dry-run              # Dartdoc gate (must report 0 warnings, 0 errors)
+fvm dart fix test_fixes --compare-to-golden   # Fix-data goldens (lib/fix_data.yaml)
 fvm dart format --output=none --set-exit-if-changed lib test tool example/lib example/test packages/sleuth_mcp/lib packages/sleuth_mcp/test packages/sleuth_mcp/bin  # Format check (CI)
 
 # Floor lane (Flutter 3.32.8, as CI runs it); restore the dev pin afterwards
@@ -73,6 +74,7 @@ test/
 - Issues use `IssueConfidence`: confirmed (directly observed), likely (runtime + structural), possible (structural only).
 - Fix hints use `FixHintBuilder` (in `utils/fix_hint_builder.dart`); never hardcode fixHint strings in detectors.
 - All public API goes through `lib/sleuth.dart` barrel file.
+- Renaming, moving or removing a public name: add a transform to `lib/fix_data.yaml` when the old code has a direct replacement (rename, `replacedBy`, `removeParameter`), with a golden pair in `test_fixes/`. Give an import-adding golden its own file with one remaining use of `sleuth.dart`, because one added import resolves every moved name in a file and `dart fix` drops an import left unused. Class, enum and mixin `replacedBy` needs Dart 3.9; on 3.8 the analyzer rejects it, so goldens run only on the dev pin. Prefer deprecating with a transform in a minor release before removing in a major one.
 - Package is completely disabled in release mode (`kReleaseMode` guard). `Sleuth.track` keeps its overlay path inside `if (!kReleaseMode) { ... }`: after an early `if (kReleaseMode) return child;` the AOT compiler kept the Flutter framework code the overlay uses (~0.6 MB in release apps). The other `Sleuth` statics reach the package only through the controller `track` creates, so their early returns cost nothing.
 
 ## Current state

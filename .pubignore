@@ -12,6 +12,7 @@ doc/*
 !doc/mcp_schema.json
 !doc/mcp_schema_derivation.md
 test/
+test_fixes/
 *.iml
 CLAUDE.md
 AGENTS.md

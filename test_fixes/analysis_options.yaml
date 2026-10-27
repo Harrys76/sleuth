@@ -1,0 +1,3 @@
+# The root options exclude test_fixes/ because these files use the old API
+# on purpose. An options file here keeps that exclude from applying, so
+# `dart fix test_fixes --compare-to-golden` still analyses them.

@@ -1,0 +1,238 @@
+# Fixes that `dart fix --apply` and IDE quick fixes apply to code written
+# against an earlier release. test_fixes/ holds a golden test for each
+# transform; run `dart fix test_fixes --compare-to-golden` after a change.
+version: 1
+transforms:
+  - title: "Drop SleuthThemeData arguments removed in 1.0.0"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      constructor: ''
+      inClass: 'SleuthThemeData'
+    changes:
+      - kind: 'removeParameter'
+        name: 'aboutBackground'
+      - kind: 'removeParameter'
+        name: 'aiShimmerEnd'
+      - kind: 'removeParameter'
+        name: 'aiShimmerMid'
+      - kind: 'removeParameter'
+        name: 'aiShimmerStart'
+      - kind: 'removeParameter'
+        name: 'badgeFrameBg'
+      - kind: 'removeParameter'
+        name: 'badgeFrameText'
+      - kind: 'removeParameter'
+        name: 'badgeVmBg'
+      - kind: 'removeParameter'
+        name: 'badgeVmText'
+      - kind: 'removeParameter'
+        name: 'bannerInstrumentationBg'
+      - kind: 'removeParameter'
+        name: 'bannerInstrumentationText'
+      - kind: 'removeParameter'
+        name: 'cardJankFlash'
+      - kind: 'removeParameter'
+        name: 'confidenceConfirmed'
+      - kind: 'removeParameter'
+        name: 'confidenceLikely'
+      - kind: 'removeParameter'
+        name: 'confidencePossible'
+      - kind: 'removeParameter'
+        name: 'disclaimerText'
+      - kind: 'removeParameter'
+        name: 'effectsBadge'
+      - kind: 'removeParameter'
+        name: 'effortInvolved'
+      - kind: 'removeParameter'
+        name: 'effortMedium'
+      - kind: 'removeParameter'
+        name: 'effortQuick'
+      - kind: 'removeParameter'
+        name: 'fixHintText'
+      - kind: 'removeParameter'
+        name: 'focusRingWidth'
+      - kind: 'removeParameter'
+        name: 'fontDisplay'
+      - kind: 'removeParameter'
+        name: 'fontXxl'
+      - kind: 'removeParameter'
+        name: 'highlightLabelText'
+      - kind: 'removeParameter'
+        name: 'sourceAccentWidth'
+      - kind: 'removeParameter'
+        name: 'sourceDebugCallback'
+      - kind: 'removeParameter'
+        name: 'sourceNone'
+      - kind: 'removeParameter'
+        name: 'sourceStructural'
+      - kind: 'removeParameter'
+        name: 'sourceVmTimeline'
+  - title: "Drop SleuthThemeData arguments removed in 1.0.0"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      method: 'copyWith'
+      inClass: 'SleuthThemeData'
+    changes:
+      - kind: 'removeParameter'
+        name: 'aboutBackground'
+      - kind: 'removeParameter'
+        name: 'aiShimmerEnd'
+      - kind: 'removeParameter'
+        name: 'aiShimmerMid'
+      - kind: 'removeParameter'
+        name: 'aiShimmerStart'
+      - kind: 'removeParameter'
+        name: 'badgeFrameBg'
+      - kind: 'removeParameter'
+        name: 'badgeFrameText'
+      - kind: 'removeParameter'
+        name: 'badgeVmBg'
+      - kind: 'removeParameter'
+        name: 'badgeVmText'
+      - kind: 'removeParameter'
+        name: 'bannerInstrumentationBg'
+      - kind: 'removeParameter'
+        name: 'bannerInstrumentationText'
+      - kind: 'removeParameter'
+        name: 'cardJankFlash'
+      - kind: 'removeParameter'
+        name: 'confidenceConfirmed'
+      - kind: 'removeParameter'
+        name: 'confidenceLikely'
+      - kind: 'removeParameter'
+        name: 'confidencePossible'
+      - kind: 'removeParameter'
+        name: 'disclaimerText'
+      - kind: 'removeParameter'
+        name: 'effectsBadge'
+      - kind: 'removeParameter'
+        name: 'effortInvolved'
+      - kind: 'removeParameter'
+        name: 'effortMedium'
+      - kind: 'removeParameter'
+        name: 'effortQuick'
+      - kind: 'removeParameter'
+        name: 'fixHintText'
+      - kind: 'removeParameter'
+        name: 'focusRingWidth'
+      - kind: 'removeParameter'
+        name: 'fontDisplay'
+      - kind: 'removeParameter'
+        name: 'fontXxl'
+      - kind: 'removeParameter'
+        name: 'highlightLabelText'
+      - kind: 'removeParameter'
+        name: 'sourceAccentWidth'
+      - kind: 'removeParameter'
+        name: 'sourceDebugCallback'
+      - kind: 'removeParameter'
+        name: 'sourceNone'
+      - kind: 'removeParameter'
+        name: 'sourceStructural'
+      - kind: 'removeParameter'
+        name: 'sourceVmTimeline'
+
+  # 1.0.0 moved these to validation.dart. Class, enum and mixin moves need
+  # Dart 3.9 or later; Dart 3.8 skips them.
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      enum: 'EvidenceTier'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          enum: 'EvidenceTier'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      class: 'DetectorMetadata'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          class: 'DetectorMetadata'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      mixin: 'DetectorMetadataProvider'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          mixin: 'DetectorMetadataProvider'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      class: 'BracketSpec'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          class: 'BracketSpec'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      class: 'ComponentMetadata'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          class: 'ComponentMetadata'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      mixin: 'ComponentMetadataProvider'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          mixin: 'ComponentMetadataProvider'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      class: 'ProfileCaptureSchema'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          class: 'ProfileCaptureSchema'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      variable: 'kSleuthPackageVersion'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          variable: 'kSleuthPackageVersion'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      class: 'PollTimings'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          class: 'PollTimings'
+  - title: "Import 'package:sleuth/validation.dart'"
+    date: 2026-10-27
+    element:
+      uris: ['sleuth.dart']
+      class: 'StreamResourcePollResult'
+    changes:
+      - kind: 'replacedBy'
+        newElement:
+          uris: ['validation.dart']
+          class: 'StreamResourcePollResult'
