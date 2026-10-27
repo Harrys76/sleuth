@@ -52,7 +52,7 @@ void main() => runApp(Sleuth.track(child: MyApp()));
 flutter run --profile --no-dds
 ```
 
-Tap the trigger button to open the dashboard. The overlay appears in debug and profile mode, and release builds disable it completely. Sleuth requires Flutter 3.32 or later (Dart 3.8 or later). `event_loop_stall` needs Flutter 3.35 or later, where the VM reports timers that fire late; on older versions it stays silent. Profile mode gives accurate timing, and `--no-dds` lets Sleuth connect to the VM service, which its memory, CPU and time-share detectors need (see [Reaching full mode](#reaching-full-mode)).
+Tap the trigger button to open the dashboard. The overlay appears in debug and profile mode. In release builds the compiler drops Sleuth's code, so an app wrapped in `Sleuth.track` is the same size as one without it. A `SleuthConfig` that your code builds stays in, and one with an AI adapter and a custom detector adds 64 KB. Sleuth requires Flutter 3.32 or later (Dart 3.8 or later). `event_loop_stall` needs Flutter 3.35 or later, where the VM reports timers that fire late; on older versions it stays silent. Profile mode gives accurate timing, and `--no-dds` lets Sleuth connect to the VM service, which its memory, CPU and time-share detectors need (see [Reaching full mode](#reaching-full-mode)).
 
 ## What Sleuth finds
 
