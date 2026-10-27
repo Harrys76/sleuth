@@ -1,0 +1,4 @@
+import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
+
+PollTimings? timings = Sleuth.lastPollTimings;

@@ -52,7 +52,7 @@ void main() => runApp(Sleuth.track(child: MyApp()));
 flutter run --profile --no-dds
 ```
 
-Tap the trigger button to open the dashboard. The overlay appears in debug and profile mode, and release builds disable it completely. Sleuth requires Flutter 3.32 or later (Dart 3.8 or later). `event_loop_stall` needs Flutter 3.35 or later, where the VM reports timers that fire late; on older versions it stays silent. Profile mode gives accurate timing, and `--no-dds` lets Sleuth connect to the VM service, which its memory, CPU and time-share detectors need (see [Reaching full mode](#reaching-full-mode)).
+Tap the trigger button to open the dashboard. The overlay appears in debug and profile mode. In release builds the compiler drops Sleuth's code, so an app wrapped in `Sleuth.track` is the same size as one without it. A `SleuthConfig` that your code builds stays in, and one with an AI adapter and a custom detector adds 64 KB. Sleuth requires Flutter 3.32 or later (Dart 3.8 or later). `event_loop_stall` needs Flutter 3.35 or later, where the VM reports timers that fire late; on older versions it stays silent. Profile mode gives accurate timing, and `--no-dds` lets Sleuth connect to the VM service, which its memory, CPU and time-share detectors need (see [Reaching full mode](#reaching-full-mode)).
 
 ## What Sleuth finds
 
@@ -256,6 +256,8 @@ cd example && flutter run --profile --no-dds
 - New values in `DetectorType`, `IssueCategory`, `ObservationSource`, `PipelinePhase`, `InteractionContext` and `FixEffort`. A `switch` over them needs a default branch.
 
 `ParsedTimelineData` carries `vm_service` types, so a `vm_service` major release means a Sleuth major release. [The API list](https://github.com/Harrys76/sleuth/blob/main/doc/api_1_0_0.md) lists every public name and its library.
+
+After upgrading to a new major release, run `dart fix --apply`. `lib/fix_data.yaml` covers the changes that have a direct replacement. For 1.0.0, `dart fix` adds the `validation.dart` import for the names that moved there and deletes the removed `SleuthThemeData` arguments.
 
 ## License
 

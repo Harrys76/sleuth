@@ -1,0 +1,5 @@
+import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
+
+abstract class Component with ComponentMetadataProvider {}
+const config = SleuthConfig();

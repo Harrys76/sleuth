@@ -1,0 +1,14 @@
+import 'package:flutter/widgets.dart';
+import 'package:sleuth/sleuth.dart';
+
+// These calls pass every SleuthThemeData argument that 1.0.0 removed and
+// one that it kept.
+const constructed = SleuthThemeData(
+  severityCritical: Color(0xFFFF0000),
+);
+
+final copied = const SleuthThemeData.light().copyWith(
+  severityCritical: Color(0xFFFF0000),
+);
+
+final onlyRemoved = const SleuthThemeData.dark().copyWith();

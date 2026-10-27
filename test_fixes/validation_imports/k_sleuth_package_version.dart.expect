@@ -1,0 +1,5 @@
+import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/validation.dart';
+
+const version = kSleuthPackageVersion;
+const config = SleuthConfig();

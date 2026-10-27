@@ -275,7 +275,8 @@ class Sleuth {
 
   /// Wrap your app with the performance overlay.
   ///
-  /// In release mode, this returns [child] unchanged (zero cost).
+  /// In release mode, this returns [child] unchanged and the overlay code
+  /// is left out of the build.
   /// In debug/profile mode, adds the overlay with all 21 detectors.
   ///
   /// Optionally pass [config] to customize thresholds, enable/disable
@@ -283,20 +284,24 @@ class Sleuth {
   /// When no theme is provided, the overlay auto-selects dark or light
   /// based on the system brightness.
   static Widget track({required Widget child, SleuthConfig? config}) {
-    // Complete no-op in release mode
-    if (kReleaseMode) return child;
+    // Keep the overlay path inside this branch. After an early
+    // `if (kReleaseMode) return child;` the release compiler still kept
+    // the Flutter framework code the overlay uses, about 0.6 MB; a branch
+    // whose condition is a constant false is dropped whole.
+    if (!kReleaseMode) {
+      // Capture Dart entry timestamp if the app skipped explicit [init];
+      // init runs once. Detectors that compare timeline timestamps against
+      // app start (e.g. shader-warmup attribution) read
+      // `StartupTracker.dartEntryMonotonicUs`, which would stay null on
+      // `runApp(Sleuth.track(...))` without this call.
+      init();
 
-    // Capture Dart entry timestamp if the app skipped explicit [init];
-    // init runs once. Detectors that compare timeline timestamps against
-    // app start (e.g. shader-warmup attribution) read
-    // `StartupTracker.dartEntryMonotonicUs`, which would stay null on
-    // `runApp(Sleuth.track(...))` without this call.
-    init();
+      final controller = SleuthController(config: config);
+      ActiveController.current = controller;
 
-    final controller = SleuthController(config: config);
-    ActiveController.current = controller;
-
-    return SleuthOverlay(controller: controller, child: child);
+      return SleuthOverlay(controller: controller, child: child);
+    }
+    return child;
   }
 
   /// Emits a `sleuth.scenario.begin` instant trace event for profile-mode
