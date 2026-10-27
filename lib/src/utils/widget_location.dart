@@ -134,6 +134,9 @@ String? extractPackageNameFromElement(Element element) {
 /// child outside its viewport (a `TabBarView` page that is not showing) a
 /// zero paint transform, so its global position comes out NaN, and a NaN
 /// rect passes every `overlaps` check.
+///
+/// The rect is where the box is laid out, which a clip can hide; the
+/// overlay shows what [getVisibleGlobalRect] measures.
 Rect? getGlobalRect(RenderObject ro) {
   try {
     if (ro is RenderBox && ro.hasSize) {
@@ -143,6 +146,52 @@ Rect? getGlobalRect(RenderObject ro) {
   } catch (e, s) {
     assert(() {
       debugPrint('Sleuth: getGlobalRect failed: $e\n$s');
+      return true;
+    }());
+  }
+  return null;
+}
+
+/// The part of [ro]'s box that shows on screen, in global coordinates.
+/// Its bounds are cut to its ancestors' clips, such as a scroll view's edge.
+///
+/// Null when none of the box shows, when it is detached or unsized, and
+/// when its position is not finite (see [getGlobalRect]). A list lays out
+/// rows past its edge (its cache extent), and a row hidden there under an
+/// app bar would otherwise count as on screen.
+Rect? getVisibleGlobalRect(RenderObject ro) {
+  try {
+    if (ro is RenderBox && ro.attached && ro.hasSize) {
+      final path = <RenderObject>[ro];
+      for (var node = ro.parent; node != null; node = node.parent) {
+        path.add(node);
+      }
+      // The walk localToGlobal makes, reading each ancestor's clip on the
+      // way. Like localToGlobal, it leaves out the root view's transform,
+      // which maps logical pixels to physical ones.
+      final transform = Matrix4.identity();
+      Rect? clip;
+      for (var i = path.length - 2; i > 0; i--) {
+        final parent = path[i];
+        final child = path[i - 1];
+        final local = parent.describeApproximatePaintClip(child);
+        if (local != null) {
+          final global = MatrixUtils.transformRect(transform, local);
+          clip = clip?.intersect(global) ?? global;
+        }
+        parent.applyPaintTransform(child, transform);
+      }
+      // The box's corners, not its origin plus its size, so a flipped or
+      // scaled box is measured where it shows.
+      final rect = MatrixUtils.transformRect(transform, Offset.zero & ro.size);
+      if (!rect.isFinite) return null;
+      if (clip == null) return rect;
+      if (clip.isEmpty || !rect.overlaps(clip)) return null;
+      return rect.intersect(clip);
+    }
+  } catch (e, s) {
+    assert(() {
+      debugPrint('Sleuth: getVisibleGlobalRect failed: $e\n$s');
       return true;
     }());
   }

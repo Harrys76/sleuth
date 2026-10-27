@@ -86,6 +86,11 @@ list every change.
   of a `TabBarView`, get no outline or marker. Their position read as NaN,
   so stepping through a card's widgets could start on one, say "Showing",
   and count every tab's widgets.
+- A widget that a scroll view clips away, such as a list row scrolled
+  under the app bar, gets no outline or marker, and an outline covers only
+  the part of a widget that shows. A list builds rows past its edge, so a
+  card's outline could start on a hidden row and count rows the screen did
+  not show. A flipped or scaled widget is outlined where it shows.
 
 ## 0.38.0
 

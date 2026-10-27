@@ -3,6 +3,7 @@
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/utils/widget_location.dart';
 
@@ -219,9 +220,102 @@ void main() {
       final shown = tester.renderObject(find.byKey(const Key('page-1')));
       expect(getGlobalRect(hidden), isNull);
       expect(getGlobalRect(shown), isNotNull);
+      expect(getVisibleGlobalRect(hidden), isNull);
+      expect(getVisibleGlobalRect(shown), getGlobalRect(shown));
+    });
+  });
+
+  group('getVisibleGlobalRect', () {
+    test('returns null for a laid-out box that is not attached', () {
+      final box = RenderConstrainedBox(
+        additionalConstraints: BoxConstraints.tight(const Size(10, 10)),
+      )..layout(const BoxConstraints());
+      expect(box.hasSize, isTrue);
+      expect(getVisibleGlobalRect(box), isNull);
+    });
+
+    testWidgets('cuts a list row to the list edge and is null for a row '
+        'built past it', (tester) async {
+      // The list shows y 100 to 300; scrolled by 75, row k sits at
+      // 25 + 50k, so rows 0 and 6 are built in the cache extent while the
+      // screen (600 tall) still covers them.
+      await tester.pumpWidget(_scrolledList(Clip.hardEdge));
+      RenderObject row(int i) =>
+          tester.renderObject(find.byKey(Key('row-$i'), skipOffstage: false));
+
+      expect(getVisibleGlobalRect(row(0)), isNull);
+      expect(
+        getVisibleGlobalRect(row(1)),
+        const Rect.fromLTRB(0, 100, 100, 125),
+      );
+      expect(
+        getVisibleGlobalRect(row(2)),
+        const Rect.fromLTRB(0, 125, 100, 175),
+      );
+      expect(getVisibleGlobalRect(row(6)), isNull);
+    });
+
+    testWidgets('measures a flipped box under a clip where it shows', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ClipRect(
+              child: Transform.flip(
+                flipX: true,
+                child: const SizedBox(
+                  key: Key('flipped'),
+                  width: 100,
+                  height: 50,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      // The box's origin maps to its right edge, x 100.
+      expect(
+        getVisibleGlobalRect(
+          tester.renderObject(find.byKey(const Key('flipped'))),
+        ),
+        const Rect.fromLTWH(0, 0, 100, 50),
+      );
+    });
+
+    testWidgets('keeps the whole rect when the list does not clip', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_scrolledList(Clip.none));
+      final row = tester.renderObject(
+        find.byKey(const Key('row-0'), skipOffstage: false),
+      );
+      expect(getVisibleGlobalRect(row), const Rect.fromLTRB(0, 25, 100, 75));
     });
   });
 }
+
+Widget _scrolledList(Clip clipBehavior) => MaterialApp(
+  home: Align(
+    alignment: Alignment.topLeft,
+    child: Padding(
+      padding: const EdgeInsets.only(top: 100),
+      child: SizedBox(
+        width: 100,
+        height: 200,
+        child: ListView.builder(
+          controller: ScrollController(initialScrollOffset: 75),
+          clipBehavior: clipBehavior,
+          itemExtent: 50,
+          itemCount: 20,
+          itemBuilder: (_, i) => SizedBox(key: Key('row-$i')),
+        ),
+      ),
+    ),
+  ),
+);
 
 // --- Test widgets (public names so they appear in ancestor chains) ---
 

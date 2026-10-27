@@ -99,6 +99,54 @@ void main() {
     expect(c.highlightStepNotifier.value, isNull);
   });
 
+  testWidgets('steps start on the first row the list shows and count only '
+      'the rows it shows', (tester) async {
+    // The list shows y 100 to 300; scrolled by 75 it builds rows 0 to 10
+    // (its cache extent) and shows rows 1 to 5.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 100),
+            child: SizedBox(
+              width: 100,
+              height: 200,
+              child: ListView.builder(
+                controller: ScrollController(initialScrollOffset: 75),
+                itemExtent: 50,
+                itemCount: 20,
+                itemBuilder: (_, i) => SizedBox(key: Key('row-$i')),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final c = SleuthController();
+    addTearDown(c.dispose);
+    c.scanTickNotifier.value = 1;
+    c.publishHighlightsForTest([
+      for (var i = 0; i <= 10; i++)
+        _h(
+          i,
+          renderObject: tester.renderObject(
+            find.byKey(Key('row-$i'), skipOffstage: false),
+          ),
+        ),
+    ]);
+
+    final items = c.highlightsNotifier.value.items;
+    expect([for (final h in items) h.occurrenceId], [1, 2, 3, 4, 5]);
+    expect(items.first.rect, const Rect.fromLTRB(0, 100, 100, 125));
+    expect(
+      c.selectHighlightForIssue(_issue('always_repaint_painter')),
+      HighlightLookup.found,
+    );
+    expect(c.selectedHighlightNotifier.value?.occurrenceId, 1);
+    expect(c.highlightStepNotifier.value, (index: 0, count: 5));
+  });
+
   testWidgets('a rect refresh after a scroll keeps the step', (tester) async {
     final keys = [GlobalKey(), GlobalKey()];
     await tester.pumpWidget(
