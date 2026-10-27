@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.32%2B-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-5%2C099_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-5%2C109_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Sleuth is an in-app performance diagnostics overlay for Flutter. It shows jank, memory leaks, slow network requests, GPU pressure and widget anti-patterns inside your app, and every issue comes with a fix hint.
@@ -133,7 +133,7 @@ Sleuth.track(
     thresholds: DetectorThresholds(
       memoryBudgetBytes: 512 * 1024 * 1024,           // turns on heap_near_capacity
     ),
-    stateStore: PrefsStateStore(),                    // keep overlay layout and hides across restarts
+    stateStore: MyStateStore(),                       // your own SleuthStateStore; keeps layout and hidden cards across restarts
   ),
 );
 ```
