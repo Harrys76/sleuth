@@ -91,6 +91,9 @@ list every change.
   the part of a widget that shows. A list builds rows past its edge, so a
   card's outline could start on a hidden row and count rows the screen did
   not show. A flipped or scaled widget is outlined where it shows.
+- `Sleuth.track` adds nothing to a release build. Its early `return child`
+  left about 0.6 MB of Flutter framework code in release apps on Android
+  and iOS, although none of it ran.
 
 ## 0.38.0
 

@@ -73,7 +73,7 @@ test/
 - Issues use `IssueConfidence`: confirmed (directly observed), likely (runtime + structural), possible (structural only).
 - Fix hints use `FixHintBuilder` (in `utils/fix_hint_builder.dart`); never hardcode fixHint strings in detectors.
 - All public API goes through `lib/sleuth.dart` barrel file.
-- Package is completely disabled in release mode (`kReleaseMode` guard).
+- Package is completely disabled in release mode (`kReleaseMode` guard). `Sleuth.track` keeps its overlay path inside `if (!kReleaseMode) { ... }`: after an early `if (kReleaseMode) return child;` the AOT compiler kept the Flutter framework code the overlay uses (~0.6 MB in release apps). The other `Sleuth` statics reach the package only through the controller `track` creates, so their early returns cost nothing.
 
 ## Current state
 
