@@ -1,6 +1,6 @@
-# Fixes that `dart fix --apply` and IDE quick fixes apply to code written
-# against an earlier release. test_fixes/ holds a golden test for each
-# transform; run `dart fix test_fixes --compare-to-golden` after a change.
+# `dart fix --apply` and IDE quick fixes read these transforms to update
+# code written against an earlier release. Each transform has a golden test
+# in test_fixes/; run `dart fix test_fixes --compare-to-golden` after a change.
 version: 1
 transforms:
   - title: "Drop SleuthThemeData arguments removed in 1.0.0"
@@ -135,7 +135,7 @@ transforms:
         name: 'sourceVmTimeline'
 
   # 1.0.0 moved these to validation.dart. Class, enum and mixin moves need
-  # Dart 3.9 or later; Dart 3.8 skips them.
+  # Dart 3.9 or later; the Dart 3.8 analyzer rejects them.
   - title: "Import 'package:sleuth/validation.dart'"
     date: 2026-10-27
     element:

@@ -63,8 +63,8 @@ jobs:
         if: matrix.flutter-version == '3.47.6'
         run: flutter analyze
 
-      # Dart 3.8 skips the class, enum and mixin moves in lib/fix_data.yaml,
-      # so the goldens run on the latest lane only.
+      # The Dart 3.8 analyzer rejects the class, enum and mixin moves in
+      # lib/fix_data.yaml, so only the latest lane runs the goldens.
       - name: Check dart fix data
         if: matrix.flutter-version == '3.47.6'
         run: dart fix test_fixes --compare-to-golden

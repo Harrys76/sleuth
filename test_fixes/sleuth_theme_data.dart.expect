@@ -1,7 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:sleuth/sleuth.dart';
 
-// Every SleuthThemeData argument that 1.0.0 removed, next to one it kept.
+// These calls pass every SleuthThemeData argument that 1.0.0 removed and
+// one that it kept.
 const constructed = SleuthThemeData(
   severityCritical: Color(0xFFFF0000),
 );

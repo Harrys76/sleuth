@@ -1,7 +1,7 @@
 analyzer:
   exclude:
     - build/**
-    # Fix-data goldens that use the old API on purpose.
+    # These fix-data goldens use the old API on purpose.
     - test_fixes/**
 include: package:flutter_lints/flutter.yaml
 
