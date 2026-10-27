@@ -34,8 +34,10 @@ class WidgetHighlight {
   final String? detail;
 
   /// The render object [rect] was measured from. Lets the overlay re-measure
-  /// [rect] after a scroll without rescanning the tree. Null for highlights
-  /// built without one; those are dropped by a rect-only refresh.
+  /// [rect] after a scroll without rescanning the tree. For a box, the
+  /// overlay shows the part its ancestors' clips leave visible, and nothing
+  /// while a clip (such as a list's edge) hides all of it. Null for
+  /// highlights built without one; those are dropped by a rect-only refresh.
   final RenderObject? renderObject;
 
   /// Identity of the element this highlight was measured from: its

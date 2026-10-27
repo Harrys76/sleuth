@@ -86,7 +86,7 @@ import '../utils/own_work_log.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
-import '../utils/widget_location.dart' show getGlobalRect;
+import '../utils/widget_location.dart' show getVisibleGlobalRect;
 import '../vm/timeline_parser.dart';
 import '../startup/startup_tracker.dart';
 
@@ -1019,8 +1019,8 @@ class SleuthController {
 
   HighlightLookup _selectHighlight(PerformanceIssue issue) {
     if (listsWidgets(issue)) {
-      // Built widgets include ones scrolled out of view (a list's cache
-      // extent); the outline starts on the first one on screen.
+      // A widget past the screen's edge keeps its highlight unless a
+      // clip hides it; the outline starts on the first one on screen.
       final steps = _stepsOf(issue, highlightsNotifier.value.items);
       final screen = _screenRect();
       final first = steps.indexWhere(
@@ -3237,6 +3237,7 @@ class SleuthController {
       // FrameVerdict / detector pipeline is skipped for this tick.
       _scrollIdleTimer?.cancel();
       _interactionState = InteractionContext.navigating;
+      _builtHighlights = const [];
       if (highlightsNotifier.value.items.isNotEmpty) {
         _highlightGeneration++;
         highlightsNotifier.value = (
@@ -3420,9 +3421,15 @@ class SleuthController {
       _collectHighlights();
 
       _resolvePendingHighlight();
-    } else if (highlightsNotifier.value.items.isNotEmpty) {
-      _highlightGeneration++;
-      highlightsNotifier.value = (generation: _highlightGeneration, items: []);
+    } else {
+      _builtHighlights = const [];
+      if (highlightsNotifier.value.items.isNotEmpty) {
+        _highlightGeneration++;
+        highlightsNotifier.value = (
+          generation: _highlightGeneration,
+          items: [],
+        );
+      }
     }
   }
 
@@ -3768,6 +3775,12 @@ class SleuthController {
   /// callback, so a burst of scroll notifications costs one refresh.
   bool _highlightRectRefreshScheduled = false;
 
+  /// The last scan's highlights whose widgets are still built, in scan
+  /// order, including ones a clip hides (a list row in the list's cache
+  /// extent). A rect refresh publishes them again, so a row scrolled into
+  /// view gets its highlight before the next scan.
+  List<WidgetHighlight> _builtHighlights = const [];
+
   /// Re-measures the current highlights' rects from their render objects
   /// after the next frame (scroll moved them). Highlights whose render
   /// object is gone, detached or unsized are dropped. Detector state is
@@ -3775,44 +3788,58 @@ class SleuthController {
   void refreshHighlightRects() {
     if (_disposed || _highlightRectRefreshScheduled) return;
     if (!_collectingHighlights) return;
-    if (highlightsNotifier.value.items.isEmpty) return;
+    if (_builtHighlights.isEmpty) return;
     _highlightRectRefreshScheduled = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _highlightRectRefreshScheduled = false;
       if (_disposed || !_collectingHighlights) return;
-      final current = highlightsNotifier.value.items;
-      if (current.isEmpty) return;
-      final items = <WidgetHighlight>[];
-      for (final h in current) {
-        final ro = h.renderObject;
-        if (ro == null || !ro.attached) continue;
-        if (ro is! RenderBox || !ro.hasSize) continue;
-        final rect = getGlobalRect(ro);
-        if (rect == null) continue;
-        items.add(
-          WidgetHighlight(
-            rect: rect,
-            widgetName: h.widgetName,
-            severity: h.severity,
-            detectorName: h.detectorName,
-            detail: h.detail,
-            renderObject: ro,
-            occurrenceId: h.occurrenceId,
-            stableId: h.stableId,
-          ),
-        );
-      }
-      _publishHighlights(items);
+      if (_builtHighlights.isEmpty) return;
+      _publishHighlights([
+        for (final h in _builtHighlights)
+          if (h.renderObject case final RenderBox ro
+              when ro.attached && ro.hasSize)
+            h,
+      ]);
     });
     // Scrolling already has a frame pending; this only matters when the
     // request arrives between frames.
     SchedulerBinding.instance.ensureVisualUpdate();
   }
 
-  /// Publishes [items] under a new generation and rebinds the selected
-  /// highlight by detectorName + widgetName (first match wins; cleared when
-  /// the widget is gone).
-  void _publishHighlights(List<WidgetHighlight> items) {
+  /// Publishes the part of each of [candidates] that shows, under a new
+  /// generation, and rebinds the selected highlight by detectorName +
+  /// widgetName (first match wins; cleared when the widget is gone).
+  ///
+  /// A highlight measured from a box is measured again
+  /// ([getVisibleGlobalRect]) and left out while a clip hides all of it;
+  /// [_builtHighlights] keeps it for the next refresh. Others are
+  /// published as given.
+  void _publishHighlights(List<WidgetHighlight> candidates) {
+    _builtHighlights = candidates;
+    final items = <WidgetHighlight>[];
+    for (final h in candidates) {
+      final ro = h.renderObject;
+      if (ro is! RenderBox) {
+        items.add(h);
+        continue;
+      }
+      final rect = getVisibleGlobalRect(ro);
+      if (rect == null) continue;
+      items.add(
+        rect == h.rect
+            ? h
+            : WidgetHighlight(
+                rect: rect,
+                widgetName: h.widgetName,
+                severity: h.severity,
+                detectorName: h.detectorName,
+                detail: h.detail,
+                renderObject: ro,
+                occurrenceId: h.occurrenceId,
+                stableId: h.stableId,
+              ),
+      );
+    }
     _highlightGeneration++;
     highlightsNotifier.value = (generation: _highlightGeneration, items: items);
     final selected = selectedHighlightNotifier.value;
@@ -4227,6 +4254,8 @@ class SleuthController {
         }
       }
       if (!anyHighlights) {
+        // The last scan's hidden rows are no longer reported.
+        _builtHighlights = const [];
         // Defensive: clear stale selection if somehow non-null while
         // highlights are empty (shouldn't happen, but safe-guards against
         // future code paths that set selection without highlights).

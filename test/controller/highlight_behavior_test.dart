@@ -1115,6 +1115,57 @@ void main() {
       expect(c.selectedHighlightNotifier.value, same(after));
     });
 
+    testWidgets('a highlight scrolled past the list edge comes back with the '
+        'scroll, before the next scan', (tester) async {
+      final c = await pumpOverlay(tester);
+      var ticks = 0;
+      c.scanTickNotifier.addListener(() => ticks++);
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        widgetName: 'Target',
+      );
+      expect(c.selectHighlightForIssue(issue), HighlightLookup.found);
+      Iterable<WidgetHighlight> targets() => c.highlightsNotifier.value.items
+          .where((h) => h.detectorName == 'Target');
+
+      // Row 5 sits at y 250 to 300. Scrolled by 320 it stays built in the
+      // list's cache extent, but the list no longer shows it.
+      scroll.jumpTo(320);
+      await tester.pump();
+      expect(targets(), isEmpty);
+      expect(c.selectedHighlightNotifier.value, isNull);
+
+      scroll.jumpTo(0);
+      await tester.pump();
+      expect(targets().single.rect, const Rect.fromLTWH(0, 250, 800, 50));
+      expect(c.selectedHighlightNotifier.value, same(targets().single));
+      expect(ticks, 0);
+    });
+
+    testWidgets('a row the list hid when the scan ran gets its highlight '
+        'when it scrolls into view, before the next scan', (tester) async {
+      final c = await pumpOverlay(tester);
+      Iterable<WidgetHighlight> targets() => c.highlightsNotifier.value.items
+          .where((h) => h.detectorName == 'Target');
+
+      scroll.jumpTo(320);
+      await tester.pump();
+      c.scanTreeFullPathForTest(tester.element(find.byType(MaterialApp)));
+      expect(targets(), isEmpty);
+      var ticks = 0;
+      c.scanTickNotifier.addListener(() => ticks++);
+
+      scroll.jumpTo(0);
+      await tester.pump();
+      expect(targets().single.rect, const Rect.fromLTWH(0, 250, 800, 50));
+      expect(ticks, 0);
+    });
+
     testWidgets('a highlight whose widget was removed is dropped', (
       tester,
     ) async {
