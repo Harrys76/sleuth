@@ -78,12 +78,11 @@ const String sleuthMcpVersion = '0.10.0';
 
 /// Sleuth package version this sidecar is wire-compatible with. Must equal
 /// `kSleuthPackageVersion` in `lib/src/vm/service_extension_handlers.dart`
-/// (re-exported from `package:sleuth/sleuth.dart` as of v0.33.0). Direct
-/// `package:sleuth` import is not viable here — sleuth pulls the Flutter
-/// SDK and the sidecar is a Flutter-free Dart CLI. Drift is caught by the
-/// `pinned version matches sleuth source` audit in
-/// `test/sleuth_mcp_smoke_test.dart`, which parses the sleuth source file
-/// and asserts byte-equality with this constant.
+/// (exported from `package:sleuth/validation.dart` since 1.0.0). The sidecar
+/// cannot import `package:sleuth`, because sleuth pulls in the Flutter SDK
+/// and the sidecar is a Dart CLI without Flutter. The `pinned version matches
+/// sleuth source` audit in `test/sleuth_mcp_smoke_test.dart` parses the
+/// sleuth source file and fails when it differs from this constant.
 const String sleuthPackageVersionPin = '1.0.0';
 
 /// Tool handler signature. Returns either a `data` map (wrapped as text
